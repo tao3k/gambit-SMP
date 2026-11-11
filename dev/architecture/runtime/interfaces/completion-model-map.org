@@ -1,0 +1,46 @@
+#+TITLE: Collection Completion Model Source Map
+#+SETUPFILE: ../../../modeling/org/setup.org
+
+* Derived source facts and proposed phase transitions
+:PROPERTIES:
+:CUSTOM_ID: completion-model-map
+:AUTHORITY: GambitCollectionCompletion
+:EVIDENCE_CLASS: derived-source-and-design-map
+:END:
+
+Source observations and proposed transitions have different evidence boundaries. No runtime or formal behavior is executed by this view.
+
+#+BEGIN: sysml-view :kind completion-source-map :source architecture/runtime/interfaces/models/sysml/collection-completion.sysml
+| Source fact | Anchor | Established source behavior | Limit |
+|---+---+---+---|
+| QUEUE-PUBLISH | [[file:../../../../vendor/gambit/lib/mem.c::3249][vendor/gambit/lib/mem.c:3249]] | end_heap_chunk publishes a completed chunk with ordered barriers and signals waiters | Queue publication and active-producer closure use different synchronization; memory refinement owed |
+| COPY-PRODUCER | [[file:../../../../vendor/gambit/lib/mem.c::3549][vendor/gambit/lib/mem.c:3549]] | mark_array can copy locally, publish a chunk and enqueue a still object | Forwarding identity precedes full payload copy; not equivalent to queued scan visibility |
+| CONT-PRODUCER | [[file:../../../../vendor/gambit/lib/mem.c::3668][vendor/gambit/lib/mem.c:3668]] | mark_captured_continuation allocates frame copies and may end a heap chunk | Every suspended/raw origin and caller remains a census obligation |
+| LOCAL-DRAIN | [[file:../../../../vendor/gambit/lib/mem.c::4210][vendor/gambit/lib/mem.c:4210]] | Local fixed point drains still objects, queued and incomplete movable chunks | An empty public FIFO does not expose all local unfinished work |
+| PHASE-COUNTS | [[file:../../../../vendor/gambit/lib/mem.c::3456][vendor/gambit/lib/mem.c:3456]] | Two scan worker counters start at processor_count | Source integer counts are not overflow or complete participant proofs |
+| TERMINATION | [[file:../../../../vendor/gambit/lib/mem.c::6667][vendor/gambit/lib/mem.c:6667]] | Idle decrements the phase counter under the termination mutex; waking increments if not zero | Producer lifetime, queue visibility, waits and fairness need refinement |
+| WEAK-SEED | [[file:../../../../vendor/gambit/lib/mem.c::6894][vendor/gambit/lib/mem.c:6894]] | process_wills runs before a second mark fixed point; move_continuation follows it | Strong drain cannot be modeled as immutable whole-collection completion |
+| WILL-MARK | [[file:../../../../vendor/gambit/lib/mem.c::5032][vendor/gambit/lib/mem.c:5032]] | process_wills invokes mark_array on wills and selected testators | Legitimate derived weak work, not a late violation of the strong phase |
+| INLINE-FREE | [[file:../../../../vendor/gambit/lib/mem.c::4379][vendor/gambit/lib/mem.c:4379]] | Unmarked still cleanup calls release_foreign then frees aligned wrapper storage | Return error is not used to prove resource success or deferred task custody |
+| FOREIGN-RELEASE | [[file:../../../../vendor/gambit/lib/c_intf.c::1683][vendor/gambit/lib/c_intf.c:1683]] | release_foreign clears pointer and release function before calling the native release function | Native release success, deferred completion and root ownership need caller-specific evidence |
+| COLLECTIVE | [[file:../../../../vendor/gambit/lib/mem.c::6989][vendor/gambit/lib/mem.c:6989]] | Setup/strong/weak/cleanup/resize are barrier separated; resize runs at processor zero | Barrier build profile, merged outcomes and failure custody remain separate |
+| BARRIER-CHOICE | [[file:../../../../vendor/gambit/lib/setup.h::63][vendor/gambit/lib/setup.h:63]] | BARRIER is empty for single-threaded VMs and collective otherwise | Do not assign SMP synchronization to every compiled profile |
+#+END:
+
+** Proposed lifecycle
+#+BEGIN: sysml-view :kind completion-lifecycle :source architecture/runtime/interfaces/models/sysml/collection-completion.sysml
+| From | To | Guard / custody | Evidence boundary |
+|---+---+---+---|
+| RootsEnrolled | StrongOpen | Count root scanners before drain probe | source-order plus producer coverage owed |
+| StrongOpen | StrongDrained | Seal external ingress; all producer/credit obligations empty | PhaseDrainAdmissionLaw remains unproved |
+| StrongDrained | WeakOpen | Phase barrier; admit process_wills as weak seed | legitimate same-collection next-phase work |
+| WeakOpen | WeakDrained | Drain weak work under its own producer scope | separate weak counter, not a reused strong done bit |
+| WeakDrained | CleanupCustody | Account continuation movement; enter cleanup | source order, not complete native last-use proof |
+| CleanupCustody | CollectionComplete | Participant/result and cleanup custody accounted | deferred resource lifetime remains target-specific |
+| CleanupCustody | TargetPermit | Target policy permits still-header release after native callback return | earlier than full cycle return; not native-resource success |
+| CollectionComplete | TargetPermit | Target-specific users and late issuers closed | completion alone is insufficient |
+| TargetPermit | Reclaimed | Match resource and admission generations; consume once | no stale permit or new borrower |
+| StrongOpen | RetainedFailure | Transfer fails while source still owns work | registered custody required |
+| CollectionComplete | ProtocolViolation | Attempt to enqueue into a completed phase | reject; no retrospective lifetime repair |
+| Reclaimed | ProtocolViolation | Stale raw-pointer request | no dereference; not recoverable by renaming epoch |
+#+END:

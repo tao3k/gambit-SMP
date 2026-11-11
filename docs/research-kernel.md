@@ -35,6 +35,12 @@ the worker also rejects escaped implementation paths and historical imports.
 Execution uses an isolated Python process with the sealed package first, not the
 editable checkout. Supplying a seal path to an editable executor is rejected.
 
+`research --read ENGINE` validates the seal and reports configured host-tool
+paths, digests and available capabilities without executing research. Host tools
+are bound external executables, not binaries to discover inside the seal. Their
+dependency files are still verified; the concise read reports their count rather
+than replaying the full inventory. The complete inventory remains in `engine.json`.
+
 This is an implementation/API reproducibility boundary, not a security sandbox
 against a malicious host or a hermetic SDK. Host transitive libraries, system
 shared caches and the entire linker/toolchain distribution are not copied into

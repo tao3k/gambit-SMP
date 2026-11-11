@@ -1,0 +1,308 @@
+#+TITLE: Tcl Control Transfers and Explicit Result Boundaries
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Tcl Control Transfers and Explicit Result Boundaries :ffi:
+:PROPERTIES:
+:ID: 6abe87bb-0319-5703-a867-7bb151cb4eda
+:CUSTOM_ID: tcl-control-transfers-and-explicit-result-boundaries
+:SOURCE_PATH: docs/experimental/zig/tcl-control-boundary-design.md
+:SOURCE_SHA256: 257679ca249eb15a7d424e50a75f5ab6917c73ffc5deb47d642857d28da82330
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Design research only. No implementation, Scheme expansion, native/compiler
+test, timing, model or proof-engine execution. Continue the
+[[file:tcl-command-custody-design.org][Tcl custody design]]. Read the
+[[file:tcl-control-boundary-arguments.org][conditional arguments and counterexamples]],
+[[file:tcl-control-boundary-benefit-matrix.org][modern C/Zig matrix]],
+[[file:tcl-control-boundary-evidence.org][source and paper ledger]],
+[[file:../../../../../docs/experimental/zig/tcl-control-boundary-cases.json][selected cases]] and
+[[file:../../../../../docs/experimental/zig/tcl-control-boundary-traceability.json][trace]].
+
+*** Preserve Gambit's Actual Control Semantics
+:PROPERTIES:
+:ID: fff761d7-48ef-5d5b-907c-dc389cdae0e4
+:CUSTOM_ID: preserve-gambits-actual-control-semantics
+:END:
+
+CB01. There are three different operations, not a universal “error exit”:
+Gambit's native ~raise~ calls the current handler and can return to the raise
+site; ~abort~ does not accept that ordinary return as completion;
+~with-exception-catcher~ captures its installation continuation and grafts to
+it when an exception is caught. The selected SMP source also has explicit
+R7RS handler/raise wrappers. The frontend's actual binding/profile determines
+which rule applies. Wrapping every callback in a catcher would shadow the
+original handler and can change a recoverable exception into an aborting
+result. Do not infer behavior from the name ~raise~ alone. [CE01–CE02]
+
+CB02. Gambit's ~dynamic-wind~ captures context, runs before, installs a dynwind
+record around thunk, runs after on ordinary completion and returns the original
+results. Continuation graft/return compare source and destination dynwind
+contexts and run the required hooks through ~##continuation-unwind-wind~.
+The source restores hook contexts using continuation grafts; hooks are Scheme
+code and can allocate, reenter Tcl, raise or transfer control. Preserve order,
+dynamic environment, alias identity and all supported control effects.
+The Gambit manual specifies continuation use within hooks more precisely than
+R7RS's unspecified hook-entry/exit case. The report cannot be used to discard
+Gambit's stronger semantics. Native irreversible release is not equivalent
+to an after thunk, which may run again after reentry. [CE03–CE04, CL01]
+
+CB03. Retain the original map case: map's procedure enters Tcl, an exported
+Scheme command captures k, and the callback later returns a string/false
+through its actual conversion interface. Restoring a local continuation while
+all relevant native return capabilities remain live may be supported. Restoring
+k after that C activation has returned must retain the documented multiple-C-
+return error if it reaches the expired marker. Cross-processor native return
+is independently checked. A rooted k, an outcome record, or a successful Tcl
+unwind does not revive a native stack. The combined map/Tcl/wind/event histories
+below are design cases composed from real paths, not executed examples.
+[CE05–CE07]
+
+*** What Equivalence Means Here
+:PROPERTIES:
+:ID: fedcdf0f-f20f-538a-8f41-62089786aa5a
+:CUSTOM_ID: what-equivalence-means-here
+:END:
+
+CB04. Compare the same input, bindings, handler/environment identities, native
+configuration and admitted event choices. Observable traces include Scheme
+before/after and handler calls, their side effects and dynamic contexts; values
+and conversion errors; Tcl completion code/result/options, catch/try/finally
+actions; nested event order and destination; native marker errors; resource
+release effects; and normal/error/blocked termination. Only proven invisible
+bookkeeping may be erased as stuttering steps. Matching final strings alone
+does not establish equivalence. [CE01–CE07, CX01–CX06, CL01–CL03]
+
+| Proposed behavior | Equivalence position | Admission boundary |
+|-
+| Callback ordinary return with the same conversion, hooks and Tcl behavior | Can be preserved conditionally | Complete root/custody/native return and owner-thread premises |
+| Current handler runs and returns to a continuable raise site | Can be preserved without synthesizing a failure result | Keep the actual handler and continuation, including nested effects |
+| Catcher/continuation destination stays inside the current admitted Scheme callback domain | Can be preserved conditionally | No intervening Tcl/native frame is abandoned; all crossed native capabilities remain valid |
+| Capture k but later attempt return through its expired C marker | Preserve existing error behavior | Root the state; do not promise a second successful native return |
+| Automatically convert every Scheme exception into TCL_ERROR | Not equivalent in general | Explicit new error-translation contract required |
+| Store transfer and resume/re-raise only after Tcl returns | Not equivalent in general | Hook order, original handler context, intervening Tcl effects and destination validity must be proved |
+| Raw continuation/exception escape across Tcl C frames | General unchanged-semantics admission remains unresolved | Exclude this edge from the proposed qualified profile until full library cleanup/control correspondence exists |
+| Tcl cancellation used as Scheme continuation delivery | Not equivalent in general | May be a separately declared shutdown/cancellation mechanism, not a saved continuation jump |
+
+A refused modern profile does not prove the existing Gambit language feature
+invalid. It means this new provider/runtime combination has not discharged the
+foreign-control obligations for that edge.
+
+[[file:../diagrams/tcl-control-domain.svg][Control domain and result-policy choices]]
+[[file:../diagrams/tcl-control-domain.d2][D2 source]].
+
+*** Tcl Catch, Finally and Cancellation Are Different Mechanisms
+:PROPERTIES:
+:ID: a6e8384e-143e-5386-bde4-46f2f1139a1b
+:CUSTOM_ID: tcl-catch-finally-and-cancellation-are-different-mechanisms
+:END:
+
+CB05. An ordinary Tcl error or custom completion-code sentinel can be consumed
+by ~catch~; result variables and return options are visible Tcl state. A
+~try~ handler/finally can run more code and replace the earlier outcome, retaining
+prior status under ~-during~ for exceptional cases. Consequently a hidden
+pending Scheme outcome must not silently win after Tcl intentionally handled
+its translated error under a Tcl-authoritative boundary. Conversely, clearing
+that pending outcome solely because the interpreter currently says TCL_OK
+can lose an owned result destined for an explicitly different host policy.
+Policy and destination identity must be declared. [CX01–CX02]
+
+CB06. There is a genuine stronger Tcl mechanism: ~Tcl_CancelEval~ with
+~TCL_CANCEL_UNWIND~. The manual and TIP describe interpreter-wide unwinding
+past catch, cooperatively observed through asynchronous/cancellation checks.
+It is not an ordinary error sentinel and must not be dismissed as universally
+catchable. It also does not copy or reinstate Scheme dynamic contexts.
+The selected source has persistent versus one-shot cancellation state and
+zero-nesting reset. ~CatchObjCmdCallback~ and ~TryPostBody~ separately handle
+execution-environment rewind/limits; **coroutine rewind, resource limits and
+cancel-unwind are not the same state flag**. Complete bytecode/non-bytecode,
+try/finally, Tcl/Tk extension and event cancellation behavior remains unqualified.
+[CX03–CX05]
+
+Using cancel-unwind cannot establish unchanged Scheme escape semantics:
+interpreter-wide scope can include parent evaluations, hook/cleanup timing can
+differ, and native handlers need not return promptly. A Tcl finally body need
+not behave as it would for a plain error once evaluation is being canceled;
+do not infer user-finally execution from native frame cleanup. Preserve the
+original rooted Scheme outcome separately from the cancellation message.
+
+*** Explicit Result-Style Boundary
+:PROPERTIES:
+:ID: 4bfee317-441f-5d5b-a4fc-8f90e42ca264
+:CUSTOM_ID: explicit-result-style-boundary
+:END:
+
+CB07. Proposed declarative contract, not executable code:
+
+#+BEGIN_SRC text :eval never
+BoundaryPolicy {
+  identity, owner_thread, vm_context, handler_profile,
+  authority = tcl_completion | explicit_host_outcome,
+  allowed_control_domain, event_delivery_policy,
+  cancellation_scope, closing_behavior
+}
+ForeignOutcome {
+  identity, producer_scope, boundary_identity, parent_causality,
+  kind = returned | declared_exception_data | declared_cancellation,
+  rooted_payload, value_arity, tcl_result_options_snapshot,
+  delivery_target, current_custodian, state, resource_dependencies
+}
+#+END_SRC
+
+The outcome is owned data. A captured continuation object may be data inside
+it, but this does not authorize executing that continuation or fabricating a
+native return capability. Do not classify a continuable raise as outcome
+production merely because a handler was invoked. Preserve the old string/false
+callback and conversion-error semantics where equivalence is claimed; richer
+multiple-value/error payloads require an explicit new API contract.
+
+CB08. Two intentional policies are available for a new API:
+
+- *Tcl completion authority.* Translate only declared Scheme failures into
+  Tcl completion data. Tcl catch/try/finally may consume or replace it. The
+  final Tcl status/result/options determine delivery; any retained Scheme
+  provenance is attached or released according to that policy. No hidden
+  Scheme rethrow follows a successfully handled Tcl error.
+- *Explicit host outcome authority.* A declared service reports an owned
+  host outcome at a named host boundary after its library scope returns. Tcl
+  completion is recorded separately. The contract must specify permitted Tcl
+  suffix effects, suppressed managed reentry, competing cleanup errors,
+  cancellation breadth and delivery timing. Such suppression is a behavior
+  change unless a proof shows it unreachable for the admitted program.
+
+Neither is a transparent replacement for arbitrary existing Gambit FFI. The
+second does not guarantee prompt return merely by setting a pending flag.
+[CB01–CB06, CL02–CL04]
+
+CB09. Transfer classification belongs *before* ~##continuation-unwind-wind~
+starts executing hooks if the profile intends to reject a cross-domain transfer.
+Checking only at return_to_c can be too late: before/after hooks may already
+have mutated state or reentered Tcl. A semantic completion plan must cover
+public and internal graft/return, exception catcher, handler, dynamic binding,
+thread control and no-winding primitive callers. A call-site annotation or
+wrapper around one public call/cc does not establish whole-runtime coverage.
+Until that closure exists, admission requires an independently justified
+effect/control domain. A runtime rejection itself needs an explicit contained
+error disposition; it is not automatically original Scheme semantics.
+[CE01–CE05, CL01; unresolved coverage]
+
+*** Nested Event Ownership and Delivery
+:PROPERTIES:
+:ID: 8628c8c8-5986-5111-8aa4-cd0f34adc544
+:CUSTOM_ID: nested-event-ownership-and-delivery
+:END:
+
+CB10. ~Tcl_Eval~, recursive ~update~/~vwait~, the actual Gambit
+~Tcl_DoOneEvent(DONT_WAIT)~ loop and background error processing have different
+completion interfaces. Event processing can execute new callbacks, delete
+commands or request shutdown. A child event is not automatically a failure of
+the nearest lexical Scheme or Tcl caller. Before child dispatch, create a
+LibraryScope with identity, parent, interpreter generation, root/marker frontier
+and an explicit delivery target: a synchronous boundary or a durable event
+sink. Do not use a process-global “first error” slot or current interpreter
+result as the outcome registry. A source family's existence does not prove
+the particular widget callback uses every background-error route. [CE06–CE07,
+CX06–CX08]
+
+CB11. Each outcome follows an owned transition:
+
+#+BEGIN_SRC text :eval never
+producing -> owned -> offered -> accepted_by_target -> settled
+                       |            |
+                       |            -> rooted consumer/continuation still live
+                       -> rejected_or_target_closing -> declared disposal owner
+#+END_SRC
+
+The producer retains payload roots and required resources until target
+acceptance. Accepted delivery changes custodian before releasing the old claim.
+Target rejection, nested outcome production, Tcl finally failure and cancellation
+are explicit dispositions; they do not overwrite or silently drop the first
+payload. Native C custody is settled once per accepted claim, while Scheme
+wind hooks can execute repeatedly. The owner-thread transition or acknowledged
+queue publication orders the receipt; GC root writeback/reload and scanner
+grace still apply. No allocating, Scheme, Tcl or waiting work occurs while
+holding the short root metadata gate. [CE03, CE05, CD01–CD02]
+
+[[file:../diagrams/tcl-control-delivery.svg][Nested scopes and outcome destination]]
+[[file:../diagrams/tcl-control-delivery.d2][D2 source]].
+
+*** Shutdown Is Control-Aware Drain
+:PROPERTIES:
+:ID: c2a75c18-435e-5ef7-867d-9b50e4da0a13
+:CUSTOM_ID: shutdown-is-control-aware-drain
+:END:
+
+CB12. Closing rejects new independent eval/create/event requests. It must keep
+the services needed by already admitted hooks, handlers, callback returns,
+derived cleanup, outcome acceptance and Tcl-dependent tasks alive under a
+declared closing policy. Blanket rejection of all managed reentry can deadlock
+an admitted hook or change its behavior. Conversely unrestricted general event
+pumping can create an unbounded stream of unrelated work. Use explicit counted
+descendant capabilities and defined rejection dispositions; do not claim Tcl's
+unfiltered event loop can magically distinguish them. [CE06–CE07, CD02]
+
+CB13. Three shutdown modes have different claims:
+
+| Mode | Permitted claim | Remaining condition |
+|-
+| Cooperative completion | Existing admitted scopes/hooks return naturally and deliver/dispose outcomes, then native roots/resources drain | No cycle; terminating hooks and handlers; fair owner progress |
+| Explicit cancellation | Under a declared boundary, an accepted cancel request drives Tcl toward owner-observed quiescence; canceled outcomes still have custodians | Qualified checks/extensions, affected interpreter scope and flag-reset/generation law; no fixed latency assumed |
+| Unknown non-return or forbidden foreign jump | Retain/quarantine live state and report incomplete drain | Cannot free interpreter/root/module or call this successful shutdown |
+
+Cancel request acceptance is not completion. ~Tcl_CancelEval~ is a documented
+thread-safe exception to ordinary interpreter thread confinement;
+~Tcl_Canceled~ remains owner-thread-sensitive. A supported cancellation lane
+may signal an active owner without waiting for that owner's ordinary request
+queue, but must hold interpreter/image/request-generation leases. Use the
+documented argument ownership; do not pass cross-thread managed payloads as
+Tcl objects. A late cancellation can affect a subsequent script, so reopening
+requires the prior request/check/unwind/reset and delivery epoch to be reconciled,
+not merely an empty host queue. No asynchronous thread kill is substituted.
+[CX03–CX06]
+
+CB14. Drain completes only after every counted child library scope and Scheme
+hook/handler user settles, every produced outcome is delivered or disposed by
+its declared custodian, command revocation and pre-dispatch scope grace finish,
+Tcl-owned result/background-error work is consumed or canceled by its actual
+API policy, scanner/log root retirement finishes, and interpreter/module
+last-return dependencies close. A durable event sink must accept ownership
+before the event producer can disappear. A sink whose disposal itself needs
+the closing VM does not let that VM retire early. Deleting Tcl background
+errors is disposal, not proof that a Scheme exception was delivered. Captured
+continuations with expired native markers can remain managed data but have
+their prior error behavior on attempted return. [CE05–CE07, CX08, CD02]
+
+[[file:../diagrams/tcl-control-drain.svg][Shutdown, cancellation and custody drain]]
+[[file:../diagrams/tcl-control-drain.d2][D2 source]].
+
+The modern generated C mainline preserves Scheme as semantic owner, emits
+effect/control plans before native lowering, and reuses qualified C trampoline,
+root and marker machinery. Zig may consume the same plan; it does not erase
+wind/catch/event or library-control proofs. General cross-Tcl continuation
+equivalence, installed Tcl/Tk identity, full transfer-producer coverage and
+finite shutdown progress remain unresolved.
+
+*** Cancellation Propagation Follow-Up
+:PROPERTIES:
+:ID: 331e09b1-f87b-5d43-813e-c116ebeaeda3
+:CUSTOM_ID: cancellation-propagation-follow-up
+:END:
+
+The [[file:tcl-cancel-propagation-design.org][cancel-unwind propagation study]] follows
+bytecode catch exclusion, direct/NRE callbacks, nested events and reset placement.
+It refines the cancellation discussion: a broad catch-bypass intent does not
+prove every NRE callback has no intermediate effects, every compiled Try exit
+is covered, or every public evaluation route resets identically. Terminal
+retirement and reusable reset have separate obligations; no current adapter
+or installed cancellation profile is implied.

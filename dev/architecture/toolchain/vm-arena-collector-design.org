@@ -1,0 +1,321 @@
+#+TITLE: Target VM Arena Scanning, Sweep, Capacity Census and History Rebase
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Modern C architecture decision :modern_c:gambit:gerbil:gc:smp:
+:PROPERTIES:
+:CUSTOM_ID: vm-arena-collector
+:AUTHORITY: VMArenaCollector
+:STATUS: conditional-local-models-source-platform-open
+:EVIDENCE_CLASS: source-and-local-formal-research
+:END:
+
+Gambit remains the Scheme semantics, continuation, root and GC foundation. Gerbil
+owns incremental compiler results and independent compilation sessions. Modern C
+is the chosen runtime reconstruction path. A VM-owned arena must participate in
+the entire collector, not just expose a root list. Its storage owner, initializer,
+discovering scanner, sweep authority, release owner and statistic origin are
+different identities. Creator processor exit removes none of these obligations.
+
+This extends [[file:storage-handoff-receipt-design.org][StorageHandoffReceipt]] without changing its frozen evidence. It models
+the proposed refactoring, not a replacement for existing root-directory collector
+proofs. [[file:models/sysml/vm-arena-collector.sysml][Native SysML]] owns five caller families, five cuts, five source/action/lemma
+routes, four refinement duties, three gain rows and seven open gates.
+[[file:../../modeling/tools/vm-arena-collector-study.py][Python orchestration]] evaluates native sysml and projects [[file:vm-arena-collector-matrix.org][the closure/net-benefit
+matrix]], [[file:diagrams/vm-arena-collector.d2][D2]] / [[file:diagrams/vm-arena-collector.svg][rendering]] and [[file:../../../models/build/arena_collector_parameters.qnt][QNT parameters]]. [[file:../../modeling/ascent/vm-arena-collector.rules.scm][Actual ASCENT DSL]] checks exact scoped
+subjects and source/action/lemma bindings, with dependencies on SH-S. [[file:../../../models/build/vm_arena_collector.qnt][QNT]], [[file:../../../models/build/VMArenaCollector.lean][Lean]]
+and [[file:../../../evidence/research/vm-arena-collector/checks.json][receipts]] remain conditional local evidence. No runtime implementation, Scheme
+generation, native test or performance test is performed.
+
+* RESEARCH Existing collector responsibilities :source:
+:PROPERTIES:
+:CUSTOM_ID: arena-real-gc
+:COMPLETENESS: real-source-seams-not-complete-native-refinement
+:END:
+
+| Actual source | Current responsibility | Required modern C split |
+|---+---+---|
+| [[file:../../../vendor/gambit/lib/mem.c::301][PSTATE still queue]], 308-310 will and reached-table lists | Storage inventory and collector-local work live in PSTATE fields | Stable VM arena inventory; separately scoped worker queues and semantic weak domains |
+| [[file:../../../vendor/gambit/lib/mem.c::4210][setup_still_objs_to_scan]] | Iterate local still chain; refcount zero becomes mark -1; positive refcount seeds to_scan | Exactly one initializer per arena/epoch, independent of creator processor |
+| [[file:../../../vendor/gambit/lib/mem.c::3626][mark_array's STILL branch]] | CAS -1 to local queue link; winner pushes onto discovering processor's still queue | Claim/publication responsibility belongs to authorized scanner, not necessarily arena owner |
+| [[file:../../../vendor/gambit/lib/mem.c::4235][scan_still_objs_to_scan]] | Pop next link before scanning body | Dequeued work remains in flight until body, derived work and root writeback complete |
+| [[file:../../../vendor/gambit/lib/mem.c::6667][mark_reachable_from_marked]] | Drain still/movable queues, steal chunks, then worker-count termination | Track every producer/private/in-flight quantum before signaling idle; retained arenas are not extra workers |
+| [[file:../../../vendor/gambit/lib/mem.c::6872][weak phase]] | process_wills, mark closure, move_continuation | Strong closure precedes weak decisions; weak-derived work must terminate before sweep |
+| [[file:../../../vendor/gambit/lib/mem.c::6910][cleanup phase]] | process_gc_hash_tables then free_unmarked_still_objs | Worker-local reached-table cleanup and per-arena physical sweep have different owners |
+| [[file:../../../vendor/gambit/lib/mem.c::6256][determine_occupied_words]] | Sum current processors' movable and still counters, and historical allocation differences | Distinct movable participant census, complete VM physical arena census and history origin census |
+
+Still marks double as list links. In particular, a terminal link value zero is a
+marked object, not an unmarked one; the current unmarked sentinel is -1. A scanner
+can encounter a still object in another processor's chain and win its CAS, placing
+it on its own work list. Sweeping by original creator's queue or equating queue
+emptiness with arena completion would be incorrect. Physical inventory remains
+distinct from transient work queues throughout the epoch.
+
+* RESEARCH Epoch population, scanning and weak closure :contract:
+:PROPERTIES:
+:CUSTOM_ID: arena-epoch-scan
+:END:
+
+#+begin_src text :eval never
+ArenaId = (VM, registry incarnation, allocation-domain identity)
+ArenaEpochTicket = {ArenaId, epoch, inventory generation, initializer, sweep owner}
+WorkerEpochTicket = {worker context, epoch, authorized phases, participation debt}
+ArenaScanReceipt = {initialization identity, seed coverage, phase work closure}
+ArenaSweepReceipt = {epoch, ArenaId, survivors, freed blocks, quarantine, words}
+CapacityCensusReceipt = {exact arena set, complete sweep receipts, reserves, total}
+HistoryRebaseReceipt = {statistic identity, phase, signed baseline delta,
+                       old/new occupancy, origin archive and publication identity}
+#+end_src
+
+The epoch's arena set comes from VM storage authority, including transferred and
+retired arenas. The worker set comes from admitted collector participants. Neither
+is derived from the other's cardinality. A creator can leave between epochs after
+handoff; its arena is still initialized, scanned, swept and counted next epoch.
+During an epoch, membership and tickets remain stable. Worker departure requires
+draining or transferring its queue, in-flight frames, copy/publication debt and
+weak-table work before its authorization is revoked. This study rejects mid-epoch
+departure rather than claiming to have proved that general migration protocol.
+
+Initialize every arena's marks/refcount seeds exactly once, before any body scan
+can race with that reset. A late second initializer could reset a discovered mark,
+destroy a queue link or lose outgoing references. Arena initialization coverage and
+the existing [[file:../../../vendor/gambit/lib/mem.c::7007][setup barrier]] must be refined together. RC payload roots use the parent
+VM RootRegistry contract; native code allocations are not Scheme still words.
+
+For discovery, the existing CAS is only the uniqueness decision. A winning scanner
+must retain a publication debt until its queue link is discoverable and the work
+is counted. A local non-preemptible quantum may fuse claim and queue insertion only
+with evidence that worker idle, exit and termination cannot observe an intermediate
+state. C acquire/release alone cannot supply missing custody accounting. The QNT
+finishScan action fuses discovery and enqueue as an explicit abstraction; that
+fusion's source refinement remains open.
+
+Dequeue transfers custody from queue to in-flight frame. Finishing that frame
+publishes every newly discovered child and completes mutable root writeback before
+releasing debt. Strong quiescence requires no queued, in-flight, unpublished or
+movable-copy/chunk work from any producer. Only then may weak decisions run. Empty
+queue with a body still being scanned is a concrete forbidden transition.
+
+** Semantic weak domains cannot disappear with PSTATE
+
+[[file:../../../vendor/gambit/lib/mem.c::4039][scan's will case]] marks action strongly, conditionally marks testator and sets
+UNMARKED_TESTATOR_WILL. [[file:../../../vendor/gambit/lib/mem.c::5032][process_wills]] determines executability, moves list members
+and marks pending testators. nonexecutable_wills and executable_wills are currently
+PSTATE fields at 308-309, initialized at 4688-4689. Moving only the still chain does
+not transfer these lists. Processor exit additionally needs a semantic weak-domain
+handoff or a proved exclusion of such members. Do not scan every weak testator
+strongly as a shortcut: that changes will execution and retention semantics.
+
+[[file:../../../vendor/gambit/lib/mem.c::4086][Reached GC hash tables]] form discovering-worker state, reset at 6841 and consumed
+by process_gc_hash_tables (5370 onward) in cleanup. Keep those worker lists alive
+through their phase, even when table storage is VM arena owned. A complete
+integration must also preserve weak-key/value flags, hash rehash/writeback and
+continuation relocation. The finite weakKeep/weakClear model represents permitted
+retention outcomes, not actual will/hash-table or multi-shot continuation semantics.
+These remain explicit gates rather than being inferred from a body scan count.
+
+* RESEARCH Sweep and foreign physical custody :sweep:failure:
+:PROPERTIES:
+:CUSTOM_ID: arena-sweep
+:END:
+
+After strong and weak work terminate and reached-table cleanup is complete, give
+each arena one sweep authority. Distinct authorities may sweep disjoint arenas;
+no arena can be swept twice. Source [[file:../../../vendor/gambit/lib/mem.c::4387][free_unmarked_still_objs]] reads STILL_MARK==-1,
+invokes foreign release when needed, frees dead blocks and rebuilds the survivor
+chain while summing STILL_LENGTH. Its output is a receipt for a particular epoch
+and inventory generation, not an unqualified PSTATE counter.
+
+For ordinary blocks: dead -> physically free; surviving -> retained chain. For
+foreign blocks with an admitted deferred-release adapter: dead -> quarantined
+shell plus uniquely accepted release task; completion -> safe physical free at a
+subsequent no-scanner cut. Queued, in-flight and unknown release results all retain
+the shell and its physical capacity. The quarantine is excluded from repeated
+release creation in later epochs. Keeping shell bytes is the chosen proposed
+adapter; storing an independently rooted detached release record would require a
+different lifetime and capacity proof.
+
+This is an explicit redesign of the current synchronous release path. Existing
+[[file:../../../vendor/gambit/lib/c_intf.c::1683][release_foreign]] clears callback/pointer before invoking release_fn and returns
+errors; old sweep frees the wrapper without propagating the result. Arbitrary
+callbacks cannot be moved to a collector worker without affinity, reentry, error
+and root qualification. Queueing a task is not destruction completion. A qualified
+owner lane must outlive the departed processor, or the transfer is rejected. A
+callback returning an error does not permit generic retry on the cleared pointer.
+The finite model assumes the release lane and external settlement evidence.
+
+* RESEARCH Capacity and delayed charge publication :capacity:
+:PROPERTIES:
+:CUSTOM_ID: arena-census
+:END:
+
+An arena descriptor may leave VM membership only between epochs after its physical
+chain/quarantine is empty and all scanner, release, native and unresolved-delivery
+references retire. Archive any remaining history contribution before removing its
+ledger. Close new admissions first; bind descriptor identity to an incarnation so
+stale handles cannot address a replacement. Empty storage alone does not authorize
+metadata reuse. The finite model retains both arena identities and does not prove
+descriptor deregistration or reuse.
+
+Capacity publication waits for every ArenaSweepReceipt in the frozen arena set.
+Its total includes all physically retained blocks: reachable survivors plus
+quarantine. It excludes ordinary blocks actually freed, but includes any separate
+unmaterialized allocation reservation in a distinct reserve term. It does not
+count an arena again because multiple workers discovered its bodies.
+
+At an admitted open cut, define L as total physical still words, C as already
+charged words, D as uncharged deferred allocation and Q as unmaterialized reserve:
+C+D=L+Q. All values use the same full-block word convention. Handoff changes
+ownership; it does not change L. Deferred settlement changes (C,D) to (C+D,0)
+once. Post-sweep census sets the physical component from receipts, not historical
+processor counters. This equality is the proposed exact ledger, not a claim that
+all old fields already implement it at every instruction.
+
+The old [[file:../../../vendor/gambit/lib/mem.c::1624][threshold charge]] and [[file:../../../vendor/gambit/lib/mem.c::1668][allocation-failure refund]] distinguish prior allocated
+deferred objects from the currently attempted allocation. [[file:../../../vendor/gambit/lib/mem.c::6367][resize_heap]] temporarily
+adds requested_words_still and removes it on failure/retry at 6434/6471. A capacity
+receipt must identify its pending reservation owner and terminal outcome. This
+study assumes no outstanding allocation reservation at handoff/epoch start; the
+finite model covers initial deferred settlement but does not implement that full
+allocation/resizing algorithm. Max-heap, overflow reserve, movable msection sizing
+and failure returns remain source refinement duties.
+
+Never publish a partial census while another arena may still free or quarantine
+objects. Publish the complete epoch total after sweep; retain the previous
+qualified capacity view or mark it pending during cleanup. If a callback/foreign
+adapter can allocate during cleanup, it must use a separately admitted domain and
+post-snapshot accounting, or that callback profile is rejected. The current model
+excludes such allocation rather than silently allowing it under a stable snapshot.
+
+* RESEARCH Historical statistics rebase and API boundary :statistics:
+:PROPERTIES:
+:CUSTOM_ID: arena-statistics
+:END:
+
+There are distinct source observables. [[file:../../../vendor/gambit/lib/mem.c::7000][Pre-GC]] adds bytes_occupied to
+bytes_allocated_minus_occupied; [[file:../../../vendor/gambit/lib/mem.c::7049][post-GC]] subtracts new occupancy. [[file:../../../vendor/gambit/lib/mem.c::6283][At the census cut]],
+the comment identifies the folded difference as allocated bytes, and the current
+processor sum becomes latest_gc_alloc. [[file:../../../vendor/gambit/lib/mem.c::7509][bytes_allocated]] separately computes a
+current-processor expression plus VM occupied_words_still. These expressions
+must not be silently declared one interchangeable VM-wide counter.
+
+Actual Scheme consumers include [[file:../../../vendor/gambit/lib/_kernel.scm::3999][process-statistics]]: field 7 uses bytes_allocated,
+field 16 uses latest_gc_alloc, fields 17-19 describe last-GC occupancy. It reads
+before and after allocating its own result vector, exposing the sampling overhead
+in field 9. [[file:../../../vendor/gambit/lib/_kernel.scm::4126][get-bytes-allocated!]] calls the current bytes_allocated expression.
+Migration therefore requires a statistic-by-statistic semantic decision and API
+mapping; matching the mathematical VM ledger alone does not prove legacy readback
+equivalence. The observed code is evidence of this requirement, not a diagnosis
+of a demonstrated native statistic bug.
+
+For a proposed normalized historical ledger, let H_i=B_i+O_i outside GC. B_i is
+a signed differential and O_i the allocation domain's physical contribution.
+Rebase an occupancy change from O_old to O_new by:
+
+#+begin_src text :eval never
+B_new = B_old + O_old - O_new
+H_new = B_new + O_new = B_old + O_old
+
+handoff L words: B_source += L; O_source -= L
+                 B_target -= L; O_target += L
+GC entry:        Folded_i = B_i + O_before
+GC completion:   B_i = Folded_i - O_after
+processor exit:  Archive += H_source; remove H_source contribution exactly once
+VM history:      Archive + sum(H_active_origins_and_VM_ledgers)
+#+end_src
+
+Storage ownership and historical allocation origin are different axes. A new VM
+ledger receiving 18 words but no new allocations can have B=-18,O=18,H=0. Unsigned
+wrapping or clamping that baseline destroys history. An alternative architecture
+can separate cumulative allocation events from occupancy entirely; it still needs
+an explicit rebase/adaptation receipt for existing exposed statistics. This study
+does not select an integer representation for production counters.
+
+At exit, archive the source origin's qualified contribution before removing it
+from the contributor set. The VM arena remains in physical census, while its
+creator's history moves to archive. Do not count both an archived contribution
+and its old live ledger. Sweep, storage transfer, quarantine settlement and
+deferred charge settlement are not fresh allocation events. In the finite model,
+initial H=300 is symbolic and no new allocation events occur; it tests history
+preservation under these transformations, not an actual allocation counter.
+
+Source uses F64 arithmetic. The Lean integer equalities do not establish bitwise
+equivalence under rounding, precision exhaustion, overflow or differing sampling
+cuts. Actual API compatibility, interruption behavior and cross-processor reads
+remain unresolved. A new clearly specified VM-wide statistic may be valuable,
+but changing an old statistic's scope is an explicit semantic change.
+
+* RESEARCH Formal closure and retained counterexamples :sysml:ascent:qnt:lean:
+:PROPERTIES:
+:CUSTOM_ID: arena-proof-chain
+:END:
+
+| Need | Actual local model | Remaining obligation |
+|---+---+---|
+| AC-H | 24 QNT histories, 13 deliberate controls; 200 bounded runs over two root choices, max 80 steps | Three blocks/two arenas/two worker slots, finite graph; no general heap or weak-memory/liveness proof |
+| AC-I | 14 Lean conditional lemmas for rebase/archive/fold, signed baseline, deferred settlement, work debt, sweep coverage, retired inclusion and quarantine | No general transition induction or actual source refinement proof |
+| AC-S | Five native SysML source/action/lemma routes evaluated by actual ASCENT DSL; parent SH-S dependency | Full semantic weak-domain transfer, CAS publication, movable work, sweep/resize and statistics consumer relation |
+| AC-E | Seven explicit false gates | Real configured GC/FFI/ABI, C happens-before, F64/statistic API mapping, host attestation and native qualification |
+
+The QNT graph contains a cross-arena edge 0->1, an optionally weak-retained foreign
+block 2, and an alternative root set that permits ordinary block 0 to be swept.
+It distinguishes queued from dequeued/in-flight work, freezes arena and worker
+sets, and assigns sweep authority independently of storage creator. It models
+foreign shell retention across GC and preserves archived signed-baseline history.
+It excludes new allocation/reserves, actual moving writeback, weak lists/hash
+tables, publication intermediate states, dynamic worker migration and arbitrary
+release side effects; these exclusions are source admission premises.
+
+Controls cover lost source history, transfer counted as allocation, omitted target
+capacity, dequeued/weak work ignored by early sweep, omitted arena membership,
+mid-epoch worker exit, unknown foreign free, deferred charge counted as allocation,
+copied baseline, duplicate release, omitted outgoing edge and duplicate mark reset.
+Positive histories exercise creator exit
+before GC, later handoff after GC, cross-arena discovery, weak retention, ordinary
+sweep, repeated epochs and release settlement with history preservation.
+
+Eight local ASCENT cases validate current/missing/stale/wrong-scope subjects,
+artificial all-qualified evidence, a false GC gate, missing source anchor and
+missing model step. Only the artificial case admits candidate. An aligned route
+does not mean the source body has been proved equivalent to its action. All seven
+real gates remain open; inherited host attestation is not retried unchanged.
+
+* RESEARCH Replacement sequence and net benefit :migration:benefit:
+:PROPERTIES:
+:CUSTOM_ID: arena-retirement-benefit
+:END:
+
+| Old authority | Replacement | Retirement condition |
+|---+---+---|
+| PSTATE still chain as sole inventory | VM arena membership with stable allocation identity | Exact handoff, source cleanup exclusion and complete root/native holders |
+| Local setup/sweep implicitly tied to creator | Per-arena initializer and sweep receipts; independent worker tickets | All marks, seeds, outgoing roots, weak and GC-hash consumers refined |
+| Current processor loop as entire still census | VM physical arena census plus separate movable participant census | Every migrated arena and quarantine included exactly once; reserve/resize relation proved |
+| Departing processor as sole history carrier | Archived origin contribution and signed occupancy rebase | Every exposed statistic has its own compatibility or explicit redesign decision |
+| Synchronous arbitrary foreign release on collector | Resource-qualified release adapter and settlement ownership | Affinity/reentry/error/shutdown semantics qualified; unsupported resources retain old path |
+
+These retire responsibilities for migrated domains. The Scheme body scanners,
+object tags, continuation traversal and C portability are reusable; no blanket
+deletion of mark_array, scan, process_wills, process_gc_hash_tables or all PSTATE
+fields is justified. Avoid maintaining two independent authoritative inventories
+for the same allocation. Introduce VM membership and normalized views, qualify
+scan/weak/sweep/census/history adapters, then switch creator cleanup/resize and
+retire old ownership only after whole caller closure.
+
+| Axis | Benefit mechanism | Added cost and falsification |
+|---+---+---|
+| Work | Remove copies/rebindings performed solely for creator-affinity escape | Arena inventory, tickets, phase debt, accounting and release metadata; no savings if no such copies existed |
+| Span | Retained arena need not pin its original processor or compilation session | Quiescence and release owner can remain serial; independent compiler state still required |
+| GC | One inventory and one sweep receipt per arena avoids duplicate authority | Still O(N+E) tracing, weak processing and physical sweep; no asymptotic speed claim |
+| Memory | Shared immutable compiler results can outlive workers without graph duplication | Retired arenas/quarantine/unknown duties can retain unbounded bytes; bound or reject those profiles |
+| Observability | Occupancy and historical allocation remain explainable across exit | Signed baselines/archive and explicit API adaptation, including F64 boundaries |
+| Language | All mechanisms are expressible in modern C under Gambit's native contract | Zig does not discharge any of these semantic obligations; unique net benefit remains unproved |
+
+For avoided copy/rebinding work X+B and new inventory/ticket/coordination work
+I+T+D, positive work saving requires X+B>I+T+D. Critical-path saving requires
+removed affinity span to exceed added quiescence/release span. Retention must be
+evaluated separately; positive CPU work does not compensate for an unbounded
+unknown-release backlog. The matrix contains mechanism thresholds, not invented
+performance numbers. This is a necessary foundation for Gerbil session/result
+reuse, not evidence that parallel incremental compilation is already implemented.

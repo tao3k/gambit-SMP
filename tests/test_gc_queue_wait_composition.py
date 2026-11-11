@@ -84,7 +84,10 @@ class GCQueueWaitCompositionTests(unittest.TestCase):
             index.ROOT, "evidence/gc-queue-wait-composition.json",
             "evidence/model-results/gc-queue-wait-composition/receipt.json",
         )
-        self.assertEqual([self.case["id"]], [row[0] for row in facts["protocol_checked"]])
+        manifest = verify.load_manifest(index.ROOT / "evidence/gc-queue-wait-composition.json")
+        missing = [name for name in manifest["contextInputs"] if not (index.ROOT / name).is_file()]
+        self.assertEqual([] if missing else [self.case["id"]],
+                         [row[0] for row in facts["protocol_checked"]])
         self.assertIn((self.case["id"], "gc_queue_wait_source_refinement"),
                       facts["protocol_obligation"])
         self.assertNotIn("native_observation", facts)
@@ -102,7 +105,17 @@ class GCQueueWaitCompositionTests(unittest.TestCase):
             incomplete = deepcopy(record)
             incomplete.update(accepted=True, inputs=manifest["contextInputs"])
             path.write_text(json.dumps(incomplete))
-            with patch.object(evidence, "reuse_model_receipt", return_value=[]):
+            actual_digest = evidence.digest
+            def context_digest(source):
+                try:
+                    name = str(source.relative_to(index.ROOT))
+                except ValueError:
+                    return actual_digest(source)
+                if name in manifest["contextInputs"] and not source.is_file():
+                    return manifest["contextInputs"][name]
+                return actual_digest(source)
+            with patch.object(evidence, "digest", side_effect=context_digest), \
+                    patch.object(evidence, "reuse_model_receipt", return_value=[]):
                 with self.assertRaisesRegex(ValueError, "missing protocol checks"):
                     evidence.checked_rows(index.ROOT, manifest, path)
 

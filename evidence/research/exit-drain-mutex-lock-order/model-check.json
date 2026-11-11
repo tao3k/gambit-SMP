@@ -1,0 +1,53 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {},
+  "cases": [
+    {
+      "id": "exit_drain_mutex_lock_order",
+      "mode": "characterization",
+      "step": "step",
+      "oldInvariants": ["checked", "entryChecked"],
+      "oldInitializers": {"checked": "initOld", "entryChecked": "initEntryOnly"},
+      "invariants": ["checked"],
+      "protocolInitializers": {"checked": "initFixed"},
+      "temporal": "progress",
+      "scope": "Local mutex/thread lock-order characterization. Negative controls remain initOld and initEntryOnly against checked. The positive control is initFixed, invariant checked, temporal progress. startChild, joinChild, and delayOutsideLockOrder stay outside step. delayLoopOutsideLockOrderTest is a stutter at the initial lock state and is not a GC-real, barrier-wait, or processor-topology property. Characterization mode does not execute run blocks. This is not a TFIB refinement or native admission."
+    },
+    {
+      "id": "scheduler_wait_gc_contract",
+      "mode": "characterization",
+      "dependencies": ["scheduler_gc_root_cohort_composition.qnt"],
+      "composes": ["scheduler_retry_gc_participation", "scheduler_lock_moving_root"],
+      "step": "step",
+      "oldInvariants": ["publicationSafe", "revalidationSafe"],
+      "oldInitializers": {
+        "publicationSafe": "initStaleAcknowledgement",
+        "revalidationSafe": "initSkipRevalidation"
+      },
+      "invariants": ["safe"],
+      "protocolInitializers": {"safe": "init"},
+      "temporal": "completion",
+      "source": [
+        "lib/_thread.scm:##lock-scheduler-object-with-sync-participation!",
+        "lib/_thread.scm:##mutex-lock-threads-revalidate!",
+        "lib/_thread.scm:##thread-join!",
+        "lib/_thread#.scm:macro-lock-condvar!",
+        "lib/_kernel.scm:##sync-op-interrupt!",
+        "lib/setup.c:barrier_sync_op"
+      ],
+      "papers": [],
+      "openObligations": [
+        "actual_native_lock_holder_and_gc_generation",
+        "request_publication_and_acknowledgement_source_refinement",
+        "physical_root_frame_and_lock_metadata_preservation",
+        "collective_error_and_continuation_unwind",
+        "complete_exit_deque_drain_and_last_access",
+        "original_tfib_and_full_native_acceptance",
+        "participation_return_leaves_native_stress_open"
+      ],
+      "scope": "Existing retry and moving-root projections share one collective. The controlled join cohort is idle on that initializer. A participating condvar contender enters while the thread lock and end-condvar stay held; only then may roots move. Publication, reload, owner release and revalidation then return. A raw contender never enters, so that cohort cannot relocate or complete. The retained-lock native timeout remains an open failure for its own producer. Controlled role identities are not a global GC epoch and are not original TFIB causality. stressOpen stays true across that return: the retained gsi stress on the participation candidate shows signal 10 in tfib_stress, software exit 70 from thread-join! in thread_interrupt2_stress, and an inactivity timeout in thread_interrupt_stress. The suite clock is cumulative. The 0.0s bar is before tfib, the 127.4s bar is after signal 10, and the 127.5s bar is after the software exit: about 127.4 seconds of tfib and about 0.1 seconds of interrupt2. That is not a startup crash. A later direct gsi of the same (go 15 5000) body was still running when a 200-second cap killed it, so that suite boundary is not a deterministic crash time. One (go 15 32) schedule died with printed heap overflow and exit 70 after (go 15 4) returned. A later schedule returned from (go 15 32) after 5000 trivial joins. Scheme thread-join! is not OS pthread join or processor retirement, and no retained trace shows this failure entered resize or an allocating release callback. Those outcomes are not states of this machine and are not discharged by j.returned. Atomic request publication, complete tracing, preserved lock metadata and fairness are assumptions. Exit-state publication is not the complete owned-deque drain. Error disposition forbids false success and premature reclaim but does not implement native unwinding. Finite safety and temporal characterization is neither causal attribution on the retained producer nor original TFIB acceptance."
+    }
+  ]
+}

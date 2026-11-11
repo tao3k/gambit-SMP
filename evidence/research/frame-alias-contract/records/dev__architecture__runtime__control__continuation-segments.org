@@ -1,0 +1,318 @@
+#+TITLE: Captured Segments, Repeated Restoration and Dynamic Control
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+LANGUAGE: en
+#+CATEGORY: control
+#+PROPERTY: header-args :eval never :tangle no
+#+STARTUP: overview
+
+The [[file:control-refinement.org][source-refinement successor]] traces all six open obligations to concrete
+writers, consumers and exclusive source/native methods. Its closure matrix and
+target-specific admission controls refine this design without duplicating the
+existing QNT or Lean obligations. The retained original validation remains a
+historical source-bound receipt.
+
+[[file:frame-alias-contract.org][The alias/restore refinement]] specifies the consumption scope of RestoreView:
+one authentic fragment at its actual restore boundary, with the unconsumed tail
+remaining rooted and live. A per-invocation private execution view does not
+authorize a frozen snapshot of the entire source chain or its shared heap.
+
+* Decision and source identity
+:PROPERTIES:
+:CUSTOM_ID: continuation-segments
+:AUTHORITY: GambitContinuationSegments
+:STATUS: SOURCE-PINNED; CONDITIONAL-MODELS; C-REFINEMENT-OPEN
+:COMMIT_ADMITTED: false
+:END:
+
+Gambit is the semantic and architectural starting point. Study Chez's segmented
+control representation and Guile's delimited composition; retain Scheme-owned
+control semantics and build a modern generated-C realization shared with roots,
+collection, execution admission and FFI. This is not a replacement of full
+multi-shot continuations with one-shot effects, or a port of another collector.
+
+[[file:models/sysml/continuation-segments.sysml][SysML]] owns seven facets, their canonical module references, shared handoffs,
+eight uniquely owned verification obligations and the benefit matrix. It refines
+[[file:../../../architecture/runtime/models/sysml/composition.sysml][the existing module architecture]], rather than introducing seven new runtime
+services. [[file:../../../../evidence/research/continuation-segments/source.lock.json][The source lock]] pins 27 selected files with snapshots and hashes:
+
+#+NAME: continuation-source-identity
+| Reference | Selected identity | Use |
+|---+---+---|
+| Gambit | modern-c HEAD =8d2b40341a80083ba90e3f8e77d256d49b3e257a= plus existing 18-file candidate lock =60055b07ff827fdd5dc166949c25f8fc754781b2aece767bce9fde855c8828d0= | Current dirty candidate, not stock HEAD alone |
+| Chez | =41d5ffca7a07cbfc8807e719dedcc70ed74811cd= | Segment split/restore, wind identities and generated GC treatment |
+| Guile | GNU release 3.0.11; source archive SHA256 =818c79d236657a7fa96fb364137cc7b41b3bdee0d65c6174ca03769559579460= | Actual VM/dynamic-stack/prompt implementation, not only the current web manual |
+
+The original GNU host's TLS retrieval failed; the identical named release was
+retrieved from the GNU mirror. The Chez author's legacy paper host also failed;
+the original paper was obtained from a university archive. Failed attempts and
+successful identities are distinct records. No third-party runtime was built.
+
+* What the actual implementations teach
+:PROPERTIES:
+:CUSTOM_ID: continuation-source-correspondence
+:END:
+
+#+NAME: continuation-source-correspondence
+| Mechanism | Gambit | Chez / Guile evidence | Gambit-specific consequence |
+|---+---+---+---|
+| Capture and materialization | =_kernel.scm:3153-3171= can collect when reifying a stack-backed continuation frame; =mem.c:4046-4206= heapifies captured frames | Chez =c/schsig.c:56-141= and =c/alloc.c:866-882= expose segmented control and split/resize | Gambit already separates logical capture from physical materialization. Preserve and formalize that strength; do not claim to invent lazy capture |
+| Repeated restore | =_kernel.scm= break-frame handler restores a caller frame and treats break links specially for proper tail calls | Chez =S_split_and_resize= bounds selected restoration segments; Guile =vm.c:1185-1268= copies a partial image and winds captured dynamic entries | Sharing captured data does not remove per-shot restoration or effects. Prove exactly which storage may be shared and who owns writable execution views |
+| Mutable captured state | =##frame-set!=, =##continuation-set!= and frame/denv setters in =_kernel.scm:3162-3171,3435-3550= | Representation policy differs among implementations; it is not an API compatibility proof | Do not assume immutable snapshots. All supported reflection aliases and writers must be modeled or retained through sound adapters |
+| GC roots | =mem.c:4459-4508= treats continuation frame pointers specially and then scans remaining fields | Chez =s/mkgc.ss:209-269= traces stack/link/return/winders/attachments; Guile =vm.c:713-772= conservatively marks the hottest active frame and uses maps where available | Guile's BDW-GC marking is not evidence for exact moving roots. Gambit's FrameSpec must supply precise relocation/update points |
+| Wind identity and ordering | =_thread.scm:4918-5018= compares dynamic-wind nodes/levels; same extent bypasses hooks | Chez =s/4.ss:349-397= finds a shared winder tail and updates current winders around calls; Guile =dynstack.c:322-505= unwinds and rewinds dynamic entries | Preserve extent identity, outer/inner order and arbitrary Scheme effects; equal hook procedures do not imply the same extent |
+| Delimited capture | No new primitive prompt is established by the current full-continuation fixture | Guile =vm.c:1310-1345= finds an actual frame boundary, relocates prompt offsets and captures a slice | PromptSpec must define tag/cut/handler/composition. Stack slicing alone does not establish control semantics |
+| Native boundary | Real C activation, marker, roots and caller remain relevant across =___run= | Guile marks a partial continuation rewindable only for matching VM register contexts; =continuations.c:186-213= separately captures native stack state for full continuations | Distinguish managed segment restoration from live native-origin permission. Do not inherit Guile restrictions or promise C-stack resurrection |
+
+** Papers, selected lessons and limits
+
+[[https://www.cs.tufts.edu/comp/150VM/modules/archive/kent-dybvig/one-shot-continuations.pdf][Bruggeman, Waddell and Dybvig, PLDI 1996]], sections 3.1--3.2, present a segmented
+stack supporting both multiplicities. Capturing a multi-shot continuation seals
+occupied storage; bounded copying and splitting control restoration work. A
+one-shot path may avoid copies, with segment allocation/cache tradeoffs. The
+lesson is representation-sensitive reuse with explicit multiplicity, not that
+Gambit should discard multi-shot semantics or adopt the same segment sizes.
+
+[[https://www.ccs.neu.edu/scheme/pubs/pldi93-sitaram.pdf][Sitaram, Handling Control, PLDI 1993]] supplies the prompt/handler lineage
+referenced by Guile's implementer. [[https://www-old.cs.utah.edu/plt/publications/icfp07-fyff.pdf][Flatt, Yu, Findler and Felleisen, ICFP 2007]]
+show why delimited/composable control must be designed jointly with dynamic
+binding, exceptions and dynamic-wind; frame identity matters. We use these as
+semantic obligations, not a claim that a call/cc library simulation preserves
+all interactions. Guile's =module/ice-9/control.scm:69-78= builds shift/reset
+using prompt/abort with explicit delimiter reinstatement.
+
+All three original PDFs are hash-pinned in the source lock. Detailed source
+correspondence is established only for the selected code above. OCaml remains
+a selective reference for safe points and native participation; it does not
+define this control contract.
+
+* Joint contract
+:PROPERTIES:
+:CUSTOM_ID: continuation-joint-contract
+:END:
+
+** CapturedControl and FrameStore
+
+=CapturedControl= names the logical frame chain, continuation denv, wind extent
+identity, PointId, supported multiplicity and a root custodian. Its frame field
+may initially refer to live stack storage. Before materialization can collect,
+the source slot must already be visible to the collector. A materialized image
+does not authorize withdrawing its previous roots until registration and scan
+synchronization are complete.
+
+=FrameStore= owns supported frame/denv mutations and structural link repair.
+It distinguishes ordinary payload slots, control links, code labels and raw
+words through FrameSpec. Every admitted semantic mutation changes the image
+revision and revokes dependent issued views. A generational path records
+old-to-young writes before publishing the edge, without hidden GC in the store
+barrier. Overflow needs an admitted slow/fallback route. Raw setters cannot
+remain an untracked parallel authority.
+
+This does not license changing observable reflection aliases. A copy-on-write
+or immutable sharing class is eligible only after alias observations, serializer
+reconstruction, debugger/frame mutation and concurrent users are accounted for.
+Opaque writers retain a sound explicit path; rejecting an optimization is not
+permission to reject existing Scheme semantics.
+
+** RestoreView and source revision
+
+Each invocation obtains a writable execution view, rooted result/argument slots
+and a transfer continuation. It shares Scheme heap objects by identity; it does
+not roll back heap mutation when control is restored. A view can be prepared
+early, but before/after hooks may mutate the target image, allocate or collect.
+The commit therefore requires a current, authentically issued view; refresh
+after winding may be necessary without repeating already performed hooks.
+
+The algebraic condition is stronger than comparing two integers. View issuance
+must observe one consistent image, every later writer must be represented, and
+no revision wrap can alias an old reader. Lean proves coherence under those
+premises. C must establish publication, writer exclusion/history and exhaustion
+handling. A manufactured same-version view can still contain incorrect slots.
+
+Version matching is not a license for a C data race. Issuance needs a real read
+permission/frozen image while copying non-atomic fields; writers must exclude
+those readers or use an independently valid atomic representation. A seqlock
+retry around racing plain C loads is insufficient. Publish a fully initialized
+view/root record with release ordering and acquire that publication before use.
+Validation and restoration commit must have a writer-exclusion/ownership cut,
+not a version read followed by an unprotected copy. No such image/root lock may
+be held while Scheme wind hooks run. Hooks execute with rooted custody, then
+the adapter reacquires permission and refreshes if needed. Unknown partial
+publication retains its custodian; it cannot issue a coherent-view receipt.
+
+** WindTransfer stays in Scheme
+
+Gambit's existing Scheme winding algorithm remains the semantic owner. Exit
+hooks run from inner to outer; entry hooks run from outer to inner; jumping
+within the identical extent runs neither. Required hook effects are not work
+to optimize away. Hooks can capture, throw, collect and initiate another
+transfer. Their successor closures/control frames must remain rooted.
+
+Modern C supplies generated root/checkpoint/reentry adapters, not another wind
+state machine. A stale native helper cannot mutate a newer activation. Restoring
+a captured Scheme hook is nevertheless legal when current Scheme semantics
+permit it: it needs a fresh physical execution grant, not reuse of an expired
+native permit. The finite model covers hook takeover and stale helper exclusion;
+arbitrary captured-hook reinstatement remains a separate source-semantic
+obligation.
+
+** RootCut, GC and native origins
+
+The root view includes active and captured frames, denv/winders, prompt tags,
+transfer/view/result slots and code metadata owners. Moving scans update
+authoritative slots; native cached pointers are surrendered before the cut and
+reloaded before reentry. Captured-frame ordinary slots and structural links
+retain the existing distinct write authorities. A mature captured graph can
+skip a minor full scan only with complete remembered-root/writer coverage.
+
+A =NativeOrigin= is a live C activation, not a saved Scheme frame. The target
+must classify ordinary managed entry, blocking park, nested callback and return
+crossing separately. Guile's register-context test is an instructive concrete
+boundary, not Gambit's replacement API. Unknown native writers require retained
+custody or refusal of the proposed handoff; they are not declared stopped by a
+logical continuation restore.
+
+* Delimited continuation admission
+#+NAME: continuation-delimited-boundary
+| Dimension | Required specification | What does not establish it |
+|---+---+---|
+| Extent | Prompt/tag identity and exact frame cut, including denv/wind slice | A full call/cc captured inside an escape wrapper |
+| Application | Abortive or composable; caller suffix, values and exception destination | Calling every delimited operator shift/reset |
+| Handler | Whether prompt is removed, and where/when it is reinstated | A physical saved stack offset alone |
+| Multiplicity | Multi-shot is independent of the cut; escape-only exposes no resumable image | Reusing an escape-only path as a multi-shot optimization |
+| Wind/binding | Common extent identities and effects under composition/reentry | Equality of hook closures or normal-return tests alone |
+| Foreign | Actual native-origin/borrow admissibility for the selected segment | Restoring Scheme storage resurrects C state |
+
+Introduce these operations through the same generated control/root ABI after
+full multi-shot baseline coverage. Existing call/cc retains its documented
+extent. Delimited control is an extension with its own semantic acceptance,
+not a replacement justified by smaller copied segments.
+
+The proposed default is explicit: installing a new prompt does not silently
+shorten existing Gambit full call/cc. A dedicated capture-to-prompt operation
+selects the tag and application policy. Full capture that includes prompts must
+retain their logical metadata, while each reinstatement revalidates physical
+execution and native authority. A prompt tag is a Scheme identity protected
+across GC, not a raw address used after movement. Delimiter reinstatement for
+shift/reset belongs in the selected operator specification, as Guile's wrappers
+illustrate; it is not inferred from having a saved frame slice.
+
+* Exclusive verification responsibilities
+:PROPERTIES:
+:CUSTOM_ID: continuation-verification-ownership
+:END:
+
+An obligation has one semantic key and one verification owner. A component may
+depend on several different obligations, but no obligation is submitted to both
+Quint and Lean. Shared interface data does not create shared proof ownership.
+The LLM is the current working environment: source correspondence, scope review
+and semantic-key normalization are part of this research, not a new LLM service
+or validation layer.
+
+#+NAME: continuation-obligations
+#+BEGIN: sysml-view :kind continuation-obligations :source architecture/runtime/control/models/sysml/continuation-segments.sysml
+| Obligation | Semantic key | Exclusive owner | Claim / interface | Remaining limit |
+|---+---+---+---+---|
+| CS-SCHEDULE | control/transition-order-and-permit-lifetime | quint | finite schedules only: GC/root cuts, wind/reentry, stale permits and repeated availability | No payload coherence algebra, unbounded proof, complete Scheme observations or C memory-order proof |
+| CS-COHERENCE | data/issued-view-coherence-under-versioned-history | lean | unbounded slot maps and finite writer histories under authentic issuance and version match | No scheduler, GC interleaving, winding or C proof; version equality alone is insufficient |
+| CS-BRIDGE | refinement/ticket-interface-to-issued-view-premises | source | QNT abstracts payload as a ticket; source adapter must issue a real coherent view and map mutation revocation to ImageHistory | OPEN; a shared field name or two successful tools does not establish this correspondence |
+| CS-WRITERS | source/all-frame-denv-root-writers | source | Actual frame/continuation/denv setters, GC repair, restoration, serializer and FFI stores obey publication and remembered-root policy | OPEN; selected real setters are identified, not every indirect/native writer closed |
+| CS-HOOKS | semantics/arbitrary-hook-capture-and-reinstatement | source | Preserve arbitrary Scheme hooks, returning/abandoned transfers and fresh physical authorization on reinstatement | OPEN; bounded takeover histories do not prove arbitrary hook-continuation restoration |
+| CS-PROMPTS | semantics/delimiter-composition-and-handler-context | source | Specify actual operator family and its joint call/cc, dynamic-wind, dynamic binding and exception observations | OPEN; QNT only qualifies matching-tag/escape/borrow admission, not production prompt semantics |
+| CS-NATIVE | native/full-generated-control-root-ffi-regression | native | Complete bootstrap and all affected control/root/FFI caller paths, exact Bazel profile and unchanged limits | OPEN; previous wide-root receipts are baseline evidence, not new prompt/alias/foreign qualification |
+| CS-FRAMES | source/generated-frame-coordinate-equivalence | source | Emitter, stack/heap materializer, scanner, ordinary/link partition, reflector, restorer and module metadata share FrameSpec | OPEN; source-address, layout and lifetime refinement required |
+#+END:
+
+Quint has no captured payload values or slot-map coherence assertion. It checks
+which operation may proceed, which ticket is current, which root is retained
+and which helper can return. Lean contains no scheduler or winding model. Its
+single principal obligation is issued-view coherence for arbitrary slot maps
+and finite histories; auxiliary lemmas support that result and a forged-view
+counterexample.
+
+=CS-BRIDGE= is intentionally separate and open: Quint abstracts payload as an
+opaque ticket, while Lean assumes authentic issuance and a versioned writer
+history. The source adapter must establish that a granted ticket satisfies
+those premises. Two passing tools do not establish this correspondence.
+
+[[file:../../../modeling/ascent/obligation-ownership.rules.scm][ASCENT ownership rules]] reject dual owners, renamed obligations retaining a
+duplicate semantic key, wrong responsibility domains and evidence from another
+owner/artifact/scope. They cannot discover arbitrary semantic paraphrases with
+dishonest keys; reviewing those keys against source and claims remains ordinary
+work in the current LLM environment.
+
+* Complete modern-C replacement cut
+:PROPERTIES:
+:CUSTOM_ID: continuation-modern-c-cut
+:END:
+
+The next control cut is one vertical responsibility replacement, not another
+guard in the current collector. It includes all of the following before old
+paths retire:
+
+#+NAME: continuation-migration-cut
+| Source group | Responsibility to replace / retain | Admission and retirement |
+|---+---+---|
+| =gsc/_t-c-1.scm=, =_t-c-2.scm=, =_t-c-3.scm= | Scheme produces completed frame/root/PointId/restore information; C emission mechanically encodes it | All frame kinds, direct/dynamic/rest entry and collecting successors have equivalent descriptors |
+| =include/gambit.h.in= | Shared C descriptors and accessors replace independent macro layout interpretation | Old decoders retire only with emitter, module metadata and all consumers migrated |
+| =lib/_kernel.scm= | Capture, frame reflection, materialization, caller restoration and tail-link mechanics use the same contract | Preserve stack/heap coordinates, reflection aliases, values and proper tail calls; route mutations through FrameStore |
+| =lib/_thread.scm= | Retain Scheme wind/exception/dynamic binding semantics; generate rooted crossings | Arbitrary hook capture/reentry/escape remains legal; no second C winding algorithm |
+| =lib/mem.c= | GC consumes exact active/captured/transfer maps and structural-link ownership | All root domains, stores, moving updates and remembered-set/promotion failure paths close; per-copy grants do not substitute for whole-round capacity |
+| =lib/c_intf.c=, =lib/setup.c= and generated entries | Root before allocation; explicit NativeOrigin, borrow, park/reload and nested activation | Both actual ___run callers and every exceptional/nonlocal exit covered; expired C activation never reused |
+| Module setup / metadata lifetime | PointId/code/frame metadata remains valid for saved continuations and GC | Unload waits for actual metadata consumers; exact source/generated/header/object/link closure |
+| Existing Bazel profile / tests | Requalify complete affected generated closure and runtime population | Full bootstrap and affected control/GC/FFI inventory under unchanged limits; focused wide roots are baseline, not entire admission |
+
+The current branch has partial frame/root/collector responsibility replacements.
+This study changes no runtime source. The full FrameStore/RestoreView adapters,
+prompt extension, source simulation, independent collector scheduling and
+generational collector are not implemented by these models.
+
+* Benefit and added work
+#+NAME: continuation-benefit-matrix
+#+BEGIN: sysml-view :kind continuation-benefits :source architecture/runtime/control/models/sysml/continuation-segments.sysml
+| Facet | Replaced responsibility | Retirement | Benefit | Added cost | Refutation |
+|---+---+---+---+---+---|
+| capture | Register the source slot before any collecting materializer; one descriptor drives stack/heap coordinates and captured-image updates | Independent handwritten frame-coordinate decoding and unregistered materialization inputs after every consumer migrates | Keep full multi-shot semantics while sharing eligible captured storage; avoid unnecessary eager whole-chain materialization | Descriptor lifetime, rooted image handle and possible materialization/copy; no immutable-image assumption | Raw frame/continuation setters bypass revision/root discipline or a structural link is mistaken for an ordinary root |
+| replay | Prepare/root view, run Scheme winding, revalidate image and native origin, then commit restoration under the current execution grant | C activation or old cached pointer as implicit replay authority; full continuation consumption as an optimization | Arbitrary repeated full continuation use; reusable restore path for future delimited segments; one-shot optimization remains optional and separately justified | Per-shot restore work and rooted view retention; image changes can force refresh; no guarantee of zero copying | Matching version is accepted without authentic issuance/all-writer history, or replay rolls back shared heap effects |
+| roots | FrameSpec-derived exact movable roots plus managed frame/denv/prompt stores and remembered writes; preserve source custody until destination registration | Repeated private interpretations of live slots and unchecked old-to-young stores only after complete writer inventory and adapters | Enable precise moving/generational collection and conditional mature-image scan skipping; root protocol is shared by backends | Root publication/reload, metadata, barriers and remembered scans; retained roots and promotion reserve affect peak | Import Guile conservative BDW stack marking as precise moving-GC evidence or infer copying implies generations |
+| winding | Keep wind semantics and successor continuations in Scheme; generated C supplies rooted checkpoint/reentry adapters, not a second C winding algorithm | Ad hoc native cleanup treated as Scheme dynamic-wind; physical permit reuse solely because a logical extent is restored | Amplify existing Scheme nonlocal control without introducing semantic drift across GC, scheduler and FFI | Required user hooks/effects remain; rooted transfers and fresh physical grants add work | Compare hook procedure equality instead of extent identity, replay hooks twice after a stale helper return, or refuse a legal Scheme hook continuation |
+| prompt | Add prompt/partial-segment operations through the same FrameSpec/control/root ABI after full multi-shot baseline qualification | No existing call/cc or wind path retires merely because a library emulates shift/reset | Capture only an admitted semantic segment; support composable control/effects without downgrading full continuation capability | Prompt lookup and handler/wind interaction; copied segment and dynamic metadata; escape-only can omit image only when no replay is exposed | Treat all prompt operators as shift/reset, apply an escape-only object as multi-shot, or silently change full call/cc extent |
+| foreign | Managed native activation/root/borrow adapters explicitly admit crossing, parking and return; nested calls obtain their own activation | Marker bit or restored Scheme frame alone as proof of live C origin after complete caller migration | Admitted blocked native calls surrender GC participation safely while roots and results remain owned | Handles, origin checks, park/reload and retained resources; unknown native users can prevent selected reclamation | Import Guile thread/barrier restrictions verbatim or promise arbitrary C-stack migration without an origin proof |
+| schema | Migrate emitter, decoder, collector, restorer, frame reflection and module metadata as one vertical slice | Duplicated C macro/primitive frame meaning after exact generated/native consumer equivalence and bootstrap | Gambit semantic information serves GC, native ABI, tooling and future LLVM/MLIR consumers; no second language is required | Schema verification, metadata and affected-closure regeneration; LLVM services do not own Scheme semantics | Add another descriptor wrapper while old macro interpretations remain authoritative |
+#+END:
+
+Use work and resource quantities, not person-days or an assumed speedup:
+
+#+NAME: continuation-quantitative-conditions
+| Opportunity | Quantified theoretical boundary | Added work / condition |
+|---+---+---|
+| Bounded restoration | For source image F and maximum admitted restore chunk B, each selected copy is <= B; total copied words still depend on reached frames and shots | Descriptor lookup, splits, underflow dispatch and capacity reserve; Gambit already restores frames, so avoid assuming whole-image copying as its baseline |
+| Repeated restore | With r invocations, cost is capture plus sum of reached restore work and required effects, not r times capture by definition | Per-shot view/root/grant work remains; alias-safe sharing must be demonstrated |
+| Delimited capture | A semantic cut retaining L of F frames has F-L fewer captured frames for that API operation | Different extent is not an optimization of unchanged full call/cc semantics; prompt/wind/handler costs must be included |
+| Mature-image minor scan | Avoided work is m times eligible clean mature words, less barrier/log/remembered scans, promotion and root work | Complete writer coverage, overflow handling and promotion reserve; otherwise no skip |
+| One schema | Independent semantic frame decisions per supported frame kind -> one authoritative Scheme decision | Generated metadata/ABI verification; count real retired interpretations and affected build work |
+| Peak retention | Captured images + concurrent rooted views + transfer/wind metadata + GC reserve + pending native resources, counting shared storage once | Unknown results or unbounded retained continuations prevent a universal fixed byte bound |
+
+The source lock has 27 files and three original papers. These counts measure
+provenance, not performance. Existing native evidence includes the exact-source
+80-root, eleven-GC, repeated full-continuation lanes and natural exits. It does
+not establish a new prompt implementation or all reflection/native boundaries.
+
+* Five submission gates
+The [[file:../../../../evidence/research/continuation-segments/validation.json][retained validation manifest]] binds source snapshots, formal artifacts, native
+SysML evaluation, actual ASCENT requests/results and the derived diagram.
+There are thirteen bounded scheduling histories and eight violation controls;
+the separate Lean result has six supporting laws for one algebraic obligation.
+Five ASCENT controls qualify the final catalogue-derived partition. These are
+different measures, not a combined runtime completion percentage.
+
+#+NAME: continuation-five-gates
+| Gate | This study establishes | Required before commit |
+|---+---+---|
+| Tests | Native SysML, exclusive ASCENT checks, finite scheduling controls and separate conditional algebra proof; previous baseline native evidence remains source-bound | Complete implemented replacement bootstrap and affected native/control/GC/FFI regressions |
+| Architecture | Source-grounded shared segment/root/restore/wind boundary and refutations | Real retirement of old owners; measured ordinary/GC/peak costs |
+| Process | Whole vertical cut and migration dependencies; no runtime edit or commit in this study | Each migrated caller/consumer and exceptional route accounted for |
+| Models | Exclusive obligation routing; bridge and source obligations explicit | Concrete C/Scheme refinement, alias/metadata lifetime and complete writer closure |
+| Gambit/paper questions | Full vs delimited, multiplicity, shared heap, winding and C origin distinguished | Arbitrary hook reinstatement, operator semantics and supported native crossings qualified |
+
+All gates are conjunctive. No focused formal result, archive pin or successful
+baseline continuation test authorizes a commit of an unimplemented contract.

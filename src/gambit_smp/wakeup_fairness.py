@@ -98,5 +98,9 @@ def main():
     print("FAIRNESS-IR-CORRESPONDENCE-ONLY-NOT-SOURCE-ADMISSION")
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('wakeup-fairness')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('wakeup-fairness',main))

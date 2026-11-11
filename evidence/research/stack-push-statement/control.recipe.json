@@ -1,0 +1,140 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-push-statement-controls",
+  "scope": "Finite check that the statement-terminated 4-word push and a frame-RA store below alloc_stack_limit are refused without header damage or interrupt service. Omitted push, omitted frame-RA write, omitted stack check, and interrupt-service checks are counterexamples. The recorded relations 9*8-32=40 and 4*8-24=8 are invariant conjuncts. No native bootstrap, stress, runtime, or milestone admission.",
+  "budgetSeconds": 400,
+  "workspacePolicy": "isolated",
+  "inputs": [
+    "models/gambit/stack_push_floor_check.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-stack-push-statement/source.lock.json",
+    "evidence/fixtures/darwin-stack-push-statement/review-contract.json",
+    "patches/fixtures/darwin-stack-push-statement.patch",
+    "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 180,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-push-statement/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": ["source"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_push_floor_check.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_push_floor_check.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "positive",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_push_floor_check.qnt",
+        "parsed": "parse",
+        "initializer": "initPush",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "positive-frame",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_push_floor_check.qnt",
+        "parsed": "parse",
+        "initializer": "initFrameRa",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "omitted",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_push_floor_check.qnt",
+        "parsed": "parse",
+        "initializer": "initOmitted",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "omitted-push",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_push_floor_check.qnt",
+        "parsed": "parse",
+        "initializer": "initPushOmitted",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "omitted-frame",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_push_floor_check.qnt",
+        "parsed": "parse",
+        "initializer": "initFrameRaOmitted",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "interrupts",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_push_floor_check.qnt",
+        "parsed": "parse",
+        "initializer": "initServicesInterrupts",
+        "step": "step",
+        "invariant": "InterruptsOff",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["source", "parse", "type", "positive", "positive-frame", "omitted", "omitted-push", "omitted-frame", "interrupts"],
+      "budgetSeconds": 45,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"},
+        "expected": {"missing": []}
+      }
+    }
+  ]
+}

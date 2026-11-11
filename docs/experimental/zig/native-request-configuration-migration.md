@@ -1,0 +1,308 @@
+# Unified Native Requests, Effective Configuration and Path Replacement
+
+Date: 2026-10-20. Design only. No implementation, configuration run, native/model
+test or performance validation. Refines the [native contract](zig-native-contract-design.md)
+and [system-layer value study](zig-system-layer-value.md). Source IDs R1-R9 and
+upstream IDs L1-L5 resolve in the [evidence ledger](native-request-migration-evidence.md).
+
+## 1. Why the LLVM Boundary Matters
+
+Yes: an explicit layer separating the language/runtime from MLIR/LLVM engineering
+is a central benefit of this architecture. Earlier statements that Zig is not
+logically necessary must not be read as dismissing that layer. Its purposes are:
+
+- Keep Gerbil/Gambit semantics and generated-code/runtime requirements explicit.
+- Reuse MLIR pass/analysis/conversion and LLVM code-generation infrastructure
+  inside a replaceable compiler service [L1-L3].
+- Contain provider versions, native dependencies, object emission, process
+  resources and diagnostics behind a project-owned request/result contract.
+- Support C construction and admitted MLIR products without imposing one
+  provider's private handles or release cycle on the whole runtime.
+
+Zig is the proposed system implementation for that boundary. The boundary needs
+semantic products and capability/version contracts; a process or C API alone
+does not create it. Its value is **independent evolution with controlled change
+propagation**, not simply one more call layer. Neither the LLVM backend nor Zig
+supplies Scheme semantics automatically.
+
+## 2. Selected Managed Path
+
+The [effective Darwin/GCC model](effective-configuration-darwin-gcc.md) refines
+the fields and mode recipes below. It selects a finite initial managed scope,
+separates direct Gerbil executable routes from generic Gambit templates, records
+resolution actions even when their outputs are unused, and gives concrete
+M1-M12 completion and LLVM invalidation conditions. Its
+[source ledger](effective-configuration-evidence.md) binds the baseline bytes.
+
+![Request and effective configuration](native-request-resolution.svg)
+
+Select a data path from language producers to a native resolver/executor, with
+no return to the old gambuild environment/shell-template protocol in supported
+managed operations. Keep explicit legacy/portable construction outside that
+profile until its callers migrate. No path has been retired by this document.
+
+The managed path has five products. These are conceptual records, not executable
+schemas or newly introduced APIs:
+
+| Product | Required contents | Owner / forbidden interpretation |
+| --- | --- | --- |
+| Native intent | Schema, semantic product references, operation/output roles, ordered inputs, native requirements, symbolic entry/alias requirements, operation options and public-option provenance | Gerbil/Gambit producer; must not contain an opaque shell command that the executor guesses how to split |
+| Configured profile | Authoritative Gambit feature/header/protocol output; compiler family/language, captured defaults, per-mode templates as typed segments, build features, runtime/library requirements; generation inputs and tool identities | Gambit configuration producer; Zig must not clone its feature decision tree |
+| Tool/target resolution | Host executable identities, target triple/data layout/CPU/ABI/deployment, SDK/sysroot, linker/archiver capabilities, target package resolver and search environment | Native resolver, constrained by configured profile and intent; host package availability is not target compatibility |
+| Effective plan | Exact executable/argv/environment/cwd, mode-specific segment expansion, actual inputs/dependency closure, outputs, service/policy identities and execution limits | One native resolver; execution never independently remerges metadata or reads ambient overrides |
+| Native result | Real terminal outcome, selected plan/profile identities, output roles/digests/dependencies, diagnostics and publication status | Executor/provider; result is not Scheme instance state or runtime acceptance |
+
+Operations remain `compile-object`, `archive`, `link-shared`, `link-executable`
+and `run-compiler-service`. Archive is an explicit capability: R2's configured
+`BUILD_LIB` is a “not yet implemented” command in the inspected templates, so
+archive support must not be presented as an already equivalent old `lib` path.
+A Gambit semantic module-link remains a producer operation and supplies a link
+unit to native execution; it is not converted into platform linking [R7].
+
+One envelope does not flatten option domains. Semantic generation options stay
+with their producer; C compile options apply to declared C units; native link
+options retain target/order meaning; service optimization is selected by an
+approved pipeline policy. Do not pass GCC option strings through to an MLIR
+pipeline as if their meanings were interchangeable. Embedded-C islands remain
+separately declared native inputs when the general backend cannot lower them.
+
+Use bounded JSON control metadata and separately identified large blobs, as
+selected in the native contract. Preserve absent versus empty fields, ordering,
+string framing and integer ranges. Request IDs/log timestamps are operational
+unless observed by the producer; observed paths/names remain actual inputs.
+Use the existing `K` request, `D` content, `P` compatibility and `E` admission
+distinction from the [artifact contract](compilation-unit-artifact-contract.md).
+
+## 3. Effective Configuration: One Decision, One Owner
+
+There are deliberately two different decisions: Gambit decides what its feature
+configuration means; the native resolver decides the final tool invocation for
+that configuration and request. “One effective configuration” does not mean
+putting all feature logic in Zig or treating configure output as sufficient
+without per-request resolution.
+
+For M8, the eventual configuration refactor must derive shell and data outputs
+from one authoritative mode/default model while both profiles exist. Hand-copying
+the current shell templates into a second Zig table would retain two policy
+implementations and fail the ownership criterion, even if the resulting commands
+initially match. This is required configuration-producer work, not something
+already achieved by exporting JSON.
+
+### 3.1 Resolution Order
+
+1. **Select the profile.** Identify requested target/runtime features and host
+   tools separately. Produce or retrieve Gambit's configuration using the chosen
+   toolchain and its declared inputs. A mismatched compiler/configuration pair
+   is rejected or reconfigured, never silently repaired by retaining old flags.
+2. **Decode public intent once.** Preserve Gerbil phase/debug/static semantics
+   and Gambit generation/link options. Produce native compile/link requirements
+   without a downstream second parser of `-cc-options`/`-ld-options` strings [R4].
+3. **Resolve package search paths.** Start from the declared ambient baseline,
+   then metadata and request paths in their original order. R3 prepends each path,
+   so the last added path has priority. Resolve target packages in that exact
+   environment; capture tool, `.pc`/transitive dependencies and results.
+4. **Resolve conditional metadata.** Interpret the supported metadata condition
+   language against the configured build-feature selection, not host guesses.
+   Transport producer-owned expressions/data; remove grep/sed evaluation from
+   native execution. R3 includes `and`, `or`, `not`, `when` and string decoding.
+5. **Expand the selected mode.** Follow the mode's typed segment order, including
+   package results, metadata and explicit options. Preserve repeats and link
+   positions. A universal concatenation, sorting or deduplication rule is wrong.
+6. **Seal the plan.** Bind tool/profile/SDK/inputs, exact argv/environment/cwd,
+   output roles and service policy. Execute that plan directly. Child environment
+   is explicit; concurrent requests do not mutate process-global environment.
+7. **Complete observed dependencies.** Compiler depfiles and service reports may
+   refine the output dependency closure. Validate changes/mutations before
+   publication. A future HIT requires an already valid closure; a cache key
+   cannot omit an input merely because it is discovered late.
+
+Resolution may reuse an immutable configured profile. This does not waive actual
+input validation or require one expensive rediscovery for each tiny object HIT.
+Unknown compile-time/ambient dependencies keep the proper larger unit or make
+that generation noncacheable; hashing source alone cannot establish closure.
+
+### 3.2 Source-Level Flag and Override Rules
+
+| Rule | Inspected behavior | Managed design |
+| --- | --- | --- |
+| Configured flags versus runtime overrides | `CORCXXFLAGS_GAMBUILD` and `LDFLAGS_GAMBUILD` use configured defaults only when unset [R1, R2] | Capture origin and distinguish unset, explicit empty and explicit value; never read them again inside execution |
+| CC override | `obj`, `dyn`, `exe` replace compiler and clear the corresponding `FLAGS_*`; other segments remain [R2] | Treat legacy override and toolchain reselection as different requests. Model override's exact suppressions or declare it unsupported before execution |
+| Build features | Metadata tests use `ALL_BUILD_FEATURES`, selected C compiler feature and Unix build feature [R2, R3] | Carry those exact labels and selection. Do not substitute “Darwin” for the source's “unix” test |
+| Native option order | Package resolution precedes file metadata, which precedes explicit per-request additions; configured templates place segments differently by mode [R1-R3] | One ordered segment model per mode; record provenance without changing ordering |
+| Native executable link | Non-MSVC template places runtime-library location before output/options, then inputs, runtime link segment, configured libraries and tail options [R1] | Preserve this mode order; do not move runtime libraries into a sorted common list |
+| Phase/debug/static filtering | Gerbil separates semantic GSC options from CC/LD options and treats phase/debug/static specially [R4] | Retain semantic policy in Gerbil; retire re-parsing/string flattening only in its managed native emitter |
+| Strings and shell constructs | Current paths mix newline-encoded arguments, metadata decoding, shell templates and a space split in `gcc-ld-options` [R2-R4] | New native arguments are arrays. Unsupported historical command fragments are not split by whitespace or evaluated as a shell program |
+
+During migration, a declared compatibility subset must map supported legacy
+option/metadata semantics, including warnings/errors. R3 currently warns and
+ignores unsupported metadata expressions. A stricter managed profile may reject
+them, but must document that restriction and refuse admission; it must not claim
+transparent equivalence. Arbitrary historical compiler command strings require
+an explicit argv/tool contract or remain outside the managed profile.
+
+Raw metadata embedded in C need not be the executor's input. The C producer can
+emit a bound side record from its existing metadata structures. Gambit's own
+semantic link-info reading/composition is a separate retained function; removing
+the native shell metadata parser does not remove that semantic reader [R7].
+
+## 4. Concrete Migration and Retirement Inventory
+
+Statuses below are **proposed end states for migrated callers**, not edits or
+current retirement claims. Whole-file deletion is not the measure of success.
+
+The [configured-input recheck](darwin-configured-input-design.md) adds concrete
+exit gates for every M1-M12 row: recovered Darwin bindings, source-specific
+lossy transports, empty package resolver and generated header conditions.
+All retirement gates remain open; no legacy function is retired by this study.
+The [single-source profile design](single-source-native-profile.md) now specifies
+the shared configure model and dual output. The
+[equivalence/retirement matrix](native-argv-equivalence-matrix.md) defines E01-E32
+and the concrete M2-M8 exit gates; none has been executed or closed.
+
+| ID | Existing path / source | Managed end state | Retain / qualification requirement |
+| --- | --- | --- | --- |
+| M1 | Gerbil environment tool discovery, `driver.ss:38-54` [R4] | Ingress resolves explicit provider/tool choices into intent/profile once; migrated native calls stop rediscovering tools | GSC selection for language compilation and public option meaning remain; explicit env compatibility stays at ingress only |
+| M2 | Gerbil `gsc-cc-options`, `gsc-ld-options`, `gcc-ld-options`, `driver.ss:952-1010` [R4] | Typed native requirements replace native flag flattening/space splitting for migrated operations | Preserve phase/debug/static filtering and language-generation options; functions with other callers cannot simply disappear |
+| M3 | Gerbil native `gsc -obj` and direct GCC routes, `driver.ss:318-381,572-587` [R5] | Issue native intent for objects/executables; one executor owns native compile/link | Gambit semantic generation/link stays. Do not call `gsc -obj` inside the executor and thereby reenter gambuild |
+| M4 | Patched Darwin `env BUILD_DYN_* gambuild-C dyn`, `driver.ss:1054-1113` [R5] | Explicit object/shared-bundle intents, generated-source metadata and semantic symbol alias pair | Retain module-ref/linker-name, dynamic/PIC requirements, output roles and existing error boundary |
+| M5 | Gambit `##gambuild-params` and `##gambuild`, `_gsclib.scm:498-593` [R6] | Managed branch issues native request data directly; no GAMBUILD/BUILD_* round trip | Keep native operation selection/semantic producer boundary; portable legacy profile may retain old driver |
+| M6 | Shell `get_meta_info*`, `eval_sexpr`, `process_pkg_config*`, `extract_cc_ld_options` [R3] | Retire from managed execution: producer metadata + one resolver covers these responsibilities | Retain exact supported condition, search precedence and diagnostic semantics; package tool can remain an owned child |
+| M7 | Shell substitutions and `eval BUILD_*_CMD`, `gambuild-C:285-410` [R2] | Retire from managed execution: resolved argv runs directly | Preserve typed mode segments; reject unsupported template expressions rather than delegate them |
+| M8 | Configure-generated shell templates/default bindings [R1] | Managed profile consumes added data output from the same authoritative configuration producer | Keep configure probes, feature/header generation and legacy template output where still used; no Zig clone of configure |
+| M9 | Darwin runtime-C/static-C copies and separate output paths [R5] | Retain by default; artifact references may replace proven redundant copies later | Same bytes at another path can change `__FILE__`, metadata/debug/name behavior. Do not count copy removal without path/output parity |
+| M10 | Gerbil/Gambit generic process/status plumbing [R5, R8] | Gambit launches/reaps executor; executor owns tool/service children | Generic Scheme process API and error delivery remain; no competing in-process child reaper |
+| M11 | Gambit target/link/FFI and runtime setup/loading [R7, R9] | Retain semantic composition, generated link units, GC/control/maps and runtime admission | Native executor receives their products; LLVM does not replace these responsibilities |
+| M12 | Outer scheduling, source/toolchain qualification and independent portable builds | Remain with existing owners; receive declared native products and limits | No second Zig semantic scheduler/cache authority, no weakened fallback runtime or admission gates |
+
+The intended reduction is M2-M7's duplicated native representations and dispatch,
+not removal of the responsibilities they implement. Package resolution, correct
+flags and process waiting still occur where required. M8 separates configuration
+knowledge from its old shell encoding. M9 prevents a misleading claim that a
+new executor has eliminated work already avoided by the existing Darwin patch.
+
+### 4.1 No-Wrapper Completion Conditions
+
+For a migrated supported operation, all of these must hold:
+
+- No `GAMBUILD_*`/`BUILD_*` protocol, `gambuild-C` invocation, shell-template
+  evaluation or native `gsc -obj` delegation appears below the native boundary.
+- One resolver owns effective argument/metadata/package interpretation; children
+  do not reconstruct or override the plan independently.
+- Configured defaults still come from the authoritative producer. Per-field
+  provenance explains every effective segment, including suppressed defaults.
+- Retained language/link/runtime functions remain explicitly called by their
+  owners, rather than being relabeled as native executor implementation details.
+- Legacy selection happens before executing the managed operation. Failure is
+  returned with its actual stage/status; it does not trigger a hidden retry via
+  the old chain after native tools or semantic initialization have had effects.
+
+The legacy route can remain for nonmigrated profiles; its existence alone is not
+stacking. Stacking occurs when a supposedly migrated request still traverses it.
+Retirement accounting therefore counts reachable native responsibilities and
+decision owners per selected route, not all retained repository files.
+Report the coverage denominator as well: actual native request kinds/workloads,
+managed coverage, rejected/unsupported requests and remaining legacy callers.
+Zero old-driver invocations in an empty or unrepresentative managed profile is
+not evidence that the migration solved the original work.
+
+## 5. Darwin Walkthrough Without Executing It
+
+For the inspected `gsc-compile-file` Darwin static-path branch [R5]:
+
+1. Gerbil retains phase selection and Gambit generation using the existing
+   module-ref/linker-name semantics. The resulting C and metadata are inputs.
+2. Preserve the current static-source path until path-sensitive behavior is
+   accounted for. The design does not assume it can delete the existing copy.
+3. Emit `compile-object` intent with dynamic/PIC requirements, actual C identity
+   and configured runtime/header profile. The executor calls the admitted
+   native compiler directly, rather than using `gsc -obj` as a wrapper.
+4. Emit `link-shared` intent over that object, ordered native link requirements
+   and a symbolic alias from producer-supplied entry names. Gambit retains name
+   encoding; the executor owns the platform linker argument spelling.
+5. Publish each required role and report the real terminal outcome. “Bundle
+   not produced” remains a failure; an object HIT is not a successful bundle.
+
+The separately inspected executable path retains Gambit's semantic link step,
+then replaces only native object/link invocations [R5]. Moving both operations
+under one executor may reduce repeated native setup; it does not prove a gain
+or permit merging Scheme units. The existing code already has object scheduling
+and a link barrier; adding another coordinator does not create new parallelism.
+
+## 6. MLIR/LLVM Engineering Reuse and Upgrade Isolation
+
+![Provider and upgrade boundary](llvm-provider-decoupling.svg)
+
+| Upstream capability | Reuse behind the service boundary | Project work that remains |
+| --- | --- | --- |
+| Pass management and analysis [L1] | Pipeline composition, analysis caching/invalidation, instrumentation and failure diagnostics | Versioned admitted pipeline, correct analyses/effects and reproducible producer inputs |
+| Dialect conversion [L2] | Rewrite/type-conversion infrastructure and legal/illegal target mechanism | Scheme operation meaning and correspondence; “full conversion” is not semantic correctness |
+| LLVM target code generation [L3] | Target descriptions, instruction/register lowering and emission infrastructure | Correct exported data layout/calling/runtime protocol and target qualification |
+| C API/provider implementation [L4] | C-compatible opaque access inside the native service | Version-pinned bindings/extensions; API has no stability guarantee |
+| Bytecode/IR transport [L5] | Existing container/IR tooling inside a declared export encoding | Independent dialect semantics, schema and runtime compatibility versions |
+
+Zig consumes the **project service contract**, not arbitrary LLVM implementation
+details. It hosts and packages a provider whose internal implementation may be
+C++/ODS/TableGen, Zig plus C API extensions, or a mixture. Ordinary Gambit
+consumers do not need to import MLIR headers or maintain its C++ handles.
+The service owns its contexts and passes; the backend owner defines their
+Scheme/runtime legality. This lets us reuse infrastructure without rewriting
+Gambit's frontend/runtime to track every LLVM release.
+
+| Change | Expected propagation under the contract | What remains conditional |
+| --- | --- | --- |
+| LLVM/service revision, unchanged accepted export/output protocol | Rebuild/requalify provider, invalidate outputs produced under its old plan identity; producer export and unrelated C route need not be regenerated solely for this change | Calling convention, target/link dependencies, LTO compatibility and output protocol must actually remain compatible |
+| Pass policy/optimization revision | Invalidate that policy's derived products, retain independent earlier semantic products | New pipeline still needs legality and workload qualification |
+| Dialect meaning/export version | Update affected producer/service boundary and derived products | Bytecode parsing success is not semantic compatibility |
+| Gambit runtime layout/GC/control generation | Requalify and rebuild affected C and MLIR products/adapters | Service isolation cannot hide a private runtime-protocol change |
+| Zig resolver/provider adapter revision | Re-evaluate plan/producer identities and affected native products | Reuse only under the declared producer/key policy; same argv alone is not sufficient evidence |
+| SDK/native dependency or target profile | Re-resolve affected native configuration, objects and links | Host service binary identity and target runtime identity remain distinct |
+
+This is the concrete engineering dividend: smaller, explicit upgrade/rebuild
+scope and reusable compiler machinery. It is an architectural expectation,
+not a claim that existing artifacts already have these contracts or that an
+LLVM upgrade requires no tests. C-ABI companion objects and full Gambit code
+objects remain different output roles under the [native contract](zig-native-contract-design.md).
+
+## 7. Benefit and Maintenance Evaluation Standard
+
+Compare three cases under the same semantics and supported profiles: the current
+route, consolidated contracts using existing implementation tools, and those
+same contracts with Zig. Credit staging/contract benefits once; incremental Zig
+value is the difference from the consolidated baseline.
+
+| Criterion | Future evidence required to assess it | Rejection condition |
+| --- | --- | --- |
+| Real replacement | Source/call inventory for M1-M12 and complete request trace; one owner per effective decision | Supported managed operation still delegates to old native protocol or repeats its interpretation |
+| Configuration fidelity | Field/segment provenance, supported override/metadata matrix, host-target/package/path/error parity | Sorted flags/libraries, lost empty/unset distinction, hidden ambient configuration or unknown accepted syntax |
+| Work reduction | Counts/bytes for actual generation, parsing/resolution, compiler/service invocations, validation, copies and output publication | Cache HIT counts alone, moved logs, previously existing parallelism relabeled as new, or uncharged preparation |
+| End-to-end cost | Matched MISS/population/HIT/no-op/config-delta workloads; first genuine compile, complete build and complete tests separately | New component cost hidden by narrower timers, increased gates or unrelated profile numbers |
+| Upgrade isolation | Named files/components/products affected by provider-only, dialect, SDK and runtime changes | LLVM-only changes unnecessarily spread private APIs into ordinary runtime/frontend, or required compatibility rebuild is skipped |
+| Continuing maintenance | Actual adapters/decision owners retired, support matrix, upgrade/debug/release effort over a stated horizon | Zig adds a permanent second option parser, duplicate scheduler/cache authority or an unowned upgrade axis |
+| Capability value | Required admitted services/targets/native integrations, with exact output-role coverage | Counting hypothetical future features or unsupported operations as delivered value |
+
+The retained [request-cost DENY](../../../../../patches/gerbil-v19-darwin/receipts/d1510-object-request-cost.md)
+shows 0.88s versus 1.59s component request means despite all-HIT parity; extra
+preparation can lose. The retained [generation result](../../../../../patches/gerbil-v19-darwin/receipts/d1510-compiled-closed-generation-boundary.md)
+shows a strong within-process HIT opportunity without Zig. They are different
+workloads, not rival whole-system scores. Neither supplies a maintenance ROI.
+
+Use the existing system-layer cost ledger: avoided duplicated engineering and
+required capability value must exceed migration and recurring tool/service/
+boundary costs over a named horizon. No numeric weights, person-month savings
+or speed target are invented here. Existing historical gates and unresolved
+native acceptance remain unchanged; the table specifies later evidence, not
+authorization to run it now.
+
+## 8. What Is Closed and What Remains Open
+
+Selected: one producer-owned native intent, authoritative configuration output,
+one effective resolver, direct native execution, explicit provider contracts,
+and route-scoped retirement of M2-M7. LLVM engineering reuse and independent
+evolution are first-class reasons for this boundary, alongside work reduction.
+
+Remaining before implementation: exact typed segment/legacy-syntax coverage,
+configuration data emission, producer metadata side records, supported native
+operation/profile matrix, dependency-discovery/publication details, and costed
+migration ownership. No complete wire schema or new executable fallback path
+is introduced. This is a concrete replacement design and evaluation standard,
+not an implemented migration or demonstrated benefit.

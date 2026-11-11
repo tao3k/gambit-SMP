@@ -1,0 +1,35 @@
+# Presentation only; typed topology, guards, contracts, ownership and costs come from native SysML.
+if $view=="d2" then
+ "direction: down", "vars: { d2-config: { theme-id: 0 } }",
+ (.nodes[]|"n_\(.nodeId): { label: \(.labelText|@json) }"),
+ (.diagramEdges[]|"n_\(.producer.nodeId) -> n_\(.consumer.nodeId): \((.labelText|split(" ")|. as $w|[range(0;($w|length);3) as $i|$w[$i:$i+3]|join(" ")]|join("\n"))|@json)")
+else
+ "#+TITLE: Modern C Request Retirement, Exhaustion and Metadata Failure Matrix", "#+LANGUAGE: en", "#+PROPERTY: header-args :eval never", "#+OPTIONS: toc:2 num:nil", "",
+"* Bounded control capacity", "Counts are design parameters, not measured bytes, throughput or heap bounds.",
+"| Profile | Window | Maximum outstanding | Fixed cells | Settled bits | Required post-publication control allocations |", "|---+---+---+---+---+---|",
+(.capacity|to_entries[]|"| "+([.key,.value.width,.value.maxOutstanding,.value.controlCells,.value.bitmapBits,.value.requiredPostPublishControlAllocations]|map(tostring)|join(" | "))+" |"), "",
+"* Native-evaluated control cuts", "Independent local predicates, not whole-transition source proofs. A head bit certifies all required prior settlement duties.",
+"| Cut | Can reserve | Can advance | Can summarize | Natural Scheme slots cleared |", "|---+---+---+---+---|",
+(.windowCuts|to_entries[]|"| "+([.key,.value.canReserve,.value.canAdvance,.value.canSummarize,.value.naturalSchemeSlotsCleared]|map(tostring)|join(" | "))+" |"), "",
+ "* Identity and custody", "| Need | Field | Source | Contract | Invalid shortcut | Custodian |", "|---+---+---+---+---+---|",
+ (.fields[]|"| "+([.need.obligationId,.fieldId,.sourceAnchors,.valueContract,.invalidShortcut,.failureCustodian]|join(" | "))+" |"), "",
+ "* Modeled transitions", "| Need | From | To | QNT actions | Guard | Conditional Lean law | Actual source duty |", "|---+---+---+---+---+---+---|",
+ (.transitions[]|"| "+([.need.obligationId,.fromPhase,.toPhase,.qntStep,.guardContract,.leanLaw,.sourceAnchors]|join(" | "))+" |"), "",
+ "* Source routes", "| Need | Source | Projection | Failure custodian | Status |", "|---+---+---+---+---|",
+ (.sourceRoutes[]|"| "+([.need.obligationId,.sourceAnchors,.projection,.failureCustodian,.status]|join(" | "))+" |"), "",
+ "* Real generator and callers", "| Family | Source | Actual chain | Required change | Admission boundary |", "|---+---+---+---+---|",
+ (.callers[]|"| "+([.callerId,.sourceAnchors,.actualChain,.hazard,.replacement]|join(" | "))+" |"), "",
+ "* Root and control paths", "| Path | Source | Current | Contract | Failure boundary | Custodian |", "|---+---+---+---+---+---|",
+ (.allocators[]|"| "+([.pathId,.sourceAnchors,.actualPath,.contract,.failure,.custodian]|join(" | "))+" |"), "",
+ "* C memory ordering", "| Edge | Required order | Rejected shortcut |", "|---+---+---|",
+ (.orders[]|"| "+([.edgeId,.orderContract,.rejectedShortcut]|join(" | "))+" |"), "",
+ "* Benefit and peak matrix", "| Capability | Avoided support/work | Quantified boundary | New support | Positive condition or falsifier |", "|---+---+---+---+---|",
+ (.costs[]|"| "+([.capability,.removedWork,.bound,.addedCost,.condition]|join(" | "))+" |"), "",
+ "* Closure", "| Component | Need | Kind | Exact scope | Premise | Status |", "|---+---+---+---+---+---|",
+ (.needs[]|.obligationId as $id|"| "+([.owner.componentId,.obligationId,.kind,.subjectScope,.premise,(if ($observation[0].qualifiedSlice|any(.[2]==$id)) then "Conditional local model checked" else "OPEN: source or C memory refinement" end)]|join(" | "))+" |"), "",
+ "* Dependencies", "| Dependent | Prerequisite |", "|---+---|",
+ (.dependencies[]|"| \(.dependent.obligationId) | \(.prerequisite.obligationId) |"), "",
+ "* Research gates", "| Gate | Required need |", "|---+---|",
+ (.gateNeeds[]|"| \(.gate.gateId) | \(.need.obligationId) |"), "",
+ "* Boundary", "Only RT-H and RT-I qualify locally; current source, fixed-window storage, router, root/exit and C-order research gates stay closed. Synthetic all-scoped evidence is a policy control. No runtime changes, native tests, measured benefit or retired runtime path."
+end

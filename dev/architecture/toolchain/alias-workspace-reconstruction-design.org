@@ -1,0 +1,264 @@
+#+TITLE: Target and Primitive Alias Closure and Private Workspace Reconstruction
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Decision and evidence boundary :gambit:gerbil:modern_c:
+:PROPERTIES:
+:CUSTOM_ID: alias-workspace-reconstruction
+:AUTHORITY: AliasWorkspaceReconstruction
+:STATUS: conditional-protocol-source-platform-open
+:EVIDENCE_CLASS: source-study-and-local-formal-models
+:END:
+
+Gambit remains the compiler/runtime foundation and Gerbil implements the incremental
+compiler service. A reusable target/primitive snapshot must be a qualified graph
+and provider description, not a shallow copy of today's vectors or a generic dump
+of Scheme closures. Each consumer reconstructs its own mutable target/primitive/GVM
+emission workspace while preserving the admitted semantic observer.
+
+[[file:models/sysml/alias-workspace-reconstruction.sysml][SysML]] owns six alias families, eight provider recipe schemas, six ordered reconstruction phases, four observer
+dimensions, four gain cases, four refinement routes and seven open gates. The
+[[file:../../modeling/tools/alias-workspace-reconstruction-study.py][Python driver]] calls native SysML, generates [[file:alias-workspace-reconstruction-matrix.org][Org tables]], [[file:diagrams/alias-workspace-reconstruction.svg][D2]] and parameters, then
+runs [[file:../../../models/build/alias_workspace_reconstruction.qnt][QNT]], [[file:../../../models/build/AliasWorkspaceReconstruction.lean][Lean]] and the actual [[file:../../modeling/ascent/alias-workspace-reconstruction.rules.scm][typed ASCENT DSL]]. These are local model results,
+not host-attested source/native admission. [[file:../../../evidence/research/alias-workspace-reconstruction/checks.json][Checks]] preserve that distinction.
+No compiler/runtime implementation, native tests, generation or timing is run.
+
+* RESEARCH Concrete alias paths beyond syntactic stores :source:
+:PROPERTIES:
+:CUSTOM_ID: target-primitive-alias-paths
+:SOURCE_CLOSURE: explicit-paths-confirmed-open-world-closure-unproven
+:END:
+
+The preceding [[file:target-stage-sealing-design.org::target-writer-census][writer census]] retains the syntactic candidate inventory. This study adds
+constructor -> storage -> captured reference -> consumer paths. It does not turn
+those text matches into a whole-program alias proof.
+
+| Path | Source evidence | Consequence |
+|---+---+---|
+| Registry -> selected target -> default label/jump closures -> targ | [[file:../../../vendor/gambit/gsc/_back.scm::171][make-target]] captures targ in both closures; [[file:../../../vendor/gambit/gsc/_t-c-1.scm::243][C begin!]] mutates the same instance | Copying the target vector retains closures pointing at the old target |
+| C primitive table -> proc vector -> specialize closure -> that proc | [[file:../../../vendor/gambit/gsc/_back.scm::288][table creation/access]] returns stored objects; [[file:../../../vendor/gambit/gsc/_gvm.scm::165][make-proc-obj]] installs a closure returning proc-obj | Copying only a primitive vector does not copy its self cycle correctly |
+| Specializer -> spec, proc or specs -> other primitive objects | [[file:../../../vendor/gambit/gsc/_prims.scm::1786][def-spec, spec-s/u/nargs/arith]] capture get-prim-info results and the original proc | Every cross-primitive edge must resolve through the same destination map |
+| GVM primitive -> inline callback -> emitter/frame state | [[file:../../../vendor/gambit/gsc/_t-c-2.scm::934][targ-gen-apply]] invokes proc-obj-inline; [[file:../../../vendor/gambit/gsc/_t-c-2.scm::2870][force inline provider]] refers to targ frame/emission routines | A private primitive table is insufficient while its providers still use global emitter state |
+| proc vector -> tag list -> proc-obj? | [[file:../../../vendor/gambit/gsc/_gvm.scm::192][proc-obj-tag and predicate]] use eq? | Duplicating that tag list can make the destination object fail its own type predicate |
+| Frontend/GVM/constant roots -> procedure objects -> emission queues/cells | [[file:../../../vendor/gambit/gsc/_front.scm::785][frontend metadata writes]], [[file:../../../vendor/gambit/gsc/_t-c-1.scm::764][targ-use-prc]], [[file:../../../vendor/gambit/gsc/_t-c-1.scm::337][C-interface consumption]] | Relocating the primitive table alone leaves old references reachable from actual consumers |
+
+The specializers are behaviorally significant. spec-u chooses a captured safe or
+unsafe procedure using safe? on the environment; spec-nargs selects by argument
+count; spec-arith selects using declaration-sensitive arithmetic and eq? identity
+checks. Replacing them with name-only lookup or one universal closure changes
+semantics. Simplifier closures also capture folder lists; expander/inline provider
+capture graphs need the same inventory discipline.
+
+The proc tag is canonical in the destination runtime, not a portable source heap
+address. A portable record names a qualified tag kind and reconstructs the current
+runtime's canonical tag. This does NOT assert that arbitrary existing lists are
+immutable: sharing is admitted only for classified canonical objects under the
+managed writer contract. Raw mutation or exposure of compiler internals remains
+an alias escape and denies reusable admission until mediated or proven safe.
+
+** What remains outside the closed alias set
+
+Target extra fields, user-registered targets, callbacks from arbitrary compiler
+extensions, reflective setters, raw FFI pointers and dynamically rebound compiler
+procedures can add edges. There is no automatic portable Scheme operation that
+rebinds an arbitrary closure's environment. Such a provider is nontransferable
+unless its reconstruction semantics are explicitly supplied and qualified. It may
+remain in a safe owner-local noncached path; it cannot silently enter the shared
+snapshot route. C-interface nested payloads and every live GVM referent still
+require complete recursive classification.
+
+* RESEARCH Reconstruct behavior rather than copy closure addresses :contract:
+:PROPERTIES:
+:CUSTOM_ID: workspace-reconstruction-protocol
+:END:
+
+#+begin_src text :eval never
+Snapshot = {
+ semanticProfile, producer/compiler identities, phase/module contract,
+ ObjectTable[ObjectId -> kind + immutable fields + reference ObjectIds],
+ ProviderRecipes[ProviderId, factory identity, captured-record schema,
+                 referenced ObjectIds, declared context capabilities],
+ declarations, identity relation, generated-view origin table,
+ diagnostic/outcome contract, dependency trace
+}
+Workspace = {
+ fresh instance + attempt/generation, rooted construction region,
+ relocation[ObjectId -> destination handle], configured private target,
+ primitive overlay, private consumed C-interface graph,
+ procedure/module emission state, diagnostic sink and outcome custody
+}
+#+end_src
+
+ProviderRecipe is a proposed generated compiler contract. Existing Scheme def-spec,
+def-exp, def-simp and target setup logic remain the semantic source; the refactoring
+would generate an explicit construction plan and context-bound provider interface.
+It must not infer arbitrary closures by introspection or serialize code pointers.
+Every factory/captured-record alternative requires an equivalence argument. Unknown
+factories or incompatible compiler/profile identities reject reconstruction.
+
+The eight canonical provider schemas are concrete proposed replacements for real
+factory branches, not generic closure serialization:
+
+| Recipe family | Captured data to relocate | Behavior that must be retained |
+|---+---+---|
+| Target calling | Target ObjectId and label/jump signature | default-label/jump must inspect the destination target configuration |
+| Self specializer | Self primitive ObjectId | Return destination self |
+| Safe specializer | Selected primitive ObjectId | Return the selected destination primitive |
+| Unsafe specializer | Self and selected primitive ObjectIds | Preserve safe? choice |
+| Argument-count specializer | Self and ordered optional primitive ObjectIds | Preserve indexing, absent entries and self fallback |
+| Arithmetic specializer | Self, primitive name and fix/flo/unsafe ObjectIds | Preserve arithmetic declaration and safe?/eq? choices |
+| Force inline | Qualified body identity and explicit emitter context | Preserve label/frame/emission operation order with private state |
+| Simplifier folders | Ordered qualified folder records | Preserve first successful folder, exceptions and effects; recursively classify captured records |
+
+These schemas are owned by SysML and included in the generated matrix. All remaining
+factory alternatives must be classified before the general service admits them.
+The inline provider code is not assumed to capture a self primitive merely because
+its installer receives one; captures must come from the actual body. Folder and
+arithmetic records are not an excuse to flatten arbitrary callbacks or declarations.
+
+There are six phases, canonically defined in SysML:
+
+1. Classify the reachable graph after writer admission closes and existing writers
+   settle. Separate immutable data, relocated mutable nodes, canonical tags and
+   qualified providers. Retain source custody throughout construction.
+2. Allocate all destination target and primitive shells before installing closures.
+   Root incomplete objects with valid traced slots; ObjectIds define one injective
+   relocation map for the entire destination workspace, not one map per table.
+3. Wire ordinary fields and GVM/operand/constant/C-interface references through that
+   map. Preserve shared edges and cycles. Canonical type tags use destination tag
+   resolution. Missing references abort; never fall back to a source address.
+4. Bind providers using the new target/primitive handles and explicit emission
+   context. Self-specialization returns the new primitive; captured alternative
+   primitives are from that same workspace. Existing global targ functions must
+   migrate or receive the explicit context before in-process parallelism qualifies.
+5. Validate provider/reference coverage, semantics-changing profile, phase/module
+   identity, declaration scopes, origins, and the admitted diagnostic observer.
+   Fingerprint equality proves neither graph completeness nor semantic equivalence.
+6. Publish one ready workspace after initialization is visible and ownership remains
+   current. Only then invoke destructive C emission on private inputs.
+
+The allocation map is an identity-preserving isomorphism of the classified source
+graph within one destination realm: aliased source ObjectIds resolve to the same
+handle; distinct mutable source identities stay distinct; different workspace
+realms get distinct mutable instances. This does not equate semantic primitive
+names with observable Scheme eq? across all sessions. Exported canonical binding
+relationships, fresh instance relationships and internal pointer identity need
+separate relations. Compiler extensions observing live internal addresses cannot
+be promised transparent cross-process snapshot transport.
+
+The currently existing default-label/jump closures must be constructed AFTER their
+new target shell exists; primitive self/cross closures must be constructed AFTER
+all required primitive shells exist. This breaks construction-order cycles without
+executing partially built providers. It does not justify breaking language phase
+cycles or reordering effectful module initializers.
+
+** Private state, publication and recovery
+
+The original snapshot stays immutable and rooted while any consumer holds it.
+Workspace mutation cannot update source snapshot tables or another consumer's
+primitive vector. Any shared data reachable from a workspace needs its own write
+proof; a release/acquire publication alone cannot make hidden aliases disappear.
+GC root registration, safepoints and native borrow admission refine separate runtime
+contracts; ordinary Scheme GC still exists regardless of the implementation language.
+
+A partial destination and the source snapshot have distinct custody. Unknown
+provider completion retains destination roots and any borrowed source view until
+its true endpoint settles. A failed patch or validation never publishes readiness.
+Cleanup must retire callbacks/borrows before roots, and exactly one owner accounts
+for the partial region. The QNT settle action abstracts a truthful completion
+receipt; it does not prove one can be issued after a timeout. Generation/epoch
+checks from the preceding [[file:iter-compiler-service-design.org::iter-gambit-stage-contract][context study]] remain required on actual resume/publication;
+they are not fully re-modeled by this bounded reconstruction instance.
+
+* RESEARCH Actual iter observer and equivalence obligations :iter:
+:PROPERTIES:
+:CUSTOM_ID: reconstruction-iter-observer
+:END:
+
+The real source chain is iter/macros -> iter/api -> std/iter -> string/misc and
+sync/wg. [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/iter/macros.ss::41][for1]] builds syntax/loc lambdas and dispatches recognized iterator forms;
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/string/misc.ss::227][misc]] uses for/in-range with mutation and a continuation; [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/sync/wg.ss::37][wg]] loops through worker joins
+under exception handling. Those continuations/joins are runtime behavior, not proof
+that compilation itself executed a multi-shot continuation or native thread join.
+The generated declarations and target primitive specializers must preserve the
+resulting code's safety, arithmetic, calls and control behavior.
+
+| Observation | Required relation | Evidence boundary |
+|---+---+---|
+| Binding/mark/gensym identity | Preserve equality and distinction, namespace/phi, quote-syntax context reconstruction and fresh session policy | [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/base.ss::185][Identifier generation]] and [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/compile.ss::1150][quote-syntax code]] are actual producers; a complete codec proof is open |
+| Declarations | Preserve ordered scoped tree, module resets and positive-phase policy; these feed specialization | [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/compile.ss::401][Declaration emission]] and [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::787][compile-scm-file]]; do not collapse to an unordered profile map |
+| Origin | Preserve baseline generated-file reader positions and path semantics; retain optional original expansion provenance separately | [[file:../../../vendor/gambit/gsc/_front.scm::215][read-source versus sourcify-deep]] remains a real fidelity obligation, not an automatic in-memory optimization |
+| Failure/exception | Preserve phase/status/diagnostic projection and ordered causal effects; retain owned resources until settlement | [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::963][invoke]] currently maps nonzero process status into a compile error; raw internal exceptions are not automatically equivalent |
+
+The intended relation is Observe(old generated-file parse/lower/emit) ~
+Observe(reconstructed structured-result parse/lower/emit), under the same declared
+semantic profile, epoch, admitted effects and identity policy. Workspace-local
+addresses may differ, but every observable binding, result, error and required
+source location must relate. No Scheme compile, reader roundtrip or native emission
+was executed to establish that relation in this study.
+
+* RESEARCH Mathematical models, source duties and closure matrix :sysml:ascent:qnt:lean:
+:PROPERTIES:
+:CUSTOM_ID: reconstruction-proof-matrix
+:END:
+
+| Duty | Actual artifact | Conditional result | Remaining premise |
+|---+---+---+---|
+| AR-H | Two-workspace QNT reconstruction model | Shell/wire/provider/validate/publish order, self/cross/target references, canonical tag and unknown custody | Integer handles are abstract; full graph/cycles and real factory execution are not modeled |
+| AR-I | Eight Lean lemmas | Injective relocation within bounded slot classes, private separation, canonical tag, self reference, observer distinctions and cost accounting | Source layouts, provider semantics and full transition induction remain open |
+| AR-S | SysML source duty and four explicit operation/lemma routes | Concrete alias paths and candidate migration cuts | Whole-program alias/recipe/reader/exception simulation; depends on TS-S |
+| AR-E | Independent platform duty | No native admission | Actual roots/FFI/SMP/C memory order and observed time/space evidence |
+
+QNT contains 16 named scenarios, six of which intentionally violate the protocol:
+shallow target capture, shallow primitive self capture, copied canonical tag,
+collapsed primitive identity, ignored source origin and premature unknown release.
+There are two sampled initial states: approved recipes and an unknown recipe.
+The model does NOT discover arbitrary aliases or prove how every source factory
+behaves; matching its integer references is a necessary abstract property.
+
+Native ASCENT evaluates the maintained typed DSL using native SysML-derived
+need/method/path/scope/dependency facts. Six cases check current model receipts,
+missing QNT, stale subject, wrong Lean scope, synthetic complete admission and an
+unknown-provider refusal. Synthetic complete admission is explicitly a control,
+not a source attestation. The real current case keeps AR-S, AR-E, external TS-S
+and all seven gates open. Upstream host registration failed during the preceding
+study; that failure is retained and not retried unchanged or relabeled as resolved.
+
+* RESEARCH Migration and net benefit :modern_c:benefit:
+:PROPERTIES:
+:CUSTOM_ID: reconstruction-net-benefit
+:END:
+
+Migration follows consumers and authority, not an extra wrapper layer:
+
+1. Classify target/primitive factory captures and provider semantics; introduce
+   declarative reconstruction descriptions generated by Scheme semantic logic.
+2. Move target selection and primitive lookup to explicit owned context services,
+   keeping unknown compiler extensions on a separately owned noncached route.
+3. Reconstruct primitive, GVM, constant and C-interface references in one domain;
+   give emitters private module/procedure/output state.
+4. Migrate compile AND link callers, then retire global targ-target/dispatch/lookup
+   authority. A transitional adapter must not become a second long-term owner.
+5. Qualify reader/declaration/identity/exception equivalence before retiring the
+   generated file as the authoritative handoff. Human-readable export can remain.
+
+Let k be admitted uses, F the front-end/declarative work otherwise repeated, Z
+freezing cost, R provider/primitive reconstruction, L graph relocation, and V extra
+validation. Positive total-work benefit requires (k-1)F > Z + k(R+L) + V. No claim
+that closure reconstruction is free or that all primitive setup can be eliminated.
+If k=1, shared persistence alone cannot pay nonnegative extra costs; exclusive
+single-consumer transfer may be the appropriate path. The shared template can
+save immutable preparation only when that work was actually repeated in baseline.
+
+Parallel benefit separately requires removed global-state serialization to exceed
+new reconstruction/coordination on the critical path. Peak memory includes source
+snapshot, all private primitive/GVM/emission state and suspended contexts. A larger
+private overlay can defeat the benefit even when CPU work falls. These are runtime
+work/span/memory criteria, not person-days or an argument for Zig by itself.
+
+The [[file:alias-workspace-reconstruction-matrix.org][generated matrix]] records four gain cases and falsifiable conditions. No end-to-end
+speedup, native correctness, source closure or superiority to another compiler is
+claimed. Modern C is mandatory; optional backend implementations must consume the
+same owned contracts and justify additional benefit independently.

@@ -1,0 +1,41 @@
+#+TITLE: Span Storage, Multi-shot Custody and Net-Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: span-storage-matrix
+:AUTHORITY: SpanStorageHandoff
+:END:
+
+Derived by Python from native SysML. No source/native gate is closed by this view.
+
+** Contract
+
+| key | anchor | rule | openDuty |
+|---+---+---+---|
+| isolated-content | lexer.ss:120-122,146,175; deflexer.ss:53-58 | Private retained decoded chunks never alias mutable callback-visible @@; resuming after its allocation preserves the same exposed object | Native/reflective alias exclusion and actual chunk publication; a copied Scheme record alone does not prove separate backing storage |
+| resume-occurrence | _thread.scm:8422-8529,8555-8584; lexer.ss:146,175 | Separate capture identity, resumption occurrence, source program point and transport operation; resuming after read does not reread, while executing a reader entry again may legitimately read current input | Exact source/control simulation including captures in winding thunks; finite two-resumption model is not full Scheme semantics |
+| exception-reachability | std/error.ss:43-69; runtime/error.ss:16-20,37-43,67-72; runtime/syntax.ss:71,169-171 | ParseError and SyntaxError carry StackTrace continuation slots; delivery or successful wrapping does not prove old stream unreachable | Actual reachable frames depend on tail-call elimination and capture point; do not assume every exception retains every stream |
+| translation-transfer | lang-reader.ss:60-71; runtime/error.ss:67-72; runtime/syntax.ss:169-171 | Prepare replacement roots before releasing original attempt custody; allocation, mapping or raise failure keeps responsibility until handler/trace/control reachability settles | Ordinary nested-error propagation preserved; failure fallback must not silently replace the actual thrown exception with the original |
+| separate-release-domains | base.ss:7-8; lexer.ss:20,50-52; stream.ss:19,37-38; _io.scm:10003-10014 | Old stream, raw chunks, origin-port object and physical resource have distinct lifetimes; detached token/span views need not retain the old stream | Prove no reverse side-table edge; GC-managed control capsules cannot be strongly rooted by their own native pin counts |
+| known-ignore-reduction | deflexer.ss:40-44; lexer.ss:146,175; lang-reader.ss:271-274,323-324 | A generated constant-$ reduction does not observe @@; a qualified descriptor may omit its otherwise unused chars->string materialization | Restrict to proven generated descriptor; arbitrary Rs retain API, mutation and effects; allocation-failure observations require an explicit optimization profile |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| storage-alias-proof | False | Private chunks, exposed strings and native writable aliases have a complete source-bound separation argument |
+| multi-shot-refinement | False | Capture/resumption/program-point/operation identities reflect real execution and winding; no global memoization of user effects |
+| exception-root-closure | False | Original, replacement, secondary error, stacktrace and control references included before reclamation |
+| reclamation-adapter | False | Managed reachability and native borrows/pending operations form a sound release witness without self-rooting cycles; native ordering unqualified |
+| ignore-specialization | False | Generated constant-$ classification and allocation-observation policy prove omitted materialization admissible |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| reset-calls | Same prior upper bound: 2A stream constructor calls plus A initial-location calls | Isolated content, views, root/operation records and adapters | Not additive to prior study and not a time/allocation benchmark |
+| ignored-strings | For I qualified ignored occurrences: at most I chars->string source calls, with input lengths summing to L_ignore | Generated reduction classification, retained raw text and observation-policy proof | Only constant-$ descriptors; preexisting compiler elimination may reduce realized saving to zero |
+| shared-raw-chunks | No mandatory full raw copy for each continuation resumption; old stream may drain before detached token/span views | Unique retained decoded contents plus O(views + active resumptions + pending operations); mutable @@ remains separate | No side-table back edge; live errors/captures can retain history indefinitely |
+| modern-c-baseline | Remove split lifetime authority and accidental duplicate reads/effects | Tracing/root integration, failure custody and native publication support in either modern C or Zig | Net work positive only when avoided work exceeds these supports; no uniquely Zig advantage established |

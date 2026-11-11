@@ -1,0 +1,244 @@
+#+TITLE: Fundamental Incremental and Parallel Build Design for Gambit
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Build less correct work, then schedule it well :toolchain:modern_c:
+:PROPERTIES:
+:ID: 2685523b-5e98-45c1-8c6b-b011caa2f33a
+:CUSTOM_ID: incremental-parallel-build
+:OWNER: Gambit toolchain architecture
+:AUTHORITY: GambitToolchain
+:STATUS: design-only
+:EVIDENCE_CLASS: source-paper-and-conditional-work-bound
+:DEPENDS_ON: BF-BUILD-CUT; BF-BUILD-BUDGET; BF-SCHEMA
+:END:
+
+Incremental planning and parallel execution are first-class components of the
+[[file:../../refactoring/modern-c/runtime-blueprint.org][modern-C modernization blueprint]]. Faster native compilation is only one
+possible gain. The larger goal is to avoid unnecessary elaboration, generation,
+compilation and linkage while preserving exact semantics and build failures.
+The semantic producer, rule planner, rebuild decision and executor need
+different contracts even when hosted by one existing build system.
+
+[[file:source-chain-design.org][The concrete GSC source-chain study]] supplies the first source-specific
+leaf/macro/no-change cases and new mathematical specifications. Its bounded
+model and conditional Lean theory retain explicit source-refinement gaps.
+
+[[file:models/sysml/architecture.sysml][The toolchain SysML model]] owns the eight artifact families, ten delta cases,
+source facts and necessary incremental/parallel predicates. [[file:build-map.org][The derived map]]
+and [[file:diagrams/incremental-build.svg][artifact graph]] ([[file:diagrams/incremental-build.d2][D2]]) are maintained projections. No build engine,
+compiler option, cache or runtime is implemented or executed in this study.
+
+** Existing support is the starting point
+:PROPERTIES:
+:CUSTOM_ID: existing-build-support
+:END:
+
+Gambit [[file:../../../vendor/gambit/makefile.in::105][Make]] already responds to jobserver configuration and divides bootstrap
+work into phases. Its module rules distinguish Scheme generation, C objects,
+semantic linkfiles and executable/library composition. from-scratch deliberately
+cleans and builds twice; compiler-stage correspondence must be preserved.
+These are reasons to audit edges, not evidence that every phase is unnecessary.
+
+The parent repository already has a [[file:../../../../../patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch][streaming Gerbil native-job executor patch]],
+including follow-up jobs and error propagation. The [[file:../../../src/gambit_smp/gambit_build_primitives.py::18][research build primitives]]
+already coordinate make jobs and compiler processors. The [[file:../../../../../tools/ci/build_source_toolchain.sh::101][source-toolchain script]]
+records compiler/patch identity and checks expected products after a wrapper
+that can hide make failure. The design must reuse or deliberately replace these
+actual owners, rather than introduce a second scheduler beside them.
+
+No source reading alone quantifies how much present build time is redundant.
+Retained Darwin records describe specific generation, macro-expansion,
+instantiation and C-compilation costs; those are different stages. The earlier
+[[file:studies/darwin-first-compile-boundary.org][first-compile study]] keeps pre-native import/context work separate. A native
+object cache cannot automatically remove repeated live interface construction.
+
+* RESEARCH Learn from Dune and build-system research
+:PROPERTIES:
+:CUSTOM_ID: build-learning
+:END:
+
+[[https://dune.readthedocs.io/en/stable/explanation/tour/engine.html][Dune separates its engine from language-specific rule generation]]. Gambit
+can similarly own semantic units while a selected engine owns execution and
+artifact storage. This is an interface lesson, not a decision to rewrite Gambit
+builds in OCaml or adopt Dune wholesale.
+
+[[https://dune.readthedocs.io/en/stable/explanation/tour/rule-generation.html][Dune's Memo and action builders]] distinguish dependency-aware internal
+planning from actions that read/write build products. For Gambit, memoizing
+module/flag/closure computation is a separate benefit from caching generated
+C or objects. Both need explicit dependencies; a cache around shell commands
+alone leaves repeated planning untouched.
+
+[[https://www.microsoft.com/en-us/research/publication/build-systems-a-la-carte/][Build Systems a la Carte: Theory and Practice]] supplies a framework for
+separating scheduler and rebuilding choices. We apply that distinction to
+dependency order, early cutoff and artifact reuse. This is our design inference;
+the paper does not establish correctness or speed of a Gambit graph.
+
+[[https://arxiv.org/abs/2007.12737][Build Scripts with Perfect Dependencies]] studies missing and excess
+dependencies and traced execution with speculation. Gambit must handle both
+under-invalidation and over-invalidation. Tracing is supporting evidence only:
+native filesystem observations do not automatically describe Scheme phase
+effects, lexical context, hidden tool state or every Darwin I/O observation.
+Speculative action execution is not selected by this blueprint; it requires
+a separate side-effect and replay argument.
+
+* RESEARCH Producer-owned units and action identity
+:PROPERTIES:
+:CUSTOM_ID: semantic-build-unit
+:END:
+
+Reuse [[file:studies/compilation-unit-artifact-contract.org][the existing semantic-unit study]]: an independently reproducible unit is
+a closed module or inseparable elaboration group, including ordered forms,
+includes, imports, declarations, phase/macro effects and foreign metadata. A
+filename, procedure or native object is not automatically such a unit. Runtime
+call cycles alone do not require coalescing modules; shared mutable elaboration
+state may. Widen or deny cached separation when a sufficient immutable
+producer contract is unavailable.
+
+One request authenticates a source generation and immutable dependency closure.
+The proposed action record is contract notation, not an implemented format:
+
+#+NAME: proposed-build-action-record
+#+BEGIN_EXAMPLE
+Action = semantic producer + mode + stage/compiler lineage + relevant input cut
+       + tool image/dependencies + ordered argv + declared environment + cwd
+       + target/effective profile projection + expected output group
+Observation = content/type/path identity + absent lookup or directory/symlink fact
+Result = successful exit + complete output identities + sealed input generation
+       + committed artifact-set manifest
+#+END_EXAMPLE
+
+Correctness has two boundaries. The semantic producer supplies complete
+language/context dependencies. The native action supplies tool, header/depfile,
+environment, path, SDK and filesystem dependencies. Dependency discovery during
+an action extends its cut before success can be published. Validate the whole
+generation, including relevant absence/directory facts, at reuse/publication;
+if the read context changed, reject that attempt. A discovered depfile cannot
+retroactively make an earlier incomplete cache key valid.
+
+Use immutable/snapshotted inputs or a qualified generation protocol for the
+entire action. Matching hashes only at the end do not rule out a transient
+change while the compiler was reading. Any unobserved input escape keeps that
+action's reusable-result admission open rather than being treated as harmless.
+
+Do not execute arbitrary untracked semantic effects under a reusable result.
+Uncacheable work can still execute under an explicit isolated contract, but it
+cannot claim a cache success. A sandbox alone does not prove all semantic
+dependencies. Shell/profile strings also require the existing exact argv
+decoding/admission contract; a new parser is not a second configuration owner.
+
+** Artifact projections and early cutoff
+:PROPERTIES:
+:CUSTOM_ID: build-invalidation
+:END:
+
+The [[file:build-map.org][artifact graph]] separates semantic closure, completed plan, generated
+products, configured runtime/header capability, objects, ordered link closure
+and publication. Bootstrap stage and compiler image are explicit inputs.
+Host/build/target tools have distinct identities for cross-compilation.
+
+Semantic module-link planning/linkfile generation precedes compilation of that
+linkfile's own object. Independent module objects need not wait for that plan.
+These nodes are artifact families: instantiate only the dependencies a product
+actually consumes. Handwritten RTS objects do not all depend on Scheme module
+generation, and one module object does not depend on every other module's C.
+This distinction prevents the model itself from recreating global phase barriers.
+
+A native compiler change normally affects objects/linking, not a semantic plan
+that did not read it. A target/layout change may reach generation or planning;
+the producer's audited projection decides. Frame/root ABI changes must invalidate
+all dependent declarations, objects and final links. An unchanged generated
+C file is not enough for cutoff if side metadata or module initialization
+records changed. Compare every downstream-observed product and preserve new
+lineage even when unchanged bytes stop downstream work.
+
+Compiled interface-construction programs may be reusable. Mutable live contexts,
+lexical identities, dynamic bindings and phase instances still require their
+declared fresh initialization. AOT reuse must respect that separate boundary.
+No cache entry may resurrect a previous request's mutable context implicitly.
+
+* RESEARCH Parallel ready work under one CPU and memory grant
+:PROPERTIES:
+:CUSTOM_ID: parallel-build-budget
+:END:
+
+Publish rules as soon as their real prerequisites are available. Native
+compilation may overlap independent generation as the existing streaming patch
+does. Replace a global phase barrier only after enumerating the exact dependency
+edges it enforced, including bootstrap compiler and semantic linkfile order.
+Do not parallelize coupled macro evaluation or reorder module initialization.
+Ordered link inputs are a sequence, not a set.
+
+One host-level budget covers make, Gerbil generation, GSC processors, native
+compiler internals and link jobs. Each active action holds a declared CPU weight
+and memory reservation. A nested request borrows/delegates existing capacity or
+waits without holding all capacity needed by its children. In particular, a
+parent waiting for a child cannot retain the only usable token indefinitely.
+Unknown compiler-internal parallelism needs conservative admission or an
+explicit cap, not an unverified worker-count claim.
+
+Declared reservations bound scheduler admission, not actual compiler RSS or OS
+progress by themselves. Their adequacy needs future peak-memory observations or
+enforced resource limits. Keep this separate from a claim that no build can OOM.
+
+The scheduler must preserve dependency and output ownership while admitting
+ready work. Cancellation closes new external submissions, accounts accepted
+follow-up work and drains or cancels children under a declared policy. Preserve
+the first error even when the language permits raising a false value. Record
+real progress and retain failed attempts; widening timeouts or adding synthetic
+heartbeats is not build throughput improvement.
+
+Necessary conditions, not proved bounds, are:
+
+#+BEGIN_EXAMPLE
+sum(active CPU weights) <= admitted host CPU grant
+sum(active memory reservations) <= admitted memory budget
+ideal makespan >= max(total mandatory work / CPU grant, dependency critical path)
+net gain = avoided planning/generation/compile/link work
+           - added dependency/hash/cache/scheduling/publication work
+#+END_EXAMPLE
+
+The makespan expression is only a lower bound in a declared work model. I/O,
+memory bandwidth, linker memory and unbounded OS waits can dominate. A larger
+job count does not remove a monolithic C unit's critical path. Splitting that
+unit requires an independently correct producer boundary.
+
+* OPEN Transactional publication, migration and acceptance
+:PROPERTIES:
+:CUSTOM_ID: build-publication-acceptance
+:STATUS: source-refinement-and-benefit-open
+:END:
+
+Each action writes an attempt-owned staging group. A successful result publishes
+one manifest only after every expected output exists with the correct bytes,
+the input generation remains valid and the action actually succeeded. Readers
+consume committed immutable artifacts. A cancelled or failed attempt cannot
+publish partial products as success; logs and failure receipts remain separate.
+Multiple requests for one valid action may share in-flight work only with
+explicit cancellation/result ownership. Atomic publication/storage durability
+details remain an implementation/refinement obligation.
+
+[[file:build-map.org][Ten delta cases]] define no-op, leaf edit, macro/include edit, unchanged
+output, native compiler change, frame ABI change, link-only change, bootstrap
+producer change, failure/cancellation and resource pressure. These are future
+independent acceptance cases, not executed tests. For a fully reusable no-op,
+eligible generation/compile/link action count should be zero, with validation
+cost still accounted. For a leaf edit, rebuild the actual semantic/native
+consumer closure. A clean rebuild is a semantic comparison oracle under the
+same producer/profile, not the default incremental strategy.
+
+Migration starts with correct dependency/input/output contracts and existing
+support ownership, then planning/rebuild decisions, shared admission and
+publication. Bazel or Make can execute admitted rules; Gambit/Gerbil determine
+semantic units. Select one executor per boundary and retire the replaced
+envelope/scheduler after all callers migrate. The current outer project action,
+legacy scripts and their exact callers need a final caller audit before any
+claim that they can retire. A new wrapper over the same opaque work is not
+credited as work elimination.
+
+BF-BUILD-CUT and BF-BUILD-BUDGET remain open in the shared ledger. Rule-graph
+acyclicity checks, document drift controls and source hashes establish structure
+and provenance only. There is no new build-time measurement, native run,
+incremental cache result or runtime acceptance in this research.

@@ -1,0 +1,231 @@
+{
+  "contract": [
+    {
+      "key": "derived-credit",
+      "anchor": "setup.c:66-106,283,392,1147; os_setup.c:3037-3056",
+      "actionName": "publish",
+      "lemmaName": "publicationConserves",
+      "duty": "Requests own durable identities independently of pipe bytes; notification retries never republish semantic work",
+      "status": "new shared authority"
+    },
+    {
+      "key": "full",
+      "anchor": "os_io.c:1472-1495,1543; os_setup.c:424-485",
+      "actionName": "writeFull",
+      "lemmaName": "fullRetainsWake",
+      "duty": "Full-channel coalescing requires pinned endpoints, unique owner drain and mandatory pending recheck after drain",
+      "status": "kernel/profile premise"
+    },
+    {
+      "key": "eintr",
+      "anchor": "os_io.c:1543; os_setup.c:203-221",
+      "actionName": "writeEintr",
+      "lemmaName": "eintrRetainsOwner",
+      "duty": "Interrupted notification retains generation pin and delivery credit; retry same wake right or use qualified rescue",
+      "status": "write adapter required"
+    },
+    {
+      "key": "storage-commit",
+      "anchor": "os_io.c:11780-11828; os_setup.c:468-486",
+      "actionName": "acquire",
+      "lemmaName": "takePinRetainsGeneration",
+      "duty": "Acquire endpoint plus generation under lifecycle gate; both descriptors remain alive through syscall and response settlement",
+      "status": "no check-then-pin race"
+    },
+    {
+      "key": "arm",
+      "anchor": "os_io.c:973-1004,1472-1528; _thread.scm:2530-2562",
+      "actionName": "block",
+      "lemmaName": "pendingBlocksSleep",
+      "duty": "Arm and recheck durable pending under owner gate; drain does not clear request identity; finite wait bounds missed notification detection conditionally",
+      "status": "new native wait contract"
+    },
+    {
+      "key": "failure",
+      "anchor": "os_io.c:1543; os_time.c:987-996; os_tty.c:8700-8713",
+      "actionName": "writeHard",
+      "lemmaName": "failureRetainsCustody",
+      "duty": "Hard/unknown notification keeps producer or rescue custody; signal lane uses prepinned lifetime and quiescence instead of mutex acquisition",
+      "status": "signal lane refinement open"
+    },
+    {
+      "key": "participant",
+      "anchor": "setup.c:1049-1149; _kernel.scm:1448-1471",
+      "actionName": "enterCollective",
+      "lemmaName": "rosterEveryParticipant",
+      "duty": "Return from OS wait then release borrow, publish roots and join old roster; acknowledge only selected request snapshot",
+      "status": "prior sync-op contract"
+    },
+    {
+      "key": "retirement",
+      "anchor": "os_io.c:11808-11828; setup.c:932-978; gambit.h.in:11327-11340",
+      "actionName": "closeEndpoints",
+      "lemmaName": "pinBlocksClose",
+      "duty": "Withdraw admission, drain producer/wait/signal users, settle request and prior roster receipts, then close; uncertain close quarantines generation",
+      "status": "staged destruction"
+    }
+  ],
+  "gain": [
+    {
+      "key": "coalescing",
+      "avoided": "B notification bytes need not encode N semantic requests",
+      "added": "Durable request ledger and post-drain recheck",
+      "condition": "For N requests an already-full channel may add zero bytes; request multiplicity is preserved by semantic ledger, not byte count"
+    },
+    {
+      "key": "latency",
+      "avoided": "Avoid indefinite old-roster stall from a lost notification under admitted fallback",
+      "added": "Native wait timeout/recheck and scheduling overhead",
+      "condition": "Conditional detection bound T plus scheduling delay; not measured latency or arbitrary OS progress guarantee"
+    },
+    {
+      "key": "lifetime",
+      "avoided": "Avoid fd-generation ABA, premature endpoint close and duplicate semantic submission",
+      "added": "Producer/wait pins, signal-generation fence and close journal",
+      "condition": "O(P+W+S) control records plus payload roots; retained unknown close may quarantine VM services"
+    },
+    {
+      "key": "language",
+      "avoided": "One modern C wake authority can serve cleanup, FFI waits and scheduler",
+      "added": "Typed outcomes, control gate, lock-free signal ingress where qualified",
+      "condition": "Zig cannot remove synchronization, signal ABI, root or retirement obligations; extra language value not established"
+    }
+  ],
+  "gate": [
+    {
+      "key": "native-write",
+      "qualified": false,
+      "duty": "Exact Darwin pipe/socketpair semantics, return classification and signal interruption refined"
+    },
+    {
+      "key": "memory-order",
+      "qualified": false,
+      "duty": "All participating accesses migrated together; volatile plus fence is not a C11 proof; weak-memory/source simulation open"
+    },
+    {
+      "key": "signal-lifetime",
+      "qualified": false,
+      "duty": "Signal-safe immutable endpoint, required lock-free atomics, route withdrawal and all-thread handler grace period qualified"
+    },
+    {
+      "key": "generation-pin",
+      "qualified": false,
+      "duty": "Raw fd aliases, dup/close paths and PSTATE reuse all obey endpoint gate"
+    },
+    {
+      "key": "finite-fallback",
+      "qualified": false,
+      "duty": "Actual monotonic native timeout and scheduler fairness support detection; unqualified infinite waits refused"
+    },
+    {
+      "key": "old-roster",
+      "qualified": false,
+      "duty": "Root handoff, every participant, request selection/NOOP and resize deferral refined"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "duty": "Sender/wait/signal users, unknown close, VM/global services and inherited attestation remain unqualified"
+    }
+  ],
+  "edge": {
+    "0": {
+      "dependent.key": "full",
+      "prerequisite.key": "derived-credit",
+      "reason": "Bytes are not semantic request debt"
+    },
+    "1": {
+      "dependent.key": "full",
+      "prerequisite.key": "storage-commit",
+      "reason": "Full-channel witness requires pinned lifetime"
+    },
+    "2": {
+      "dependent.key": "eintr",
+      "prerequisite.key": "storage-commit",
+      "reason": "Retry retains exact endpoint generation"
+    },
+    "3": {
+      "dependent.key": "arm",
+      "prerequisite.key": "derived-credit",
+      "reason": "Recheck sees published semantic requests"
+    },
+    "4": {
+      "dependent.key": "arm",
+      "prerequisite.key": "full",
+      "reason": "Drain is followed by durable recheck"
+    },
+    "5": {
+      "dependent.key": "failure",
+      "prerequisite.key": "storage-commit",
+      "reason": "Failure retains endpoint lifetime"
+    },
+    "6": {
+      "dependent.key": "participant",
+      "prerequisite.key": "arm",
+      "reason": "Wake reaches rooted old owner"
+    },
+    "7": {
+      "dependent.key": "retirement",
+      "prerequisite.key": "storage-commit",
+      "reason": "Pins drain before descriptor close"
+    },
+    "8": {
+      "dependent.key": "retirement",
+      "prerequisite.key": "failure",
+      "reason": "Signal grace and rescue responsibility settled"
+    },
+    "9": {
+      "dependent.key": "retirement",
+      "prerequisite.key": "participant",
+      "reason": "Old roster receipt precedes retirement"
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "NWC-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/native_wake_channel.qnt",
+      "subjectScope": "safe: two thread producers, one prepinned signal, one channel generation and two old members",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "NWC-I",
+      "kind": "induction",
+      "subjectPath": "models/build/NativeWakeChannel.lean",
+      "subjectScope": "notification debt induction, conditional wake ownership, pin/generation and SC-order lemmas",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "NWC-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/native-wake-channel-design.org",
+      "subjectScope": "actual writer/drain/close/signal paths and source refinement",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "NWC-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/native-wake-channel-design.org",
+      "subjectScope": "Darwin kernel outcomes, C11 synchronization and signal grace period",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "NWC-S",
+      "prerequisite.obligationId": "NWC-H"
+    },
+    "1": {
+      "dependent.obligationId": "NWC-S",
+      "prerequisite.obligationId": "NWC-I"
+    },
+    "2": {
+      "dependent.obligationId": "NWC-S",
+      "prerequisite.obligationId": "NWC-E"
+    },
+    "3": {
+      "dependent.obligationId": "NWC-S",
+      "prerequisite.obligationId": "DCW-S"
+    }
+  }
+}

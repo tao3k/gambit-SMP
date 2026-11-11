@@ -2,9 +2,10 @@
 
 ## Selected Replay Evidence
 
-`evidence/published-inputs.json` explicitly selects pre-existing artifacts used by
-the consumer's strict evidence contracts. Their original SHA-256 and bytes are
-retained. This repairs blanket ignore rules that had hidden useful model and
+`evidence/published-inputs.json` explicitly selects pre-existing source/model artifacts used by
+the consumer's strict evidence contracts. Selected source bytes are retained;
+raw output is represented by typed observations keyed by its original SHA-256,
+with historical origin labels. This repairs blanket ignore rules that had hidden useful model and
 observation replay inputs from clean checkouts; it is not a new successful run.
 The listed files are deliberately tracked despite the broad runtime-output
 ignore patterns. `tests/test_published_evidence.py` checks every selected path,
@@ -20,15 +21,45 @@ field, an ASCENT answer or a filename containing `evidence` does not automatical
 make its output a Git asset. Failed results may be important durable evidence;
 successful debug logs may be disposable.
 
+Raw transcripts (`.log`, `.stdout`, `.stderr`), compiled Lean modules (`.olean`),
+scratch text (`.txt`) and author/execution scripts (`.rb`, `.sh`) are not Evidence assets. Run artifacts belong in the
+existing task cache; maintained programs belong in source/tool/fixture directories.
+Reviewed prose uses Markdown or Org. A required input selection is structured
+data, not a dependency on a cached line-list file.
+
 | Class | Location | Retention and authority |
 | --- | --- | --- |
 | Source and research definitions | `src/`, `models/`, `library/`, `patches/`, Evidence DSL, Recipes and locks | Version in Git; exact source and policy remain bound inputs |
 | Selected research evidence | `evidence/` and reviewed notes in `docs/` | Explicitly publish typed observations, failure identities, source/fixture/receipt digests, actual outcomes, budgets and evidence limits; review before commit |
-| Execution output | `.cache/` or an explicit external local artifact directory | Logs, traces, generated graphs, test output, request/response bodies, wheel/build products and intermediate inventories stay out of Git |
+| Execution output | `.cache/` or an explicit external local artifact directory | Raw logs, unreviewed traces, generated graphs, test output, request/response bodies, wheel/build products and intermediate inventories stay out of Git; selected decoded counterexamples belong to research evidence |
 | Local operational state | `.cache/reasoning`, `.cache/research-actions`, `.cache/research/budget-ledgers` | Pending requests, journal heads and budget reservations are not disposable logs; migrate explicitly, never reset them |
 | Historical active workspace custody | Existing ignored `.data/fixtures` stores | Old references remain exact; active leases/quarantine stay with their original workspaces and are not silently moved |
 
 ## Framework Behavior
+
+- Python write validation rejects those seven suffixes below `evidence/`, even
+  outside an active task scope. This also applies inside managed worktrees.
+  The repository check inspects both the working Evidence tree and the Git index,
+  so an external script or force-add cannot silently publish such files. Ignore
+  rules alone are insufficient because they do not remove already indexed files.
+- Model/progress/component publishers capture typed output properties in their
+  existing receipt or the existing publication registry, never copy transcripts.
+  These include completed checks, state counts, numeric observations and decoded
+  counterexample identities. Original receipt outcomes, timeout flags and source
+  conditions remain authoritative inputs. Historical labels are provenance, not
+  files that readers should reconstruct. No synthetic log or PASS is generated.
+- Cache collection cannot erase a published failure, result or checkpoint.
+  Consumers bind durable observations and original receipts independently of raw
+  output availability. Missing structured evidence remains unknown; changed
+  models, tools or conditions still invalidate current applicability. Historical
+  success does not become fresh native acceptance after cache collection.
+- Provider edit permissions exclude the same suffixes under Evidence. External
+  programs are not OS-contained by Python's write guard: repository regression
+  checks reject any raw files they create before publication.
+- Publish selected typed observations through the existing publication commands;
+  never copy every child of a run directory into Evidence. An incidental file
+  being hashed does not change its storage class. No new archive, restore alias
+  or retention pin is required for disposable output.
 
 - The cache root is exactly `git rev-parse --show-toplevel` plus `.cache/`, not
   the current working directory or a caller-selected source subdirectory. Nested
@@ -65,6 +96,17 @@ successful debug logs may be disposable.
   first. Do not claim raw logs are archived when they are only local or deleted.
 
 ## Existing Evidence And Cleanup
+
+The mixed-run cleanup relocated 896 `.olean`/`.txt`/`.rb`/`.sh` files out of
+Evidence, plus one paired C fixture. Only the maintained registry review runner
+and its C fixture remain source assets, under `models/gambit/native/`.
+The remaining relocated files are ordinary task cache, not a durable archive.
+Current inventories dropped 851 incidental bindings; five selected model-input
+lists became explicit receipt data, and one unqualified web-cache dependency was
+removed. Receipt revisions identify this as storage-only, not new execution or
+qualification. Historical before/entry/predecessor snapshots and observed source
+digests are not refreshed to manufacture currentness. Existing selected failure
+results and native/formal outcomes are retained; scratch files need not be.
 
 The audit found 92 versioned workspace-state inventories (30,439,189 bytes).
 The 54 automatic records under `evidence/research/workspace-states` alone occupied

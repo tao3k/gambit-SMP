@@ -1,0 +1,246 @@
+#+TITLE: C23 Development Refactor: Stable Native ABI and Phase Artifacts
+#+SETUPFILE: ../../modeling/org/setup.org
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+PROPERTY: COLUMNS %ITEM %STATUS %OWNER %PROOF_SCOPE
+#+TODO: RESEARCH DECIDED | ADMITTED RETIRED
+
+* DECIDED Scope and structural authority :c23:macos:compiler:
+:PROPERTIES:
+:CUSTOM_ID: c23-development-refactor
+:AUTHORITY: GambitDarwinDevelopment c23Feature0..5; c23Boundary0..3
+:STATUS: design; concrete source refinement and performance open
+:OWNER: existing native-descriptor and incremental compiler components
+:END:
+
+The design replaces per-module header parameterization and opaque whole-module
+build completion with Scheme-owned native contracts and phase-specific compiler
+results. Gambit remains the semantic compiler/runtime foundation; Gerbil owns
+the incremental phase service; gxi/gxc become clients. C23 is the native language
+baseline. Standard selection alone is not a build or SMP optimization.
+
+[[file:models/sysml/macos-development.sysml][Existing native SysML]] owns feature policy and typed boundary references to
+[[file:models/sysml/native-descriptor.sysml][ModuleSpec/FrameSpec fields]] and [[file:models/sysml/incremental-compiler-architecture.sysml][compiler stages]]. The [[file:c23-development-refactor-matrix.org][matrix]] and
+[[file:diagrams/c23-development-refactor.svg][D2]] derive from those rows. The actual [[file:../../modeling/ascent/c23-development-design.rules.scm][ASCENT DSL]] checks the exact
+role/stage/field/source/test/lemma/scope association. It cannot turn mathematical
+key laws or historical timings into native source/performance acceptance.
+
+The existing scheduler and owned-session QNT/Lean models remain authoritative.
+[[file:models/quint/native_artifact_partition.qnt][A focused native-artifact companion]] models only the new ABI/module/native key
+separation and publication cut; it is not another scheduler. Its [[file:models/lean/NativeArtifactPartition.lean][Lean laws]] state
+structural noninterference and explicit publication conditions. No automated
+QNT-to-Lean extraction or actual C dependency simulation is claimed for it.
+
+* RESEARCH Evidence and current-source boundary
+:PROPERTIES:
+:CUSTOM_ID: c23-current-evidence
+:END:
+
+The local Scheme emitter writes SYMCOUNT, GLOCOUNT, LBLCOUNT and MODDESCR before
+including gambit.h, then emits symbol/global/constant/procedure/module sections.
+The modular module_generation.h.in still consumes these definitions for table
+construction. A header file split alone leaves this protocol and token work intact.
+
+The historical [[file:../../../../../patches/gerbil-v19-darwin/receipts/d802-darwin-gcc-frontend.json][D802 component record]] reports 15.45 to10.37 seconds for one large generated
+C object, with identical object bytes after disabling macro provenance tracking.
+Its reported GCC cumulative allocation is not peak RSS. [[file:../../../../../patches/gerbil-v19-darwin/receipts/d861-gambit-header-pch-rejection.md][D861]] reports PCH rejection
+because GLOCOUNT was defined. These support investigating the interface boundary;
+they do not prove a current-head speedup or a universal Darwin/Linux ratio.
+
+Pre-first-compile Scheme execution is a different budget. Local Gerbil import
+source reads a module, creates a context, expands its body, quotes syntax and
+registers a delayed evaluator. It does not merely load inert declarations.
+The retained five-second first-log ceiling is not evidence of a fixed sleep.
+See [[file:studies/darwin-first-compile-boundary.org][the first-compile study]] and [[file:studies/interface-construction-aot-design.org][interface-construction program design]].
+
+Some earlier imported documents describe a native-profile.m4 candidate. That
+file was absent in the inspected local vendor tree during this design pass.
+Those candidate implementation claims are not promoted to this checkout. This
+study adds no configure policy, compiler flags, runtime code or native benchmark.
+
+* DECIDED What the C23 baseline adds
+:PROPERTIES:
+:CUSTOM_ID: c23-standard-benefit
+:PROOF_SCOPE: standard mechanisms and proposed applications, not speedup
+:END:
+
+The [[https://gcc.gnu.org/projects/c-status.html][compiler status table]] separates actual C23 additions from C11 foundations.
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3018.htm][WG14 N3018]] explains constexpr objects and their limits; [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2669.pdf][WG14 checked arithmetic]]
+provides the integer-checking rationale. These are language design sources, not
+measurements of Gambit or qualification of the installed macOS toolchain.
+
+#+NAME: c23-benefit-ledger
+| Mechanism | Proposed use | Boundary |
+|-----------+--------------+----------|
+| constexpr objects | Typed scalar counts, masks and admissible compile-time constants | No constexpr functions; not a general compile-time interpreter; non-null pointer relocation tables need another representation |
+| typeof / typeof_unqual; local object inference | Reduce private generated-helper type duplication and some compiler-specific glue | Public ABI stays explicitly typed; existing GCC typeof use is not new performance |
+| nodiscard | Diagnose accidental ignoring of fallible setup/admission/publication outcomes | A diagnostic is not a linear ownership or cleanup proof |
+| stdckdint checked arithmetic | Check count*elementSize+header and growth before native storage publication | Charge checks; do not consume overflow output; library/provider capability remains unqualified |
+| Atomics, TLS, alignment, static assertion, Generic selection | Keep standard foundations for runtime contracts | Present before C23; no new multicore, GC, lock-free or tail-call guarantee |
+| Ordinary functions, data and controlled inline | Replace repeated textual construction with one ABI and compiled shared helpers | Architecture work using older C mechanisms; not a benefit created by -std=c23 |
+
+A compiler accepting the language mode does not qualify every SDK/library
+facility, target ABI or attribute diagnostic. Capability identity includes the
+actual compiler, headers/SDK, target, options and provider. Unqualified required
+features refuse the profile or use an explicitly accepted implementation behind
+the same interface. Do not add a second permanent handwritten ABI/flag authority.
+
+* DECIDED Native emission boundary and proposed data schema
+:PROPERTIES:
+:CUSTOM_ID: c23-emission-boundary
+:OWNER: C-MODULE; C-FRAME; C-LITERAL
+:END:
+
+#+NAME: c23-native-data-products
+#+BEGIN_EXAMPLE
+NativeAbiIdentity = {
+  targetDataModel, compilerCallingMode, objectTags, rootAndFrameLayout,
+  tailAndContinuationProtocol, effectiveAbiDefines, inlinePolicy
+}
+ModuleSpec = immutable {
+  semanticModuleIdentity, nativeAbiIdentity,
+  boundedCounts, symbolNames, suppliedDemandedOrder,
+  literalGraphPlan, typedRelocations, frameAndPointIndices, initEffects
+}
+BindingInstance = mutable {
+  bindingDomainAndGeneration, resolvedTables, roots,
+  labelAndCodeResolver, enteredStage, completedStage, retainedFailureState
+}
+#+END_EXAMPLE
+
+These are proposed contracts, not current C ABI declarations. Scheme owns names,
+order, roots, liveness, control effects and phase semantics. One native layout
+encoder consumes those decisions; runtime consumers stop reconstructing them
+from independent macro conventions. ModuleSpec stays unchanged during fixup.
+Current global/interning ownership must be traced; this design does not assume
+all current tables are VM-local or copy every initialized object for each VM.
+
+A constexpr object is a C-level constant, not a preprocessor definition. Existing
+count-controlled ifdef/if branches must move into the Scheme producer or explicit
+descriptor interpretation; a spelling substitution for define is not equivalent.
+Genuine platform-selection macros may remain under the qualified ABI profile.
+
+The stable public ABI is independent of individual module counts. Counts and
+local storage extents are emitted into each module's private declarations/data.
+Non-null addresses may appear in appropriate static-const objects and admitted
+relocation plans; constexpr is reserved for eligible objects. Dynamic root,
+label resolution, foreign initialization and interning remain explicit work.
+
+Cold common setup/validation/decoding helpers can be compiled once per ABI/tool
+profile. Truly hot operations may remain controlled inline. Putting every
+helper into the public header repeats parsing and is not this design. Moving
+every hot macro to a call can regress runtime cost. Tail-transfer/trampoline
+edges remain governed by their own protocol; plain C calls are not substitutes.
+
+Literal payload lowering reuses C-LITERAL ownership. Binary embedding or a new
+initializer syntax is not credited with eliminating parser work without actual
+producer/consumer accounting. No universal PCH or header-unit gain is selected.
+The split only makes a genuinely invariant header possible; macro environment,
+SDK/compiler options and other PCH conditions would still require qualification.
+
+* DECIDED Artifact identities and invalidation
+:PROPERTIES:
+:CUSTOM_ID: c23-stage-keys
+:OWNER: existing incremental compiler query engine
+:END:
+
+#+NAME: stage-key-contract
+| Product | Complete identity inputs | Change behavior |
+|---------+--------------------------+-----------------|
+| Reader/syntax | Bytes, logical paths, reader profile and observed capabilities | Reader/path/effect changes reach affected semantic queries |
+| Interface/phase program | Module and phase, binding projection, transformer/helper code, dependency programs, initializer plan | Equal exported names do not imply equal executable support |
+| Expanded/GVM result | Semantic input, declarations/origins, actual dependency trace, optimizer facts and semantic target | Reusable only after graph/identity/effect closure; no raw live-context cache |
+| Generated C | GVM/native contract, emitter identity, representation/FrameSpec ABI and diagnostics mapping | A layout change can invalidate emission; target-semantic changes may reach earlier stages |
+| Common runtime object | Stable ABI, helper source, compiler/SDK/effective argv and native read closure | Module-local counts do not invalidate this object under the accepted split |
+| Module object | Its C/data bytes, descriptor shape, stable ABI/header closure, compiler/SDK/effective argv | Local changes rebuild actual consumers; no dependency is omitted just because it looks private |
+| Link manifest | Exact object/helper/library closure, ordered module metadata, linker and mode | Output files alone are not a complete accepted group |
+
+Nonces for sessions/attempts identify ownership, not automatically semantic cache
+identity. Generativity, source names and context-bearing values need a proved
+reconstruction or mapping before that distinction can enable persistent reuse.
+Unknown reader/eval/native/FFI observations deny a reuse permit. Ordered duplicate
+argv entries and opaque legacy fragments are not silently normalized away.
+
+Native-only tool/policy changes preserve semantic output /only when/ that input
+is not observed by a semantic generator. ABI changes propagate to every real
+consumer. A FrameSpec change also retains old code/descriptors while captured
+continuations, scanners or foreign users can still reference them. New object
+publication does not authorize unloading an old image.
+
+The companion key model assumes admitted noninterference: module count does not
+enter common HeaderKey, while ObjectKey includes module identity, header, tool, source and module
+descriptor. Concrete dependency closure must establish that assumption. Its
+negative controls reject cross-module aliasing, stale count reuse, a changed in-flight snapshot and
+opaque inputs. Failed publication preserves the old committed artifact and cannot
+mint a new completion. Actual atomic filesystem publication remains open.
+
+* DECIDED Phase execution and shared resource budget
+:PROPERTIES:
+:CUSTOM_ID: c23-phase-execution
+:OWNER: Gerbil service; Gambit CompileContext
+:END:
+
+Consumers need binding interfaces and executable macro support before expansion;
+they need not await unrelated phase-zero object compilation. Phase constructors
+may reuse immutable program instructions and rebuild current semantic instances.
+Required initialization, dynamic lookup, side effects, lexical marks, exceptions
+and continuation behavior remain observable. A frozen lookup result is not a
+substitute for a current-instance binding when the semantics require late lookup.
+
+Gambit's mutable options/environment/ptree/GVM/target/primitive/emission state
+must become request-owned or otherwise qualified. A mutex around the entire
+compiler is not the desired architecture. Separate processes can supply isolation
+while same-VM worker safety remains unqualified; they do not supply stage-level
+reuse by themselves. The single resource scheduler budgets expansion, C jobs,
+linking and retained memory together. It must avoid nested independent pools.
+
+The initial correct query grain is module × phase × stage × semantic profile. Native
+units retain approved module/host-function groups: arbitrary per-Scheme-function
+C sharding can break labels, tail edges, shared literals and binding setup. Further
+partitioning needs HostGraph/FrameSpec/point ownership proof, not a smaller file.
+
+* RESEARCH Migration and real retirement
+:PROPERTIES:
+:CUSTOM_ID: c23-migration
+:END:
+
+#+NAME: retirement-order
+| Cut | Migration | Retirement condition |
+|-----+-----------+----------------------|
+| Semantic schema | Seal ModuleSpec/FrameSpec/PointId and source/diagnostic/effect projections | One semantic owner and complete writer/alias census |
+| Stable ABI/data encoder | Emit module-local counts/tables and separate mutable binding state | Every binding mode/setup/GC/control/FFI consumer accepted; old count-driven role unused |
+| Stage publication | Publish exact completed semantic/C/native/link projections | Clients consume manifests; stale/failed/unknown output cannot masquerade as success |
+| Owned compiler sessions | Move protected mutable state and macro instance ownership | Every protected writer migrated before retiring its lock/global path |
+| Phase-query clients | gxi/gxc use the same engine and readiness contracts | Whole-module completion is no longer the sole dependency authority |
+
+A seed-built service and its rebuilt producer have separate identities. Cold
+bootstrap remains supported; a warm reused artifact is not reported as a fresh
+complete bootstrap. Unknown outcomes retain storage/context/root responsibility.
+No old path is retired merely because this design or its models validate.
+
+* RESEARCH Work, latency and cost acceptance
+:PROPERTIES:
+:CUSTOM_ID: c23-gain-cost
+:END:
+
+Let R be demonstrated removed work and A added validation, instantiation,
+serialization, synchronization, retained-artifact and helper-call work. Positive
+work requires R>A under complete accounting. For fixed worker capacity P,
+max(totalWork/P,criticalPath) is only a scheduling lower bound; a critical-path
+reduction must be established separately. No C23 language feature supplies R.
+
+#+NAME: gain-cost-matrix
+| Mechanism | Removed work target | Added work / risk | Required observation |
+|-----------+---------------------+-------------------+----------------------|
+| Stable ABI/data | Repeated module-parameterized header expansion and duplicate layout decisions | Module data, relocations, helper calls, changed inline/code size | Expanded tokens, frontend phase work, object/runtime/GC/control parity |
+| Stage projections | Unnecessary Scheme generation/C/object/link executions | Validation, trace storage, correct invalidation | Actual stage counts for no-change/leaf/macro/ABI/tool deltas |
+| Compiled interface constructor | Repeated text/generic expansion of stable scaffolding | Fresh identity, initialization and mandatory effects remain | First-output prefix decomposition, semantic and failure parity |
+| Phase readiness/private sessions | Unnecessary whole-module waits and global serialization | Context/IPC/RSS and scheduling costs | Dependency critical path, CPU utilization, retained memory and cancellation |
+| C23 features | Type/constant/checking boilerplate and avoidable diagnostic mistakes | Capability gates and explicit overflow/outcome handling | Feature-specific compatibility and code/diagnostic evidence; no automatic speed claim |
+
+Future performance qualification must separate cold bootstrap, no-change, leaf,
+shared macro, ABI/tool change and failure/cancel; use the same valid source/tool
+cohort, actual final outputs, meaningful first progress and unchanged ceilings.
+Historical component timings and the user's reported platform ratio are not a
+current performance baseline. No runtime/native implementation or test is run
+by this design study.

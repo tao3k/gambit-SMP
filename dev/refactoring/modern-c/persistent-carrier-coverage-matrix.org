@@ -1,0 +1,244 @@
+#+TITLE: Persistent Carrier Coverage and Retirement Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitPersistentCarrierCoverage
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| tcl-call | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Raw data_rc copy before generated entry; no explicit lease here |
+| tcl-delete-native | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_rc) (___CAST(void*,client_data)); | Delete adapter must close admission and defer physical release while leased |
+| tcl-install | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___set_data_rc) (cd, vect); | Tcl caller initializes payload before command publication; raw setter remains public |
+| rc-init | vendor/gambit/lib/memory/rc-allocation.inc | h->data = ___FAL; | Native allocation initializes data before registration; not a source lease |
+| rc-register | vendor/gambit/lib/memory/rc-allocation.inc | tail->next = h; | Plain list insertion requires owner and collector exclusion |
+| rc-free | vendor/gambit/lib/memory/rc-allocation.inc | if (--h->refcount == 0) | Nonatomic decrement and unlink are not safe arbitrary-thread admission |
+| rc-retain | vendor/gambit/lib/memory/rc-allocation.inc | h->refcount++; | Dereferences existing header; cannot safely retain already-freed raw client_data |
+| rc-read | vendor/gambit/lib/memory/rc-allocation.inc | return h->data; | Raw native copy is not a registered update slot |
+| rc-write | vendor/gambit/lib/memory/rc-allocation.inc | h->data = val; | All semantic writers must join freeze/generation protocol or deny admission |
+| rc-cleanup | vendor/gambit/lib/memory/rc-allocation.inc | ___HIDDEN void cleanup_rc | Bulk cleanup frees chain independent of per-entry leases |
+| rc-scan | vendor/gambit/lib/memory/rc-roots.inc | mark_array (work, &h->data, 1); | Actual GC slot update; target private carrier is not implicitly scanned |
+| retire-refuse | vendor/gambit/lib/memory/capacity-resize.inc | return 0; /* no freeze receipt for external RC/native borrowers */ | Current processor retirement refuses nonempty RC rather than manufacturing a lease |
+| pstate-cleanup | vendor/gambit/lib/memory/memory-lifecycle.inc | free_still_objs (___ps); | cleanup_mem_pstate frees still storage before cleanup_rc; not an active-lease release helper |
+| vm-cleanup | vendor/gambit/lib/memory/memory-lifecycle.inc | ___cleanup_mem_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms)); | VM cleanup still has other-processors TODO; global retirement qualification cannot be inferred |
+| pstate-wrapper | vendor/gambit/lib/setup.c | ___cleanup_mem_pstate (___ps); | PSTATE cleanup wrapper reaches destructive memory cleanup before OS cleanup |
+| setter-export | vendor/gambit/lib/setup.c | = ___set_data_rc; | Public GSTATE function pointer permits indirect/out-of-tree callers; lexical sites do not close writer authority |
+| register-export | vendor/gambit/lib/setup.c | = ___register_rc; | Public registration ABI is not a stable VM SourceOwner registry |
+| context-owner | vendor/gambit/lib/memory/configuration.inc | #define rc_head                 ___CONTEXT_MEM(rc_head_) | RC chain belongs to context; not independent VM owner identity |
+| closure-writer | vendor/gambit/lib/os_dyn.c | ___set_data_rc (c_closure, proc); | Concrete semantic payload installer, architecture conditional |
+| closure-release | vendor/gambit/lib/os_dyn.c | ___release_rc (c_closure); | Indirect function release reaches native RC retirement |
+| release-function | vendor/gambit/lib/c_intf.c | if (___is_a_c_closure (x)) | Function retain/release wrappers reach RC API conditionally |
+| release-string | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(void,___release_string) | RC API also owns native buffers; root-bearing sources must be classified separately |
+| tls-release | vendor/gambit/lib/os_io.c | ___SCMOBJ ___release_rc_tls_context | Native destructor has SSL/string effects; not all RC users are Scheme root sources |
+| epoch-limit | vendor/gambit/lib/memory/heap-sections.inc | if (___vms->gc_round.epoch >= ___MAX_FIX) | Existing round identity refuses exhaustion; no unchecked wrapping receipt |
+| epoch-new | vendor/gambit/lib/memory/heap-sections.inc | ___vms->gc_round.epoch++; | Round number created at setup, distinct from semantic payload generation |
+| origin-publish | vendor/gambit/lib/memory/heap-sections.inc | !___gc_root_task_publish(&___vms->gc_root_tasks[i], | Publish follows frozen origin; not generic new-source enrollment |
+| origin-claim | vendor/gambit/lib/memory/collection-round.inc | if (___gc_root_task_claim(task,___vms->gc_round.epoch,owner)) | Actual claim checks current round and worker owner |
+| origin-finish | vendor/gambit/lib/memory/collection-round.inc | if (!___gc_root_task_finish(task,___vms->gc_round.epoch,owner)) | Task finish has exact owner and epoch boundary |
+| origin-thaw | vendor/gambit/lib/memory/collection-round.inc | if (!___gc_origin_thaw(&___vms->gc_root_tasks[id],___vms->gc_round.epoch)) | Resume requires completed origin; not a payload-version receipt |
+| view-drain | vendor/gambit/lib/memory/collection-round.inc | BARRIER(); /* no worker may retain a stopped root view past this cut */ | Root view grace cut precedes ordinary execution |
+| growth-cleanup | vendor/gambit/lib/setup.c | ___cleanup_pstate (___PSTATE_FROM_PROCESSOR_ID(i,vms)); | Known failed growth joins before destructive cleanup; unknown join retains |
+| shrink-cleanup | vendor/gambit/lib/setup.c | ___transfer_retired_still (ps, ___ps); | Shrink known join transfers still before cleanup; does not qualify arbitrary native roots |
+| vm-root-retained | vendor/gambit/lib/setup.c | return; /* do not erase retained source roots through repeated setup */ | Whole VM cleanup checks resize source requests; generic SourceRegistry not covered |
+| register-abi | vendor/gambit/include/gambit.h | void *(*___register_rc) | Inspected exported return type differs from void implementation spelling; effective header/profile correspondence open |
+| vm-request-slots | vendor/gambit/lib/memory/root-origins.inc | &___vms->resize_requests[i].thunk | All VM request slots scanned independently of participant membership; precedent not generic registry |
+| context-rc-roots | vendor/gambit/lib/memory/root-origins.inc | mark_rc (work, context); | RC roots reached through frozen execution origin |
+| context-startup | vendor/gambit/lib/memory/root-origins.inc | &context->startup_thunk | Startup root remains a stable update slot |
+| root-hook | vendor/gambit/lib/memory/root-origins.inc | ___GC_ROOT_CONTROL(work); | Default hook has no storage or code; not proof of generic carrier coverage |
+
+** Identity
+
+| key | structure | rule | caveat |
+|---+---+---+---|
+| owner | VM SourceSlotId + owner generation | Register complete immutable descriptor and root before exposing source lookup | Current context RC list is not such a descriptor |
+| writer | SourceId + WriteOperationId + candidate root | Accepted writer survives close; keyed completion cannot target next operation | Unbounded abstract IDs do not prove finite native overflow |
+| payload | Semantic payload generation | Frozen for source pins; old target carries independent prior generation | GC relocation does not increment this semantic generation |
+| round | CollectorRoundId + root descriptor generation + scan owner | Refresh round receipt after GC; do not equate with payload generation | Task completion is not by itself source admission |
+| target | CarrierId + bound payload generation | Old carrier remains rooted if new source payload is installed | Backing storage and module/context grace still require owners |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| registration | VM SourceRegistry owner | setup_rc/register_rc set context list links; exported through GSTATE | No complete stable SourceOwner registration identified | Reserve descriptor, root and generation then publish lookup |
+| writer | Managed payload setter owner | Only direct semantic setter sites found in Tcl and C closure; public setter escapes | All indirect/out-of-tree writers unclosed | Root candidate; serialize source pins; retain accepted/unknown write on close |
+| round | Collector root-origin publisher and final grace owner | epoch increment, origin publish, claim, finish and thaw found | Partial real round signers; carrier/source registration gap remains | Bind descriptor/epoch; renew after round transition |
+| pin | Stable source adapter and per-source admission owner | Current raw data/refcount APIs do not validate stable owner identity | Native pin issuer absent | Check published source, generation and writer state without allocation |
+| reservation | Stable host guard commit owner | Prior rooted helper and guard designs only | Exact native lookup and outcomes unimplemented | Unknown record retains source pin and target |
+| cleanup | Registry close plus storage/scanner owners | Known resize failure/shrink cleanup and retained-source checks found | Whole SourceRegistry closed manifest not implemented | Drain accepted writes/pins, root scans and storage; then bulk cleanup |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| census | Enumerate active and closing descriptors every round | Authoritative registry complete; membership frozen before claim | No retained root omitted by processor shrink | Native registration/alias closure open |
+| revocation | Close borrowing without removing scan membership | Drain current scans, payload users and receipt readers | Closing carrier remains rooted across later rounds | Reclamation implementation and unknown-result resolver open |
+| old-payload | Carrier binds source semantic generation at initialization | Source pin covers initialization; collector updates exact slot | Later setter changes source only | Still arena and foreign destructor ownership separate |
+| unknown | Committed registration with lost reply retains source pin | Query same identity and generation; never infer failure from timeout | No root gap before exact result | Resolver liveness not proved |
+| cleanup | Separate root receipt from storage receipt | Known target registration plus backing owner; no active source pin | Source header can retire without invalidating target binding | Actual cleanup caller integration unimplemented |
+| arbitrary-registry | List filter completeness and revoke preservation | Native roots correspond bijectively to authoritative descriptor registry | Arbitrary finite list census lemma | Not arbitrary native trace or unbounded concurrent product proof |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| register | Initialize private slot and descriptor then release publish | Acquire frozen census before dereference | No GC gap: source pin until target membership known | Descriptor, root slot and generation |
+| scan | Freeze membership and root mutation under collector protocol | Claim exact descriptor generation and round | mark_array writes moving slot; release completion only after last use | Per-round update plus task claim |
+| close | Atomic admission transition active to closing | Acquire validation prevents accepted late borrow | Accepted before close drains; closing remains in census | Lifecycle state and counters |
+| retire | Registry unlink only after scans, users and observers drain | Acquire all last-use decrements and completed round cut | No count-to-zero check separate from close; prevent ABA reuse | Grace period and identity tombstone |
+| payload | Setter serialized with source pins and GC freeze | Consumer reloads registered slot after GC | Atomic metadata does not make arbitrary SCMOBJ mutation safe | Rooted candidate and source write authority |
+| unknown | Keep descriptor and backing owner in durable live registry | Exact keyed resolver observes commit or safe abort | Timeout is not evidence of nonpublication | Retained memory may be unbounded without resolution |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| processor-retirement | No need to keep an entire processor alive solely for carrier roots | Independent VM carrier descriptors and census | Only after backing storage and all nonroot dependencies transferred |
+| repeated-handoff | One persistent registration rather than per-GC deregister/reregister | One scan per live slot per round remains | Lifetime spans multiple rounds; native fidelity required |
+| classified-scan | N_RC minus N_payload slot visits per round | Classification and descriptor indexing | All unknown/native ABI users retain conservative fallback; duplicates deduplicated |
+| revocation | No global shutdown guess or repeated rediscovery of alias ownership | Close/drain/observer bookkeeping and retained unknowns | Authoritative writer and borrower closure |
+| modern-c | Common generated root/scan/lifetime contract usable in C23 | GC protocol, metadata and proof maintenance remain | No Zig dependency required for these semantic benefits |
+| zig | Potential safer local storage and typed ABI generation | Second compiler/runtime ownership model and FFI integration | No demonstrated elimination of necessary root protocol; net advantage unresolved |
+
+** Cost
+
+| key | avoided | added | positiveCondition | boundary |
+|---+---+---+---+---|
+| persistent-handoff | C*(K-1)*H | C*P + K*C*E + R | avoided > added | H is not shown to be paid each round in current source; required slot updates remain |
+| classified-roots | K*(N_RC-N_payload)*visit_cost | classification + index + grace + unknown_retention | avoided > added | Unknown native clients retain conservative roots; duplicate new and old scans can make savings zero |
+| processor-release | Retained processor-only bytes and lifecycle coupling | Descriptors + target backing + grace retention | All other context/arena users independently settled | No measured byte estimate; source can_retire rejects RC without a freeze receipt |
+| zig-increment | Concrete support actually retired relative to mandatory modern C | Additional compiler + interop + duplicate ownership support | Retired support exceeds new support while preserving contracts | No positive language-specific net benefit established |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| SourceOwner | SourcePin | Freeze source semantic generation |
+| SourcePin | PrivateCarrier | Initialize under source root |
+| PrivateCarrier | VMRegistry | Publish stable descriptor and writable slot |
+| VMRegistry | PublicationReceipt | Exact keyed result or retain pin |
+| PublicationReceipt | SourcePinRelease | Known registration only |
+| VMRegistry | FrozenCensus | Enumerate active and closing entries every round |
+| FrozenCensus | ScanClaim | Pin descriptor and claim round task |
+| ScanClaim | UpdatedRoot | Forwarding updates registered slot |
+| UpdatedRoot | ScanGrace | Finish after last slot use; unknown stays owned |
+| CloseAdmission | FrozenCensus | Retain closing roots |
+| CloseAdmission | UserDrain | Drain accepted users |
+| ScanGrace | RetirementPermit | No scanner retains descriptor |
+| UserDrain | RetirementPermit | No payload or receipt observer |
+| RetirementPermit | DescriptorFree | Unlink and reclaim; prevent ABA |
+| PublicationReceipt | SourceCleanupPermit | Known replacement root |
+| BackingStorageReceipt | SourceCleanupPermit | Still arena and destructor custody |
+| SourcePinRelease | SourceCleanupPermit | No source-local pin |
+| SourceCleanupPermit | CleanupRC | Free source headers only |
+| RawInterference | Quarantine | Deny optimized admission; retain custody |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| persistent_carrier_coverage.admitManagedWriters | CarrierCoverage.admitManagedWritersPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.reserveCarrier | CarrierCoverage.reserveCarrierPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.initializeCarrier | CarrierCoverage.initializeCarrierPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.publishCarrier | CarrierCoverage.publishCarrierPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.queryPublication | CarrierCoverage.queryPublicationPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.returnSourcePin | CarrierCoverage.returnSourcePinPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.borrowPayload | CarrierCoverage.borrowPayloadPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.returnPayload | CarrierCoverage.returnPayloadPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.observeReceipt | CarrierCoverage.observeReceiptPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.releaseObserver | CarrierCoverage.releaseObserverPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.revokeCarrier | CarrierCoverage.revokeCarrierPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.closeSource | CarrierCoverage.closeSourcePreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.managedSetter | CarrierCoverage.managedSetterPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.recordRawInterference | CarrierCoverage.recordRawInterferencePreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.storageHandoff | CarrierCoverage.storageHandoffPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.cleanupSource | CarrierCoverage.cleanupSourcePreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.retireCarrier | CarrierCoverage.retireCarrierPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.shrinkProcessors | CarrierCoverage.shrinkProcessorsPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.freezeBoth | CarrierCoverage.freezeBothPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.freezeSource | CarrierCoverage.freezeSourcePreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.freezeCarrier | CarrierCoverage.freezeCarrierPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.freezeNeither | CarrierCoverage.freezeNeitherPreserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.claim0 | CarrierCoverage.claim0Preserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.scanDone0 | CarrierCoverage.scanDone0Preserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.scanUnknown0 | CarrierCoverage.scanUnknown0Preserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.resolveScan0 | CarrierCoverage.resolveScan0Preserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.claim1 | CarrierCoverage.claim1Preserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.scanDone1 | CarrierCoverage.scanDone1Preserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.scanUnknown1 | CarrierCoverage.scanUnknown1Preserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.resolveScan1 | CarrierCoverage.resolveScan1Preserves | restricted typed IR transition; native simulation open |
+| persistent_carrier_coverage.finishRound | CarrierCoverage.finishRoundPreserves | restricted typed IR transition; native simulation open |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| stepPreserves | CarrierCoverage.stepPreserves |
+| reachableSafe | CarrierCoverage.reachableSafe |
+| activeCarrierEnumerated | CarrierCoverage.activeCarrierEnumerated |
+| closingCarrierRetained | CarrierCoverage.closingCarrierRetained |
+| readerRetainsDescriptor | CarrierCoverage.readerRetainsDescriptor |
+| unknownScanBlocksFinish | CarrierCoverage.unknownScanBlocksFinish |
+| observerBlocksRetirement | CarrierCoverage.observerBlocksRetirement |
+| interferenceBlocksAdmission | CarrierCoverage.interferenceBlocksAdmission |
+| setterPreservesOldBinding | CarrierCoverage.setterPreservesOldBinding |
+| shrinkPreservesRegistration | CarrierCoverage.shrinkPreservesRegistration |
+| unknownPublicationRetainsSource | CarrierCoverage.unknownPublicationRetainsSource |
+| complete | PersistentCensus.complete |
+| sound | PersistentCensus.sound |
+| closingIncluded | PersistentCensus.closingIncluded |
+| revokePreservesIds | PersistentCensus.revokePreservesIds |
+| parentQualificationBoundary | CarrierCoverageBridge.parentQualificationBoundary |
+| registeredClosingEnumerated | CarrierCoverageBridge.registeredClosingEnumerated |
+| cleanupRequiresBacking | CarrierCoverageBridge.cleanupRequiresBacking |
+| retirementRequiresIdle | CarrierCoverageBridge.retirementRequiresIdle |
+| privateInitializationBlocksFreeze | CarrierCoverageBridge.privateInitializationBlocksFreeze |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| registry | persistent_carrier_coverage.publishCarrier | CarrierCoverage.publishCarrierPreserves | rc-register | PC-source |
+| registry | persistent_carrier_coverage.queryPublication | CarrierCoverage.queryPublicationPreserves | register-export | PC-source |
+| roots | persistent_carrier_coverage.freezeBoth | CarrierCoverage.freezeBothPreserves | origin-publish | PC-roots |
+| roots | persistent_carrier_coverage.freezeCarrier | CarrierCoverage.freezeCarrierPreserves | vm-request-slots | PC-roots |
+| roots | persistent_carrier_coverage.scanDone1 | CarrierCoverage.scanDone1Preserves | origin-finish | PC-roots |
+| roots | persistent_carrier_coverage.resolveScan1 | CarrierCoverage.resolveScan1Preserves | view-drain | PC-roots |
+| writer | persistent_carrier_coverage.managedSetter | CarrierCoverage.managedSetterPreserves | rc-write | PC-writers |
+| writer | persistent_carrier_coverage.recordRawInterference | CarrierCoverage.recordRawInterferencePreserves | setter-export | PC-writers |
+| guard | persistent_carrier_coverage.borrowPayload | CarrierCoverage.borrowPayloadPreserves | tcl-call | PC-execution |
+| guard | persistent_carrier_coverage.retireCarrier | CarrierCoverage.retireCarrierPreserves | tcl-delete-native | PC-execution |
+| storage | persistent_carrier_coverage.storageHandoff | CarrierCoverage.storageHandoffPreserves | shrink-cleanup | PC-storage |
+| storage | persistent_carrier_coverage.cleanupSource | CarrierCoverage.cleanupSourcePreserves | rc-cleanup | PC-storage |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| PC-formal | induction | dev/refactoring/modern-c/models/lean/CarrierCoverage.lean | two descriptors; multi-round membership and scan/observer safety |
+| PC-bridge | composition | dev/refactoring/modern-c/models/lean/CarrierCoverageBridge.lean | parent precondition and generic finite registry census; native fidelity open |
+| PC-source | source | vendor/gambit/lib/memory/rc-allocation.inc | complete persistent registration and identity census |
+| PC-execution | source | vendor/gambit/lib/c_intf.c | real carrier result resolver and last-use observer drain |
+| PC-roots | source | vendor/gambit/lib/memory/root-origins.inc | all carrier slots every collector round; complete native mapping |
+| PC-writers | source | vendor/gambit/lib/setup.c | public direct indirect setters and out-of-tree authority closure |
+| PC-platform | platform | dev/refactoring/modern-c/language-baseline-design.org | C23 atomics lock-free requirements Darwin ABI and generated header provenance |
+| PC-storage | source | vendor/gambit/lib/memory/memory-lifecycle.inc | old still arena/destructor handoff before processor cleanup |
+
+** Closure observation
+
+| Obligation | Owner | Status | Scoped subject |
+|---+---+---+---|
+| PC-formal | guard | provided: scoped conditional formal receipt | two descriptors; multi-round membership and scan/observer safety |
+| PC-bridge | guard | provided: scoped conditional formal receipt | parent precondition and generic finite registry census; native fidelity open |
+| PC-source | registry | unresolved | complete persistent registration and identity census |
+| PC-execution | guard | unresolved | real carrier result resolver and last-use observer drain |
+| PC-roots | roots | unresolved | all carrier slots every collector round; complete native mapping |
+| PC-writers | writer | unresolved | public direct indirect setters and out-of-tree authority closure |
+| PC-platform | guard | unresolved | C23 atomics lock-free requirements Darwin ABI and generated header provenance |
+| PC-storage | storage | unresolved | old still arena/destructor handoff before processor cleanup |

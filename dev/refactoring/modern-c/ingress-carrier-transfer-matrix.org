@@ -1,0 +1,109 @@
+#+TITLE: Ingress Carrier Transfer and Nested Custody Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: ingress-carrier-transfer-matrix
+:AUTHORITY: GambitIngressCarrierTransfer
+:STATUS: conditional-models-only; source-and-platform-open
+:END:
+
+** Route
+
+| key | sourcePath | needle | obligation |
+|---+---+---+---|
+| data-rc-load | vendor/gambit/lib/mem.c | return h->data; | RC data load returns a plain value; owning root and source borrow are separate |
+| rc-payload-scan | vendor/gambit/lib/mem.c | mark_array (work, &h->data, 1); | Current collector updates RC data slot through the frozen execution context |
+| frozen-context-roots | vendor/gambit/lib/mem.c | require_gc_phase (participant, ___GC_ROOTS_FROZEN); | Root publication must join the collector membership/freeze cut |
+| context-rc-all-participants | vendor/gambit/lib/mem.c | mark_rc (work, context); | Current checkout scans RC in each execution root context; do not inherit processor-zero-only claim |
+| tcl-still-source | vendor/gambit/examples/tcltk/tcltk.scm | counted object that contains a ___STILL Scheme vector | Vector address is stable; contained procedure may move and root lifetime still needs a lease |
+| tcl-read-entry | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call (___EXT(___data_rc) | Borrow native header before root handshake and load protected payload under collector coordination |
+| tcl-delete-release | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_scmobj) (___EXT(___data_rc) | Deletion must defer root/header reclamation until nested borrows drain |
+| run-processor-caller | vendor/gambit/lib/setup.c | ___err = ___run (___PSP thunk); | Direct run helper receives a value; replace with owned carrier or qualified protected handoff |
+| thread-thunk-source | vendor/gambit/lib/setup.c | ___SCMOBJ thunk = self->data_scmobj; | Thread payload copy precedes sync participation; no independent thread field scan proved |
+| bootstrap-thunk-source | vendor/gambit/lib/setup.c | ___MODULE_DESCR_THUNK)); | Bootstrap thunk comes from program descriptors; exact freeze and root lease still need qualification |
+| still-root-release | vendor/gambit/lib/mem.c | ___EXP_FUNC(___SCMOBJ,___release_scmobj) | Still refcount decrement is distinct from retiring a root view or freeing RC header |
+| retained-result-code | vendor/gambit/examples/tcltk/tcltk.scm | ___CAST(Tcl_FreeProc*,___EXT(___release_string)) | Result destructor code lease can outlive RC header independently |
+
+** Contract
+
+| key | owner | accountable.moduleId | counterpart.moduleId | actionName | invariant | gap |
+|---+---+---+---+---+---+---|
+| source-carrier | foreign/roots | foreign | roots | beginCut readSource | Source native and Scheme lifetimes remain protected before any value load | Raw SCMOBJ and VM storage borrow alone do not prove root freshness |
+| target-root-publication | roots/collector | roots | collector | registerTarget publishTarget | Initialize target from current source under collector cut then make scanner visible | Root adapter must join context freeze and future GC membership; distinct writable slots or one canonical scanner |
+| overlap-custody | release/roots | release | roots | publishUnknown queryReceipt releaseSource | Release source registration only after exact target receipt; unknown retains source | Source registration release is not a still decrement RC free or code unload |
+| nested-native-lifetime | foreign/control | foreign | control | enterChild requestDelete leaveChild dropRoot | Parent exit and deletion do not clear child native borrow or Scheme root | Real nested Tcl behavior and late callback closure require owner-side evidence |
+| run-source-family | execution/roots | execution | roots | readSource registerTarget | Bootstrap descriptors thread data and caller handles keep source identity through all safepoints | Complete public run callers and thread data alias scan closure remain open |
+| evidence-publication | build/semantic | build | semantic | registerTarget publishTarget releaseSource | Actual guard/update meaning and source-bound endorsements need exact identity | C11 extraction and all-action simulation remain unproved |
+
+** Obligation
+
+| key | status | scope | counterexample |
+|---+---+---+---|
+| handoff-coverage | bounded-checked | One source target and bounded GC validity stamps; successful and unknown publication | Source-first release and stale target after collection lose admitted coverage |
+| nested-custody | bounded-checked | One parent child deletion unknown exit and independent result destructor | Parent return or delete notification cannot release child lifetime |
+| release-coverage | conditional-proved | Source release guard preserves target root coverage; stale values reject registration | Assumes collector cut and authentic target receipt |
+| c11-order | conditional-proved | Publication observation precedes source release given HB embedding | No C11 memory-model execution or effective backend proof |
+| actual-expressions | conditional-proved | Actual registerTarget publishTarget releaseSource expressions | Restricted JSON projector remains trusted |
+| source-bridge | open | Root adapter freeze integration source carrier users and actual exception closure | Current context RC scan does not prove arbitrary external raw values are rooted |
+| json-domain | partially-proved | 91-row checked finite environment and strict projection controls | Full parser/extractor and source correspondence remain open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| overlap-registration | Redundant retained source registration after known successful target handoff | One source/target overlap per entry and exact receipt/query on unknown result | Target scan coverage and identity proven before source registration release |
+| existing-context-scan | A parallel duplicate RC scanner is unnecessary if current participant adapter qualifies | Integrate RootBundle membership with frozen execution roots and future round roster | Current source includes per-context RC scan but no native carrier API is established |
+| still-vector-reuse | Copying Tcl still vectors solely to stabilize their address | Native borrow root lifetime and synchronized procedure-field reads still required | Still identity already stable; do not invent relocation or remove moving-field scan |
+| independent-result | Retaining RC/Scheme root solely for an independent native string result | Separate destructor code lease resident decoder and result delivery record | No Scheme alias in result; retain actual destructor provider until its last use |
+| modern-c-service | Second-language implementation is unnecessary for carrier registration protocol | Generated entry root spec resident lease/custody and qualified collector cut | Zig does not eliminate source validity nested borrow or GC handshake obligations |
+
+** Binding
+
+| key | qntAction | leanLemma | refinement | guardLemma | updateLemma |
+|---+---+---+---+---+---|
+| guard | registerTarget | staleLocalRejects | Actual selected action meaning checked with source and C11 premises open | registerTargetGuardMeaning | registerTargetNextMeaning |
+| roots | publishTarget | noCutRejectsPublish | Actual selected action meaning checked with source and C11 premises open | publishTargetGuardMeaning | publishTargetNextMeaning |
+| release | releaseSource | releasePreservesCoverage | Actual selected action meaning checked with source and C11 premises open | releaseSourceGuardMeaning | releaseSourceNextMeaning |
+
+** Flow
+
+| fromNode | toNode | reason |
+|---+---+---|
+| c0 | c1 | Protected source value initializes target |
+| c1 | c2 | Target scan visibility precedes source release |
+| c2 | c3 | Source-root handoff does not settle nested native borrows |
+| c4 | c0 | Run source families require protected carriers |
+| c1 | o0 | Current epoch and registered root coverage |
+| c2 | o2 | Guard preserves target coverage |
+| c3 | o1 | Nested callback and destructor lifetime checks |
+| c1 | o3 | Actual release-acquire and collector cut needed |
+| c5 | o4 | Selected typed action meanings |
+| c5 | o6 | Exact finite JSON reference domain |
+| o4 | o5 | Expression meaning is not source simulation |
+| c0 | o5 | Raw source identity and public caller closure |
+| c3 | o5 | Tcl owner and exception qualification |
+| c2 | c5 | Receipt identity and evidence binding |
+| c4 | o5 | Thread and bootstrap safepoint coverage |
+| c1 | o5 | Current frozen participant source integration |
+
+** Endorsement
+
+| roleName | scope | issuer | sourcePath | needle |
+|---+---+---+---+---|
+| semantic | Source-target root overlap current epoch and exact registered destination | Execution-root and collector adapter owner | vendor/gambit/lib/mem.c | mark_rc (work, context); |
+| foreign | All parent child native borrows and deletion effects drained | Tcl command adapter owner | vendor/gambit/examples/tcltk/tcltk.scm | ___HIDDEN void scheme_delete_cmd |
+| resident | Immutable result delivery and independently retained destructor provider | Resident result and cleanup owner | vendor/gambit/examples/tcltk/tcltk.scm | ___CAST(Tcl_FreeProc*,___EXT(___release_string)) |
+
+** Model admission scopes
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| IC-H | interleaving | dev/refactoring/modern-c/models/quint/ingress_carrier_transfer.qnt | Source-target overlap GC validity updates target receipts and retained source on failure |
+| IC-B | interleaving | dev/refactoring/modern-c/models/quint/ingress_nested_custody.qnt | Parent child deletion unknown completion and independent result destructor lifetime |
+| IC-I | induction | dev/refactoring/modern-c/models/lean/IngressCarrierTransfer.lean | Source-release coverage stale-value rejection and conditional publication order |
+| IC-X | induction | dev/refactoring/modern-c/models/lean/IngressCarrierAst.lean | Actual registerTarget publishTarget releaseSource meanings and finite row domain |
+| IC-S | source-refinement | dev/refactoring/modern-c/ingress-carrier-transfer-design.org | Current context GC source callers nested Tcl and raw run carrier closure OPEN |
+| IC-E | environment-refinement | dev/refactoring/modern-c/ingress-carrier-transfer-design.org | C11 root freeze roster admission storage and object lifetime composition OPEN |

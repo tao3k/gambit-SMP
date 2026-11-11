@@ -1,0 +1,23 @@
+import «NativeRootReentry»
+#print axioms GambitSMP.NativeRootReentry.coverageTransitive
+#print axioms GambitSMP.NativeRootReentry.missingRootRejects
+#print axioms GambitSMP.NativeRootReentry.writerDebtRejectsScan
+#print axioms GambitSMP.NativeRootReentry.borrowDebtRejectsScan
+#print axioms GambitSMP.NativeRootReentry.unknownWriterRejectsScan
+#print axioms GambitSMP.NativeRootReentry.rawOutcomeNotScanAuthority
+#print axioms GambitSMP.NativeRootReentry.entryConservesDuties
+#print axioms GambitSMP.NativeRootReentry.reentryConservesDuties
+#print axioms GambitSMP.NativeRootReentry.dutyStepConserves
+#print axioms GambitSMP.NativeRootReentry.dutyTraceConserves
+#print axioms GambitSMP.NativeRootReentry.scanBlocksGrant
+#print axioms GambitSMP.NativeRootReentry.staleEpochRejectsGrant
+#print axioms GambitSMP.NativeRootReentry.grantClosesNewScan
+#print axioms GambitSMP.NativeRootReentry.movingRootMustReload
+#print axioms GambitSMP.NativeRootReentry.reloadRestoresEpoch
+#print axioms GambitSMP.NativeRootReentry.unrootedCallbackRejects
+#print axioms GambitSMP.NativeRootReentry.nestedNeedsOuterPin
+#print axioms GambitSMP.NativeRootReentry.freshParentView
+#print axioms GambitSMP.NativeRootReentry.oldActivationRejected
+#print axioms GambitSMP.NativeRootReentry.workerContextDistinctWitness
+#print axioms GambitSMP.NativeRootReentry.reclaimBlockedByScanner
+#print axioms GambitSMP.NativeRootReentry.rootTaskCountPreserved

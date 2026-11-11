@@ -1,0 +1,21 @@
+direction: down
+title: "YIELDTO TRANSFERS WORK INTO THE CALLER ENVIRONMENT\nCover object-command AND bytecode emitters independently"
+title.shape: text
+source: "Source coroutine C is active\nOwner environment C; caller environment P\nOwned namespace-prefixed target list"
+prepare: "Temporarily select P\nFind empty unmarked NRCommand slot\nStore target list; C.yieldPtr records rollback identity\nRestore C before trying yield"
+check: "C stack position matches activation?"
+check.shape: diamond
+fail: "Mismatch: select P and find exact list slot\nClear slot; release list; clear yieldPtr\nRestore C; return ERROR\nNo successful depth / aux swap"
+success: "Success: clear temporary yieldPtr\nSuspend C; select P and restore caller depth\nCaller slot still owns queued target list"
+pair: "Caller restoration callback restores frames\nP.NRCommand clears slot and schedules tail evaluator\nIts depth retirement and async effects remain relevant"
+dispatch: "Tail evaluator observes result / namespace\nNon-OK or failed lookup: release without dispatch\nOtherwise ordinary target dispatch + release callback"
+end: "Target result delivered to caller\nSource C can remain suspended\nNo target-wide clean reuse from yieldPtr == NULL"
+boundary: "Runner sentinel alone is insufficient\nBind environment generation + exclusive root + native runner\nPop-before-call means an empty queue can have in-flight work"
+source -> prepare -> check
+check -> fail: "no"
+check -> success: "yes"
+success -> pair -> dispatch -> end -> boundary
+fail -> boundary
+fail.style.fill: "#FFF0E5"
+success.style.fill: "#DFEEFF"
+end.style.fill: "#FFF0E5"

@@ -1,0 +1,40 @@
+#+TITLE: C23 Development Refactor Decisions and Retirement Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitDarwinDevelopment
+:STATUS: design checked; native source and performance open
+:END:
+
+** c23Feature
+
+| key | origin | application | limit | benefit | primary |
+|---+---+---+---+---+---|
+| constexpr-objects | C23 | Module counts, masks and admissible scalar constants | Object definitions only; not constexpr functions or non-null pointer relocation tables | Compiler diagnostics and fewer value macros; no automatic speed claim | https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3018.htm |
+| type-expression | C23 standardization | typeof/typeof_unqual and local object inference in generated helpers | Public ABI remains explicitly typed; existing GCC extensions are not new optimization | Less type duplication and extension-specific glue | https://gcc.gnu.org/projects/c-status.html |
+| result-checking | C23 attributes | nodiscard on fallible admission, initialization and publication results | Diagnostics only; not linear ownership or automatic cleanup | Catch accidental ignored results; explicit outcome protocol still required | https://gcc.gnu.org/projects/c-status.html |
+| checked-capacity | C23 library | ckd_mul/ckd_add for count times element size plus header | Reject overflow before publication; never consume overflow output; SDK capability unqualified | Unify boundary overflow handling; checks remain charged | https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2669.pdf |
+| atomic-alignment | C11 inherited | Atomics, TLS, alignment and static assertions remain foundational | C23 does not create multicore ownership, lock freedom, GC roots or tail-call guarantees | Standard baseline only; SMP correctness needs separate proofs | https://gcc.gnu.org/projects/c-status.html |
+| plain-functions-data | architecture decision | Stable C declarations, per-module descriptor data and compiled common helpers | Static const and inline are older mechanisms; C23 alone does not remove preprocessing | Actual token/parse work can disappear only after producer/consumer replacement | https://gcc.gnu.org/projects/c-status.html |
+
+** c23Boundary
+
+| key | role.roleId | stage.key | descriptor.fieldId | producer | consumer | contract | retirement | added | sourcePath | needle | qntPath | qntTest | leanPath | lemma | proofLimit |
+|---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---|
+| stable-abi-module-data | C-MODULE | generated-modern-c | MS-TABLES | Scheme native-contract generator | Stable C23 ABI and module setup | Header surface independent of module counts; ModuleSpec data and mutable binding instances separate | Retire count-controlled general header assembly only after all binding modes/consumers migrate | Descriptor relocations, cold helper calls, controlled hot inlining and ABI rebuild | vendor/gambit/gsc/_t-c-1.scm | (targ-define-count "GLOCOUNT" | dev/architecture/toolchain/models/quint/native_artifact_partition.qnt | countDoesNotChangeAbiTest | dev/architecture/toolchain/models/lean/NativeArtifactPartition.lean | countDoesNotChangeHeader | Structural key law only; actual expanded tokens, C ABI/layout and setup parity remain open |
+| frame-consumer-contract | C-FRAME | gvm-contract | FS-SEMANTIC | Scheme FrameSpec/PointId generator | GC, continuation and native frame consumers | One semantic role/layout owner; admitted descriptor ABI binds code and roots | Retire duplicate IFD/OFD/return layout emission after all consumers and old captured-frame users migrate | Decoder/profile validation and metadata/code retention | vendor/gambit/include/_gambit/module_generation.h.in | ___frame_root_next_run | dev/refactoring/modern-c/models/quint/frame_roots.qnt | width64MicrostepsTest | dev/refactoring/modern-c/models/lean/FrameCursorWords.lean | sourceTotalCorrectAll | Supported mathematical cursor family only; native pointer, compiler liveness, control and whole GC remain open |
+| owned-phase-session | C-EMISSION | session-instance | MS-INSTANCE | Gerbil phase programs and Gambit CompileContext | gxi/gxc phase query service | Share immutable construction program; fresh binding/mark/context overlays and owned mutable compiler state | Retire whole-request global-state authority only after protected writers and effects migrate | Instance construction, input validation, worker transfer and roots | vendor/gambit/gsc/_front.scm | (define (compile-frontend | models/build/iter_compiler_service.qnt | distinctContextsTest | models/build/IterCompilerService.lean | projectionNeedsSupport | Model context witnesses and projection counterexample; actual writer/effect closure and same-VM SMP remain open |
+| stage-native-manifest | C-LINK | native-manifest | MS-IDENTITY | Phase-query outputs plus native action requests | Link/module consumers and waiting clients | Semantic, generated-C, native and link keys separate; commit exact complete snapshot atomically | Retire whole-module completion as sole gate and direct file-existence acceptance after all clients migrate | Trace validation, manifest commit and failure/cancel drain | vendor/gambit/gsc/_t-c-1.scm | (targ-dump-module-info | models/build/incremental_compiler_architecture.qnt | nativeLeavesExpansionTest | models/build/IncrementalCompilerArchitecture.lean | publicationNeedsSuccess | Existing bounded scheduler and conditional publication law; no full source refinement or speedup |
+
+** c23Edge
+
+| fromNode | toNode | contract |
+|---+---+---|
+| Scheme semantic owner | stable ABI and module data | C23 constants plus explicit descriptors; no module-count-driven public header |
+| stable ABI and module data | compiled runtime helpers | Shared implementation once per ABI/tool profile; hot inline policy explicit |
+| Gerbil phase service | owned compiler contexts | Interface and executable macro support ready; fresh session identities |
+| owned compiler contexts | stage artifacts | Semantic -> GVM -> C -> native with independent complete inputs |
+| stage artifacts | atomic result manifest | Exact snapshot, success and group completeness |
+| frame contract | GC and continuation | Code/descriptor lease survives captured users; native refinement open |

@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "generational-barrier:8d8390076210eaed918183db4e5d41b152a58cc1ef1a12ee19c8d658a01620c2" "generational-barrier:8d8390076210eaed918183db4e5d41b152a58cc1ef1a12ee19c8d658a01620c2" "support" "dev/architecture/runtime/gc/models/sysml/generational-barrier.sysml"))
+ (fact (factor "generational-barrier:8d8390076210eaed918183db4e5d41b152a58cc1ef1a12ee19c8d658a01620c2" "target-model-bundle-sha256" "8d8390076210eaed918183db4e5d41b152a58cc1ef1a12ee19c8d658a01620c2"))
+ (fact (factor "generational-barrier:8d8390076210eaed918183db4e5d41b152a58cc1ef1a12ee19c8d658a01620c2" "native-output-sha256" "4e191d7a61bd50ed5088b89cfc976923e46147bcc029e38f6d14e1e49873e5da"))
+ (fact (factor "generational-barrier:8d8390076210eaed918183db4e5d41b152a58cc1ef1a12ee19c8d658a01620c2" "planner-dsl-sha256" "57c18cc4c22af0c076728a1c9aad485cec3d13237788b4b624c1109d8f33c703"))
+)

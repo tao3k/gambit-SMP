@@ -1,0 +1,192 @@
+#+TITLE: SFUN admission refusal — caller reachability and net return
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML authority
+:PROPERTIES:
+:CUSTOM_ID: sfun-admission-refusal-matrix
+:AUTHORITY: GambitSfunAdmissionRefusal
+:END:
+Formal and source-bound rows qualify only their named abstract boundaries. Native issuers remain unresolved.
+
+** Component
+
+| componentId | sharedContract | role |
+|---+---+---|
+| entry-admission | EntryOrigin/SourceBorrow/GuardReceipt | preallocation domain and source admission |
+| native-return | EntryOrigin/SourceBorrow/GuardReceipt | root/marker/guard cleanup and ABI outcomes |
+| legacy-retry | EntryOrigin/SourceBorrow/GuardReceipt | audited source recurrence, excluded from managed reachability |
+
+** Path
+
+| key | producer | consumer | classification | phase | missing | loopStatus |
+|---+---+---+---+---+---+---|
+| gc-direct | real-gc-register | real-gc-call | registered-source-chain | OWNER_CLEANUP | SFUN wrapper absent | not-an-SFUN-loop |
+| gc-run | real-gc-register | real-gc-run | registered-source-chain | OWNER_CLEANUP | SFUN wrapper absent | not-an-SFUN-loop |
+| tcl-command | tcl-register | tcl-export | registered-source-endpoint | ordinary native callback; actual phase unobserved | GC cleanup to this callback edge | not-proven |
+| tcl-error | tcl-error-callback | tcl-error-export | direct-source-call | actual phase unobserved | GC cleanup to Tcl evaluation edge | not-proven |
+| tcl-delete | tcl-register | tcl-delete | release-only-source-hook | native delete callback | no Scheme call in audited delete body | excluded-as-SFUN-edge |
+| mem-callback | mem-function-import | mem-export | direct-source-call | synchronous allocation may collect before f returns into Scheme | no active-cleanup invocation edge | not-proven |
+| pthread-serialized | pthread-call | pthread-export | serialized-source-call | closed example holds mut across entry | no registered cleanup target; shared mut serializes increments | excluded-in-closed-example |
+| public-release-api | pointer-hook | foreign-release-dispatch | open-indirect-extension | can be invoked in cleanup | identity of arbitrary user callback target | conditional-schema-only |
+
+** Issuer
+
+| key | source | existing | candidate | gap |
+|---+---+---+---+---|
+| refusal-origin | call-entry | ___call has phase rejection before catcher | checked call-site discriminator records operation producer | current macros fold refusal into one error loop |
+| preallocation-entry | generator-plan | c-make-function emits common SFUN wrapper | reserve/validate source carrier then admission before marker | legacy raw export cannot return typed refusal by itself |
+| source-pin | rc-source-read | data_rc returns current payload | RC owner grants nonalloc borrow with exact generation and deletion drain | raw pointer read or refcount++ alone not borrow proof |
+| guard-pool | marker-rooted | startup helper reloads procedure root after allocation | VM/root-domain guard pool with initialized registered slots | startup-only endpoint not generic ingress issuer |
+| outer-landing | on-throw | explicit pthread caller installs outer catcher | stable NativeReturnDomain completion adopts resources before abandoned C frames disappear | no catcher may be assumed at arbitrary foreign entry |
+| tcl-boundary | tcl-native-callback | callback expects char* or Scheme throw; Tcl callback returns int | checked adapter maps refusal to Tcl failure without calling Scheme error translator while closed | native result/error lifetime and deletion borrow remain open |
+
+** Composition
+
+| key | lemma | source | obligation | boundary |
+|---+---+---+---+---|
+| closed-parent | SfunAdmissionBridge.refusalMatchesClosedParent | call-entry | parent-entry-bridge | predicate bridge only; no native root/value simulation |
+| open-parent | SfunAdmissionBridge.admittedMatchesParent | generator-plan | parent-entry-bridge | entry ticket eligibility, not actual guard issuer |
+| same-code | SfunAdmissionBridge.originDistinguishesSameCode | ctos-stage | stage-discriminator | same normalized UNKNOWN value can have different operation provenance |
+| legacy-loop | SfunAdmission.legacyPersistentLoop | sfun-error | legacy-recurrence | conditional recurrence; actual GC to SFUN callback edge unproved |
+
+** Need
+
+| key | status | condition |
+|---+---+---|
+| admission-protocol | formal | managed recurrence preserves preallocation root coverage and exact cleanup |
+| legacy-recurrence | conditional formal | successful marker plus persistent non-RUNNING phase; old macro retry never reaches cleanup |
+| stage-discriminator | conditional source | current ___call normal returns only UNKNOWN refusal or NO_ERR success; converters remain separate |
+| parent-entry-bridge | formal | closed/open domain decisions check actual imported SizeGuardAst admission predicate |
+| actual-gc-sfun-edge | unresolved | no audited registered releaser targets generated SFUN; do not splice unrelated examples |
+| ingress-pin-issuer | unresolved | stable source owner/borrow before guard/marker allocation; deletion/setter/RC scan lifetime joined |
+| guard-and-root-registration | unresolved | nonalloc stable pool, complete scanner registration and unknown handoff lookup |
+| C23-domain-admission | unresolved | admission ticket vs short root lease, freeze synchronization and owner generation |
+| native-outcome-adapter | unresolved | void/typed legacy ABI has no refusal result channel; checked adapter/catcher policy required |
+| landing-and-marker-closure | unresolved | escaped subtree owns marker and guard; close return permission before native frame exits |
+| native-cohort-and-writers | unresolved | header/generated module/call implementation and all manual writers qualified |
+
+** Memory
+
+| key | order | premise | obligation |
+|---+---+---+---|
+| source-before-record | source owner acquire/borrow before guard publication; receiver acquire/ACK before source release | metadata/marker allocation cannot substitute for source root | ingress-pin-issuer |
+| admission | C23 generation gate reserves owner ticket; short mutation lease released before allocation/___call | ordinary phase load is not concurrent admission reservation | C23-domain-admission |
+| operation-origin | publish operation stage to stable attempt before converter/call/recovery; preserve across landing | do not infer all UNKNOWN values mean entry refusal | native-outcome-adapter |
+| unknown-handoff | lookup same stable attempt; retain source and destination roots until known acknowledgement | new record is not permission to drop old source on lost reply | guard-and-root-registration |
+| cleanup | receiver owns escaped resources before source C frame is discarded; exact marker invalidation precedes native return | GC-closed cleanup retained; no synchronous retry into closed owner | landing-and-marker-closure |
+
+** Gain
+
+| key | benefit | cost | condition | refutation |
+|---+---+---+---+---|
+| pre-refusal-work | R rejected-before-entry calls avoid R marker attempts and all their input conversion work | R domain/source checks; qualified source-borrow release still required | rejection happens before wrapper allocation | late ___call rejection has already paid marker/conversion costs |
+| retry-work | a persistent refusal no longer causes k repeated low-level handler calls for any chosen k | operation-origin discriminator and native outcome adapter | caller outcome carries refusal separately | blind UNKNOWN blacklist also suppresses legitimate custom-conversion recovery |
+| root-storage | share source-carrier/guard/root-domain services with parent conversion protocol | A simultaneous entries need O(A) records; lost acknowledgements retain both roots temporarily | exact identity, complete root census and native exclusion qualified | extra wrapper with no old-path retirement increases cost |
+| migration | three SFUN result shapes share one stage-aware plan | native ABI adapters plus recompilation and descriptor lifetime accounting | void/SCMOBJ/typed callbacks all migrated, including Tcl error translator | fixing tcltk_call alone leaves tcltk_eval_error and raw callbacks |
+| language | C23 preserves C-friendly Gambit frontend/runtime and multi-shot Scheme semantics | same source roots, GC admission and unwind support remain necessary in Zig | modern C mainline; no second runtime needed for refusal separation | no Zig-specific net benefit established |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| entry-admission | sfun_admission_refusal.refuseBeforeEntry | SfunAdmission.refuseBeforeEntryPreserves | generator-plan | admission-protocol |
+| entry-admission | sfun_admission_refusal.exhaustPool | SfunAdmission.exhaustPoolPreserves | generator-plan | admission-protocol |
+| entry-admission | sfun_admission_refusal.refuseNoRecord | SfunAdmission.refuseNoRecordPreserves | generator-plan | admission-protocol |
+| entry-admission | sfun_admission_refusal.reserveGuard | SfunAdmission.reserveGuardPreserves | generator-plan | admission-protocol |
+| native-return | sfun_admission_refusal.ackHandoff | SfunAdmission.ackHandoffPreserves | rc-source-read | admission-protocol |
+| native-return | sfun_admission_refusal.cancelBeforeAck | SfunAdmission.cancelBeforeAckPreserves | on-throw | admission-protocol |
+| native-return | sfun_admission_refusal.allocateMarker | SfunAdmission.allocateMarkerPreserves | marker-rooted | admission-protocol |
+| native-return | sfun_admission_refusal.markerFailure | SfunAdmission.markerFailurePreserves | marker-rooted | admission-protocol |
+| native-return | sfun_admission_refusal.beginBody | SfunAdmission.beginBodyPreserves | call-entry | admission-protocol |
+| native-return | sfun_admission_refusal.conversionFailure | SfunAdmission.conversionFailurePreserves | generator-plan | admission-protocol |
+| native-return | sfun_admission_refusal.opaqueConversionFailure | SfunAdmission.opaqueConversionFailurePreserves | generator-plan | admission-protocol |
+| native-return | sfun_admission_refusal.finishSuccess | SfunAdmission.finishSuccessPreserves | generator-plan | admission-protocol |
+| native-return | sfun_admission_refusal.callRefused | SfunAdmission.callRefusedPreserves | call-entry | admission-protocol |
+| native-return | sfun_admission_refusal.handlerRefused | SfunAdmission.handlerRefusedPreserves | sfun-error | admission-protocol |
+| native-return | sfun_admission_refusal.recoverGood | SfunAdmission.recoverGoodPreserves | sfun-error | admission-protocol |
+| native-return | sfun_admission_refusal.recoverBad | SfunAdmission.recoverBadPreserves | sfun-error | admission-protocol |
+| native-return | sfun_admission_refusal.outerThrow | SfunAdmission.outerThrowPreserves | on-throw | admission-protocol |
+| native-return | sfun_admission_refusal.releaseMarker | SfunAdmission.releaseMarkerPreserves | generator-plan | admission-protocol |
+| native-return | sfun_admission_refusal.closeGuard | SfunAdmission.closeGuardPreserves | generator-plan | admission-protocol |
+| native-return | sfun_admission_refusal.dropRefusedSource | SfunAdmission.dropRefusedSourcePreserves | rc-source-read | admission-protocol |
+| native-return | sfun_admission_refusal.deliver | SfunAdmission.deliverPreserves | generator-plan | admission-protocol |
+| entry-admission | sfun_admission_refusal.closeDomain | SfunAdmission.closeDomainPreserves | call-entry | admission-protocol |
+| entry-admission | sfun_admission_refusal.resumeDomain | SfunAdmission.resumeDomainPreserves | call-entry | admission-protocol |
+| legacy-retry | sfun_admission_refusal.legacyMarkerSuccess | SfunAdmission.legacyMarkerSuccessPreserves | sfun-error | admission-protocol |
+| legacy-retry | sfun_admission_refusal.legacyRejectCall | SfunAdmission.legacyRejectCallPreserves | sfun-error | admission-protocol |
+| legacy-retry | sfun_admission_refusal.legacyErrorRetry | SfunAdmission.legacyErrorRetryPreserves | sfun-error | admission-protocol |
+| legacy-retry | sfun_admission_refusal.legacyMarkerFailure | SfunAdmission.legacyMarkerFailurePreserves | sfun-error | admission-protocol |
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| sfun-prolog | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___BEGIN_SFUN_VOID(proc) | marker allocated before input conversion; no conversion guard |
+| sfun-input | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___SFUN_ARG(i,arg)___PSSTK | stack publication before call; not still-count release |
+| sfun-error | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___SFUN_ERROR_VOID | retry calls and error propagation outlive argument scope |
+| sfun-finish | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_VOID | marker invalidation then propagate; not conversion guard |
+| catcher | vendor/gambit/include/_gambit/foreign_conversion.h.in | ___ps->catcher = &___jbuf; | catcher is automatic activation, restored at END_TRY |
+| throw | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___THROW(e)do { ___ps->longjmp_err | nonlocal jump can bypass nested local ENDs |
+| language-c | vendor/gambit/include/_gambit/language.h.in | #define ___USE_SETJMP | C path uses setjmp; no C++ RAII assumption |
+| call-entry | vendor/gambit/lib/setup.c | ___EXP_FUNC(___SCMOBJ,___call) | GC phase rejection before frame writes; catcher created later |
+| call-rethrow | vendor/gambit/lib/setup.c | stack_marker != ___ps->context->fp[___FRAME_SPACE(2)-2] | mismatched marker rethrows across wrapper scope |
+| run-landing | vendor/gambit/lib/setup.c | ___VOLATILE ___SCMOBJ marker = ___FAL; | run catches its own marker; no per-conversion record |
+| error-propagation | vendor/gambit/lib/setup.c | ___EXP_FUNC(void,___propagate_error) | error triggers throw |
+| marker-rooted | vendor/gambit/lib/c_intf.c | proc_or_false = *proc_root; /* reload after allocating the marker */ | rooted startup endpoint reloads; generic wrapper local not registry |
+| marker-raw | vendor/gambit/lib/c_intf.c | Legacy raw SFUN entry is not made a registered-root interface | do not infer generic ingress roots |
+| marker-kill | vendor/gambit/lib/c_intf.c | ___still_obj_refcount_dec (marker); | different object and native lifetime |
+| alloc-gc | vendor/gambit/lib/_mem/object-allocation.inc | if (___garbage_collect (___PSP words)) | never hold short mutation lease across allocating converter |
+| alloc-count | vendor/gambit/lib/_mem/object-allocation.inc | base[___STILL_REFCOUNT] = 1; | native temporary hold protects fresh still object |
+| scan-context | vendor/gambit/lib/_mem/root-origins.inc | mark_array (work, context->r, sizeof(context->r)/sizeof(*context->r)); | includes exact PSR1 slot |
+| scan-startup | vendor/gambit/lib/_mem/root-origins.inc | mark_array (work, &context->entry_marker, 1); | startup has dedicated roots, not generic conversion table |
+| root-barrier | vendor/gambit/lib/_mem/collection-round.inc | BARRIER(); /* actual W and every grant published after complete R freeze */ | all participants frozen before worker access |
+| owner-cleanup | vendor/gambit/lib/_mem/collection-round.inc | vm->gc_participants[id].phase = ___GC_OWNER_CLEANUP; | restored stacks do not authorize managed reentry |
+| scan-drain | vendor/gambit/lib/_mem/collection-round.inc | BARRIER(); /* no worker may retain a stopped root view past this cut */ | scanner view retirement before reuse |
+| phase-field | vendor/gambit/include/_gambit/runtime_roles.h.in | ___gc_participant_phase phase; | ordinary enum, not an atomic admission pin |
+| generator-args | vendor/gambit/gsc/_ptree2.scm | (define (c-convert-argument sfun? numbered-typ body) | SFUN args converted before call |
+| generator-result | vendor/gambit/gsc/_ptree2.scm | (define (c-set-result sfun? result-typ) | CFUN native result converted into PSR1 |
+| generator-cleanup | vendor/gambit/gsc/_ptree2.scm | (define (type-needs-cleanup? typ-source) | false parameter flags omit cleanup TRY; not result ownership |
+| generator-plan | vendor/gambit/gsc/_ptree2.scm | (define (c-make-function sfun? name param-typs result-typ make-body) | candidate producer of direction-aware guard plan |
+| type-registry | vendor/gambit/gsc/_parms.scm | (cons size_t-sym | three flags false; unchanged ownership omission |
+| darwin-config | vendor/gambit/config.status | '--disable-smp' | configured arm64 GCC16 subset not SMP native qualification |
+| width-config | vendor/gambit/config.log | ac_cv_sizeof_long=8 | historical generated profile |
+| build-command | vendor/gambit/bin/gambuild-C | /opt/homebrew/Cellar/gcc/16.2.0/bin/gcc-16 | actual recorded toolchain command |
+| generated-header | vendor/gambit/include/gambit.h | #define ___CFUN_RESULT ___PSR1 | same macro subset not same full code cohort |
+| feeley-paper | evidence/research/sfun-converter-use-closure/feeley-sfp-paper.txt | return to C frames | Scheme continuation extent versus C activation extent |
+| real-gc-phase | vendor/gambit/tests/smp/gc/worker-root-domains.scm | vm->gc_participants[d->owner].phase!=___GC_OWNER_CLEANUP | actual native release body checks cleanup phase; source-only test |
+| real-gc-register | vendor/gambit/tests/smp/gc/worker-root-domains.scm | domain_release,&obj,0); | actual pointer constructor stores callback |
+| real-gc-call | vendor/gambit/tests/smp/gc/worker-root-domains.scm | if (___call(___PSP 0,___FAL,___FAL)==___FIX(___UNKNOWN_ERR)) | direct low-level call, not generated SFUN |
+| real-gc-run | vendor/gambit/tests/smp/gc/worker-root-domains.scm | if (___run(___PSP ___FAL)==___FIX(___UNKNOWN_ERR)) | direct run rejection; avoids SFUN wrapper |
+| real-gc-roster | vendor/gambit/tests/smp/gc/worker-root-domains.scm | vm->processor_count!=3 | three-participant source test is not configured disabled-SMP receipt |
+| gc-release-invoke | vendor/gambit/lib/_mem/still-sweep.inc | ___release_foreign(obj); | sweep invokes registered native releaser on owner |
+| foreign-release-dispatch | vendor/gambit/lib/c_intf.c | if ((e = release_fn (ptr)) != ___FIX(___NO_ERR)) | indirect callback extension point; not every target calls Scheme |
+| pointer-hook | vendor/gambit/lib/c_intf.c | ___FOREIGN_RELEASE_FN_FIELD(r) = ___CAST(___SCMOBJ,release_fn); | native callback registration |
+| pointer-default-no-call | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(___SCMOBJ,___release_pointer) | default no-op does not call Scheme |
+| function-default-no-call | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(___SCMOBJ,___release_function) | releases RC closure storage, does not execute callback |
+| tcl-native-callback | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call (___EXT(___data_rc) | real callback loads RC payload before SFUN marker allocation |
+| tcl-register | vendor/gambit/examples/tcltk/tcltk.scm | ___result = ___BOOLEAN (Tcl_CreateCommand | native command registration supplies callback and delete hooks |
+| tcl-export | vendor/gambit/examples/tcltk/tcltk.scm | (c-define (##tcltk-call vect args) | typed-result SFUN source producer |
+| tcl-delete | vendor/gambit/examples/tcltk/tcltk.scm | ___HIDDEN void scheme_delete_cmd | delete hook releases payload/RC, not a Scheme invocation |
+| tcl-error-callback | vendor/gambit/examples/tcltk/tcltk.scm | tcltk_eval_error (___CAST(char*,Tcl_GetStringResult(tcl_interp))); | native error translator calls a second SFUN endpoint |
+| tcl-error-export | vendor/gambit/examples/tcltk/tcltk.scm | (c-define (##tcltk-eval-error msg) | void error callback also needs refusal policy |
+| tcl-source-publish | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___set_data_rc) (cd, vect); | STILL vector count protects payload while alive; delete requires borrow closure |
+| rc-source-read | vendor/gambit/lib/_mem/rc-allocation.inc | ___EXP_FUNC(___SCMOBJ,___data_rc) | read value is not an atomic borrow or root transfer |
+| rc-source-write | vendor/gambit/lib/_mem/rc-allocation.inc | h->data = val; | public setter must join source-root writer admission |
+| rc-scan | vendor/gambit/lib/_mem/rc-roots.inc | mark_array (work, &h->data, 1); | actual context-owned RC data scanner |
+| mem-native-callback | vendor/gambit/tests/mem.scm | f (\"was called from C\"); | foo calls actual Scheme-exported C function |
+| mem-export | vendor/gambit/tests/mem.scm | (c-define (hop str) | typed result callback producer |
+| mem-function-import | vendor/gambit/tests/mem.scm | (define foo (c-lambda (real integer (function (char-string) int)) | actual function-pointer consumer |
+| function-target | vendor/gambit/lib/c_intf.c | *x = ___CAST(void*,body[-___LABEL_SIZE+___LABEL_HOST]) | static exported function or dynamic closure converter |
+| pthread-call | vendor/gambit/examples/pthread/pthread.c | ___ON_THROW(increment_counter (counter), got_throw=1); | real void SFUN caller and native outer catcher |
+| pthread-mutex | vendor/gambit/examples/pthread/pthread.c | pthread_mutex_lock (&mut); | closed example serializes increments; not a universal GC gate |
+| pthread-join | vendor/gambit/examples/pthread/pthread.c | pthread_join (tid[i], &results[i]); | get/release called after workers joined |
+| pthread-export | vendor/gambit/examples/pthread/mylib.scm | (c-define (increment-counter c) | actual void SFUN producer |
+| pthread-still-root | vendor/gambit/examples/pthread/mylib.scm | (##still-copy (make-counter 0)) | counter is explicitly native-held STILL object |
+| error-unknown | vendor/gambit/include/_gambit/foreign_abi.h.in | #define ___UNKNOWN_ERR                          (___ERR_BASE+3) | UNKNOWN differs from NO_ERR and UNWIND in current code |
+| error-unwind | vendor/gambit/include/_gambit/foreign_abi.h.in | #define ___UNWIND_C_STACK                       (___ERR_BASE+0) | legacy loop excludes this sentinel, not UNKNOWN |
+| ctos-stage | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___CTOS3(f,c,s,i) | producer operation identifies conversion error provenance |
+| on-throw | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___ON_THROW_AUX(decl,stat1,stat2) | outer catcher applies only when actually established |
+| real-gc-drop | vendor/gambit/tests/smp/gc/worker-root-domains.scm | (drop!) | source driver releases the native still holds before explicit GC |
+| real-gc-trigger | vendor/gambit/tests/smp/gc/worker-root-domains.scm | (workers! count) (##gc) | source driver invokes collection; not a native execution receipt |

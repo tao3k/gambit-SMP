@@ -1,0 +1,230 @@
+{
+  "root": [
+    {
+      "key": "scheme-roots",
+      "anchor": "mem.c:6511-6537,6591-6645,6852-6858",
+      "condition": "Scheme global/continuation/register/saved roots are actual scan paths; service-owned root graph must remain in their qualified closure"
+    },
+    {
+      "key": "rc-scope",
+      "anchor": "mem.c:277,306,723-739,3969-3986,6845-6849",
+      "condition": "RC list is per processor but inspected strong phase invokes mark_rc only at processor 0; arbitrary worker RC coverage remains unqualified"
+    },
+    {
+      "key": "rc-mutation",
+      "anchor": "mem.c:760-825",
+      "condition": "RC retain/release and data assignment are plain operations; do not treat them as thread-safe handle leases or immutable publication"
+    },
+    {
+      "key": "allocator",
+      "anchor": "mem.c:1487-1497,1647-1648,1742-1813",
+      "condition": "Native still allocation may GC/fail; initialize body before next allocation; native pair/vector input constraints forbid arbitrary movable arguments"
+    },
+    {
+      "key": "ffi-gap",
+      "anchor": "c_intf.c:6511-6546",
+      "condition": "Real stack-marker creator allocates before assigning proc_or_false and carries a GC-protection TODO; copying this order does not prove candidate input safety"
+    }
+  ],
+  "publication": [
+    {
+      "key": "root-store",
+      "anchor": "proposed service; mem.c:6591-6645",
+      "condition": "Service Scheme root graph and future VM-scoped root registry must cover bundle graph/receipts; native descriptor carries identity not raw movable address"
+    },
+    {
+      "key": "reserve-initialize",
+      "anchor": "mem.c:703-719,1487-1497",
+      "condition": "Reserve empty scanned slot, protect allocation inputs, initialize each new object before next GC-capable step, then attach through qualified slot store"
+    },
+    {
+      "key": "release-acquire",
+      "anchor": "gambit.h.in:11014-11026; proposed contract",
+      "condition": "Release publication/acquire observation orders native metadata; separate scanner/lifetime proof still required"
+    },
+    {
+      "key": "pin-retire",
+      "anchor": "proposed contract; mem.c:760-791",
+      "condition": "Read descriptor and acquire its lifetime lease under same retirement gate; load then addref is a reclaim gap"
+    },
+    {
+      "key": "fallback",
+      "anchor": "os_thread.c:715-735,788-794; gambit.h.in:11054-11082",
+      "condition": "Emulated CAS uses mutex but barrier fallback is empty; sequential branch is not concurrent publication qualification"
+    }
+  ],
+  "route": [
+    {
+      "key": "candidate",
+      "anchor": "mem.c:1487-1497,1742-1813",
+      "qntAction": "initialize",
+      "leanLemma": "initializedBeforePublish",
+      "condition": "Input roots precede allocation and complete initialization precedes next collection; failure keeps old authority"
+    },
+    {
+      "key": "scan",
+      "anchor": "mem.c:3969-3986,6591-6645,6845-6858",
+      "qntAction": "collect",
+      "leanLemma": "gcKeepsRoot",
+      "condition": "Selected root slots scanned and updated for exactly the owner VM; no unsupported worker RC shortcut"
+    },
+    {
+      "key": "publish",
+      "anchor": "gambit.h.in:11014-11026; proposed seam",
+      "qntAction": "publishBundle",
+      "leanLemma": "receiptCommit",
+      "condition": "Root transfer and bundle/index/receipt publication form one protocol cut before acknowledgement"
+    },
+    {
+      "key": "borrow",
+      "anchor": "mem.c:760-791; proposed seam",
+      "qntAction": "borrow",
+      "leanLemma": "gateBlocksRetire",
+      "condition": "Acquire native handle plus root lifetime under gate; GC-aware dereference resolves relocated slot"
+    },
+    {
+      "key": "unwind",
+      "anchor": "c_intf.c:6511-6546; _thread.scm:4623-4639",
+      "qntAction": "abortCandidate",
+      "leanLemma": "abortKeepsAuthority",
+      "condition": "Failed/unknown/captured attempts preserve root holders; restoration cannot undo committed receipt"
+    }
+  ],
+  "gain": [
+    {
+      "key": "shared-root-graph",
+      "avoided": "Per-consumer duplication of identical immutable compiler input graphs",
+      "added": "Scanned root store, handles, retired snapshots and leases",
+      "condition": "Actual avoided copying must exceed root/index/retention overhead; roots alone are correctness, not speedup"
+    },
+    {
+      "key": "independent-contexts",
+      "avoided": "Global cross-context serialization after ownership migration",
+      "added": "VM/root domain identity, reader gates and qualified participant mapping",
+      "condition": "Independent ready work must exceed coordination; current nonzero RC coverage not assumed"
+    },
+    {
+      "key": "failure-recovery",
+      "avoided": "Reexecuting qualified macro work to recover a committed result",
+      "added": "Exact receipt retention, root custody and authoritative resolution",
+      "condition": "No effect rollback/retry on unknown commit; retention and unresolved tasks can negate gains"
+    }
+  ],
+  "refinement": [
+    {
+      "key": "allocation",
+      "qntScope": "reserveRoot;allocateCandidate;initialize",
+      "leanScope": "initializedBeforePublish;abortKeepsAuthority",
+      "sourceDuty": "Actual allocation/root/map/error refinement including uninitialized-object interval"
+    },
+    {
+      "key": "collection",
+      "qntScope": "collect;dereference",
+      "leanScope": "gcKeepsRoot;handleResolution",
+      "sourceDuty": "GC relocation and selected scanner domain; no raw address retention across safepoints"
+    },
+    {
+      "key": "publication",
+      "qntScope": "publishBundle;borrow;retireOld",
+      "leanScope": "receiptCommit;gateBlocksRetire;releaseAcquirePremise",
+      "sourceDuty": "Real C happens-before plus retirement/root scanning participation"
+    },
+    {
+      "key": "control",
+      "qntScope": "loseAck;saveCandidate;resumeAfter",
+      "leanScope": "retainedCustody;noRollback;costPositive",
+      "sourceDuty": "Native/continuation roots, unknown owner and measured work/span/memory"
+    }
+  ],
+  "gate": [
+    {
+      "key": "root-domain",
+      "qualified": false,
+      "condition": "Every service/FFI/worker holder assigned to a live scanned VM root domain"
+    },
+    {
+      "key": "init-source",
+      "qualified": false,
+      "condition": "Allocation input protection, object initialization and failure cleanup source refinement"
+    },
+    {
+      "key": "c-memory",
+      "qualified": false,
+      "condition": "Release/acquire/gate protocol proven for actual configured sync branch"
+    },
+    {
+      "key": "relocation",
+      "qualified": false,
+      "condition": "GC-aware slot resolution and root registration/retirement synchronization"
+    },
+    {
+      "key": "continuation",
+      "qualified": false,
+      "condition": "Saved PCs, native borrowers, unknown result and root retirement closure"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "condition": "Old RC/global/mutable bundle authorities retired only after all consumers migrate"
+    },
+    {
+      "key": "platform",
+      "qualified": false,
+      "condition": "Host attestation, native qualification and measured benefit remain independent"
+    }
+  ],
+  "scalar": {
+    "": {
+      "workspaceCount": 2,
+      "actualAdmitted": false
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "BR-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/bundle_root_publication.qnt",
+      "subjectScope": "bundle_root_publication:Test$",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "BR-I",
+      "kind": "induction",
+      "subjectPath": "models/build/BundleRootPublication.lean",
+      "subjectScope": "BundleRootPublication:gcKeepsRoot;initializedBeforePublish;receiptCommit;gateBlocksRetire;abortKeepsAuthority;handleResolution;releaseAcquirePremise;retainedCustody;noRollback;costPositive",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "BR-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/bundle-root-publication-design.org",
+      "subjectScope": "BR-S:source",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "BR-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/bundle-root-publication-design.org",
+      "subjectScope": "BR-E:platform",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "BR-S",
+      "prerequisite.obligationId": "BR-H"
+    },
+    "1": {
+      "dependent.obligationId": "BR-S",
+      "prerequisite.obligationId": "BR-I"
+    },
+    "2": {
+      "dependent.obligationId": "BR-S",
+      "prerequisite.obligationId": "BR-E"
+    },
+    "3": {
+      "dependent.obligationId": "BR-S",
+      "prerequisite.obligationId": "AC-S"
+    }
+  }
+}

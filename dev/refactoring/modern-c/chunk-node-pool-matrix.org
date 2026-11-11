@@ -1,0 +1,175 @@
+#+TITLE: Independent Chunk Node Pool — Capacity and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitChunkNodePool
+:STATUS: conditional-formal-model; native-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| chunk-start | vendor/gambit/lib/mem.c | alloc_heap_chunk_limit = work->context->mem.alloc_heap_ptr_ + ___MSECTION_CHUNK; | Threshold is a rollover trigger, not a minimum size for every closed chunk |
+| empty-close | vendor/gambit/lib/mem.c | *work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; | Even empty closure consumes a terminal word; prove non-reuse across manifest intervals |
+| node-alias | vendor/gambit/lib/mem.c | ___WORD *new_tail = alloc_heap_chunk_start-1; | Replace old link address, not merely wrap enqueue |
+| section-slack | vendor/gambit/lib/mem.c | work->context->mem.alloc_heap_limit_ -= 2; | Two terminal markers; charge partial and empty sections separately |
+| section-prefix | vendor/gambit/lib/mem.c | *work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; /* link of msection's first chunk */ | First prefix is not a new copied object |
+| no-fit | vendor/gambit/lib/mem.c | work->context->mem.alloc_heap_limit_-alloc < required | Partial section rollover occurs before next reservation |
+| private-rollback | vendor/gambit/lib/mem.c | alloc = cancel_copy(work,&grant); | Only failed forwarding CAS private reservation may roll back; no terminal/node duplication |
+| forwarding | vendor/gambit/lib/mem.c | ___COMPARE_AND_SWAP_WORD(&body[-1], | Node capacity must precede winning forwarding; failure cannot abandon initialization |
+| custom-sections | vendor/gambit/lib/mem.c | return custom_msection_alloc (); | Reject uncertified address reuse or extension without atomic storage-plus-node budget admission |
+| shared-section | vendor/gambit/lib/mem.c | result = ms; | Distinct section identity alone does not establish disjoint heap lease intervals |
+| dequeue-head | vendor/gambit/lib/mem.c | owner->heap_chunks_to_scan_head_ = node; | Empty queue can retain last consumed address |
+| local-owned | vendor/gambit/lib/mem.c | work->local_scan_chunk_ = ptr; | Local frontier owns a private chunk; no extra admission on eventual publication |
+| weak-copy | vendor/gambit/lib/mem.c | process_wills (work); | Weak producers can add copies; strong-only budget is insufficient |
+| weak-end | vendor/gambit/lib/mem.c | move_continuation (work); | Final worker context restoration remains a future user until separately qualified |
+| cleanup-hash | vendor/gambit/lib/mem.c | process_gc_hash_tables (work); | Cleanup frontier not equivalent to weak scan completion |
+| cleanup-foreign | vendor/gambit/lib/mem.c | ___release_foreign | Native callback potential must be closed or routed into next epoch |
+| destructor-call | vendor/gambit/lib/c_intf.c | if ((e = release_fn (ptr)) != ___FIX(___NO_ERR)) | Unrestricted foreign destructor is not automatically a no-reentry user |
+| chunk-size | vendor/gambit/lib/mem.h | #define ___MSECTION_CHUNK       ___MSECTION_BIGGEST | Selected source threshold K=255; not proof of current compiled profile |
+| section-size | vendor/gambit/lib/mem.h | #define ___MSECTION_SIZE        131072 | Illustrative half section 65536 words; actual lease manifest separately checked |
+| legacy-cas | vendor/gambit/include/gambit.h.in | __sync_val_compare_and_swap(p,oldval,newval) | Native adapter is not itself portable C11 proof |
+
+** Capacity
+
+| key | bound | premise | counterexample | status |
+|---+---+---+---+---|
+| physical-ceiling | Bdata <= W + P; Btotal = Bdata + D | Distinct terminal addresses in disjoint fixed epoch intervals W; at most P open chunks; D independent dummy nodes | Custom allocator repeats an interval or phase resets rewind its cursor | conditional arithmetic proved; source injection open |
+| charged-ceiling | 255*Bdata <= A + 255*(V+P) | All threshold closures charged to disjoint 255-word spans; at most V partial section closes; private cancellation does not rewind committed spans | Count copied payload only; omit empty close or repeated lease visit | conditional arithmetic proved; complete charge classification open |
+| epoch-admission | capacity >= certified total demand including strong weak and restore users | Reserve all pool pages and check size arithmetic before flipping or forwarding; no GC-recursive fallback | Pool native allocation fails after forwarding is visible | design; native preflight issuer absent |
+| dense-fallback-cost | Selected 3-pointer fields: >=24*(W+P+D) bytes when Psizeof=8 | Capacity is logical records, not just occupied/live records; allocator and pin bytes additional | Treat loose ceiling as a cheap production pool | mathematical bound can be too costly; not accepted as performance design |
+| tighter-example | A=65536 V=1 P=1 D=1 => Btotal<=260; fields>=6240 bytes | Illustrative certified one-lease geometry; physical case not measured; A includes allocation spans | Claim every real section produces exactly 260 nodes | arithmetic example only |
+
+** Progress
+
+| key | mechanism | condition | gap |
+|---+---+---+---|
+| no-node-wait | Every remaining certified demand has a free node since issued<budget<=capacity | Admission covers whole epoch; nodes retained, never depend on mid-epoch recycle | Formal space theorem; source demand permit injection remains open |
+| undersized-pool | Reject before admission or choose separately qualified plan before forwarding | Existing committed work keeps custody after any contract breach | Helping scan cannot free retained nodes; no post-forward rollback guarantee |
+| finite-drain | Rank=4*private+3*sealed+2*queued+owned decreases on each drain step | No new tasks; sealed payload ready; fair scheduling and terminating scan callbacks | Enabledness and rank proved; not fairness, wait-freedom, or full GC termination |
+| unknown-outcome | Same node and accepted task survive lost ack; observe receipt without reenqueuing | Stable epoch identity and protected custody slot; retries use identity | Aggregate model does not prove per-task replay deduplication |
+| late-child | Parent reserves child budget and node before final settlement, even after root close | Child remains within certified physical geometry; no implicit Scheme allocation | Children modeled as node tasks; non-node Tail/initialization debt imported separately |
+
+** Receipt
+
+| key | issuer | prerequisite | revocation | gap |
+|---+---+---+---+---|
+| pool-plan | VM epoch coordinator plus storage manifest owner | Disjoint leases; K/ABI; checked size; pool memory; all stage producers; stable roster | Any resize extension allocator/profile change requires joint new admission before use | No current native issuer |
+| work-complete | Global work ledger coordinator | All roots/producers closed; delayed copies/Tail/owned/private tasks settled | Late accepted work prevents signature or belongs to distinct later epoch | Model aggregate slice proved; all native producers open |
+| users-closed | Epoch admission owner plus every queue/source reader | Stop new borrowers and publishers; drain admitted users; cleanup callbacks rerouted or proven non-reentrant | Late closure attempt fails rather than clearing debts | C gate linearization and callback closure open |
+| reclaim-permit | Pool lifecycle coordinator under closure serialization | Work complete + users closed + heads detached + all receipts/borrowers gone + generation match | Single-use permit consumed once; never reopen same generation | Model safety proved; native generation and permit issuer open |
+
+** Memory
+
+| key | ordering | obligation | gap |
+|---+---+---+---|
+| reserve | Owner-local cursor or native pool gate acquire/release | Reserve node and task responsibility before winning forwarding CAS; no failure in commit segment | Global lock fairness and owner interruption open |
+| publish | Initialize immutable bounds and payload before release unlock; acquire before reading queue | All next/head/tail accesses use same gate; scanner holds independent lifetime pin outside gate | Exact effective Darwin adapter and payload readiness mapping open |
+| last-user | Final borrower release or RMW sequenced after last dereference; reclaimer acquire | Admission close and borrower registration serialized; count zero after gate closure; no hidden reader | Acquire zero without closed admission is invalid |
+| receipt | Serialized immutable receipt publication release; consumer acquire and generation check | Must observe every last decrement through selected gate/RMW release sequence; no relaxed-zero shortcut | No operational C11 weak-memory model or compiled witness |
+| overflow | Checked native size multiplications and counts before admission | No wrap in capacity budget debt pin generation; saturation retains custody/rejects | Mathematical integers do not prove machine arithmetic safety |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| ordinary-C-scan | No whole-header atomic conversion or mutable sentinel classifier race | Independent record initialization and queue transfer | Full source replacement and payload publication qualified |
+| capacity | No allocation failure or free-node wait after winning forwarding | Reserve Btotal*recordStride + pool/pin bookkeeping before epoch | Valid complete capacity receipt and admitted memory budget |
+| publication | No extra work acceptance or debt when sealing/publishing | O(1) state transition per transfer; aggregate counts or worker-local batches | Same logical task identity; no second enqueue after unknown ack |
+| retention | No per-node reuse ABA within epoch; no per-node free in scan loop | Retain every issued record through global reclamation cut | No overlapping epoch reuse; late pin can delay reclamation indefinitely |
+| tight-budget | For illustrative one half-section K255 geometry fields lower bound6240 bytes (~1.19% of 524288 payload-space bytes) | Actual stride pool padding global roots and late-epoch retention not included | Conditional geometry; not measured residency or speedup |
+| loose-budget | Can state finite upper bound independently of payload occupancy | At least ~3 times tospace bytes for dense three-pointer records at one record per word | Useful as safety ceiling; too costly to justify production selection alone |
+| net-benefit | Saved header-atomic tax and useful scan overlap | Node/pool cost + admission/custody + retention; reduced heap may cause more GC | Positive only if saved work exceeds total new cost and memory budget fits |
+| retirement | Old terminal-as-next and implicit queue-head lifetime can retire | Migrate enqueue/dequeue/classifier local frontier epoch setup cleanup debug all together | No speed credit for already-existing queue gate; no runtime replacement yet |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| manifest | preflight | Disjoint spans and bounded producers yield pool demand budget |
+| preflight | pool | Allocate before flip/forward; reject undersized plan |
+| pool | copy | Reserve node with work debt before forwarding |
+| copy | sealed | Complete payload and frame links; retain Tail debt |
+| sealed | queue | Publish moves same accepted debt under queue gate |
+| queue | scanner | Claim node while retaining lifetime outside gate |
+| scanner | work-complete | Settle scan debt after deriving all children |
+| work-complete | users-closed | Drain future publishers callbacks and borrowers separately |
+| users-closed | receipt | Detach dummy heads and retire receipts and pins |
+| receipt | reclaim | Generation-bound permission; epoch reuse only after consumption |
+
+** Obligation
+
+| key | status | scope | gap |
+|---+---+---+---|
+| induction | proved | Actual pool typed AST all-step and reachable safety | Abstract integers and atomic steps |
+| capacity | conditional-proved | Physical and threshold arithmetic plus permitted reserve room | Native geometry injection and all producer coverage open |
+| progress | conditional-proved | Drain enabledness and strictly decreasing pipeline rank | Fairness terminating callbacks and complete finite task supply open |
+| composition | proved-slice | 17 pool actions simulate actual weak-admission AST or stutter; common delayed-ledger view | Per-object identity full marker product and native source composition open |
+| reclaim | proved-slice | No receipt with borrowers heads or unresolved receipts; no premature reclaim | Native late-registration exclusion and generation ABI open |
+| C11 | open | Release/acquire handoffs and ordinary record accesses | No weak-memory execution/refinement checker claimed |
+| net-benefit | open | Cost inequalities and explicit memory ceilings | No native performance or runtime implementation |
+
+** Binding
+
+| actionName | lemma | targetStep | simulation |
+|---+---+---+---|
+| chunk_node_pool.admit | NodePool.admitPreserves | weak_producer_admission.stutter | NodePoolComposition.admitSimulates |
+| chunk_node_pool.reject | NodePool.rejectPreserves | weak_producer_admission.stutter | NodePoolComposition.rejectSimulates |
+| chunk_node_pool.reserve | NodePool.reservePreserves | weak_producer_admission.continuationProducer | NodePoolComposition.reserveSimulates |
+| chunk_node_pool.derive | NodePool.derivePreserves | weak_producer_admission.deriveChild | NodePoolComposition.deriveSimulates |
+| chunk_node_pool.seal | NodePool.sealPreserves | weak_producer_admission.stutter | NodePoolComposition.sealSimulates |
+| chunk_node_pool.publish | NodePool.publishPreserves | weak_producer_admission.stutter | NodePoolComposition.publishSimulates |
+| chunk_node_pool.claim | NodePool.claimPreserves | weak_producer_admission.stutter | NodePoolComposition.claimSimulates |
+| chunk_node_pool.finish | NodePool.finishPreserves | weak_producer_admission.settleTask | NodePoolComposition.finishSimulates |
+| chunk_node_pool.observe | NodePool.observePreserves | weak_producer_admission.stutter | NodePoolComposition.observeSimulates |
+| chunk_node_pool.borrow | NodePool.borrowPreserves | weak_producer_admission.stutter | NodePoolComposition.borrowSimulates |
+| chunk_node_pool.returnBorrow | NodePool.returnBorrowPreserves | weak_producer_admission.stutter | NodePoolComposition.returnBorrowSimulates |
+| chunk_node_pool.closeRoots | NodePool.closeRootsPreserves | weak_producer_admission.closeRoots | NodePoolComposition.closeRootsSimulates |
+| chunk_node_pool.complete | NodePool.completePreserves | weak_producer_admission.finishWeak | NodePoolComposition.completeSimulates |
+| chunk_node_pool.closeUsers | NodePool.closeUsersPreserves | weak_producer_admission.stutter | NodePoolComposition.closeUsersSimulates |
+| chunk_node_pool.detachHead | NodePool.detachHeadPreserves | weak_producer_admission.stutter | NodePoolComposition.detachHeadSimulates |
+| chunk_node_pool.certify | NodePool.certifyPreserves | weak_producer_admission.stutter | NodePoolComposition.certifySimulates |
+| chunk_node_pool.reclaim | NodePool.reclaimPreserves | weak_producer_admission.stutter | NodePoolComposition.reclaimSimulates |
+
+** Proof
+
+| key | lemma | scope |
+|---+---+---|
+| room | NodePool.permittedReserveHasSpace | Admitted remaining demand has free record |
+| child-room | NodePool.permittedChildHasSpace | Parent child budget remains bounded |
+| balance | NodePool.conservation | Issued equals retained done plus active debt |
+| publish | NodePool.publicationDoesNotAllocate | Queue publication allocates no additional record or debt |
+| receipt | NodePool.receiptExcludesUsers | Receipt excludes unresolved borrower/head/ack |
+| enabled | NodePool.drainAvailable | Some pipeline drain enabled for positive debt |
+| coarse | NodePool.coarseCapacity | Assumed terminal injection ceiling |
+| charged | NodePool.chargedCapacity | Assumed disjoint threshold charges |
+| retained | NodePool.fullRetainedPool | Zero debt and full pinned pool coexist |
+| refinement | NodePoolComposition.stepSimulates | Every actual pool action to old weak AST |
+| common-ledger | NodePoolComposition.commonWeakLedger | Aggregate and delayed slice share same weak ledger projection |
+| reachable-refinement | NodePoolComposition.reachableProjects | Actual pool initial projects to reachable old weak cut; steps preserve old reachability |
+| strong-storage-carry | NodePool.weakEntrySafe | Strong phase retained records receipts borrowers reduce remaining weak-phase capacity; source issuer open |
+| warm-induction | NodePool.runsFromSafe | Every pool step preserves safety from arbitrary qualified imported occupancy |
+| warm-composition | NodePoolComposition.weakEntryProjectIsWeakCut | Retained strong storage projects to the same old work-complete weak cut |
+
+** Seam
+
+| producer.moduleId | consumer.moduleId | contract | modelNeed |
+|---+---+---+---|
+| collector | collector | Native node pool and total work ledger | NP-induction |
+| collector | control | Epoch close and reclaim authorization | NP-composition |
+| collector | native | Native storage publication C11 | NP-platform |
+
+** Scoped proof routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| NP-history | interleaving | dev/refactoring/modern-c/models/quint/chunk_node_pool.qnt | Capacity publication pins and failure histories |
+| NP-induction | induction | dev/refactoring/modern-c/models/lean/NodePool.lean | Actual typed AST all-step safety and conditional capacity progress |
+| NP-composition | induction | dev/refactoring/modern-c/models/lean/NodePoolComposition.lean | Actual weak AST simulation and common delayed-ledger view |
+| NP-projection | restricted-projection | dev/refactoring/modern-c/models/lean/NodePoolAst.lean | Restricted scalar typed IR with binding validation |
+| NP-source | source-refinement | dev/refactoring/modern-c/chunk-node-pool-design.org | Native geometry producers and epoch closure remain open |
+| NP-platform | native-memory-order | dev/refactoring/modern-c/chunk-node-pool-design.org | C11 storage memory order machine arithmetic and generation remain open |

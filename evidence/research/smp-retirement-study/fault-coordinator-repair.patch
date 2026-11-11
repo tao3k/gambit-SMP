@@ -1,0 +1,535 @@
+--- a/include/gambit.h.in
++++ b/include/gambit.h.in
+@@ -11486,6 +11486,11 @@
+ #else
+   ___vmstate_fdset fdset;
+ #endif
++  /* Sticky for one VM lifetime; never reset by resize or a good write. */
++  volatile int wake_fault_errno;
++  volatile int wake_fault_phase; /* healthy/faulted/posted/running/prepared/closed/retained */
++  volatile unsigned int wake_writers;
++  volatile unsigned int wake_selectors;
+ } ___vmstate_os;
+ 
+ typedef struct ___vmstate_mem_struct {
+@@ -11687,6 +11692,8 @@
+     ___procedural_interrupt_header * ___VOLATILE procedural_interrupts_tail;
+     ___MUTEX_DECL(procedural_interrupts_mut)
+     ___BOOL procedural_interrupts_ready;
++    void *sfun_markers; /* native ownership entries, not Scheme roots */
++    volatile unsigned int sfun_marker_count;
+ 
+     ___WORD processor_scmobj[___SUBTYPED_BODY+___PROCESSOR_SIZE+___PADDING_SIZE]; /* Scheme processor object */
+ 
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -1296,6 +1296,11 @@
+ 
+   (##declare (not interrupts-enabled))
+ 
++  ;; Reject new public requests before transferring mutex/node ownership.
++  ;; Private GC/collective delivery continues through ##thread-intr!.
++  (if (##fx> (##fault-control-native-phase) 0)
++      (##error "thread interrupt admission closed after wake fault"))
++
+   (let ((action
+          (if (##eq? act (macro-absent-obj))
+              ##user-interrupt!
+@@ -1480,6 +1485,7 @@
+ 
+ (define-prim (##other-interrupt!)
+   (##declare (not interrupts-enabled))
++  (##wait-fault-observe-unlocked!)
+   (##thread-intr-drain!)
+   (let loop ()
+     (let ((hint (##get-next-high-level-interrupt)))
+@@ -2734,6 +2740,8 @@
+     (##thread-check-timeouts!)
+ 
+     (macro-unlock-current-processor!)
++    (##wait-fault-observe-unlocked!)
++
+ 
+     (if (and (##fx< code 0)
+              (##not (##fx= code ##err-code-EINTR)))
+@@ -3044,6 +3052,7 @@
+                      (macro-unlock-current-processor!)
+ 
+                      (##wait! #f #t)
++                     (##wait-fault-observe-unlocked!)
+                      (##service-interrupts!) ;;TODO:remove
+                      (##thread-schedule!))
+ 
+@@ -3071,6 +3080,7 @@
+                        ;; release low-level lock of processor
+                        (macro-unlock-current-processor!)
+ 
++                       (##wait-fault-observe-unlocked!)
+                        (##service-interrupts!) ;;TODO:remove
+ 
+                        (cond ((##not (##fx< code 0)) ;; no error?
+@@ -3095,6 +3105,100 @@
+                               ;; schedule next runnable thread
+                               (##thread-schedule!)))))))))))))
+ 
++
++;;; Permanent wake faults have native scalar ownership and a traced VM carrier.
++;;; VM slot2 was unused in this exact source. It is scanned by mark_vm_scmobj.
++(define-prim (##fault-control-record)
++  (macro-vm-unused-field2 (macro-current-vm)))
++
++(define-prim (##fault-control-native-phase)
++  (##c-code "___RESULT = ___FIX(__atomic_load_n (&___VMSTATE->os.wake_fault_phase, __ATOMIC_ACQUIRE));"))
++
++(define-prim (##wait-fault-observe-unlocked!)
++  (##declare (not interrupts-enabled))
++  ;; All callers are outside T, P, V and condvar primitive locks.
++  (if (##c-code #<<end-of-code
++    int expected = 1;
++    ___RESULT = __atomic_compare_exchange_n (&___VMSTATE->os.wake_fault_phase,
++      &expected, 2, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE) ? ___TRU : ___FAL;
++end-of-code
++      )
++      (let ((record (##fault-control-record)))
++        (if (##vector? record)
++            (##thread-start! (##vector-ref record 0))
++            ;; No invented Scheme context in a partial startup/embedding.
++            (##c-code "__atomic_store_n (&___VMSTATE->os.wake_fault_phase, 6, __ATOMIC_RELEASE);")))))
++
++(define-prim (##fault-control-route-exit! code)
++  (##declare (not interrupts-enabled))
++  (let ((record (##fault-control-record)))
++    (if (and (##vector? record) (##fx> (##fault-control-native-phase) 0))
++        (begin
++          ;; Recursive exit is intent, not a second native unwind. The carrier
++          ;; is the sole committer, even when a callback requests another exit.
++          (##vector-set! record 6 code)
++          #t)
++        #f)))
++
++(define-prim (##fault-control-cursor! record slot execute)
++  (let loop ()
++    (let ((lst (##vector-ref record slot)))
++      (if (##pair? lst)
++          (let ((item (##car lst)))
++            ;; Transfer the suffix before the external call; item and caught
++            ;; error are strong roots through every nested collection.
++            (##vector-set! record slot (##cdr lst))
++            (##vector-set! record 7 item)
++            (##with-exception-catcher
++             (lambda (exc) (##vector-set! record 5 exc))
++             (lambda () (execute item)))
++            (##vector-set! record 7 #f)
++            (loop))))))
++
++(define-prim (##fault-control-run! record)
++  (##declare (not interrupts-enabled))
++  (if (##not (##fx= (##current-processor-id) 0))
++      (##error "fault coordinator migrated off P0"))
++  (if (##not (##c-code #<<end-of-code
++    int expected = 2;
++    ___RESULT = __atomic_compare_exchange_n (&___VMSTATE->os.wake_fault_phase,
++      &expected, 3, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE) ? ___TRU : ___FAL;
++end-of-code
++        ))
++      (##error "fault coordinator claimed twice"))
++  (##vector-set! record 1 3)
++  (##vector-set! record 2
++    (##c-code "___RESULT = ___FIX(__atomic_load_n (&___VMSTATE->os.wake_fault_errno, __ATOMIC_ACQUIRE));"))
++  (set! ##cleaning-up? #t)
++  (##vector-set! record 3 (macro-fifo-remove-all! ##exit-jobs))
++  (##fault-control-cursor! record 3 (lambda (job) (job)))
++  (##vector-set! record 4 (macro-fifo-remove-all! ##final-will-registry))
++  (##fault-control-cursor! record 4 ##will-execute!)
++  (##vector-set! record 1 4)
++  (##c-code #<<end-of-code
++    __atomic_store_n (&___VMSTATE->os.wake_fault_phase, 4, __ATOMIC_RELEASE);
++    fprintf (stderr, "SMP-FAULT coordinator=P0 prepared errno=%d\n",
++      __atomic_load_n (&___VMSTATE->os.wake_fault_errno, __ATOMIC_ACQUIRE));
++end-of-code
++  )
++  ;; Native cleanup/join may still retain failure; this is not an invented
++  ;; result-mutex reply or evidence that native storage was already released.
++  (##exit-with-err-code-no-cleanup (##fx+ (macro-EXIT-CODE-SOFTWARE) 1)))
++
++(define-prim (##fault-control-make!)
++  (##declare (not interrupts-enabled))
++  (let* ((record (##vector #f 0 0 '() '() #f #f #f))
++         (thread (##make-root-thread
++                  (lambda () (##fault-control-run! record))
++                  'fault-coordinator
++                  (macro-thread-tgroup (macro-primordial-thread)))))
++    (macro-thread-pinned-set! thread (##processor 0))
++    (##vector-set! record 0 thread)
++    (macro-vm-unused-field2-set! (macro-current-vm) record)
++    (##exit-admission-hook-set!
++     (lambda () (##fx> (##fault-control-native-phase) 0)))
++    (##exit-coordinator-hook-set! ##fault-control-route-exit!)))
++
+ (define-prim (##thread-report-scheduler-error! code)
+ 
+   (##declare (not interrupts-enabled))
+@@ -3209,6 +3313,11 @@
+ 
+ (define-prim (##thread-migrate-to! id)
+   (##declare (not interrupts-enabled))
++  (let ((record (##fault-control-record)))
++    (if (and (##vector? record)
++             (##eq? (macro-current-thread) (##vector-ref record 0))
++             (##not (##fx= id 0)))
++        (##error "fault coordinator cannot migrate")))
+   ;; Interrupt queue removal and migration publication share thread ownership.
+   (macro-lock-current-thread!)
+   (macro-thread-save!
+@@ -3316,6 +3425,7 @@
+     (##interrupt-vector-set! 4 ##gc-interrupt!) ;; ___INTR_GC
+     (##interrupt-vector-set! 5 ##other-interrupt!) ;; ___INTR_OTHER
+ 
++    (##fault-control-make!)
+     (##void)))
+ 
+ (define-prim (##gc-interrupt!)
+--- a/lib/_kernel.scm
++++ b/lib/_kernel.scm
+@@ -4726,13 +4726,20 @@
+ ;;; (##add-exit-job! thunk) can be called to add a job to
+ ;;; do when the program exits.  (##clear-exit-jobs!) clears the jobs.
+ 
++(define ##exit-admission-hook #f)
++(define-prim (##exit-admission-hook-set! hook) (set! ##exit-admission-hook hook))
+ (define-prim (##add-exit-job! thunk)
+-  (##add-job! ##exit-jobs thunk))
++  (if (and ##exit-admission-hook (##exit-admission-hook))
++      (##error "exit callback admission closed after wake fault")
++      (##add-job! ##exit-jobs thunk)))
+ 
+ (define-prim (##clear-exit-jobs!)
+   (##clear-jobs! ##exit-jobs))
+ 
+ (define ##cleaning-up? #f)
++(define ##exit-coordinator-hook #f)
++(define-prim (##exit-coordinator-hook-set! hook)
++  (set! ##exit-coordinator-hook hook))
+ 
+ (define-prim (##exit-cleanup)
+   (let ((is-in-cleanup? ##cleaning-up?))
+@@ -4743,14 +4750,18 @@
+           (##execute-final-wills!)))))
+ 
+ (define-prim (##exit-with-err-code err-code)
+-  (##exit-cleanup)
+-  (##exit-with-err-code-no-cleanup err-code))
++  (if (and ##exit-coordinator-hook (##exit-coordinator-hook err-code))
++      (##void)
++      (begin (##exit-cleanup) (##exit-with-err-code-no-cleanup err-code))))
+ 
+ (define-prim (##exit #!optional (status (macro-EXIT-CODE-OK)))
+   (##exit-with-err-code (##fx+ status 1)))
+ 
+ (define-prim (##exit-abruptly #!optional (status (macro-EXIT-CODE-SOFTWARE)))
+-  (##exit-with-err-code-no-cleanup (##fx+ status 1)))
++  (let ((code (##fx+ status 1)))
++    (if (and ##exit-coordinator-hook (##exit-coordinator-hook code))
++        (##void)
++        (##exit-with-err-code-no-cleanup code))))
+ 
+ (define-prim (##exit-with-exception exc)
+   (##exit (macro-EXIT-CODE-SOFTWARE)))
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -1134,6 +1134,7 @@
+           }
+           /* Memory ownership remains with this slot until P0 joins it. */
+           cleanup_interrupts_pstate (___ps);
++          ___retire_sfun_stack_markers (___ps);
+           ___cleanup_os_pstate (___ps);
+           ___thread_exit (); /* this call does not return */
+         }
+@@ -5076,6 +5077,10 @@
+   ___SCMOBJ err;
+   int i;
+ 
++  if (___ps->sfun_markers != NULL ||
++      __atomic_load_n (&___ps->sfun_marker_count, __ATOMIC_ACQUIRE) != 0)
++    return ___FIX(___INVALID_OP_ERR);
++
+   /*
+    * Processors need to know in which VM they are.
+    */
+@@ -5220,6 +5225,20 @@
+ }
+ 
+ 
++
++static int vm_native_consumers_clear (___virtual_machine_state vm)
++{
++  int i;
++  if (__atomic_load_n (&vm->os.wake_writers, __ATOMIC_SEQ_CST) != 0 ||
++      __atomic_load_n (&vm->os.wake_selectors, __ATOMIC_ACQUIRE) != 0)
++    return 0;
++  for (i=0; i<___MAX_PROCESSORS; i++)
++    if (__atomic_load_n (&___PSTATE_FROM_PROCESSOR_ID(i,vm)->sfun_marker_count,
++                         __ATOMIC_ACQUIRE) != 0)
++      return 0;
++  return 1;
++}
++
+ ___EXP_FUNC(___SCMOBJ,___cleanup_owned_vmstate)
+    ___P((___virtual_machine_state ___vms),
+         (___vms)
+@@ -5237,6 +5256,12 @@
+     {
+       ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
+       return ___FIX(___UNKNOWN_ERR);
++    }
++  if (!vm_native_consumers_clear(___vms))
++    {
++      ___vm_registry_open();
++      ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++      return ___FIX(___INVALID_OP_ERR);
+     }
+   ___cleanup_pstate(___PSTATE_FROM_PROCESSOR_ID(0,___vms));
+   cleanup_vmstate_locked(___vms);
+@@ -5260,6 +5285,15 @@
+    * Virtual machine starts off with a single processor.
+    */
+ 
++  {
++    int p;
++    for (p=0; p<___MAX_PROCESSORS; p++)
++      {
++        ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(p,___vms);
++        ps->sfun_markers = NULL;
++        __atomic_store_n (&ps->sfun_marker_count, 0, __ATOMIC_RELAXED);
++      }
++  }
+   ___vms->processor_count = 0;
+ #ifndef ___SINGLE_THREADED_VMS
+   ___vms->startup_epoch = 0;
+@@ -5374,6 +5408,19 @@
+   if (___GSTATE->setup_state != 1)
+     return ___FIX(___NO_ERR);
+ 
++  /* Raw unwind during fault preparation cannot release rooted suffix/error. */
++  if (__atomic_load_n (&___vms->os.wake_fault_errno, __ATOMIC_ACQUIRE) != 0 &&
++      __atomic_load_n (&___vms->os.wake_fault_phase, __ATOMIC_ACQUIRE) != 4)
++    { cleanup_error = ___FIX(___INVALID_OP_ERR); cleanup_phase = 2;
++      return cleanup_error; }
++
++  /* Refuse a returnable C/Scheme owner before any teardown mutation. */
++  if (___vms->processor_count > 0 &&
++      (___PSTATE != ___PSTATE_FROM_PROCESSOR_ID(0,___vms) ||
++       __atomic_load_n (&___PSTATE_FROM_PROCESSOR_ID(0,___vms)->sfun_marker_count,
++                        __ATOMIC_ACQUIRE) != 0))
++    return ___FIX(___INVALID_OP_ERR);
++
+   ___ps = ___PSTATE;
+   cleanup_phase = 1;
+   ___GSTATE->setup_state = 2;
+@@ -5413,6 +5460,18 @@
+ 
+ #endif
+ 
++  /* Workers have joined; late producers require the existing host lifetime
++     contract. Never free a descriptor, selector or VM still in actual use. */
++  /* Paired with writer count/flag SC operations; acquire/release on
++     separate atomics alone would permit both admission checks to miss. */
++  __atomic_store_n (&___vms->os.wake_fault_phase, 5, __ATOMIC_SEQ_CST);
++  if (!vm_native_consumers_clear(___vms))
++    { cleanup_error = ___FIX(___INVALID_OP_ERR); cleanup_phase = 2;
++      return cleanup_error; }
++
++  if (__atomic_load_n (&___vms->os.wake_fault_errno, __ATOMIC_ACQUIRE) != 0)
++    fprintf (stderr, "SMP-FAULT native-grace writers=0 selectors=0 markers=0\n");
++
+   ___cleanup_pstate (___ps);
+ 
+ #ifdef ___SINGLE_VM
+@@ -5426,6 +5485,12 @@
+   do
+     {
+       ___vms = ___vms->prev;
++      if (!vm_native_consumers_clear(___vms))
++        {
++          ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++          cleanup_error = ___FIX(___INVALID_OP_ERR); cleanup_phase = 2;
++          return cleanup_error;
++        }
+       cleanup_vmstate_locked (___vms);
+     }
+   while (___vms != &___GSTATE->vmstate0);
+--- a/lib/os_io.c
++++ b/lib/os_io.c
+@@ -946,7 +946,7 @@
+ #define ___SCHEDULER_NATIVE_WAIT_CAP_SECONDS 0.050
+ #endif
+ 
+-static ___SCMOBJ device_select_with_cap
++static ___SCMOBJ device_select_impl
+    ___P((___device **devs,
+          int nb_read_devs,
+          int nb_write_devs,
+@@ -1584,6 +1584,22 @@
+ }
+ 
+ 
++static ___SCMOBJ device_select_with_cap
++   ___P((___device **devs, int nr, int nw, int ne, ___time timeout,
++         ___F64 cap, int *reason),
++        (devs, nr, nw, ne, timeout, cap, reason)
++___device **devs; int nr; int nw; int ne; ___time timeout;
++___F64 cap; int *reason;)
++{
++  ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___PSTATE);
++  ___SCMOBJ result;
++  __atomic_fetch_add (&vm->os.wake_selectors, 1, __ATOMIC_ACQ_REL);
++  result = device_select_impl (devs, nr, nw, ne, timeout, cap, reason);
++  __atomic_fetch_sub (&vm->os.wake_selectors, 1, __ATOMIC_RELEASE);
++  return result;
++}
++
++
+ ___SCMOBJ ___device_select
+    ___P((___device **devs,
+          int nb_read_devs,
+@@ -1618,7 +1634,27 @@
+ 
+   static char buf[] = { 0 };
+ 
+-  write (___ps->os.select_abort.writing_fd, buf, 1); /* ignore error */
++  ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
++  int n, saved_errno, retry = 0;
++  /* This count and the close flag form a two-atomic admission handshake.
++     SC prevents both sides observing the other's old value. A live VM borrow
++     is still required before this first dereference. */
++  __atomic_fetch_add (&vm->os.wake_writers, 1, __ATOMIC_SEQ_CST);
++  if (__atomic_load_n (&vm->os.wake_fault_phase, __ATOMIC_SEQ_CST) >= 5)
++    { __atomic_fetch_sub (&vm->os.wake_writers, 1, __ATOMIC_RELEASE); return; }
++  do { n = write (___ps->os.select_abort.writing_fd, buf, 1); }
++  while (n < 0 && errno == EINTR && ++retry < 4);
++  saved_errno = n == 1 ? 0 : (n < 0 ? errno : EIO);
++  if (saved_errno != 0 && saved_errno != EAGAIN && saved_errno != EWOULDBLOCK)
++    {
++      int expected = 0;
++      if (__atomic_compare_exchange_n (&vm->os.wake_fault_errno, &expected,
++            saved_errno, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
++        { expected = 0;
++          __atomic_compare_exchange_n (&vm->os.wake_fault_phase, &expected,
++            1, 0, __ATOMIC_RELEASE, __ATOMIC_RELAXED); }
++    }
++  __atomic_fetch_sub (&vm->os.wake_writers, 1, __ATOMIC_RELEASE);
+ 
+ #endif
+ 
+@@ -12119,6 +12155,10 @@
+         (___vms)
+ ___virtual_machine_state ___vms;)
+ {
++  __atomic_store_n (&___vms->os.wake_fault_errno, 0, __ATOMIC_RELAXED);
++  __atomic_store_n (&___vms->os.wake_fault_phase, 0, __ATOMIC_RELAXED);
++  __atomic_store_n (&___vms->os.wake_writers, 0, __ATOMIC_RELAXED);
++  __atomic_store_n (&___vms->os.wake_selectors, 0, __ATOMIC_RELAXED);
+ #ifdef USE_POSIX
+   {
+     int size = 8 * sizeof (fd_set);
+--- a/lib/c_intf.c
++++ b/lib/c_intf.c
+@@ -6508,6 +6508,42 @@
+ 
+ /* Create a stack marker for a C to Scheme function call. */
+ 
++
++/* The Scheme marker is a still object with an external reference. This native
++   entry is not scanned as Scheme and never stores a movable heap pointer.
++   Only its OS owner mutates the list; join is the last-reader boundary. */
++typedef struct sfun_marker_owner_entry {
++  ___SCMOBJ marker;
++  struct sfun_marker_owner_entry *next;
++} sfun_marker_owner_entry;
++
++static void retire_marker_entry (___processor_state ps,
++                                 sfun_marker_owner_entry *entry)
++{
++  ___VECTORELEM(entry->marker, 0) = ___FAL;
++  ___still_obj_refcount_dec (entry->marker);
++  __atomic_fetch_sub (&ps->sfun_marker_count, 1, __ATOMIC_RELEASE);
++  free (entry);
++}
++
++void ___retire_sfun_stack_markers (___processor_state ps)
++{
++  unsigned int retired = 0;
++  /* Called by this worker immediately before nonreturning OS thread exit.
++     Every C frame on this stack is now nonreturnable, including nested SFUN. */
++  while (ps->sfun_markers != NULL)
++    {
++      sfun_marker_owner_entry *entry = (sfun_marker_owner_entry*)ps->sfun_markers;
++      ps->sfun_markers = entry->next;
++      retire_marker_entry (ps, entry);
++      retired++;
++    }
++  if (__atomic_load_n (&___VMSTATE_FROM_PSTATE(ps)->os.wake_fault_errno,
++                       __ATOMIC_ACQUIRE) != 0)
++    fprintf (stderr, "SMP-FAULT retired-markers p=%d count=%u\n",
++      ___PROCESSOR_ID(ps,___VMSTATE_FROM_PSTATE(ps)), retired);
++}
++
+ ___EXP_FUNC(___SCMOBJ,___make_sfun_stack_marker)
+    ___P((___processor_state ___ps,
+          ___SCMOBJ *marker,
+@@ -6543,6 +6579,17 @@
+   ___VECTORELEM(stack_marker, 1) = ___FIX(___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps)));
+ #endif
+ 
++  {
++    sfun_marker_owner_entry *entry = (sfun_marker_owner_entry*)malloc(sizeof(*entry));
++    if (entry == NULL)
++      { ___still_obj_refcount_dec (stack_marker);
++        return ___FIX(___SFUN_HEAP_OVERFLOW_ERR); }
++    entry->marker = stack_marker;
++    entry->next = (sfun_marker_owner_entry*)___ps->sfun_markers;
++    ___ps->sfun_markers = entry;
++    __atomic_fetch_add (&___ps->sfun_marker_count, 1, __ATOMIC_RELEASE);
++  }
++
+   *marker = stack_marker;
+ 
+   return ___FIX(___NO_ERR);
+@@ -6559,8 +6606,24 @@
+         (marker)
+ ___SCMOBJ marker;)
+ {
+-  ___VECTORELEM(marker, 0) = ___FAL; /* invalidate the C stack frame */
+-  ___still_obj_refcount_dec (marker); /* allow GC of stack marker */
++  ___processor_state ps = ___PSTATE;
++  sfun_marker_owner_entry **link;
++#ifndef ___SINGLE_THREADED_VMS
++  if (___INT(___VECTORELEM(marker,1)) !=
++      ___PROCESSOR_ID(ps,___VMSTATE_FROM_PSTATE(ps)))
++    return; /* A foreign OS owner cannot mutate this marker list. */
++#endif
++  link = (sfun_marker_owner_entry**)&ps->sfun_markers;
++  while (*link != NULL && (*link)->marker != marker)
++    link = &(*link)->next;
++  if (*link != NULL)
++    {
++      sfun_marker_owner_entry *entry = *link;
++      *link = entry->next;
++      retire_marker_entry (ps, entry);
++    }
++  /* An unmatched/stale kill cannot decrement somebody else's external ref.
++     The actual owner's remaining entry keeps retirement refused. */
+ }
+ 
+ 
+--- a/lib/c_intf.h
++++ b/lib/c_intf.h
+@@ -4,6 +4,8 @@
+ 
+ #ifndef ___C_INTF_H
+ #define ___C_INTF_H
++
++extern void ___retire_sfun_stack_markers (___processor_state ps);
+ 
+ 
+ /*---------------------------------------------------------------------------*/

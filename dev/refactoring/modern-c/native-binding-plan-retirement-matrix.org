@@ -1,0 +1,192 @@
+#+TITLE: Readonly NativeBindingPlan — Retirement and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitNativeBindingPlanRetirement
+:STATUS: conditional-model; source-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| begin | vendor/gambit/gsc/_t-c-1.scm | (set! targ-glo-vars         (make-table 'test: eq?)) | Session reset replaces table identity |
+| end | vendor/gambit/gsc/_t-c-1.scm | (set! targ-glo-vars #f) | End is after normal heap-dump return; not a universal unwind guard |
+| entry | vendor/gambit/gsc/_t-c-1.scm | (table-ref targ-glo-vars glo #f) | Mutable table entry aliases resource and index cell |
+| demand | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-demanders-set! (cdr x) '("")) | First use can change resource value |
+| supplier | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-suppliers-set! (cdr x) '("")) | Separate supply writer |
+| insert | vendor/gambit/gsc/_t-c-1.scm | (table-set! targ-glo-vars glo (cons y r)) | Missing entry means allocation and insertion, not readonly access |
+| resource-alias | vendor/gambit/gsc/_t-c-1.scm | (cddr g) | Entry list holds the same resource vector |
+| shallow | vendor/gambit/gsc/_t-c-1.scm | (map targ-glo-rsrc glo-list) | Roster snapshot retains same vectors |
+| header | vendor/gambit/gsc/_t-c-1.scm | (targ-write-rsrc-names 'globals-s-nd | Last direct demand-classification consumer in ordinary module emission |
+| layout | vendor/gambit/gsc/_t-c-1.scm | (targ-cell-set! (cadr g) i) | Resolved index must be copied by value |
+| loop | vendor/gambit/gsc/_t-c-1.scm | (targ-use-glo (string->symbol name) #f) | One lexical helper call executes in both binding loops |
+| prm | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_PRM") | First binding loop |
+| glo | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Second binding loop |
+| init-text | vendor/gambit/gsc/_t-c-1.scm | (targ-display x) | C initializer is output text here, not executing native C during compilation |
+| symbol-output | vendor/gambit/gsc/_t-c-1.scm | (targ-code* (list "DEF_MOD_SYM" | Post-GLO name and symbol-cell output does not read demanders directly |
+| keyword-output | vendor/gambit/gsc/_t-c-1.scm | (targ-code* (list "DEF_MOD_KEY" | Post-GLO keyword output independent of demander list directly |
+| cell | vendor/gambit/gsc/_t-c-1.scm | ((cell)        (targ-code tail)) | Deferred index-cell encoder reads cdr and may observe changed cell |
+| cell-write | vendor/gambit/gsc/_t-c-1.scm | (set-cdr! x y) | Cell object is mutable and shared; readonly plan copies resolved integer |
+| port | vendor/gambit/gsc/_t-c-1.scm | (display x targ-port) | Port execution is an exception/reentry boundary, not proven inert |
+| close | vendor/gambit/gsc/_t-c-1.scm | (close-output-port targ-port) | Close can fail; no successful receipt on unknown outcome |
+| header-read | vendor/gambit/gsc/_t-c-1.scm | (read in) | Linker re-reads serialized header rather than live compile resource vectors |
+| reconstruct | vendor/gambit/gsc/_t-c-1.scm | (targ-make-rsrc glo '() (list file)) | Rebuilt linker resources retain header s-nd classification |
+| union | vendor/gambit/gsc/_t-c-1.scm | (append (targ-rsrc-demanders r1) | Union creates new overlap vector but may retain unmatched vectors |
+| difference | vendor/gambit/gsc/_t-c-1.scm | (define (targ-difference-rsrc lst1 lst2) | Difference can return shared list suffix |
+| warnings | vendor/gambit/gsc/_t-c-1.scm | (targ-validate-rsrc glo-rsrc) | Warnings depend on reconstructed demander/supplier lists, before link header |
+| warning-read | vendor/gambit/gsc/_t-c-1.scm | (demanders (targ-rsrc-demanders r)) | Not evidence of a post-helper reader in ordinary module emission |
+| link-supply | vendor/gambit/gsc/_t-c-1.scm | (list (if (targ-rsrc-supplied? r) | Linkfile branch uses supplier role, not ordinary compile demand mutation |
+| exception | vendor/gambit/gsc/_utils.scm | (set! throw-to-exception-handler cont) | Compiler error handler itself captures continuation |
+| restore-handler | vendor/gambit/gsc/_utils.scm | (set! throw-to-exception-handler old-exception-handler) | Restoration is plain control-flow statement, not dynamic-wind |
+| arg-order | vendor/gambit/gsc/_front.scm | (define (arg-eval-order oper nodes) | Current compiler has explicit operand-order heuristic; do not infer host binary order |
+| throw | vendor/gambit/gsc/_utils.scm | (define (compiler-abort) | Trace error escape to captured handler |
+| compile-guard | vendor/gambit/gsc/_front.scm | (with-exception-handling | Top-level catches do not imply resource rollback |
+| table-gambit | vendor/gambit/lib/_system.scm | (##table-foldl rcons '() cons table) | Table-to-list constructs pairs without deep copying values |
+| table-universal | vendor/gambit/lib/_system.scm | (cons key (##univ-table-ref hashtable key)) | Alternative table backend also retains value identity |
+| sort | vendor/gambit/gsc/_utils.scm | (define (sort-list lst <?) | Sorted spine is not a deep resource snapshot |
+| c-id-alias | vendor/gambit/gsc/_t-c-1.scm | (cons 'c-id-glo name) | Tagged C-name object retains original string alias |
+
+** Observer
+
+| key | phase | reads | aliases | conclusion |
+|---+---+---+---+---|
+| header | before helpers | names demanders suppliers | glo-rsrc shares resource vectors | Must preserve original value snapshot |
+| layout | before helpers | supplier partition names index cells | glo-list contains table entry pairs | Freeze after resolved indices; prohibit retained mutable cell |
+| ordinary-tail | during and after helpers | binding names labels indices; sym/key names; output state | objs and cells remain reachable | No named direct demand-list reader found here; alias closure still OPEN |
+| linker | later invocation | header bytes then reconstructed records | New maps; union/difference share within linker graph | Do not substitute post-helper canonical demand for header roles |
+| escaped | any output boundary | arbitrary backend tables/vector fields via exposed capability | Global table raw vector and mutable strings | Must close capability or retain metadata effect/reject |
+| continuation | suspend/reenter/exception | saved locals plus process-global targ state | Old locals can coexist with new global table | Epoch and operation identity plus cleanup and pinned plan required |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| elide | Unobserved metadata projection | Complete observer and writer closure; no fault-prefix change | Readonly both loops may remove two demand writes | Whole-source and all exceptional observations OPEN |
+| preserve | First logical normalization outside emitter | Same cut and alias-visible state; no intervening writer | Second normalization can be removed by exact value algebra | Moving first effect is not eliminating it; no rollback by assumption |
+| reentry | Pinned plan and generation-scoped operation | Retry distinct from genuine repeated execution | Stale resume rejected; new operation gets new output context | Rejecting legacy unrestricted continuation is admission change, not equivalence |
+| errors | Typed deferred fault at equivalent cut | Original order and visible byte prefix established | No success receipt for partial or unknown output | OOM timing and actual host argument order OPEN |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| elision | 2P late table lookups and metadata setters; P=455 suggests 910 helper uses in matching artifact generation | P owned plans; two readonly consumers; certification and lifetime costs | No alias observer or intervening writer; lookup/encoding work may move to planning |
+| preserve | At most P second metadata normalizations after first retained | P logical first effects plus plan ownership | No intervening mutation and exact list-value equality; physical identity not automatically covered |
+| allocation | Repeated transient tuple/name work may be shared | Owned name/label/index plus O(P) plan and O(C) byte verification | No measured allocation or speed saving; OOM order needs separate semantic choice |
+| incremental | Stable immutable binding result can be reused across consumers | Keys include header role cut, generator, ABI, target and session-affecting inputs | No mutable cell/address identity in persistent key; invalidation and complete writer closure external |
+| net | Duplicate lookup/encoding work D plus certified redundant setters W | Plan K + ownership S + verifier V + qualification A | Positive only if D+W>K+S+V+A; modern C23 baseline; not person-days |
+| darwin | No direct compile-time saving established for same C bytes | Toolchain capability admission and native artifact reuse design | Do not infer reduction of macro expansion or GCC cold latency from helper counts |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Discovery | Header snapshot | roles at cut |
+| Header snapshot | Resolved layout | preserve header |
+| Resolved layout | Owned binding plan | copy values |
+| Owned binding plan | Elision admission | observer closure |
+| Owned binding plan | Metadata adapter | retain first effect |
+| Elision admission | Readonly PRM | first covered |
+| Metadata adapter | Readonly PRM | same logical cut |
+| Readonly PRM | C init text | ordered bytes |
+| C init text | Readonly GLO | second covered |
+| Readonly GLO | Completion guard | close + verify |
+| Completion guard | Receipt | generation valid |
+| Owned binding plan | Suspended context | pin lifetime |
+| Suspended context | Completion guard | resume or retain |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| native_binding_plan_retirement.discover | NativeBindingPlan.discoverPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.resolve | NativeBindingPlan.resolvePreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.closeWriters | NativeBindingPlan.closeWritersPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.admitElision | NativeBindingPlan.admitElisionPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.requireMetadata | NativeBindingPlan.requireMetadataPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.writeHeader | NativeBindingPlan.writeHeaderPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.sealPlan | NativeBindingPlan.sealPlanPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.firstElide | NativeBindingPlan.firstElidePreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.firstPreserve | NativeBindingPlan.firstPreservePreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.emitPrm | NativeBindingPlan.emitPrmPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.secondElide | NativeBindingPlan.secondElidePreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.secondPreserve | NativeBindingPlan.secondPreservePreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.emitGlo | NativeBindingPlan.emitGloPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.closeOutput | NativeBindingPlan.closeOutputPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.issue | NativeBindingPlan.issuePreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.pause | NativeBindingPlan.pausePreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.resumeSame | NativeBindingPlan.resumeSamePreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.foreignReentry | NativeBindingPlan.foreignReentryPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.lateWriter | NativeBindingPlan.lateWriterPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.escapedObserver | NativeBindingPlan.escapedObserverPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.unknownExit | NativeBindingPlan.unknownExitPreserves | Actual typed IR action; source observer and fault equivalence external |
+| native_binding_plan_retirement.rejectResume | NativeBindingPlan.rejectResumePreserves | Actual typed IR action; source observer and fault equivalence external |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| all-step | NativeBindingPlan.stepPreserves |
+| reachable | NativeBindingPlan.reachableSafe |
+| header | NativeBindingPlan.headerUnaffectedByFirst |
+| custody | NativeBindingPlan.unknownKeepsCustody |
+| close | NativeBindingPlan.finalNeedsClose |
+| public-first | NativeBindingRefinement.firstPublicEquivalent |
+| public-both | NativeBindingRefinement.bothPublicEquivalent |
+| second | NativeBindingRefinement.secondMetadataEquivalent |
+| first-canonical | NativeBindingRefinement.firstMetadataRequiresCanonical |
+| normalization | NativeBindingRefinement.normalizationCanBePlannedOnce |
+| alias-counterexample | NativeBindingRefinement.aliasDistinguishes |
+| writer-counterexample | NativeBindingRefinement.interveningWriterBreaksSecond |
+| error-prefix | NativeBindingRefinement.errorPrefixNotEquivalent |
+| replay | NativeBindingRefinement.replayNotRetry |
+| generation | NativeBindingRefinement.generationIsPartOfIdentity |
+
+** Migration
+
+| key | producerAnchor | consumerAnchor | actionName | lemma |
+|---+---+---+---+---|
+| header-cut | demand | header | native_binding_plan_retirement.writeHeader | NativeBindingPlan.headerUnaffectedByFirst |
+| resolved-copy | layout | cell | native_binding_plan_retirement.sealPlan | NativeBindingPlan.sealPlanPreserves |
+| first-effect | demand | prm | native_binding_plan_retirement.firstPreserve | NativeBindingRefinement.firstMetadataRequiresCanonical |
+| second-elision | prm | glo | native_binding_plan_retirement.secondElide | NativeBindingRefinement.secondMetadataEquivalent |
+| unknown-custody | port | close | native_binding_plan_retirement.unknownExit | NativeBindingPlan.unknownKeepsCustody |
+| reentry | exception | end | native_binding_plan_retirement.rejectResume | NativeBindingPlan.rejectResumePreserves |
+
+** Standard
+
+| key | status | authority | relevance | support |
+|---+---+---+---+---|
+| language | published baseline | https://www.iso.org/standard/82075.html | C23 / ISO IEC 9899:2024; historical C11 memory-model provenance is not target language | Per-feature compiler and libc qualification OPEN |
+| future | working draft | https://open-std.org/jtc1/sc22/wg14/www/projects.html | C2y is research input, not mandatory shared contract | No silent use of draft-only features |
+| tailcalls | TS under development | https://open-std.org/jtc1/sc22/wg14/www/projects.html | Generalized calls may benefit tail calls; explicit runtime dispatcher remains required until qualified | No portable tail-call guarantee assumed |
+| cleanup | TS under development | https://open-std.org/jtc1/sc22/wg14/www/projects.html | Lexical defer does not prove Scheme continuation or asynchronous exit cleanup | Completion guard needs its own semantic proof |
+| provenance | published TS 6010; separate from base standard | https://open-std.org/jtc1/sc22/wg14/www/projects.html | Object lifetime and pointer provenance inform alias and descriptor design | No claim that C23 atomics solve reclamation |
+| clang | implementation feature matrix | https://clang.llvm.org/c_status.html | C23 and C2y support is feature-specific | Upstream status is not Apple Clang or Darwin SDK qualification |
+| gcc | implementation language modes | https://gcc.gnu.org/onlinedocs/gcc/Standards.html | Explicit C23 mode; C2y experimental | Compiler version target ABI libc and atomics capability must be bound |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| table-alias | vendor/gambit/gsc/_t-c-1.scm | targ\-glo\-vars(?![A-Za-z0-9?!-]) | 6 | Exact lexical identifier occurrences including definitions; not indirect Scheme alias closure |
+| vector-alias | vendor/gambit/gsc/_t-c-1.scm | targ\-glo\-rsrc(?![A-Za-z0-9?!-]) | 4 | Exact lexical identifier occurrences including definitions; not indirect Scheme alias closure |
+| demand-access | vendor/gambit/gsc/_t-c-1.scm | targ\-rsrc\-demanders(?![A-Za-z0-9?!-]) | 6 | Exact lexical identifier occurrences including definitions; not indirect Scheme alias closure |
+| supply-access | vendor/gambit/gsc/_t-c-1.scm | targ\-rsrc\-suppliers(?![A-Za-z0-9?!-]) | 6 | Exact lexical identifier occurrences including definitions; not indirect Scheme alias closure |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| NB-history | interleaving | dev/refactoring/modern-c/models/quint/native_binding_plan_retirement.qnt | 13 histories: elision metadata adapter suspension reentry failures counterexamples |
+| NB-induction | induction | dev/refactoring/modern-c/models/lean/NativeBindingPlan.lean | All typed IR steps preserve conditional admission and custody invariant |
+| NB-refinement | induction | dev/refactoring/modern-c/models/lean/NativeBindingRefinement.lean | Observer-restricted equivalence and concrete distinguishing abstract histories; observer completeness external |
+| NB-projection | restricted-projection | dev/refactoring/modern-c/models/lean/NativeBindingPlanAst.lean | Binding IDs field kinds expressions roster checked; JSON and extractor trusted |
+| NB-source | source-refinement | dev/refactoring/modern-c/native-binding-plan-retirement-design.org | All raw aliases indirect observers root/fault closures and actual host order OPEN |
+| NB-exceptions | exception-equivalence | dev/refactoring/modern-c/native-binding-plan-retirement-design.org | Visible output prefix OOM error ordering and multi-shot operation identity OPEN |
+| NB-platform | c23-platform-qualification | dev/refactoring/modern-c/language-baseline-design.org | C23 capability profile publication lifetime and native ABI qualification OPEN |
+| NB-emission | emitter-fidelity | dev/refactoring/modern-c/native-binding-plan-retirement-design.org | Full byte correspondence and output operation retry/refinement OPEN |

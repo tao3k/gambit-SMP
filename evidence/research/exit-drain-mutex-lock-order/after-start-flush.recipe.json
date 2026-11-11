@@ -1,0 +1,32 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "tfib-after-start-flush",
+  "scope": "Reuse generation 4463d6b5 in place. Force-output around thread-start! of 5000 depth-15 roots, then sleep 10 seconds and force-output the completion count. No statistics call and no root join. This is not native acceptance. The 3600-second acceptance window is unchanged.",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.patch",
+    "evidence/research/exit-drain-mutex-lock-order/current-runtime.local.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "models/gambit/native/tfib_after_start_flush.scm"
+  ],
+  "steps": [
+    {"id": "candidate", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 180,
+     "arguments": {"sourceLock": "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json"}},
+    {"id": "runtime", "capability": "gambit.runtime-import", "dependsOn": ["candidate"], "budgetSeconds": 180,
+     "arguments": {"source": {"step": "candidate", "output": "source"},
+                   "archive": "evidence/research/exit-drain-mutex-lock-order/current-runtime.local.json"}},
+    {"id": "sample", "capability": "gambit.executable-test", "dependsOn": ["runtime"], "budgetSeconds": 90,
+     "arguments": {"runtime": {"step": "runtime", "output": "runtime"},
+                   "identity": {"step": "runtime", "output": "identity"},
+                   "program": "models/gambit/native/tfib_after_start_flush.scm", "mode": "gsi",
+                   "processorTopology": "host-managed", "executionBudgetSeconds": 40,
+                   "stdout": "AFTER-START-FLUSH\n"}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["candidate", "runtime", "sample"], "budgetSeconds": 20,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

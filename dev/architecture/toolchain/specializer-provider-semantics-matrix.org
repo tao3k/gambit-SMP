@@ -1,0 +1,60 @@
+#+TITLE: Safe, Unsafe and Arithmetic Specializer Equivalence Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: specializer-provider-matrix
+:AUTHORITY: SpecializerProviderSemantics
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** Case
+
+| key | anchor | captures | selection | condition |
+|---+---+---+---+---|
+| safe-boolean | _prims.scm:1798-1801,1880 | boolean? self and target-local ##boolean? captured during setup | Always return captured ##boolean?; env/args ignored by this selector | Do not add invocation-time global lookup or reinterpret safe as a predicate on env |
+| unsafe-boolean | _prims.scm:1803-1806,1883 | boolean=? self and ##boolean=? captured during setup | not safe?(env) chooses selected; otherwise self | Default safe is true; preserve actual lexical declaration environment |
+| arith-plus | _prims.scm:1818-1835,1889 | + self, proc-name +, fx+, fl+, ##+ | Read named arith first; unsafe unequal self takes priority over fixnum/flonum; otherwise choose mode or self | Injective relocation preserves unsafe==self test; same proc-name and ordered env declarations |
+| arith-internal-plus | _prims.scm:1890 | ##+ self, ##fx+, ##fl+; absent unsafe argument means self | Even under not safe, fall through to arithmetic when unsafe aliases self | Do not represent absent unsafe as a distinct sentinel primitive |
+| arith-division | _prims.scm:1893-1894 | / has absent fix name, fl/, ##/; ##/ has absent fix and unsafe | Absent fix selects self; named lookup miss is #f, not self | Managed completeness may reject a missing name but must not silently change selector semantics |
+
+** Contract
+
+| key | anchor | required | gap |
+|---+---+---+---|
+| lookup-commutation | _back.scm:288-301; _prims.scm:1790-1796 | New target lookup(name) = lifted relocation(old lookup(name)); setup resolves captures once | Arbitrary dynamically replaced lookup callbacks not qualified |
+| environment | _env.scm:335-343; _ptree1.scm:574-575; _back.scm:579-580 | safe defaults true; arith defaults generic; first matching named/universal declaration wins; reuse qualified persistent declaration views, not the entire shared mutable env graph | Full Gerbil emission to actual Gambit env equivalence remains open |
+| private-binding | _gvm.scm:165-197; _t-c-1.scm:295-303 | One primitive table/relocation domain per workspace; self and alternatives resolve locally | Inline/provider emission globals and full alias closure remain AR-S prerequisites |
+| observation | iter/macros.ss:124-150; compiler/driver.ss:787-797,963-978 | Preserve declaration scope, binding equality/distinction, generated reader origin and admitted failure/status surface | Instrumented read trace is a service observer premise, not an observed native compilation trace |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| recipe-sharing | Repeated immutable metadata preparation and admitted frontend work | Capture lookup, per-workspace primitive objects/providers and relocation | Savings must exceed freeze + reconstruction + validation; no eliminated per-call environment choice is assumed |
+| parallel-selectors | Global lookup/target state serialization after complete ownership migration | Private tables, declaration views, callback/root custody and workspace memory | Removed critical-path delay exceeds added context/coordination cost; no claimed speed ratio |
+| retirement | Global captured primitive references and redundant serialization after all consumers migrate | Generated recipe schemas, source-equivalence and environment/observer proof maintenance | Compile and link plus all provider variants migrate; three selected families do not qualify every primitive |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| selection | instantiate;invoke | safeTransport;unsafeTransport;arithTransport | Source factory and recipe evaluation refine modeled branches under equivalent declaration environments |
+| lookup | configureMissing;configureNoUnsafe | captureTransport;missingDifferent | Lookup miss remains #f; absent optional name means self; constructor effects/failures preserved |
+| private-observer | invoke;changeOrigin | relocationInjective;namedDeclarations;declarationOrder | Injective whole-graph map, per-name declaration view and generated source/status equivalence |
+| net-benefit | settleOutcome;releaseContext | costPositive | Truthful completion/root closure and actual work/span/memory evidence remain external premises |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| lookup-closure | False | Target-local capture lookup commutes, including missing and optional names |
+| provider-semantics | False | All selected factory branches and setup effects refine the recipes |
+| environment-fidelity | False | Per-primitive named declarations, order/defaults and safety view agree |
+| private-binding | False | Mutable primitive/reference/provider closure is private and coherent |
+| observer-fidelity | False | Identity, generated origin, diagnostics/status and required read observations agree |
+| caller-retirement | False | All relevant compile/link/provider consumers migrated; AR-S remains prerequisite |
+| platform-benefit | False | Native GC/FFI/SMP and measured work/span/memory not qualified |

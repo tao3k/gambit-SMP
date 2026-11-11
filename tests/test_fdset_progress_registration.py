@@ -23,7 +23,8 @@ class FDSetProgressRegistrationTests(unittest.TestCase):
         self.assertEqual(positive[0]["temporal"], "completion")
         self.assertEqual(positive[0]["states"]["queued"], 0)
         log = (ROOT / RECEIPT).parent / positive[0]["log"]
-        self.assertIn("Finished checking temporal properties", log.read_text())
+        from gambit_smp.output_observations import recorded
+        self.assertTrue(recorded(ROOT, log, positive[0]['logSha256'])['tlc']['temporalComplete'])
 
     def test_published_readback_does_not_access_disposable_cache(self):
         original = Path.open

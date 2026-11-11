@@ -1,0 +1,271 @@
+#+TITLE: GC reference repair, physical traversal and writer-owned hash layout
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+CATEGORY: modern-c
+#+STARTUP: overview
+#+PROPERTY: header-args :eval never-export
+
+* Responsibility replacement :architecture:gc:smp:c23:
+:PROPERTIES:
+:CUSTOM_ID: hash-layout-results
+:AUTHORITY: GambitHashIndexOwnership; GambitRootWorkerExit::hashProtocol
+:SOURCE_BRANCH: vendor/gambit modern-c
+:SOURCE_LOCK: evidence/research/hash-layout/scan-source.lock.json
+:NATIVE_RECIPE: evidence/research/hash-layout/scan-runtime.recipe.json
+:COMMIT_ADMITTED: false
+:END:
+
+This cut replaces layout authority in the existing C runtime. It does not add
+a GSC special case, a second namespace, an iterator snapshot, or a new runtime
+language. [[file:models/sysml/hash-index-ownership.sysml][SysML]] owns the contracts;
+[[file:hash-index-ownership-matrix.org][the projected matrix]] and
+[[file:diagrams/hash-index-ownership.d2][D2]] derive from native SysML evaluation.
+The [[file:models/sysml/root-worker-exit.sysml][runtime composition]] binds the
+existing QNT, actual C transitions and separate Lean responsibilities.
+
+* OBSERVED Reconstruction roots before final index policy :roots:construction:
+:PROPERTIES:
+:CUSTOM_ID: reconstruction-roots
+:AUTHORITY: models/sysml/hash-index-ownership.sysml construction
+:EVIDENCE: evidence/research/revision-admission/construction-results.json
+:END:
+
+The current full compiled inventory exposed a different producer failure:
+text-roundtrip under concurrent GC lost keys and reached the strict frozen
+fromspace boundary. Both text implode and binary deserialize built tables with
+flags zero, installed heap references, and only later enabled the final scan
+policy. A separate explicit-GC control observes a stale installed key with
+flags zero and an updated key with strong construction coverage. This narrows
+the mechanism; it does not prove every historical copy failure had this cause.
+
+Both real decoders now use the same reconstruction begin/commit operations.
+The shell initializes unused slots before return; installed keys/values stay
+strong across intervening safepoints. Commit is nonallocating, publishes final
+weak/index flags and preserves explicit reconstruction debt. Binary alloc!
+roots the shell before recursively decoding fields. A thrown construction
+retains ordinary Scheme root/unwind obligations; no detached recovery or
+foreign-owner-death claim is introduced.
+
+This composition also depends on the existing collector/layout split: GC may
+repair references and remove dead weak entries, but it must not permute table
+slots. A decoder can resume its private next-slot cursor after GC only under
+that contract. Merely enabling strong keys while retaining collector-side
+rehash would still invalidate the construction cursor. The SysML construction
+edge to reference repair and the existing traversal contract express this
+dependency; native between-store checks verify the same relative key/value
+slots after relocation. Final index reconstruction stays with the mutator
+owner and explicit NEED_REHASH debt.
+
+The existing hash QNT now also checks a representative installed key during
+construction:17 tests pass; finite safety covers2160 distinct states with an
+empty queue; the flags-zero construction counterexample remains executable.
+This is one existing scheduler model, not a second Lean interleaving proof.
+The existing Lean reference-transport premise is unchanged; real pointer
+coverage and exception/foreign adapters remain C refinement obligations.
+
+Actual source bootstrap, unchanged roundtrip/concurrent-GC fixtures and the
+native Scheme between-store/commit regression pass in the linked packet.
+The current full original aggregate and the remaining root/exit obligations
+still determine commit admission. No table layout lock, heap enlargement or
+permission to copy tospace was added.
+
+* Confirmed failure mechanism :evidence:
+:PROPERTIES:
+:CUSTOM_ID: hash-layout-counterexample
+:FAILURE_PACKET: evidence/research/capacity-admission/index-traversal-failure/receipt.json
+:END:
+
+The retained [[file:../../../evidence/research/capacity-admission/index-traversal-failure/receipt.json][native counterexample]]
+uses a strong =eq?= table with 97 interned-symbol keys and one Scheme writer.
+Its visitor requests GC without mutating the table. It revisited a key on the
+third visit. The unchanged native reproducer is retained in that packet;
+[[file:../../../vendor/gambit/tests/smp/gc/index-traversal.scm][the current fixture]]
+adds moving and retained-weak-key cases.
+
+#+NAME: hash-layout-causal-chain
+| Actual source | Old responsibility | Why the composition fails |
+|---------------+--------------------+---------------------------|
+| =lib/_system.scm::gc-hash-table-for-each/search/foldl= | Keep a physical index, invoke an arbitrary visitor, then advance by two fields | The visitor can allocate, collect or transfer control while the cursor remains live |
+| =lib/_mem/weak-tables.inc::process_gc_hash_tables= | Mark all strong memory-allocated keys KEY_MOVED, then eagerly rebuild native placement | Even permanent keys were treated as moved; reconstruction can reorder colliding keys without changing any semantic binding |
+| =gc_hash_table_rehash_in_situ= | Remove and reinsert entries at address-derived probe positions | Correct hash placement does not preserve a suspended physical traversal cursor |
+| =gsc/_t-c-1.scm::targ-heap-dump= | Consume =table->list targ-glo-vars= | A duplicate/omitted binding can corrupt generated declarations; this is a real consumer, not only a synthetic table workload |
+
+The counterexample is about physical order, not a lost Scheme root: the table,
+keys and values remain reachable. Copying the table and repairing its references
+does not itself require permuting entries. The extra in-place reconstruction
+crossed an ownership boundary invisible to the Scheme cursor.
+
+The earlier p11 invalid-generated-C failure is retained
+[[file:../../../evidence/research/capacity-admission/sfun-failure/receipt.json][separately]].
+The source chain explains how duplicate enumeration can damage the compiler;
+this result does not prove that every symptom in that earlier process had only
+this cause.
+
+* Actual C replacement and caller closure :source:
+#+NAME: hash-layout-source-replacement
+| Producer / consumer | Current responsibility | Retired path | Boundary still required |
+|---------------------+------------------------+--------------+-------------------------|
+| =object-scanning.inc= strong keys | Compare the key before/after =mark_array=; record an actual address change | Worst-case strong-key movement flag on every collection | Unique object scan and a well-formed rooted table |
+| =weak-tables.inc= | Repair references and remove dead weak entries at their existing coordinates | Collector-side eager slot permutation | Existing strong/weak phase completion and mutator exclusion |
+| =hash-table-api.inc::gc_hash_table_ref= | Fast hash lookup when placement is current; read-only linear search while KEY_MOVED is pending | First-reader lazy reconstruction | No concurrent writer; repaired references and valid table extent |
+| =gc_hash_table_set= | Rebuild before insert, replace or delete if address placement is stale | Assuming GC or a previous reader already rebuilt | Exclusive mutator ownership; no asynchronous interruption admission |
+| =gc_hash_table_union_find= | Rebuild before operating on position-encoded links | Treating =find=true= as a pure reader | Path compression writes even when the public operation looks like a query |
+| =wills.inc= | No table layout policy selection | EAGERLY/LAZILY selection based on collector/thread mode | Same responsibility split for threaded and single-threaded builds |
+
+The private rehasher now has exactly two C call sites, both in the native
+mutation API. Its definition remains in =weak-tables.inc=; the GC processing
+function no longer calls it. The GVM macros in =gvm_operations.h.in= still call
+the same three C functions, including both UNION and FIND. Their public function
+table/ABI and the Scheme generator remain unchanged by this cut.
+
+Scheme-owned hashing keeps the earlier SCHEME_INDEX contract: GC does not
+substitute the native address algorithm or invoke a user hash callback.
+Deserialization NEED_REHASH remains distinct from native KEY_MOVED. The existing
+Scheme reconstruction path, not a read-only native scan, owns that debt.
+
+The [[file:../../../vendor/gambit/doc/gambit.txi::@deffn procedure table-for-each][Gambit manual]]
+already forbids same-table public query/mutation operations during a
+=table-for-each= call. This cut does not silently lift that public restriction.
+The fixture's nested lookup uses the private native primitive on an already
+rooted GC-table object, avoiding a public table-access prelude.
+
+* Model, source and native evidence remain distinct :assurance:
+:PROPERTIES:
+:CUSTOM_ID: hash-layout-assurance
+:MODEL_RECIPE: evidence/research/hash-layout/observed-protocol.recipe.json
+:MODEL_RECEIPT: evidence/research/hash-layout/protocol-closure/receipt.json
+:NATIVE_OBSERVATIONS: evidence/research/hash-layout/native-observations.json
+:END:
+
+The existing [[file:models/quint/hash_index_owner.qnt][hash_index_owner QNT]] now
+includes a reader cursor, physical layout, read-only fallback, writer-owned
+reconstruction and address debt separate from deserialize debt. Two named
+negative histories reach an actual duplicate visit while hash placement still
+equals the correct address hash. One includes movement; the other preserves
+the address and models the predecessor's unnecessary stable-key rebuild.
+
+Its 14 named tests passed. Exhaustive finite safety checked 600 distinct states
+(2,654 generated, queue empty). The deliberately retained =legacyStep= produces
+a layout-safety counterexample; its finite exploration stops on that violation,
+while the named histories continue to the duplicate visit. Bounds are two keys,
+one reader, and two addresses/layouts. This is not a liveness or concurrent-writer
+proof.
+
+The composed model recipe also checks the existing capacity and host-root
+protocols: 33 named tests, three separate finite safety explorations and three
+deliberate-counterexample checks. These are separate component state spaces,
+not an exhaustive product model of the whole VM.
+
+[[file:../../modeling/ascent/root-worker-exit.rules.scm][The actual ASCENT DSL]]
+separates =rweProtocolScheduleChecked=, =rweProtocolNativeObserved= and
+=rweProtocolSliceObserved=. The native adapter reuses the framework's current
+source/tool/artifact inspector, matches the cumulative source lock and original
+profile, and checks the required regression outcomes. Removing model or native
+evidence must remove the composed observation. None of these relations supplies
+=rweProtocolCRefined= or retirement authority.
+
+#+NAME: hash-layout-ascent-closure
+| ASCENT scenario | Model schedules checked | Native slice observed | Model + native observation | C refinement gaps |
+|-----------------+-------------------------+-----------------------+----------------------------+-------------------|
+| Current source-bound evidence | 3 | 1 | 1 | 3 |
+| Stale model digest | 0 | 1 | 0 | 3 |
+| Missing named tests | 0 | 1 | 0 | 3 |
+| Missing exhaustive safety | 0 | 1 | 0 | 3 |
+| Missing deliberate counterexample | 0 | 1 | 0 | 3 |
+| Missing C action mapping | 0 | 1 | 0 | 3 |
+| Missing native evidence | 3 | 0 | 0 | 3 |
+
+All seven scenarios passed in the retained
+[[file:../../../evidence/research/hash-layout/protocol-closure/receipt.json][model/native composition packet]].
+The native observation covers hash-layout qualification, not a blanket native
+certificate for every protocol. Retirement remains empty in every scenario.
+
+[[file:models/lean/HashIndexOwner.lean][Existing Lean]] is unchanged and was not
+rerun for this cut. Its native reconstruction law applies after the explicit
+writer rebuild; its semantic transport law still requires stable semantic
+hashes. It does not prove the cursor schedule or the concrete C linear loop.
+Those source-refinement premises are not renamed into completed Lean proofs.
+
+* Native qualification and incremental work :native:build:
+#+NAME: hash-layout-native-results
+| Observation | Actual result | Limit of the claim |
+|-------------+---------------+--------------------|
+| Current incremental campaign | All 27 stages passed; 230.40 s supervised, 227.64 s child | Same 600 s whole-run and 400 s native-stage caps |
+| Table regression, interpreted | Passed; execution 3.89 s | 97 permanent, 97 moving strong, 97 retained weak keys; no concurrent writer |
+| Table regression, compiled | Passed; execution 3.56 s; compile 7.88 s | Same fixture generated/compiled by the current target GSC |
+| Map multi-shot continuation / GC | Both existing topology modes passed | Control regression, not a proof of every captured table-cursor history |
+| W<R root scanning / owner cleanup | Existing worker-domain and arena fixtures passed | Selected admitted topologies and resources |
+| Unknown join / healthy VM | Passed; actual program 0.75 s | Three healthy root domains, one worker, three further GCs; empty unpublished failed startup, not arbitrary unknown shared-heap writers |
+| Process executions | 13 Gambit executions plus two C controls | Current native observations, not replayed process births |
+| Configuration and source workspace | Configuration/probes reused; zero source copies | One owned Modern C source workspace; no clean or new private source tree |
+| Core Scheme generation | 51 generated C products unchanged; zero core generation phases | Test fixtures still require their own compilation; no fresh full bootstrap claimed |
+| Native rebuilding | One =mem.o= compile and two relinks; Make/object work 5.88 s | Native stage 35.91 s also includes identity/reconciliation work |
+
+The [[file:../../../evidence/research/hash-layout/native-observations.json][observations]]
+bind the source lock, profile, recipes and
+[[file:../../../evidence/research/hash-layout/native-closure/receipt.json][retained native packet]].
+The existing framework reported =CURRENT= identity and =AVAILABLE= artifacts.
+No heap or wait limit was increased. The first compile attempt's misspelled
+FIXIOR interface is retained in
+[[file:../../../evidence/research/hash-layout/compile-failure/receipt.json][its failure packet]];
+the failed attempt was not erased or relabeled as runtime evidence.
+
+* Net work and peak-memory matrix :decision:
+:PROPERTIES:
+:CUSTOM_ID: hash-layout-net-work
+:END:
+
+For an interval of unchanged capacity, let m be table key-slot capacity,
+k the key-field slots visited by the strong memory-key scanner, G the number of
+ordinary GC episodes, Q the reads performed with address debt, and U the
+mutations which settle it. Let b be reconstruction cost per slot, l linear
+comparison cost per slot, h the displaced hash-lookup cost, and c the added
+before/after key-slot comparison cost. The scan includes empty/deleted slots;
+k is not merely the number of live keys. If capacity varies, use the sum of
+each episode's actual capacity and scanned slots. These are cost parameters, not assumed
+benchmark numbers.
+
+#+NAME: hash-layout-net-benefit-matrix
+| Workload / responsibility | Removed work or hazard | Added work / peak | Positive condition or refutation |
+|---------------------------+------------------------+-------------------+----------------------------------|
+| Permanent-symbol native table | GC-induced reordering and speculative whole-table reconstruction | G*k extra identity comparisons; no new address debt for unchanged keys | Saves reconstruction traffic if G*m*b exceeds G*k*c; the regression demonstrates correctness, not a measured speedup |
+| Moving-key table | GC no longer invalidates a suspended cursor | Q linear reads up to m slots, plus U writer rebuilds | Relative index work improves only when G*m*b > G*k*c + U*m*b + Q*(m*l-h) |
+| Read-heavy moving-key table | Pure reads no longer acquire hidden write authority | Debt can persist indefinitely with no writer; repeated O(m) reads | Large Q can make this slower; no universal net-performance claim |
+| Collector critical path | Native slot permutation leaves the stopped-world repair phase | Actual key-movement comparison remains | Less GC layout work does not by itself prove a shorter end-to-end pause |
+| Safepoint latency | No extra collector callback or Scheme hash invocation | A large noncollecting linear C query can delay that context's next safepoint | No constant-time latency promise independent of m; a future interruptible query needs real frame/root/reload state, not an unrooted GC poll in this loop |
+| Incremental table metadata | No new owner registry, reader count, version field or traversal snapshot | Reuse KEY_MOVED and existing flags; one temporary key value in scan and a loop index | Delta in heap/table fields is zero for this cut, not for the entire cumulative modern-c refactoring |
+| Weak semantics | No snapshot that accidentally keeps dead weak keys alive | Existing weak-phase deletion and root retention rules | Dead weak bindings may disappear; fixture roots all 97 weak keys/values intentionally |
+
+An iterator snapshot would add O(m) storage/root lifetime and could change weak
+liveness. A reader registry needs lifetime rules for continuation escape and
+unknown owners. Stable object identity may restore O(1) native lookup but has
+object-layout and transport costs. None is introduced without its own evidence.
+
+* Conditional source proof and remaining counterexamples :refinement:
+#+NAME: hash-layout-closure-matrix
+| Obligation | Evidence supplied | Still required / counterexample |
+|------------+-------------------+---------------------------------|
+| GC preserves slot coordinates | Rehasher removed from GC; actual native repro now passes in both modes; QNT captures old duplicate histories | Complete source-refinement relation from valid C table extents and unique scans to model keys/slots |
+| Pure native read preserves layout | Native ref has no rebuild/store path; moving-key private lookup fixture passes | Concrete bounds, unique-key and repaired-reference assumptions; raw malformed tables excluded |
+| Native mutation owns reconstruction | Exactly two helper callers: set and path-compressing union/find | Existing exclusive-call precondition; no runtime reader-lock admission for same-table concurrent/reentrant mutation |
+| GC and mutator memory visibility | Existing frozen-root/collective completion protocol retained | The new finite cursor model does not prove all platform barriers or unmanaged FFI participation |
+| Continuation advantage | Scheme/GVM control stays intact; map multi-shot restoration and GC tests pass | Replaying a captured table iterator after explicit intervening mutation needs a logical-revision contract; one linear traversal branch is modeled here |
+| Unknown outcomes | No new reset/replay/reclaim rule | A writer interrupted during in-place reconstruction remains outside admission without physical-stop/recovery evidence |
+| Whole GC/SMP modernization | Source ownership boundaries are explicit and exercised | Complete pre-flip census/packing/common refusal, arbitrary FFI writers, full bootstrap and remote CI remain independent gates |
+
+The architectural gain is concrete: a collecting visitor no longer transfers
+physical-layout authority to GC, and a read no longer silently becomes a
+reconstruction writer. This preserves Gambit's existing higher-order/control
+path while exposing the real performance and recovery costs.
+
+* Submission gates :gate:
+#+NAME: hash-layout-five-gates
+| Gate | Present result | Admission |
+|------+----------------+-----------|
+| Required tests | Current incremental native cohort and bounded component models pass; no new full bootstrap or remote CI | Partial |
+| Architecture learning / advantage | Reference transport, cursor stability and derived-index rebuilding have distinct owners; cost thresholds above | Documented, workload-conditional |
+| Refactoring process | Four existing C fragments replace the policy; no second API/namespace or GSC exception | This source slice implemented |
+| Models and evidence | Native SysML drives QNT and ASCENT; separate Lean algebra retained; C refinement gaps stay visible | Conditional slice observation |
+| Gambit core questions | Multi-shot control preserved; weak lifetime, foreign ownership, safepoints and interrupted mutation have explicit boundaries | Open |
+
+No commit or whole-runtime retirement is admitted by this report.

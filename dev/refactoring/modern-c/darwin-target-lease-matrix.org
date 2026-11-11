@@ -1,0 +1,165 @@
+#+TITLE: Darwin targets — configured binding, invocation/origin leases and return
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitDarwinTargetLease
+:END:
+Configured source reductions and abstract lease safety are distinct from loaded provider qualification.
+
+** Component
+
+| componentId | actionSlice | sharedContract | proof | source |
+|---+---+---+---+---|
+| provider-admission | publishPlain/acquireOuter/closeOrdinary/publishReplacement | writer-closure | TargetLease.closureBlocksOrdinaryAcquire | rts-bind |
+| invocation-drain | enterNested/leaveNested/releaseOuter | lease-safety | TargetLease.closeDoesNotDrain | ext-mode |
+| origin-custody | beginMalloc/recordSuccess/loseBeforeCapture/recoverRecorded | allocation-capture | TargetLease.unknownKeepsOrigin | rc-private |
+| origin-cleanup | beginOriginFree/applyFree/recordFreeBackend/reconcileFree | free-receipt | TargetLease.originFreeUsesOldFamily | free |
+| bundle-retirement | releaseMaintenance/retireOldBundle | native-retirement | TargetLease.retirementNeedsAllDebts | stream-close |
+
+** Cohort
+
+| key | source | compiler | smp | multipleVMs | status |
+|---+---+---+---+---+---|
+| vendor | vendor-status | /opt/homebrew/Cellar/gcc/16.2.0/bin/gcc-16 -B/usr/bin/ | disabled | disabled | configured-source-only |
+| retained | retained-status | /opt/homebrew/bin/gcc-16 | enabled | enabled | configured-source-only |
+
+** Binding
+
+| key | cohort | mode | source | dynamic | extRoute | clibRoute | debugLog | debugAlloc | signature | boundary |
+|---+---+---+---+---+---+---+---+---+---+---|
+| vendor-OBJ | vendor | OBJ | vendor-driver | no | direct-runtime-symbol | direct-CLIBEXT; allocator itself calls bare malloc/free | disabled-default | disabled-default | alloc(size)/free(ptr) | recorded driver defaults without additional flags; loaded image binding unresolved |
+| vendor-DYN | vendor | DYN | vendor-driver | yes | GSTATE-slot | direct-CLIBEXT; allocator itself calls bare malloc/free | disabled-default | disabled-default | alloc(size)/free(ptr) | recorded driver defaults without additional flags; loaded image binding unresolved |
+| vendor-RTS | vendor | RTS | vendor-driver | no | direct-runtime-symbol | direct-CLIBEXT; allocator itself calls bare malloc/free | disabled-default | disabled-default | alloc(size)/free(ptr) | recorded driver defaults without additional flags; loaded image binding unresolved |
+| retained-OBJ | retained | OBJ | retained-driver | no | direct-runtime-symbol | direct-CLIBEXT; allocator itself calls bare malloc/free | disabled-default | disabled-default | alloc(size)/free(ptr) | recorded driver defaults without additional flags; loaded image binding unresolved |
+| retained-DYN | retained | DYN | retained-driver | yes | GSTATE-slot | direct-CLIBEXT; allocator itself calls bare malloc/free | disabled-default | disabled-default | alloc(size)/free(ptr) | recorded driver defaults without additional flags; loaded image binding unresolved |
+| retained-RTS | retained | RTS | retained-driver | no | direct-runtime-symbol | direct-CLIBEXT; allocator itself calls bare malloc/free | disabled-default | disabled-default | alloc(size)/free(ptr) | recorded driver defaults without additional flags; loaded image binding unresolved |
+
+** Writer
+
+| key | source | storage | known | closure |
+|---+---+---+---+---|
+| runtime-slots | rts-bind | GSTATE alloc_mem/free_mem function fields | setup.c installs corresponding runtime symbols | no source evidence of sealing all native alias writers |
+| native-linker | state-escape | GSTATE and reachable function fields | linker receives actual mutable state pointer | arbitrary external C cannot be exhaustively closed by named-assignment search |
+| log-stream | stream-setup | base_mod.debug and FILE lifetime | setup assigns fopen result or stderr; cleanup closes owned stream | base refcount does not count in-flight printf/fflush |
+| base-lifecycle | base-state | base_mod.refcount and debug state | setup increments and cleanup decrements module refcount | call/VM lifecycle and external alias closure required |
+| libc-provider | allocator | raw malloc/free imported targets and allocator family | source calls bare C symbols | not controlled by GSTATE epoch; loaded image/interposition unresolved |
+| debug-abi | abi | function-pointer signature plus consumer declarations | size vs size,line,file branches selected by DEBUG_ALLOC_MEM | runtime/modules need same ABI; cannot live-rebind across incompatible signature |
+
+** Issuer
+
+| key | source | signature | condition | gap |
+|---+---+---+---+---|
+| profile-owner | vendor-driver | cohort, request/include order, ABI and consumer mode | bind exact generated flags and override policy | no single effective binary/profile attested |
+| provider-owner | allocator | wrapper and external import closure plus allocator family | pin code/images/state and matching free domain | direct symbol route is not a loaded provider certificate |
+| bundle-registry | rts-bind | immutable ProviderBundle and generation admission word | lease acquire and close have one linearization; all writers mediated | old raw EXT readers are not this interface |
+| origin-owner | rc-private | operation record, pointer or unknown debt, allocator/free origin | reserve before call; keep origin hold after invocation ends | native pointer capture and same-operation recovery adapter missing |
+| stream-owner | stream-close | FILE ownership and in-flight bundle dependency | close after all dependencies including future origin frees drain | current refcount does not prove this order |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| lease-safety | conditional-model | 23 actions preserve invocation and origin custody across close/replacement |
+| prefix-join | conditional-model | actual NativePrefix fast/durable Step joins at acquisition |
+| configured-branches | source-bound | two coherent static Darwin cohorts and six mode/default reductions |
+| effective-loader | unresolved | actual consumer argv/include order, Mach-O/provider images and import binding; no executable artifact qualified |
+| writer-closure | unresolved | all GSTATE, bundle, stream and loader mutation paths mediated or excluded |
+| allocation-capture | unresolved | native return before stable capture cannot abandon or retains recoverable same-operation custody |
+| free-receipt | unresolved | known free receipt before debt settlement; libc free itself returns no such durable record |
+| native-retirement | unresolved | real callback/GC/maintenance/module/image/FILE users close and drain before release |
+| c23-refinement | unresolved | linearizable enrollment/close, release/acquire publication and actual reads-from/storage types |
+| native-product | unresolved | lease/origin/root/return-domain composition and unbounded participants; bounded join only |
+
+** Memory
+
+| key | ordering | premise | obligationId |
+|---+---+---+---|
+| publish | release immutable bundle; acquire same bundle before native dereference | snapshot includes wrapper, family, ABI and provider dependencies | c23-refinement |
+| close | single admission order for ordinary acquire versus close | raw load followed by independent increment cannot serve as proof | c23-refinement |
+| last-use | release call enrollment after stable completion and final target access | do not read freed bundle to decide whether to release its count | native-retirement |
+| origin | register origin debt before allocator invocation; retain matching deallocator | call lease retirement does not settle a successful or unknown allocation | allocation-capture |
+| maintenance | derive cleanup authority from captured origin after ordinary closure; root storage reclaim permit already required | not a fresh ordinary grant; unknown free keeps origin/provider pins | free-receipt |
+| legacy | atomic replacement needs new opaque storage/access protocol or quiescent compatibility write | legacy function-pointer fields and ordinary reads cannot be made C23 atomic by casting | writer-closure |
+
+** Gain
+
+| key | benefit | overhead | positive | refutation |
+|---+---+---+---+---|
+| immutable-install | static lifetime certificate may erase per-call counter traffic | provider/lifecycle closure and immutable targets still need proof | no live rebind/unload or premature base teardown; stable family for all origins | adding hot replacement or global counters without a use case increases maintenance/work |
+| scope-amortization | one lease can cover the whole native prefix dependency bundle | one enrollment and one settlement per scope in replaceable mode, not per EXT read | all nested calls and free/log dependencies use captured bundle | reload mutable GSTATE for each dependency mixes generations |
+| allocation-origin | match free to old allocator family after call finishes or replacement | one origin hold per outstanding non-null or unknown allocation | reuse existing stable allocation/cleanup ledger | zero readers does not imply allocator code or family can retire |
+| debug-default | no new log-stream lease is needed for default-disabled logging | debug override requires separate ABI and FILE lifecycle qualification | both configured cohorts retain DEBUG_LOG and DEBUG_ALLOC_MEM disabled | conditional logging cost must not be charged to ordinary default allocation |
+| unknown | zero blind free/realloc replay after unknown completion | provider/stream/root/intent retention may be unbounded | same-operation backend receipt proves known result | freeApplied ghost or a timeout cannot authorize reclamation |
+| c23-baseline | unify checked target/ownership services in modern C | legacy compatibility, native ABI and loader qualification remain | retire managed raw table reads only after caller migration | Zig does not remove allocator family, I/O or C lifetime proofs |
+
+** Join
+
+| key | lemma | source | premise | status |
+|---+---+---+---+---|
+| plain-prefix-grant | TargetLease.plainPrefixStep | native-prefix | certificate includes no-GC/no-reentry/no-abandon and upstream source/native lifetime premises | conditional-lemma |
+| hook-prefix-grant | TargetLease.hookPrefixStep | native-prefix | admitted hook summary and upstream complete durable source set | conditional-lemma |
+| origin-not-call | TargetLease.oldOriginPinsProvider | rc-private | old allocator/free family and provider handles live with the origin | conditional-lemma |
+| unknown-not-free | TargetLease.appliedFreeIsNotReceipt | free | actual effect ghost is not observable backend receipt | conditional-lemma |
+
+** Route
+
+| actionName | lemma | source | obligationId |
+|---+---+---+---|
+| publishPlain | TargetLease.publishPlainPreserves | rts-bind | lease-safety |
+| publishAdmittedHooks | TargetLease.publishAdmittedHooksPreserves | rts-bind | lease-safety |
+| acquireOuter | TargetLease.acquireOuterPreserves | rts-bind | lease-safety |
+| closeOrdinary | TargetLease.closeOrdinaryPreserves | rts-bind | lease-safety |
+| publishReplacement | TargetLease.publishReplacementPreserves | rts-bind | lease-safety |
+| beginMalloc | TargetLease.beginMallocPreserves | rc-private | lease-safety |
+| obtainPointer | TargetLease.obtainPointerPreserves | rc-private | lease-safety |
+| recordSuccess | TargetLease.recordSuccessPreserves | rc-private | lease-safety |
+| recordNull | TargetLease.recordNullPreserves | rc-private | lease-safety |
+| enterNested | TargetLease.enterNestedPreserves | rts-bind | lease-safety |
+| leaveNested | TargetLease.leaveNestedPreserves | rts-bind | lease-safety |
+| loseBeforeCapture | TargetLease.loseBeforeCapturePreserves | rc-private | lease-safety |
+| loseRecordedAck | TargetLease.loseRecordedAckPreserves | rts-bind | lease-safety |
+| recoverRecorded | TargetLease.recoverRecordedPreserves | rts-bind | lease-safety |
+| releaseOuter | TargetLease.releaseOuterPreserves | rts-bind | lease-safety |
+| beginOriginFree | TargetLease.beginOriginFreePreserves | free | lease-safety |
+| applyFree | TargetLease.applyFreePreserves | free | lease-safety |
+| recordFreeBackend | TargetLease.recordFreeBackendPreserves | free | lease-safety |
+| loseFreeReturn | TargetLease.loseFreeReturnPreserves | free | lease-safety |
+| settleFree | TargetLease.settleFreePreserves | free | lease-safety |
+| reconcileFree | TargetLease.reconcileFreePreserves | free | lease-safety |
+| releaseMaintenance | TargetLease.releaseMaintenancePreserves | rts-bind | lease-safety |
+| retireOldBundle | TargetLease.retireOldBundlePreserves | rts-bind | lease-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| vendor-config | vendor/gambit/include/config.h | /* #undef ___CAN_IMPORT_DYNAMICALLY */ | configured defaults; not loaded consumer flags |
+| vendor-status | vendor/gambit/config.status | '--disable-smp' | current vendor cohort disables SMP/multiple VMs |
+| vendor-driver | vendor/gambit/bin/gambuild-C.unix | -D___DYNAMIC | dynamic-mode default flag only |
+| vendor-header | vendor/gambit/include/gambit.h | #ifdef ___DYNAMIC | dynamic forces late binding unless conflicts/overrides |
+| vendor-make | vendor/gambit/lib/makefile | -D___LIBRARY | runtime library recipe does not imply DYNAMIC |
+| retained-config | ../ci-source-patch-check/src/gambit/include/config.h | /* #undef ___DEBUG_LOG */ | separate retained Darwin cohort |
+| retained-status | ../ci-source-patch-check/src/gambit/config.status | '--enable-smp' | retained cohort enables SMP/multiple VMs |
+| retained-driver | ../ci-source-patch-check/src/gambit/bin/gambuild-C.unix | C_COMPILER="/opt/homebrew/bin/gcc-16" | retained exact generated driver |
+| retained-header | ../ci-source-patch-check/src/gambit/include/gambit.h | #define ___EXT(f)(___GSTATE->f) | retained monolithic generated header, not current modular ABI |
+| retained-base | ../ci-source-patch-check/src/gambit/lib/os_base.c | ptr = malloc (bytes); | byte equality to current allocator wrapper checked independently |
+| allocator | vendor/gambit/lib/os_base.c | ptr = malloc (bytes); | raw libc import; dyld provider not determined |
+| free | vendor/gambit/lib/os_base.c | free (ptr); | matching family and wrapper/ABI lifetime must persist |
+| logger | vendor/gambit/lib/os_base.c | result = vfprintf (stream, format, ap); | debug branch; fflush follows |
+| stream-setup | vendor/gambit/lib/os_base.c | ___base_mod.debug = ___fopen ("gambit.log", "w"); | fopen or stderr fallback under DEBUG_LOG |
+| stream-close | vendor/gambit/lib/os_base.c | ___fclose (___base_mod.debug); | cleanup closes owned log stream, not stderr |
+| base-state | vendor/gambit/lib/os_base.h | extern ___base_module ___base_mod; | public alias to base state; refcount is not active-I/O enrollment |
+| rts-bind | vendor/gambit/lib/setup.c | = ___alloc_mem; | named table initialization, not all-writer closure |
+| free-bind | vendor/gambit/lib/setup.c | = ___free_mem; | named free table initializer |
+| state-escape | vendor/gambit/lib/setup.c | ___mod_or_lnk mol = linker (___GSTATE); | native linker receives mutable global state |
+| ext-mode | vendor/gambit/include/_gambit/module_generation.h.in | #define ___EXT(f)(___GSTATE->f) | Gambit runtime indirection differs from CLIBEXT |
+| abi | vendor/gambit/include/_gambit/global_state.h.in | void *(*___alloc_mem) | DEBUG_ALLOC_MEM changes function-pointer call signature |
+| alloc-protocol | vendor/gambit/include/_gambit/runtime_protocols.h.in | #define ___ALLOC_MEM(bytes) | ordinary/debug wrapper ABI branches |
+| rc-private | vendor/gambit/lib/_mem/rc-allocation.inc | h = ___CAST(___rc_header*, ___ALLOC_MEM | native return precedes private header initialization |
+| native-prefix | dev/refactoring/modern-c/models/lean/NativePrefixAst.lean | def grantFastGuard | actual upstream effect-grant consumer |
+| native-extent-paper | evidence/research/source-references/feeley-sfp/8bb2fae8ae4b54d3a86206596f90e9cf73da39846af0f39244a476074cf81ed4.txt | 5       Pra | Scheme/native extent distinction; not a provider lease theorem |
+| retained-make | ../ci-source-patch-check/src/gambit/lib/makefile | -D___LIBRARY | retained runtime recipe, separate from generated driver modes |
+| rc-unlink | vendor/gambit/lib/_mem/rc-allocation.inc | h->next->prev = h->prev; | RC unlinks root storage before FREE_MEM; root retirement is a separate prerequisite |

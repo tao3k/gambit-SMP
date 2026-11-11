@@ -1,0 +1,181 @@
+#+TITLE: Frame Access, Tail Custody and Private Copy Grants
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never :tangle no
+
+* Responsibility replacement
+:PROPERTIES:
+:CUSTOM_ID: frame-custody-cut
+:AUTHORITY: GambitCopyCustody
+:SOURCE_BRANCH: modern-c
+:COMMIT_ADMITTED: false
+:END:
+
+The authority is [[file:models/sysml/copy-custody.sysml][the SysML contract model]]. Its contracts and handoffs generate
+ASCENT requirements, QNT/Lean routes and [[file:diagrams/copy-custody.d2][D2]]. This cut replaces shared frame access
+and speculative destination allocation responsibilities. It is not a new heap
+profile and does not implement the complete independent-worker or generational
+collector architecture. [[file:frame-custody-results.org][Native results and the benefit/peak matrix]] qualify this cut.
+
+** Actual readers, writers and publication
+
+#+NAME: frame-real-callers
+| Source anchor | Responsibility | Boundary |
+|---------------+----------------+----------|
+| =mem.c mark_continuation= | Scan current stack frames, then captured break tail | Own frame access across the stack walk and locked captured constructor |
+| =scan sCONTINUATION -> mark_captured_continuation= | Read a captured stack pointer and build or reuse heap frame chain | Acquire before the initial captured pointer read; release after predecessor links are repaired |
+| =mark_captured_continuation_locked= | Copy payload, replace source link with forwarding identity, repair destination predecessor | Raw READY can precede the final chain repair; frame access, rather than READY alone, grants link reads |
+| =scan sFRAME -> mark_frame= | Repair bitmap roots and heap-frame link | Ordinary root cursor excludes link; structural repair is explicit; no temporary FAL write |
+| =mark_array= | Win source forwarding, copy raw payload, reserve first-field Tail work | Tail cell is recorded before object READY/chunk publication; completion is separate from queue drain |
+| =move_continuation= after marking drain | Restore into a private new stack | Old stack source stays retained until the collective phase barrier; publication of resumed execution remains a different contract |
+| =setup_stack_heap_vmstate= | Initialize worker and gate state | Old membership is stopped before reset; no live grant may survive phase completion |
+
+Object write authority, chunk transport authority, frame structural authority
+and Tail work are distinct. An object READY/OWNED claim does not authorize
+reading an unfinished frame link. Taking a chunk does not pay Tail debt. A
+frame-domain gate does not prove active and captured physical segments disjoint,
+or admit arbitrary FFI frame writers.
+
+** C ordering and absence of a new lock cycle
+
+The current platform adapter uses the existing full-barrier CAS for frame gate
+acquisition and atomic clear for release. Constructor link/payload writes precede
+release; a successful acquisition precedes scanner link/root reads. The FIFO
+gate is released before frame access is requested. A frame owner can publish a
+chunk, but does not wait for a scanner to finish that chunk while holding frame
+access. =mark_continuation= calls the locked constructor core to avoid recursive
+acquisition. Gate reset follows the old-set barrier, not a timeout.
+
+#+begin_warning
+These are C refinement obligations, not a proof of all platform atomic adapters.
+The existing plain source-header read versus forwarding CAS still needs a full
+C memory-model audit. Other generic runtime ticket locks remain outside this cut.
+A stopped owner holding frame access is not safely recoverable from a failed join.
+#+end_warning
+
+* Continuous physical grant and refund protocol
+:PROPERTIES:
+:CUSTOM_ID: copy-grant-protocol
+:END:
+
+=reserve_copy= selects a real interval =[begin,past)= from a stopped-context
+private allocator before writing the candidate header or attempting forwarding.
+Its =header= can differ from =begin= for 32-bit alignment. Section switching
+first closes the old private chunk and obtains/prepares another physical section.
+A request which cannot fit one semispace is rejected before the write.
+
+#+NAME: copy-outcome-custody
+| Outcome | Owner and transition | Refund or publication |
+|---------+----------------------+-----------------------|
+| Known CAS loss with FORW result | Original private grant owner cancels; root follows winner | Entire interval, including unpublished alignment slack, returns to the same private cursor |
+| Known win | Copy owner initializes payload, publishes READY and commits | Padding objects are published only after the win; committed charge includes padding |
+| Captured-frame construction | Frame-domain owner uses the same interval/commit endpoints | Source frame forwarding and destination predecessor links retain frame-domain custody |
+| Unexpected/unknown forwarding result | Worker retains active grant and roots | No refund or owner takeover is authorized; fatal refusal is not recovery |
+| Owner interruption | Existing owner/VM retain grant, Tail and frame debt | No phase-completion receipt; arbitrary takeover remains open |
+
+The completed marking cut checks, for each worker,
+
+#+begin_example
+reserved_words - cancelled_words = copied_words + committed_padding_words
+active_grant = none
+active_tail = none
+tail_started = tail_completed
+#+end_example
+
+Cancelling a grant does not undo an earlier section close performed while
+searching for that interval. The old terminal fragment and queue publication
+remain owned work; the new section stays assigned and its private cursor is
+reusable. Alignment padding is counted here, while section links, abandoned
+tails of sections and restoration reserves still belong to the global packing
+account. No malloc, msection or OS-resource refund follows from this cancellation.
+
+This conservation identity is about cumulative attempts and their outcomes.
+It is not a peak-memory estimator: summing all failed CAS attempts would count
+reused private bytes repeatedly. Conversely, heap capacity alone does not prove
+a sufficiently large contiguous interval exists. Private rollback must not be
+reused as a decrement operation on a shared bump allocator.
+
+** Frame request upper bound and the remaining whole-round contract
+
+The real producer =gsc/_t-c-3.scm targ-make-frame-spec= validates stored size
+below 16384; =targ-internal-fs= in =_t-c-3.scm= adds the internal area and alignment.
+For the selected five-register profile, the internal-area allowance is at most
+nine words. Including the extra RA and header, the generated frame-copy request
+is at most 16395 words. =CopyCustody.generatedFrameCopyUpperBound= proves this
+conditional arithmetic. =mem.h MAX_NB_FRAME_SLOTS=8192= and its fudge declaration
+are not the producer's enforced bound and cannot substitute for this argument.
+
+The actual census =words_movable_objs= is twice the sum of previous-section,
+heap-cursor and stack-cursor occupancy. It is a coarse physical accounting unit,
+not live payload bytes or a proof of injective copying. The QNT three-object
+capacity is deliberately an abstract premise, not a numerical encoding of that C
+counter. In particular, the declared 8194-word mutator fudge is smaller than
+the 16395-word producer-derived copy bound: this requires a separate producer/
+allocation-check audit and must not be hidden by the per-copy grant.
+
+The full producer/loader inventory, actual root-cell uniqueness, source census
+U, section markers/terminal slack, per-worker packing, context restoration and
+retained startup domains must still justify a pre-flip whole-round grant. This
+cut issues per-copy intervals; it does not implement that global transaction or
+claim a smaller whole-round peak. Native 64-bit success does not qualify 32-bit
+alignment adapters.
+
+* Counterexamples and refinement obligations
+
+#+NAME: frame-custody-refinement
+| Obligation | Concrete counterexample to exclude | Checked slice | Still required |
+|------------+------------------------------------+---------------+----------------|
+| FRAME-ACCESS | Scanner observes raw READY, reads unfinished predecessor, treats copied destination as an unforwarded source | Constructor/scanner QNT schedule; Lean exclusion; actual map/native root fixture | C pointer/segment refinement and unmanaged writer admission |
+| Ordinary root partition | Temporary FAL is copied or restored by another frame actor; structural cell gets a second ordinary writer | Independent descriptor bitmap oracle excludes exactly link+1, including out-of-line/sign-bit maps | Actual module descriptor lifetime and loader admission |
+| Tail closure | Chunk becomes drained while first field still points to fromspace | Explicit Tail state plus phase-end accounting; QNT debt history | All real first-field producers and fair worker completion |
+| Known loss refund | Header-only rollback leaves alignment slack charged or publishes a losing dummy object | QNT reservation conservation and Lean cancellation law | Native CAS-loss observability; 32-bit native adapter qualification |
+| Unknown outcome | A refund permits another allocation over a possibly published winner | Negative QNT history; Lean no-refund premise | No claim of arbitrary owner-death recovery |
+| Physical packing | Aggregate free space is large but no section fits one legal internal frame | Producer-derived 16395-word conditional bound and actual interval checks | Full-round reserve-or-retain proof and mutator allocation-fudge audit |
+
+* Learning applied to Gambit
+
+Gambit's portable frame descriptors and multi-shot continuation semantics are
+assets: the same Scheme-owned descriptor should drive root runs, captured-frame
+copy and resumption. The architectural gain is one explicit contract, not a
+restriction to one-shot stacks. Learning from OCaml's co-design of safepoints,
+foreign boundaries and control does not transfer its one-shot limitation or
+remove Gambit's Scheme ownership of control semantics. The broader study and
+paper questions are maintained in [[file:modernization-target.org][the modernization target]].
+
+The VM-wide frame gate makes this first physical boundary explicit, at a possible
+parallel-throughput cost. Replacing it with finer ownership requires proving
+segment identity, link-writer exclusivity and lifetime first. A faster queue or a
+larger heap cannot supply those missing premises. The five submission gates
+remain conjunctive; this document grants no commit or full SMP admission.
+
+* Retained allocation/startup failure
+:PROPERTIES:
+:CUSTOM_ID: frame-custody-startup-failure
+:STATUS: UNRESOLVED; COMMIT-BLOCKING
+:END:
+
+The original allocation fault control passes its second-allocation failure,
+capacity refund, unchanged assignments and closed-phase assertions, then reports
+=startup entries did not complete=. That message is shared by the first retry
+wait and the later slot-reuse wait; the original observation cannot identify
+which failed. It is retained unchanged. A separately compiled diagnostic only
+adds counters to that error message and retains the original 10000-yield bound;
+it passes. That scheduling-sensitive observation is not an acceptance retry or
+proof that the original failure was harmless.
+
+The source distinction is concrete: =setup.c ___vm_resize_pstate= publishes
+=slots[i].entry= and the new member count, then finishes a new-set barrier.
+=start_processor_execution= crosses that barrier, runs =execute_sync_op_loop=,
+reloads the rooted =startup_thunk= and only then calls =___run=. Marker creation
+and the Scheme thunk's =note-entry= occur later. Publication and resize return
+therefore do not certify that the Scheme entry effect has occurred. Likewise,
+10000 successful scheduler yields do not establish native scheduling fairness
+or a completed entry handshake. Root/capacity rollback safety and entry progress
+must have separate receipts; neither a longer wait nor a larger heap supplies
+that missing relation.
+
+The current QNT/Lean laws qualify safety/accounting slices, not a bounded entry
+progress guarantee. SysML retains this question on the abort/startup dependency;
+ASCENT exposes the actual failing row and vetoes =copyAllReady=. An explicit
+synthetic policy control supplies all scoped proof facts yet still fails that
+veto. Those artificial facts are never claimed as actual C refinement evidence.

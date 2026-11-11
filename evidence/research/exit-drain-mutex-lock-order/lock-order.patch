@@ -1,0 +1,153 @@
+diff --git a/lib/_thread#.scm b/lib/_thread#.scm
+--- a/lib/_thread#.scm
++++ b/lib/_thread#.scm
+@@ -1663,7 +1663,14 @@
+      ;; acquire low-level lock of mutex
+      (macro-lock-mutex! mutex)
+ 
+-     ;; acquire low-level lock of thread
+-     (macro-lock-thread! new-owner)
++     ;; Thread exit holds the new owner's lock and then acquires this
++     ;; mutex.  Drop the mutex when that lock is busy, acquire the
++     ;; thread lock, and only then acquire the mutex again.  The owner
++     ;; recheck below observes the state under both locks.
++     (if (##not (macro-trylock-thread! new-owner))
++         (begin
++           (macro-unlock-mutex! mutex)
++           (macro-lock-thread! new-owner)
++           (macro-lock-mutex! mutex)))
+ 
+      (let ((owner (macro-btq-owner mutex)))
+diff --git a/lib/_thread.scm b/lib/_thread.scm
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -3657,5 +3657,69 @@
+ ;; the mutex's owner.
+ 
++(define-prim (##mutex-lock-threads-revalidate! mutex current-thread new-owner timeout owner class)
++
++  (##declare (not interrupts-enabled))
++
++  ;; The mutex lock is held and the thread locks are not.  class is
++  ;; the symbol free or wait.  On contention, drop the mutex, acquire
++  ;; the thread locks in ##lock-2-threads! order, reacquire the mutex,
++  ;; and recheck.  Return the owner to use when the class is unchanged
++  ;; and the thread locks are held.  Return #f after releasing every
++  ;; lock when the class changed.  The caller returns ##void so the
++  ;; outer lock loop restarts.
++
++  (define (class-of owner-now)
++    (cond ((or (##eq? owner-now (macro-mutex-state-not-abandoned))
++               (##eq? owner-now (macro-mutex-state-abandoned)))
++           'free)
++          ((##not timeout)
++           'timeout)
++          (else
++           'wait)))
++
++  (define (try-ordered a b)
++    (if (macro-trylock-thread! a)
++        (if (or (##eq? a b)
++                (macro-trylock-thread! b))
++            #t
++            (begin
++              (macro-unlock-thread! a)
++              #f))
++        #f))
++
++  (define (ordered-trylock t1 t2)
++    (if (##object-before? t1 t2)
++        (try-ordered t1 t2)
++        (try-ordered t2 t1)))
++
++  (define (lock-blocking!)
++    (if new-owner
++        (##lock-2-threads! current-thread new-owner)
++        (macro-lock-thread! current-thread)))
++
++  (define (unlock-held!)
++    (if new-owner
++        (##unlock-2-threads! current-thread new-owner)
++        (macro-unlock-thread! current-thread)))
++
++  (let ((acquired
++         (if new-owner
++             (ordered-trylock current-thread new-owner)
++             (macro-trylock-thread! current-thread))))
++    (if acquired
++        owner
++        (begin
++          (macro-unlock-mutex! mutex)
++          (lock-blocking!)
++          (macro-lock-mutex! mutex)
++          (let ((owner-now (macro-btq-owner mutex)))
++            (if (##eq? (class-of owner-now) class)
++                owner-now
++                (begin
++                  (unlock-held!)
++                  (macro-unlock-mutex! mutex)
++                  #f)))))))
++
+ (define-prim (##mutex-lock-anonymously-out-of-line! mutex absrel-timeout)
+   (##declare (not interrupts-enabled))
+   (##mutex-lock-out-of-line! mutex absrel-timeout #f))
+@@ -3707,10 +3771,15 @@
+ 
+                          ;; Mutex is unlocked, so lock it.
+ 
+-                         ;; acquire low-level locks of threads
+-                         (if new-owner
+-                             (##lock-2-threads! current-thread new-owner)
+-                             (macro-lock-thread! current-thread))
+-
++                         (let ((owner
++                                (##mutex-lock-threads-revalidate!
++                                 mutex
++                                 current-thread
++                                 new-owner
++                                 timeout
++                                 owner
++                                 'free)))
++                           (if (##not owner)
++                               (##void)
++                               (let ((state
+-                         (let ((state
+                                 (if new-owner
+@@ -3769,6 +3838,6 @@
+                            (if (or (##eq? owner (macro-mutex-state-abandoned))
+                                    (##eq? state (macro-mutex-state-abandoned)))
+                                (##thread-abandoned-mutex-action!)
+-                               #t))) ;; signal success
++                               #t))))) ;; signal success
+ 
+                         ((##not timeout)
+@@ -3788,10 +3857,16 @@
+                          ;; mutex.
+ 
+-                         ;; acquire low-level locks of threads
+-                         (if new-owner
+-                             (##lock-2-threads! current-thread new-owner)
+-                             (macro-lock-thread! current-thread))
+-
++                         (let ((owner
++                                (##mutex-lock-threads-revalidate!
++                                 mutex
++                                 current-thread
++                                 new-owner
++                                 timeout
++                                 owner
++                                 'wait)))
++                           (if (##not owner)
++                               (##void)
++                               (begin
+                          ;;TODO: reenable
+                          #;
+                          (macro-thread-boost-and-clear-quantum-used!
+@@ -3848,6 +3923,6 @@
+                          (macro-unlock-mutex! mutex)
+ 
+                          ;; schedule next runnable thread
+-                         (##thread-schedule-with-acquired-processor!)))))
++                         (##thread-schedule-with-acquired-processor!))))))))
+ 
+                         mutex

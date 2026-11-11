@@ -1,0 +1,255 @@
+#+TITLE: Darwin Force Windows, Cohort Ledger and Binding Identity
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Decision and evidence boundary
+:PROPERTIES:
+:CUSTOM_ID: darwin-force-binding
+:AUTHORITY: GambitDarwinForceBinding
+:STATUS: conditional-formal; effective-binary-and-C11-open
+:END:
+
+Modern generated C remains the mainline. This study extends the frozen
+[[file:force-maintenance-fidelity-design.org][force/maintenance study]]. It changes no runtime,
+compiler backend, native build or loaded module. Installed-cohort identity must
+bind execution, GC metadata and incremental replacement; language substitution
+cannot remove those obligations.
+
+There are THREE distinct identities: current vendor Scheme/C sources; the retained
+Darwin materialized Gambit tree at ../ci-source-patch-check/src/gambit; the actual
+compiled/loaded program. The first two can be inspected statically. Neither one
+attests the third. The orchestration receipt hashes every inspected file, preserves
+the parent receipt and binds the actual typed JSON used by the formal study.
+Compared with the frozen predecessor input, vendor gambit.h.in, _kernel.scm and
+mem.c have changed, as well as the appended modern-C index. This study did not
+modify those runtime files. Current source witnesses are rebound to their current
+hashes; no predecessor source qualification is inherited. The retained Darwin
+configuration hashes remain unchanged, which is a separate observation.
+
+Historical registry discovery currently reports partial provenance coverage, not
+execution authority; no missing native provenance is inferred from its silence.
+
+* RESEARCH Retained Darwin configuration and jump route
+:PROPERTIES:
+:CUSTOM_ID: darwin-force-profile
+:EVIDENCE_KIND: static-configured-artifacts
+:END:
+
+The materialized header, config.status and generated driver still have the hashes
+recorded in [[file:../../architecture/toolchain/studies/darwin-configured-input-evidence.org][the earlier ledger]].
+The configured compiler is /opt/homebrew/bin/gcc-16, ordinary object optimization
+is -O1 and runtime optimization is separately -O3. Existing macro tracking suppression
+-ftrack-macro-expansion=0 is already enabled and is not a new benefit.
+No configure script, preprocessor, compiler or generated executable is run here.
+
+| Input or branch | Statically inspected value | Consequence / admission boundary |
+|-----------------+----------------------------+----------------------------------|
+| DEFS_OBJ/DYN/EXE | SINGLE_HOST, INLINE_JUMPS, TRUST_C_TCO | Defaults only; request overrides/include order still required |
+| SINGLE_HOST_LIMIT | 0 | No label-count downgrade; single host per module, not one host for entire program |
+| _kernel.c | LBLCOUNT 1461; MR_ALL/MW_ALL cover heap, FP, R0..R4 | Kernel host reload/writeback accounts for five GVM registers |
+| C mode | USE_SETJMP defined | C catcher route; C++ is outside the selected design |
+| TRUST_C_TCO | PROPER_TAIL_CALL is musttail return where supported, otherwise return call | Attribute availability and actual generated machine tail behavior not attested |
+| default noncentralized, no SUPPORT_MULTIPLE_C_COMPILERS | proper exclusive host exit selected | Direct tail call; no intermediate C-stack-trip throw branch |
+| centralized trampoline override | tail exit disabled | END_COD stores PC/registers then returns to CALL_STEP |
+| no proper exclusive exit with tail enabled | C stack trip then host call | unwind-to-trampoline route must preserve transfer slot; not certified here |
+| COVER_INTERNAL_RETURN_HANDLER_END | setup.h maps COVER(43) to empty COVER(n) | No coverage call in retained source; hook replacement invalidates this witness |
+| DEBUG_CTRL_FLOW_HISTORY | normally absent from configured defaults | When enabled, AM_HERE_PS writes bounded history slots; no direct allocation/callback in macro |
+| DEBUG_HOST_CHANGES | normally absent from configured defaults | Calls register_host_entry with global lookup and diagnostic I/O; must audit transitive effects |
+| DEBUG_TRAMPOLINE | normally absent from configured defaults | CALL_STEP_DEBUG reads procedure names and prints; separate from ordinary dispatch |
+
+These are conditional branch deductions from generated header and driver bytes,
+not a universal profile validator. Compiler predefined macros, extra -D/-U,
+preincluded headers, runtime compile options, SDK identity and unit-specific
+invocation are not recovered. In particular default single-threaded MAX_PROCESSORS=1
+in this retained header cannot qualify the intended modern SMP runtime.
+
+** Two transfer windows, not one cross-function promise
+
+FORCE1 writes promise/temp2 and return label/temp1, then JUMPEXTPRM expands to
+JUMPEXT: set pc and goto jumpext. END_COD writes ps->pc and W_ALL; the selected
+host exit either tail-calls the label host or returns to the trampoline. BEGIN_COD
+and BEGIN_SW load register state and select the label; handler_force copies the
+promise and saves the caller frame, then PUSH_ARGS1 publishes the Scheme argument.
+Only after this handoff may force-out-of-line enable interrupts around its thunk.
+The source roots are ordinary argument/register/stack roots at collecting edges.
+
+On normal return, internal_return saves R1 to temp2 before POP_REGS restores caller
+R1. It decodes the actual return and uses JUMPEXTPRM. Cross-module return can traverse
+END_COD, host entry and R_ALL even under SINGLE_HOST. The caller's return-internal
+label executes FORCE2, copies temp2 to ___temp and FORCE3 writes the destination.
+Ordinary writeback is allowed to restore caller R1; it must not overwrite temp2.
+Code and descriptor pins cover BOTH the kernel handler and old caller cohort.
+Current mem.c now invokes the central decode_frame_descriptor for internal and
+normal stack/heap frames, rather than the predecessor scan macro sequence. That
+existing refactoring is credited as current source, not implemented by this study.
+Decoder return does not by itself end the borrow: any trailing GC-map pointer
+into OFD storage must remain covered through mark_frame and its final access.
+
+The retained empty coverage macro closes one previously unknown hook edge. The
+history macro is locally noncollecting by inspection. Optional host/trampoline
+logging, C library interposition and all generated destination representations
+remain outside the admitted no-safepoint claim. Generator validation must reason
+about the entire expanded route, not only the FORCE2 line.
+
+** Interrupt, exception and multi-shot control paths
+
+vendor os_setup.c:user_intr requests USER on processor zero of VM zero. setup.c:
+raise_interrupt_pstate sets the flag, trips the stack, issues a barrier and calls
+device_select_abort. It does not directly invoke a Scheme handler. Interrupt
+service is a later path; deferred request is not itself evidence of a collecting
+callback inside the transfer window. The full abort-device/signal interposition
+closure and synchronization behavior still require source/platform proof.
+
+An exception from the thunk BEFORE internal_return follows Scheme control/FFI
+catcher rules, not FORCE2 normal delivery. The C setjmp route stores error in
+ps->longjmp_err and longjmps to catcher; END_TRY restores the prior catcher.
+call distinguishes matching return-to-C marker from further unwinding. The alternate
+stack-trip route throws UNWIND_C_STACK_TO_TRAMPOLINE and retries the trampoline.
+These labels do not grant permission to drop the old code/descriptor lease before
+catcher/marker and register restoration complete. A throw or reentrant callback
+inserted after saveResult requires a real root protocol or admission refusal.
+
+Multi-shot restoration must reestablish each internal frame, actual return, caller
+registers and current cohort grant. A raw C local, previous temp2 value or old
+completion receipt is not restoration evidence. No one-shot restriction, C-stack
+resurrection, or heap rollback is assumed. Full exception/continuation source
+simulation remains open.
+
+* RESEARCH A concrete C11 refinement candidate
+:PROPERTIES:
+:CUSTOM_ID: darwin-cohort-ledger
+:PROOF_STATUS: design-premises; no-C11-model-check
+:END:
+
+Use a stable directory entry and an immutable cohort generation. A proposed single
+atomic ledger contains generation/phase, closed admission bits, aggregate debt and
+unknown outcome state. Its representation must fit a supported atomic width or use
+an explicit owner/lock protocol; lock freedom is not assumed. Directory storage has
+an independent lifetime. Initial release publication and acquire lookup precede
+payload access. Token generation and count overflow must be checked without wrap.
+
+Each task has an affine ownership state. The actor authorized to derive a child
+must first win LIVE-to-DERIVING against LIVE-to-FINISHING; parent debt remains held
+through this transition. A copied token or raw task pointer is not derivation
+permission. The child reservation increments cohort debt BEFORE parent last-use
+completion can decrement it. Existing parent authority can derive after independent
+maintenance admission closes; no new root producer or unrelated reader may do so.
+
+| Cut | Candidate operation | Required ordering / responsibility |
+|-----+---------------------+------------------------------------|
+| independent admission | generation/closed/count CAS on same ledger | acquire successful pin before label/OFD dereference; failed CAS rechecks current generation |
+| child reservation | retain parent, register unique child ID, debt RMW | no visible zero interval; reject overflow; private reservation owns initialization failure |
+| queue publication | finish immutable child payload then release publish | private reservation becomes queued debt; failed publication retains it |
+| consumer claim | acquire queue publication, win unique QUEUED-to-CLAIMED | same debt moves to reader; no fresh admission recheck discards an already accepted task |
+| unknown response | preserve child ID and debt; set unknown before relinquishing local ownership | never blind enqueue again or decrement on uncertain commit; stable coordinator reconciles |
+| final metadata read | all actual reads sequenced before completion RMW | parent/child may decrement only after exception and local cleanup finish |
+| final retirement | both gates closed; producer cut; zero debt; no unknown; acquire phase CAS to RETIRING | no task remains able to derive; loader outcome has its own stable custodian |
+
+All post-publication ledger updates in this candidate are RMWs on the SAME atomic;
+completion uses acq_rel. Final acquire observes the zero-debt state and must read a
+member of every relevant completion release sequence. No store reset, wrap or
+generation reuse can break the chain. This is a sufficient-condition proposal to
+be proved against actual C executions, not a claim that unrelated counters or an
+acquire fence alone establish happens-before.
+
+The standard basis is [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570]],
+5.1.2.4 and 7.17: release/acquire synchronization depends on the observed atomic
+modification/release sequence; weak CAS can fail spuriously; conflicting unordered
+non-atomic accesses are data races. The ledger, affine task and custody protocol
+are this research's design, not guarantees supplied by the standard.
+
+The QNT model has one parent and at most one outstanding child. Ten explicit
+histories and 300 sampled runs of at most 160 steps are checked; this is not
+exhaustive exploration or an unbounded protocol proof. It separates private,
+published and claimed child phases and keeps a
+parent grant alive across reservation. Its release/acquire boundary is abstract:
+interleavings cannot prove C11 visibility. Lean proves reserve-before-drop debt,
+unknown/child blocking and initialized-payload preservation only. It does not
+prove lock freedom, C11 release sequences, full QNT induction or eventual drain.
+Queued/private work remains debt even if no OS thread is currently running it.
+RootCut is conditional on closing ALL independent producers, not finding one idle
+processor or an empty public queue. Liveness additionally needs fair execution,
+finite derivation and known cleanup outcomes.
+
+* RESEARCH JSON declaration identity to Lean meaning
+:PROPERTIES:
+:CUSTOM_ID: darwin-json-binding
+:TRUST_BOUNDARY: parser; decoder; official-reference-table; research-validator; emitter
+:END:
+
+Official Quint resolver resolveName records table[occurrenceId]=definition. The
+runtime builder resolves names by expr.id and assignment targets by the target
+occurrence's ID; RHS evaluation keeps caller context. The lookup table therefore
+contains more semantic information than variable spelling.
+
+On the pinned parent IR, the new research witness checker validates 732 distinct
+syntax IDs and 91 name occurrences in 15 selected definitions. The unique state
+variable declaration is ID 67; for example occurrences 172, 180 and 198 all resolve
+to that declaration. Counts describe this single input, not all Quint programs.
+The checker rejects duplicate JSON keys before dictionaries can erase them,
+duplicate declaration names/IDs, missing or inconsistent targets, wrong scope,
+unsupported imports/lambdas and inconsistent inferred reference types. Lookup
+rows may omit a declaration's explicit typeAnnotation in the official output;
+canonical kind/name/id/body and inferred type must still agree. An annotation
+present in the row must match. Depth is checked separately at zero for this
+closed, top-level-only fragment. Extending it to imports/instances needs new rules.
+
+The new Lean source expression has occurrence ID, spelling and field slot. extract
+checks resolver(occurrence)=targetDeclaration before admitting a field. Its theorem
+admittedMeaning compares source evaluation under declaration-indexed environments
+with AST evaluation under the selected declaration's environment, recursively for
+literal/field/addition. SpellingIrrelevant proves spelling does not choose identity;
+sameSpellingCounterexample rejects an s occurrence resolved to another declaration.
+
+This closes a conditional RESOLVED binding theorem, not JSON parser correctness.
+The witness checker is executable research admission with negative controls; it
+is NOT a verified compiler or production build feature. The driver also confirms
+that admitted JSON regenerates the same prior Lean AST bytes, without rewriting
+or rerunning parent receipts. That equality binds artifacts, not the implementation
+of the JSON-to-resolver conversion. Missing reference lookup must reject, even
+though the general Quint runtime has a builtin fallback for some missing names.
+
+| Obligation | New evidence | Remaining premise |
+|------------+--------------+-------------------|
+| raw JSON is not lossy | duplicate-key/nonfinite rejection controls | decoder and byte parser remain trusted |
+| occurrence identity | all 91 used references match canonical declarations and inferred types | official resolver correctness/schema authentication |
+| resolved extraction meaning | Lean structural theorem, wrong-ID and same-spelling controls | witness JSON faithfully constructs resolver and field-slot mapping |
+| complete action relation | prior exact generated AST remains byte-identical | booleans, record updates, rollback/choice extraction relation open |
+| cache identity | source, IR, validator, AST and exact scope hashes retained | alpha-renaming requires fresh witness; raw IDs are not persistent semantic identity |
+
+A certificate about an AST cannot certify the JSON decoder that produced it.
+The source/IR/AST manifest is necessary for reproducibility, not sufficient for
+semantic fidelity. An unchanged name or source path cannot reuse a stale binding
+receipt after declaration identity, lookup table or extractor schema changes.
+
+* RESEARCH Migration, benefit and closure
+:PROPERTIES:
+:CUSTOM_ID: darwin-force-binding-benefit
+:END:
+
+[[file:darwin-force-binding-matrix.org][The matrix]] and
+[[file:diagrams/darwin-force-binding.d2][D2]] are derived through native SysML queries.
+SysML carries exact model scopes and the unresolved FM-S predecessor. ASCENT routes
+DF-H to QNT, DF-I to Lean and blocks source/platform qualification when those
+receipts or the parent source closure are missing. Binding a lemma name to an
+action is a checked obligation edge, not a proof that one refines the other.
+
+Migration order: bind actual unit request/header/compiler identity; annotate
+expanded force routes and reject new effects; introduce stable cohort/task grants;
+prove all root producers and last-use paths; refine ledger and queue ordering to
+C11; validate module replacement. Only then may implicit temp-slot assumptions,
+untracked descriptor reads and global-only unloading responsibility retire for
+migrated consumers. Existing FORCE macros and global cleanup still remain today.
+
+For D derived scan tasks the design needs D reservations, D queue publications,
+D unique claims and D final completions, plus task-state arbitration. Queue steps
+may already exist; incremental cost is not the sum of every operation from zero.
+An immutable cohort batch can reduce ledger reservations to ceil(D/b) only when
+its lease owns ALL private/queued/active descendants and exceptional cleanup.
+No instruction counts, speedup percentage, scan reduction or bounded retained
+memory are measured or proved. No extra hot-path root slot is needed IF the whole
+transfer window is proved noncollecting; otherwise explicit movable-root
+publication/reload is a real additional cost. These are modern-C architectural
+tradeoffs. Zig would inherit the same obligations; no Zig-specific net gain is
+established here.

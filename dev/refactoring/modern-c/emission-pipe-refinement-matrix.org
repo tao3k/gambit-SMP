@@ -1,0 +1,202 @@
+#+TITLE: Default Emission and String-pipe Cursor Refinement Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitEmissionPipeRefinement
+:STATUS: conditional-model; source-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| interval | vendor/gambit/gsc/_t-c-1.scm | (define (targ-dump-mod objs c-inits sym-list key-list) | Exact first pass / C init text / second pass source order |
+| first | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_PRM") | First normalization before output of first binding tuple |
+| second | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Second normalization occurs after intervening output |
+| cinit-write | vendor/gambit/gsc/_t-c-1.scm | (targ-display x) | C init strings displayed, not evaluated as Scheme |
+| cinit-check | vendor/gambit/gsc/_ptree2.scm | Argument to 'c-initialize' must be a string | Legal parser producer constrains type; aliases/extensions still require closure |
+| cinit-add | vendor/gambit/gsc/_ptree2.scm | (define (add-c-init initialization-code-string) | Actual storage writer |
+| cinit-producer | vendor/gambit/gsc/_ptree1.scm | (add-c-init body) | Actual parser call |
+| display | vendor/gambit/gsc/_t-c-1.scm | (display x targ-port) | Real output caller |
+| code | vendor/gambit/gsc/_t-c-1.scm | (define (targ-code x) | Typed tagged C forms recursively emitted, not raw VAR payload in selected case |
+| port | vendor/gambit/gsc/_t-c-1.scm | (set! targ-port (open-output-file-preserving-case filename)) | Default emitter opens filename-derived port |
+| host | vendor/gambit/gsc/_host.scm | (define (open-output-file-preserving-case path) | Gambit host branch selects readtable while opening file |
+| open | vendor/gambit/lib/_io.scm | (define-prim (##open-output-file path-or-settings) | Actual public file opener calls generic file path |
+| device | vendor/gambit/lib/_io.scm | (define (write-datum port obj we) | Concrete device method dispatch selected by bounded slice |
+| display-api | vendor/gambit/lib/_io.scm | (define-prim (##display | Display uses generic writer and global formatter |
+| formatter | vendor/gambit/lib/_io.scm | (set! ##wr x) | Callable registration remains mutable |
+| debug | vendor/gambit/gsc/_gscdebug.scm | (let ((save-wr ##wr)) | Special branch requires actual VAR or PTREE |
+| var | vendor/gambit/gsc/_envadt.scm | (define (var? x) | Scalar strings/integers fail vector predicate |
+| igsc | vendor/gambit/gsc/igsc.scm | "_gscdebug" | Explicit interpreted debug loader; no inference all compiler modes load it |
+| io-fault | vendor/gambit/lib/_io.scm | (define-prim (##raise-io-exception port exc) | Port-specific or dynamic handler, not compiler diagnostic continuation |
+| compiler-handler | vendor/gambit/gsc/_utils.scm | (define (with-exception-handling proc) | Separate compiler diagnostic catcher |
+| gc-job | vendor/gambit/lib/_kernel.scm | (##execute-jobs! ##gc-interrupt-jobs) | Async producer class; no metadata authority inferred |
+| resource | vendor/gambit/gsc/_t-c-1.scm | (define (targ-use-glo glo supply?) | Named effect preserves canonical same-entry demand |
+| raw | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Unknown raw alias remains qualification blocker |
+| read-char | vendor/gambit/lib/_io.scm | (define-prim (##read-char1 port) | Each accepted char advances current rlo then unlocks |
+| rebase | vendor/gambit/lib/_io.scm | (macro-fifo-advance! | Reader advances peer FIFO, then rebases wlo and rlo |
+| no-carry | vendor/gambit/lib/_io.scm | (if (##fx= vect-rlo vect-rhi) | Selected exhausted-reader branch has no carry-over concatenation |
+| drain | vendor/gambit/lib/_io.scm | (define (,',vect-wbuf-drain port) | Resume relocks then reenters loop; fresh-buffer locals are rebound |
+| publish | vendor/gambit/lib/_io.scm | (,',macro-vect-port-wlo-set! | Published current whi added to wlo |
+| substring | vendor/gambit/lib/_io.scm | (define-prim (##write-substring str start end port) | Continuation retains loop i; after drain loops with same i |
+| chunk | vendor/gambit/lib/_io.scm | (define chunk-size 32) | Fixed source string buffer size |
+| handler | vendor/gambit/lib/_thread.scm | (define-prim (with-exception-handler handler thunk) | Original Gambit handler source |
+| capture | vendor/gambit/lib/_thread.scm | (define-prim (call-with-current-continuation | Source capture mechanism, GC/program-point refinement external |
+| compile-entry | vendor/gambit/gsc/_gsclib.scm | (c#cf filename-or-source | Actual compile-file-to-target invokes c#cf; no output-timeout registration here |
+| front-entry | vendor/gambit/gsc/_front.scm | (define cf #f) | cf installs compiler diagnostic escape channel, not a general dynamic I/O handler |
+| gc-register | vendor/gambit/lib/_kernel.scm | (define-prim (##add-gc-interrupt-job! thunk) | Real job producer API; which closure is installed during emission remains open |
+| peer-prime | vendor/gambit/lib/_io.scm | (define-prim (##peek-char1 port) | After escape, peek primes initial empty reader to first published chunk without consuming a character |
+| width-query | vendor/gambit/lib/_io.scm | (##output-port-width port) | Writeenv construction queries port width; device failure may invoke dynamic I/O handler before character output |
+
+** Window
+
+| key | cause | effect | reachability | gap |
+|---+---+---+---+---|
+| ordinary | DEF_MOD_PRM output, section delimiters, C init strings, BEGIN_MOD_GLO | Real scalar display dispatch through device writer | Actual source interval | Hook/effect/handler and artifact closure not automatically established |
+| debug-scalar | igsc debug hook sees selected scalar payload | Delegates to default writer, no temporary save-wr branch | Direct branch exclusion under stable predicates and payload types | Nested handler/GC callback may output a separate VAR if it has authority |
+| pipe-debug | Application explicitly opens bounded string-pipe and prints valid VAR | Special interval can capture then restore old writer | Legal configurable debug session | Does not identify default targ-port or a stock interval callback |
+| carry | Reader has unread carry-over during FIFO advance | Concatenates buffer and may update peer writer identity/whi | Real alternate source branch | Excluded by this exhausted-reader refinement, not silently modeled as no-carry |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| direct-exclusion | Selected typed scalar output and stable built-in hook | No payload/type/predicate mutation | No direct VAR/PTREE special branch in emitter interval | No global absence-of-callback theorem |
+| cursor | Concrete read/expose/rebase/publish actions with ghost character counts | Peer primed after escape; exhausted no-carry branch, retained peers, successful allocation and bounded counters | emitted-delivered equals wlo+whi-rlo across any modeled replay | General carry-over, faults, compiled roots and actual identities still external |
+| resume | Saved local index restored; current buffer generation retained | Capture at selected timeout continuation | No stale write to the old cached full buffer after drain | Captured old buffer may remain a GC root even when not used |
+| retirement | Same-entry canonical value plus qualified effect/output/exception contract | Explicit current profile receipt | Second value normalization conditionally unnecessary | Current complete retirement receipt remains absent |
+| opaque-effect | unknownEffect drops the source resource-value correspondence; demand becomes last-known only | unknown=true admits any actual callback write; no certificate can be issued | Model does not assume unknown callbacks leave metadata unchanged | Full source effect/callback reflection remains unissued |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| normalization | At most one helper normalization per qualified binding emission | Effect closure, frozen binding plan, validation and invalidation | p*N*Cn exceeds Cq + W*Cv; no measured speed claim |
+| writer-view | Two global stores per special debug invocation only | Owned recursive resolver and captured roots | Zero such stores saved on direct scalar default branch |
+| cursor | Wrongly restoring cached physical buffers; repeated ad hoc ownership reasoning | Source labels, frontier/identity relation and failure custody | No claim of eliminating real queued characters or GC roots |
+| parallel | Cross-session shared writer/target dependencies if consumers migrate | Independent contexts and immutable plans | This local proof does not establish macOS latency or multicore throughput gain |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Default binding passes | C init text | source order |
+| C init text | Scalar display | text, no Scheme eval |
+| Scalar display | Device writer | real file path |
+| Device writer | Global formatter | dispatch remains |
+| Global formatter | Direct special excluded | stable scalar payload |
+| Global formatter | Handler and async closure | separate authority needed |
+| Legal VAR debug session | String-pipe capture | different port and context |
+| String-pipe capture | Reader rebasing | prime peer; no carry-over |
+| Reader rebasing | Current buffer publication | same physical frontier |
+| Current buffer publication | Saved local index replay | fresh buffer, old loop i |
+| Saved local index replay | Root and lifetime closure | captured dead locals may still be roots |
+| Direct special excluded | Retirement receipt | not sufficient alone |
+| Handler and async closure | Retirement receipt | effect and observation proof |
+| Root and lifetime closure | Retirement receipt | source/GC refinement |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| emission_pipe_refinement.first | EmissionPipe.firstPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.selectDebug | EmissionPipe.selectDebugPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.selectCustom | EmissionPipe.selectCustomPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.prmRemainder | EmissionPipe.prmRemainderPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.initText | EmissionPipe.initTextPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.gloPrefix | EmissionPipe.gloPrefixPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.scalarDispatch | EmissionPipe.scalarDispatchPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.namedEffect | EmissionPipe.namedEffectPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.customRaw | EmissionPipe.customRawPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.replaceEntry | EmissionPipe.replaceEntryPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.unknownEffect | EmissionPipe.unknownEffectPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.ioAbort | EmissionPipe.ioAbortPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.attest | EmissionPipe.attestPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.issue | EmissionPipe.issuePreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.second | EmissionPipe.secondPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.omitSecond | EmissionPipe.omitSecondPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.pause | EmissionPipe.pausePreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.readChunk | EmissionPipe.readChunkPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.advanceReader | EmissionPipe.advanceReaderPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.exposeWriter | EmissionPipe.exposeWriterPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.consumeWriter | EmissionPipe.consumeWriterPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.resume | EmissionPipe.resumePreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.publish | EmissionPipe.publishPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.appendTail | EmissionPipe.appendTailPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.finish | EmissionPipe.finishPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+| emission_pipe_refinement.installNew | EmissionPipe.installNewPreserves | Two distinct contexts; concrete no-carry cursor subset and conditional emitter |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| steps | EmissionPipe.stepPreserves |
+| reachable | EmissionPipe.reachableSafe |
+| epoch | EmissionPipe.permitNeedsEpoch |
+| pending | EmissionPipe.pendingConserved |
+| saved-index | EmissionPipe.resumeLoadsSavedIndex |
+| buffer | EmissionPipe.resumeKeepsPhysicalBuffer |
+| scalar | EmissionPipe.scalarExcludesSpecial |
+| canonical | EmissionPipeAlgebra.secondUnderNamedWriters |
+| rebase | EmissionPipeAlgebra.rebasePending |
+| publish | EmissionPipeAlgebra.publishPending |
+| tail | EmissionPipeAlgebra.tailFitsFresh |
+
+** Migration
+
+| key | producerAnchor | consumerAnchor | actionName | lemma |
+|---+---+---+---+---|
+| first-output | first | display | emission_pipe_refinement.prmRemainder | EmissionPipe.prmRemainderPreserves |
+| init-text | cinit-producer | cinit-write | emission_pipe_refinement.initText | EmissionPipe.initTextPreserves |
+| scalar | display-api | var | emission_pipe_refinement.scalarDispatch | EmissionPipe.scalarExcludesSpecial |
+| reader | read-char | no-carry | emission_pipe_refinement.advanceReader | EmissionPipeAlgebra.rebasePending |
+| publish | drain | publish | emission_pipe_refinement.publish | EmissionPipeAlgebra.publishPending |
+| replay | capture | substring | emission_pipe_refinement.resume | EmissionPipe.resumeLoadsSavedIndex |
+| retire | resource | second | emission_pipe_refinement.issue | EmissionPipe.permitNeedsEpoch |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| direct-resource-write-in-hook | vendor/gambit/gsc/_gscdebug.scm | targ-use-glo\vert{}targ-rsrc- | 0 | Lexical absence only, indirect handlers not closed |
+| debug-load | vendor/gambit/gsc/igsc.scm | "_gscdebug" | 1 | Explicit debug loader entry, not all compiler configurations |
+
+** Policy
+
+| key | writerClass | routeClass | assumptions | firstExpected | secondExpected | scope |
+|---+---+---+---+---+---+---|
+| current | named-only | default-emitter |  | false | false | Synthetic sufficient assumptions only; route evidence cannot silently cross contexts |
+| synthetic-default-qualified | named-only | default-emitter | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;legal-entry-qualified;output-equivalence;default-interval-qualified | false | true | Synthetic sufficient assumptions only; route evidence cannot silently cross contexts |
+| synthetic-debug-only | named-only | debug-pipe | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;legal-entry-qualified;output-equivalence;cursor-refinement-qualified | false | false | Synthetic sufficient assumptions only; route evidence cannot silently cross contexts |
+| synthetic-debug-bridged | named-only | debug-pipe | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;legal-entry-qualified;output-equivalence;cursor-refinement-qualified;emission-bridge-qualified | false | true | Synthetic sufficient assumptions only; route evidence cannot silently cross contexts |
+| synthetic-debug-cursor-gap | named-only | debug-pipe | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;legal-entry-qualified;output-equivalence;emission-bridge-qualified | false | false | Synthetic sufficient assumptions only; route evidence cannot silently cross contexts |
+| synthetic-handler-gap | named-only | default-emitter | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;legal-entry-qualified;output-equivalence;default-interval-qualified | false | false | Synthetic sufficient assumptions only; route evidence cannot silently cross contexts |
+| synthetic-epoch-gap | named-only | default-emitter | first-retained;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;legal-entry-qualified;output-equivalence;default-interval-qualified | false | false | Synthetic sufficient assumptions only; route evidence cannot silently cross contexts |
+| synthetic-live-root | named-only | default-emitter | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;fault-equivalence;legal-entry-qualified;output-equivalence;default-interval-qualified | false | false | Synthetic sufficient assumptions only; route evidence cannot silently cross contexts |
+
+** Slice
+
+| key | path | beginNeedle | endNeedle | callNeedle | matchIndex | actionName | lemma |
+|---+---+---+---+---+---+---+---|
+| two-passes | vendor/gambit/gsc/_t-c-1.scm | (define (targ-dump-mod objs c-inits sym-list key-list) | (targ-code* '("BEGIN_MOD_SYM_KEY")) | (def-mod-prm-glo "DEF_MOD_GLO") | 0 | emission_pipe_refinement.second | EmissionPipe.secondPreserves |
+| display | vendor/gambit/gsc/_t-c-1.scm | (define (targ-display-no-line-info x) | (define (targ-macro-definition name value) | (display x targ-port) | 0 | emission_pipe_refinement.scalarDispatch | EmissionPipe.scalarExcludesSpecial |
+| device-writer | vendor/gambit/lib/_io.scm | (define-prim (##make-device-port | ;;; Implementation of vector ports. | (##wr we obj) | 0 | emission_pipe_refinement.scalarDispatch | EmissionPipe.scalarDispatchPreserves |
+| read-rebase | vendor/gambit/lib/_io.scm | (define (,',vect-rbuf-fill port want block?) | (define (,',vect-wbuf-drain port) | (if (##fx= vect-rlo vect-rhi) | 0 | emission_pipe_refinement.advanceReader | EmissionPipeAlgebra.rebasePending |
+| publish-current | vendor/gambit/lib/_io.scm | (define (,',vect-wbuf-drain port) | (define (name port) | (,',macro-vect-port-whi-set! port 0) | 0 | emission_pipe_refinement.publish | EmissionPipeAlgebra.publishPending |
+| reenter-loop | vendor/gambit/lib/_io.scm | (define-prim (##write-substring str start end port) | (define-prim (write-substring | (loop i) | 0 | emission_pipe_refinement.resume | EmissionPipe.resumeLoadsSavedIndex |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| EP-history | interleaving | dev/refactoring/modern-c/models/quint/emission_pipe_refinement.qnt | 18 histories, six negative controls; two independent source contexts |
+| EP-induction | induction | dev/refactoring/modern-c/models/lean/EmissionPipe.lean | Actual projected actions preserve pending/epoch/index/identity invariants |
+| EP-algebra | induction | dev/refactoring/modern-c/models/lean/EmissionPipeAlgebra.lean | Named writer value law, pressure and coordinate conservation |
+| EP-projection | restricted-projection | dev/refactoring/modern-c/models/lean/EmissionPipeAst.lean | Actual typed IR identity/field/operator/roster checks; extractor trusted |
+| EP-source | source-refinement | dev/refactoring/modern-c/emission-pipe-refinement-design.org | General carry-over, exact FIFO identity, generated root maps, interrupt closure and fixnum bounds OPEN |
+| EP-exceptions | exception-equivalence | dev/refactoring/modern-c/emission-pipe-refinement-design.org | Default I/O-handler, async effects, exception/output prefix and emit-position mapping OPEN |
+| EP-platform | c23-platform-qualification | dev/refactoring/modern-c/language-baseline-design.org | Native publication/lifetime and matching compiler artifact OPEN |
+| EP-emission | emitter-fidelity | dev/refactoring/modern-c/emission-pipe-refinement-design.org | Full emitted C/ModuleSpec equality and qualified interval receipt OPEN |

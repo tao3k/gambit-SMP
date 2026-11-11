@@ -1,0 +1,415 @@
+{
+  "route": [
+    {
+      "key": "resize-request-copy",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "sop.arg[0] = thunk;",
+      "obligation": "Raw sync request word is not automatically a moving root; use a rooted startup handle"
+    },
+    {
+      "key": "resize-collection",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "if (___garbage_collect_pstate (___ps, 0))",
+      "obligation": "Capacity GC can precede thread payload publication"
+    },
+    {
+      "key": "thread-payload-publish",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "t->data_scmobj = thunk;",
+      "obligation": "Initialize VM-owned rooted startup record before thread launch"
+    },
+    {
+      "key": "startup-local-copy",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "___SCMOBJ thunk = self->data_scmobj;",
+      "obligation": "Raw local precedes startup sync; root handles must survive and be resolved after sync"
+    },
+    {
+      "key": "startup-sync",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "execute_sync_op_loop (___PSP &sop, 0);",
+      "obligation": "Loop can execute real sync operations including GC rather than only a no-op"
+    },
+    {
+      "key": "sync-dispatch-gc",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "case OP_GARBAGE_COLLECT:",
+      "obligation": "Actual collective dispatcher reaches garbage_collect_pstate"
+    },
+    {
+      "key": "roster-count-cut",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "if (sop.op == OP_SET_PROCESSOR_COUNT)",
+      "obligation": "Existing barrier algorithm depends on processor_count; pending roots must not be invented GC workers"
+    },
+    {
+      "key": "frozen-root-view",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "participant->context = ___ps->context;",
+      "obligation": "Freeze snapshots exact context and root provider membership"
+    },
+    {
+      "key": "context-root-scan",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_execution_roots (work,",
+      "obligation": "Current scan reaches frozen execution context; pending startup directory is proposed additional source"
+    },
+    {
+      "key": "worker-view-drain",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "BARRIER(); /* no worker may retain a stopped root view past this cut */",
+      "obligation": "Source retirement waits for old scanner leases and restored phase"
+    },
+    {
+      "key": "thread-create-call",
+      "sourcePath": "vendor/gambit/lib/os_thread.c",
+      "needle": "if (pthread_create (&thread_id,",
+      "obligation": "Successful platform creation and service acknowledgement are different observations"
+    },
+    {
+      "key": "thread-common-success",
+      "sourcePath": "vendor/gambit/lib/os_thread.c",
+      "needle": "___HIDDEN ___SCMOBJ thread_init_common",
+      "obligation": "Current helper returns NO_ERR; do not invent a post-creation helper failure"
+    }
+  ],
+  "contract": [
+    {
+      "key": "rooted-resize-request",
+      "owner": "control/roots",
+      "accountable.moduleId": "control",
+      "counterpart.moduleId": "roots",
+      "actionName": "registerStartup launch syncCollect",
+      "invariant": "Thunks travel as VM-owned root handles across collective request and OS launch",
+      "gap": "Raw sync words thread payload and copied locals need real caller migration"
+    },
+    {
+      "key": "pending-start-roots",
+      "owner": "roots/execution",
+      "accountable.moduleId": "roots",
+      "counterpart.moduleId": "execution",
+      "actionName": "activate releaseSource",
+      "invariant": "Pending startup roots are scanned independently of whether their execution thread is ready",
+      "gap": "No current pending startup root directory or GC consumer is established"
+    },
+    {
+      "key": "frozen-manifest",
+      "owner": "collector/roots",
+      "accountable.moduleId": "collector",
+      "counterpart.moduleId": "roots",
+      "actionName": "stage freeze scan restore",
+      "invariant": "Frozen manifest is immutable; late arrivals are staged and retain source roots",
+      "gap": "Actual root provider union assignment and backend publication remain open"
+    },
+    {
+      "key": "persistent-next-round",
+      "owner": "roots/release",
+      "accountable.moduleId": "roots",
+      "counterpart.moduleId": "release",
+      "actionName": "activate queryReceipt releaseSource",
+      "invariant": "Receipt certifies persistent future membership not merely current scan or queued acceptance",
+      "gap": "Source release only in running phase after old scan leases drain"
+    },
+    {
+      "key": "startup-failure-custody",
+      "owner": "release/control",
+      "accountable.moduleId": "release",
+      "counterpart.moduleId": "control",
+      "actionName": "launchUnknown resolveLaunch rejectCreate",
+      "invariant": "Known rejection retains parent; unknown service result retains parent and startup record",
+      "gap": "Platform reject is not an ambiguous started thread; actual cancellation and stop closure open"
+    },
+    {
+      "key": "typed-evidence",
+      "owner": "build/semantic",
+      "accountable.moduleId": "build",
+      "counterpart.moduleId": "semantic",
+      "actionName": "activate restore releaseSource",
+      "invariant": "Actual selected IR expressions and exact receipt scope bind model evidence",
+      "gap": "Full composition startup-to-root-manifest and C11 source bridge remain unproved"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "frozen-round-admission",
+      "status": "bounded-checked",
+      "scope": "One root provider two GC rounds source-target registration and late admission",
+      "counterexample": "Queued registration is not current or future root coverage"
+    },
+    {
+      "key": "startup-root-handle",
+      "status": "bounded-checked",
+      "scope": "One startup parent pending root OS entry and sync collection",
+      "counterexample": "Old local can be stale after sync even while root handle remains valid"
+    },
+    {
+      "key": "release-guard",
+      "status": "conditional-proved",
+      "scope": "Frozen phase missing future membership and unknown receipt block source release",
+      "counterexample": "Receipt validity must persist until target retirement"
+    },
+    {
+      "key": "scan-drain-order",
+      "status": "conditional-proved",
+      "scope": "Old worker last use precedes restored phase and source release given HB embedding",
+      "counterexample": "Event ordering is not a C11 execution proof"
+    },
+    {
+      "key": "actual-ir",
+      "status": "conditional-proved",
+      "scope": "Actual activate restore releaseSource guard/update meaning",
+      "counterexample": "Parser and restricted emitter remain trusted"
+    },
+    {
+      "key": "runtime-composition",
+      "status": "open",
+      "scope": "Actual sync operation handle pending root manifest all source users and two-model relation",
+      "counterexample": "Neither root lifetime nor OS creation certifies participant readiness"
+    },
+    {
+      "key": "json-domain",
+      "status": "partially-proved",
+      "scope": "91 checked reference rows finite environment and guard mutation refusal",
+      "counterexample": "Actual compiler root-map extraction remains open"
+    }
+  ],
+  "gain": [
+    {
+      "key": "no-raw-thunk-copies",
+      "avoided": "Repeated protection rules for raw thunk copies in sync payload thread payload and ___run",
+      "added": "One persistent rooted startup handle resolution and generated entry-root contract",
+      "condition": "Every managed request and caller resolves handle under correct collector access"
+    },
+    {
+      "key": "pending-roots-not-workers",
+      "avoided": "Making root coverage depend on execution thread startup readiness",
+      "added": "VM pending-root directory plus A root locations per pending startup",
+      "condition": "Collector can enumerate data providers independently of closed worker roster"
+    },
+    {
+      "key": "persistent-membership",
+      "avoided": "Keeping duplicate source registration after target coverage is known",
+      "added": "Registration receipt and old scan-lease drain; short overlap may scan twice",
+      "condition": "Future-round membership preserved; command/source ownership is a separate obligation"
+    },
+    {
+      "key": "defer-frozen-arrivals",
+      "avoided": "Expensive rescanning or reopening a finished round for every late registration",
+      "added": "Queue metadata and retain existing source until running-phase admission",
+      "condition": "Source remains visible to current GC; no unrooted foreign raw object admission"
+    },
+    {
+      "key": "modern-c-system",
+      "avoided": "A second language is unnecessary for typed root requests and snapshot contracts",
+      "added": "Modern C ownership maps atomic publication and cohort lifecycle proof",
+      "condition": "Zig benefit must be independently shown; none follows from these root obligations"
+    }
+  ],
+  "binding": [
+    {
+      "key": "guard",
+      "qntAction": "activate",
+      "leanLemma": "unstagedRejectsActivation",
+      "refinement": "Selected actual expression certified; runtime source relation remains open",
+      "guardLemma": "activateGuardMeaning",
+      "updateLemma": "activateNextMeaning"
+    },
+    {
+      "key": "roots",
+      "qntAction": "restore",
+      "leanLemma": "scannerBlocksRestore",
+      "refinement": "Selected actual expression certified; runtime source relation remains open",
+      "guardLemma": "restoreGuardMeaning",
+      "updateLemma": "restoreNextMeaning"
+    },
+    {
+      "key": "release",
+      "qntAction": "releaseSource",
+      "leanLemma": "noFutureRejectsRelease",
+      "refinement": "Selected actual expression certified; runtime source relation remains open",
+      "guardLemma": "releaseSourceGuardMeaning",
+      "updateLemma": "releaseSourceNextMeaning"
+    }
+  ],
+  "flow": [
+    {
+      "fromNode": "c0",
+      "toNode": "c1",
+      "reason": "Register pending roots before launch"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "c2",
+      "reason": "Freeze active root providers independently of worker readiness"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "c3",
+      "reason": "Restored admission certifies future membership"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "c4",
+      "reason": "Only known ownership can retire creator source"
+    },
+    {
+      "fromNode": "c0",
+      "toNode": "o1",
+      "reason": "Thread local reload after sync"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "o0",
+      "reason": "Persistent pending-root enumeration"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "o0",
+      "reason": "Late stage cannot change frozen manifest"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "o2",
+      "reason": "Future coverage and phase guard"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "o3",
+      "reason": "Old scan views drain before restore"
+    },
+    {
+      "fromNode": "c5",
+      "toNode": "o4",
+      "reason": "Actual typed action meanings"
+    },
+    {
+      "fromNode": "c5",
+      "toNode": "o6",
+      "reason": "Finite JSON lookup evidence"
+    },
+    {
+      "fromNode": "c4",
+      "toNode": "o1",
+      "reason": "Unknown launch retains source"
+    },
+    {
+      "fromNode": "o4",
+      "toNode": "o5",
+      "reason": "Selected meaning is not full simulation"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "o5",
+      "reason": "New pending-root consumer needs actual source refinement"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "c5",
+      "reason": "Receipt identity and evidence scope"
+    },
+    {
+      "fromNode": "c4",
+      "toNode": "o5",
+      "reason": "Actual launch cancellation stop and join obligations"
+    }
+  ],
+  "endorsement": [
+    {
+      "roleName": "semantic",
+      "scope": "Startup handle remains rooted across sync and marker allocation",
+      "issuer": "Startup root and execution context owner",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "___SCMOBJ thunk = self->data_scmobj;"
+    },
+    {
+      "roleName": "foreign",
+      "scope": "OS launch outcome service reply and creator-child lifetime settled",
+      "issuer": "Thread lifecycle adapter owner",
+      "sourcePath": "vendor/gambit/lib/os_thread.c",
+      "needle": "if (pthread_create (&thread_id,"
+    },
+    {
+      "roleName": "resident",
+      "scope": "Frozen provider views drained persistent registry covers next round",
+      "issuer": "VM root directory and collector coordinator",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "BARRIER(); /* no worker may retain a stopped root view past this cut */"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "TF-H",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/frozen_bundle_admission.qnt",
+      "subjectScope": "One root provider two frozen GC rounds persistent future coverage and scan lease drain"
+    },
+    "shards": {
+      "obligationId": "TF-B",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/thread_thunk_root.qnt",
+      "subjectScope": "VM pending startup root handle survives OS launch sync collection and ambiguous service reply"
+    },
+    "induction": {
+      "obligationId": "TF-I",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/ThreadThunkFrozenRoots.lean",
+      "subjectScope": "Admission and release guard exclusions coverage preservation and conditional ordering"
+    },
+    "expression": {
+      "obligationId": "TF-X",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/ThreadThunkFrozenAst.lean",
+      "subjectScope": "Actual activate restore releaseSource expressions and finite reference environment"
+    },
+    "source": {
+      "obligationId": "TF-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/thread-thunk-frozen-roots-design.org",
+      "subjectScope": "Raw sync request startup handle pending directory and complete caller relation OPEN"
+    },
+    "platform": {
+      "obligationId": "TF-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/refactoring/modern-c/thread-thunk-frozen-roots-design.org",
+      "subjectScope": "C11 frozen manifests backend barriers platform create and scan view reclamation OPEN"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "TF-S",
+      "prerequisite.obligationId": "TF-H",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/frozen_bundle_admission.qnt",
+      "prerequisite.subjectScope": "One root provider two frozen GC rounds persistent future coverage and scan lease drain"
+    },
+    "1": {
+      "dependent.obligationId": "TF-S",
+      "prerequisite.obligationId": "TF-I",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/ThreadThunkFrozenRoots.lean",
+      "prerequisite.subjectScope": "Admission and release guard exclusions coverage preservation and conditional ordering"
+    },
+    "2": {
+      "dependent.obligationId": "TF-S",
+      "prerequisite.obligationId": "TF-E",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/thread-thunk-frozen-roots-design.org",
+      "prerequisite.subjectScope": "C11 frozen manifests backend barriers platform create and scan view reclamation OPEN"
+    },
+    "3": {
+      "dependent.obligationId": "TF-S",
+      "prerequisite.obligationId": "IC-S",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/ingress-carrier-transfer-design.org",
+      "prerequisite.subjectScope": "Current context GC source callers nested Tcl and raw run carrier closure OPEN"
+    },
+    "4": {
+      "dependent.obligationId": "TF-S",
+      "prerequisite.obligationId": "TF-X",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/ThreadThunkFrozenAst.lean",
+      "prerequisite.subjectScope": "Actual activate restore releaseSource expressions and finite reference environment"
+    },
+    "5": {
+      "dependent.obligationId": "TF-S",
+      "prerequisite.obligationId": "TF-B",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/thread_thunk_root.qnt",
+      "prerequisite.subjectScope": "VM pending startup root handle survives OS launch sync collection and ambiguous service reply"
+    }
+  }
+}

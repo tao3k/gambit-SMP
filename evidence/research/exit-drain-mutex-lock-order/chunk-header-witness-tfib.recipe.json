@@ -1,0 +1,42 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "chunk-header-witness-tfib",
+  "scope": "Diagnostic only. In-place incremental rebuild of generation 4463d6b5 from a cumulative chunk-header witness overlay on the condvar-participation lock. On the first word of a queued complete chunk, if that already-loaded word is not a FORW link or a MOVABLE0 header of at most MSECTION_FUDGE words, the witness writes two stderr lines and then continues the original scan. It does not abort. Stderr is the suite stage stream of this run. This is not the repair and not native 9/12. One original gsi file, 06-thread/tfib_stress.scm, host topology, jobs 1, unchanged 3600-second genuine completed-work inactivity window. No bootstrap, no runtime import, no (go 15 5000) edit.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/chunk-header-witness.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/chunk-header-witness.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss"
+  ],
+  "steps": [
+    {"id": "candidate", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 180,
+     "arguments": {"sourceLock": "evidence/research/exit-drain-mutex-lock-order/chunk-header-witness.lock.json",
+                   "buildWorkspace": "gambit-core"}},
+    {"id": "configure", "capability": "gambit.configure", "dependsOn": ["candidate"], "budgetSeconds": 180,
+     "arguments": {"source": {"step": "candidate", "output": "source"},
+                   "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"}},
+    {"id": "seed", "capability": "gambit.seed-core", "dependsOn": ["configure"], "budgetSeconds": 3600,
+     "arguments": {"source": {"step": "configure", "output": "source"}}},
+    {"id": "source-core", "capability": "gambit.source-core", "dependsOn": ["seed"], "budgetSeconds": 3600,
+     "arguments": {"runtime": {"step": "seed", "output": "runtime"}}},
+    {"id": "witness-gsi", "capability": "gambit.suite", "dependsOn": ["source-core"], "budgetSeconds": 3600,
+     "arguments": {"runtime": {"step": "source-core", "output": "runtime"},
+                   "identity": {"step": "source-core", "output": "identity"},
+                   "failures": "evidence/native-failures.json",
+                   "reviewRules": "evidence/research/suite-review-rules.ss",
+                   "mode": "gsi", "regime": "whole-parallel", "inventory": "stress", "jobs": 1,
+                   "selection": ["06-thread/tfib_stress.scm"],
+                   "expectedFiles": ["06-thread/tfib_stress.scm"]}},
+    {"id": "verdict", "capability": "evidence.evaluate",
+     "dependsOn": ["candidate", "configure", "seed", "source-core", "witness-gsi"],
+     "budgetSeconds": 30,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

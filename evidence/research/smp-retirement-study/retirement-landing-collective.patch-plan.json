@@ -1,0 +1,72 @@
+{
+  "schema": "retirement-landing-collective.patch-plan.v1",
+  "status": "proposed-not-applied",
+  "entryClasses": [
+    {
+      "source": "lib/_kernel.scm:2368",
+      "kind": "Scheme initiating wrapper",
+      "change": "migrate P0 -> prepare -> checked raw resize"
+    },
+    {
+      "source": "lib/_kernel.scm:1430",
+      "kind": "Scheme sync return",
+      "change": "record request in C; deferred dispatch only after common exit, no T/P lock and valid Scheme continuation"
+    },
+    {
+      "source": "lib/_thread.scm:690,3342",
+      "kind": "sync servicing under scheduler ownership",
+      "change": "retain pending bit; no helper entry from lock retry"
+    },
+    {
+      "source": "lib/setup.c:946-975,5454",
+      "kind": "native post-run loop and direct shutdown",
+      "change": "prove native-quiescent class or provide valid bridge; otherwise refuse before commit"
+    }
+  ],
+  "proposedInterfaces": {
+    "scheme": [
+      "##retirement-prepare!",
+      "##retirement-dispatch-if-safe!",
+      "##retirement-landing!",
+      "##retirement-abort-ack!"
+    ],
+    "native": [
+      "collective prepare notification",
+      "___retirement_finalize_pstate",
+      "common finalize result/ack operation"
+    ],
+    "fields": [
+      "prepare_requested_epoch",
+      "landing_state",
+      "restore_claim_epoch",
+      "abort_ack_epoch",
+      "abort_complete_epoch",
+      "collective_depth",
+      "checked lock and entry-context state"
+    ]
+  },
+  "orderedRequirements": [
+    "notification common C exit before Scheme helper",
+    "rooted capture before materialization",
+    "old cohort participates through repeated GC",
+    "same-epoch GO/ABORT",
+    "restore consumes current continuation once",
+    "private ACK trampoline before user release",
+    "all old ACKs and reader grace before abort carrier release",
+    "GC wins before pending finalize and does not consume it",
+    "all finalize members execute common result barriers even on error",
+    "fallible validation before infallible GC-excluded transfer",
+    "retained rollback fault blocks cleanup and epoch reuse"
+  ],
+  "notProven": [
+    "all actual sync-return contexts",
+    "native-quiescent entry completeness",
+    "generated C marker and frame-map refinement",
+    "nonlocal failure protection",
+    "C opcode/result implementation",
+    "partial-transfer recovery",
+    "C11 memory model and native execution"
+  ],
+  "runtimeModified": false,
+  "nativeAdmitted": false
+}

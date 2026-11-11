@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "guaranteed-tail-placement:1234d5546192f45c0335457226325255c6ff91544f9d47aacda3e87b6d3fbb04" "guaranteed-tail-placement:1234d5546192f45c0335457226325255c6ff91544f9d47aacda3e87b6d3fbb04" "support" "dev/architecture/runtime/gc/models/sysml/guaranteed-tail-placement.sysml"))
+ (fact (factor "guaranteed-tail-placement:1234d5546192f45c0335457226325255c6ff91544f9d47aacda3e87b6d3fbb04" "target-model-bundle-sha256" "1234d5546192f45c0335457226325255c6ff91544f9d47aacda3e87b6d3fbb04"))
+ (fact (factor "guaranteed-tail-placement:1234d5546192f45c0335457226325255c6ff91544f9d47aacda3e87b6d3fbb04" "native-output-sha256" "2dc60c67363fa7d6b154059d4517aee0dcb1ff561969813379989b45d8d509f2"))
+ (fact (factor "guaranteed-tail-placement:1234d5546192f45c0335457226325255c6ff91544f9d47aacda3e87b6d3fbb04" "planner-dsl-sha256" "57c18cc4c22af0c076728a1c9aad485cec3d13237788b4b624c1109d8f33c703"))
+)

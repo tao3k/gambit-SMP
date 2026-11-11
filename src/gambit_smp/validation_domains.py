@@ -108,10 +108,14 @@ def owner_artifacts_match(owner):
     return True
 
 
-def run_domain(root, tests, policy, engine, out):
+def run_domain(root, tests, policy, engine, out, *, started=None):
     from gambit_smp.framework import available_processors, digest, execute
     from gambit_smp.research_kernel import manifest_paths
-    started = time.monotonic()
+    now = time.monotonic()
+    if started is None:
+        started = now
+    elif type(started) not in (int, float) or not 0 < started <= now:
+        raise ValueError("domain launch time cannot renew or extend its budget")
     manifest = manifest_paths(engine)
     for name, sha in manifest["files"].items():
         if name.startswith("python/gambit_smp/"):
@@ -324,7 +328,8 @@ def worker(path):
                 started = time.monotonic()
                 log.write(json.dumps({"test": name, "event": "started"}) + "\n")
                 log.flush()
-                result = unittest.TextTestRunner(verbosity=2, resultclass=Result).run(unittest.TestSuite([by_id[name]]))
+                with isolated_test_context():
+                    result = unittest.TextTestRunner(verbosity=2, resultclass=Result).run(unittest.TestSuite([by_id[name]]))
                 count += result.testsRun
                 outcomes.update(result.outcomes)
                 log.write(json.dumps({"test": name, "event": "finished", "seconds": time.monotonic() - started,
@@ -335,7 +340,8 @@ def worker(path):
     else:
         from gambit_smp.ascent_program import sealed_api_boundary
         with sealed_api_boundary(engine):
-            result = unittest.TextTestRunner(verbosity=2, resultclass=Result).run(suite)
+            with isolated_test_context():
+                result = unittest.TextTestRunner(verbosity=2, resultclass=Result).run(suite)
         selected, count, outcomes = request["testIds"], result.testsRun, result.outcomes
     execution_identity(engine)
     if any(digest(source) != request["inputs"][name] for name, source in files.items()):
@@ -346,6 +352,23 @@ def worker(path):
         json.dump(body, stream, indent=2)
     return 0 if count == len(selected) and all(v == "pass" for v in outcomes.values()) else 1
 
+
+
+from contextlib import contextmanager as _contextmanager
+
+@_contextmanager
+def isolated_test_context():
+    """Tests keep real fixture custody rather than borrowing a production task."""
+    from gambit_smp.storage_policy import _scope
+    names={key:value for key,value in os.environ.items()
+           if key.startswith(('GAMBIT_SMP_TASK_', 'GAMBIT_SMP_WORKSPACE_'))}
+    for key in names:os.environ.pop(key,None)
+    token=_scope.set(None)
+    try:yield
+    finally:
+        for key in list(os.environ):
+            if key.startswith(('GAMBIT_SMP_TASK_', 'GAMBIT_SMP_WORKSPACE_')):os.environ.pop(key,None)
+        os.environ.update(names);_scope.reset(token)
 
 if __name__ == "__main__":
     raise SystemExit(worker(Path(sys.argv[1]).resolve()))

@@ -1,0 +1,246 @@
+diff --git a/gsc/_env.scm b/gsc/_env.scm
+index 076ca884626f78e9b93ea105d463131ff52951a3..e7111095870d8b630adba7407a5f818ac9445205 100644
+--- a/gsc/_env.scm
++++ b/gsc/_env.scm
+@@ -63,8 +63,9 @@
+ 
+ (define (env-frame env vars)
+   (vector
+-   ;; cell containing variables in this frame and an association between each
+-   ;; symbol and it's namespace
++   ;; Shared variable cell: ordered variables and a lazy global-name index.
++   ;; Declaration/namespace/macro views share this binding identity. Local
++   ;; frames retain their short ordered search; no process-global cache exists.
+    (cons vars #f)
+    ;; macro definitions
+    '()
+@@ -92,6 +93,17 @@
+     (env-macros-set env (cons (cons name* def) (env-macros-ref env)))))
+ 
+ (define (env-macros-set env macro)
++  ;; The shared name set is an overapproximation across immutable macro views.
++  ;; A negative lookup can skip the list; a positive lookup must still select
++  ;; from this view's own ordered list. Publishing another branch cannot make
++  ;; its macro visible here. Register names before publishing the new view.
++  (if (not (env-parent-ref env))
++      (let ((names (vector-ref (env-binding-index env) 1)))
++        (for-each (lambda (entry) (table-set! names (car entry) #t))
++                  (if (and (pair? macro)
++                           (eq? (cdr macro) (env-macros-ref env)))
++                      (list (car macro))
++                      macro))))
+   (vector (vector-ref env 0)
+           macro
+           (env-decl-ref env)
+@@ -122,7 +134,63 @@
+           (env-externals-ref env)))
+ 
+ (define (env-vars-ref env)              (car (vector-ref env 0)))
+-(define (env-vars-set! env vars)        (set-car! (vector-ref env 0) vars))
++(define (env-binding-index env)
++  (let ((cell (vector-ref env 0)))
++    (or (cdr cell)
++        (let ((index (vector #f (make-table test: eq?))))
++          ;; Keep an intervening same-owner publication across allocation.
++          (or (cdr cell)
++              (begin (set-cdr! cell index) index))))))
++
++(define (env-macro-name? env name)
++  (if (env-parent-ref env)
++      #t
++      (let ((index (cdr (vector-ref env 0))))
++        (and index (table-ref (vector-ref index 1) name #f)))))
++
++(define (env-vars-set! env vars)
++  (let* ((cell (vector-ref env 0))
++         (old (car cell))
++         (state (cdr cell))
++         (index (and state (vector-ref state 0))))
++    ;; A replacement must never leave an index describing the previous list.
++    ;; Publish the complete list before any allocating table operation.
++    (if state (vector-set! state 0 #f))
++    (set-car! cell vars)
++    (if (and index (pair? vars) (eq? (cdr vars) old))
++        (begin
++          (table-set! index (var-name (car vars)) (car vars))
++          (if (eq? (car cell) vars) (vector-set! state 0 index))))))
++
++(define (env-find-var env name)
++  (if (env-parent-ref env)
++      (let loop ((vars (env-vars-ref env)))
++        (and (pair? vars)
++             (if (eq? (var-name (car vars)) name)
++                 (car vars)
++                 (loop (cdr vars)))))
++      (let ((cell (vector-ref env 0))
++            (state (env-binding-index env)))
++        (let retry ()
++          (let ((index (vector-ref state 0)))
++            (if index
++                (table-ref index name #f)
++                (let ((vars (car cell))
++                      (index (make-table test: eq?)))
++                  ;; Preserve first-in-list resolution, including duplicate
++                  ;; names in an explicitly replaced list. Keep the ordered
++                  ;; list authoritative for enumeration and code generation.
++                  (for-each
++                   (lambda (var)
++                     (let ((name (var-name var)))
++                       (if (not (table-ref index name #f))
++                           (table-set! index name var))))
++                   vars)
++                  (if (eq? vars (car cell))
++                      (begin
++                        (vector-set! state 0 index)
++                        (table-ref index name #f))
++                      (retry)))))))))
+ (define (env-macros-ref env)            (vector-ref env 1))
+ (define (env-decl-ref env)              (vector-ref env 2))
+ (define (env-namespace-ref env)         (vector-ref env 3))
+@@ -182,21 +250,20 @@
+             (if (eq? (car m) name)
+                 (proc env name (cdr m))
+                 (search-macros (cdr macros))))
+-          (search-vars (env-vars-ref env))))
+-
+-    (define (search-vars vars)
+-      (if (pair? vars)
+-          (let* ((v (car vars))
+-                 (vn (var-name v)))
+-            (if (eq? vn name)
+-                (proc env name v)
+-                (search-vars (cdr vars))))
++          (search-vars)))
++
++    (define (search-vars)
++      (let ((var (env-find-var env name)))
++        (if var
++            (proc env name var)
+           (let ((env* (env-parent-ref env)))
+             (if (or stop-at-first-frame? (not env*))
+                 (proc env name #f)
+-                (search env* name full?)))))
++                (search env* name full?))))))
+ 
+-    (search-macros (env-macros-ref env)))
++    (if (env-macro-name? env name)
++        (search-macros (env-macros-ref env))
++        (search-vars)))
+ 
+   (search env name (full-name? name)))
+ 
+@@ -244,16 +311,8 @@
+ 
+ (define (env-lookup-global-var env name)
+   (let ((env* (env-global-env env)))
+-
+-    (define (search-vars vars)
+-      (if (pair? vars)
+-          (let ((v (car vars)))
+-            (if (eq? (var-name v) name)
+-                v
+-                (search-vars (cdr vars))))
+-          (env-new-var! env* name #f)))
+-
+-    (search-vars (env-vars-ref env*))))
++    (or (env-find-var env* name)
++        (env-new-var! env* name #f))))
+ 
+ (define (env-global-variables env)
+   (env-vars-ref (env-global-env env)))
+diff --git a/gsc/_envadt.scm b/gsc/_envadt.scm
+index 799953a8fabd4fb1b03fc4d362fc7af1915ccdb7..7249cf0ffb43b006a3dbd290d49c4f5caa2d81e2 100644
+--- a/gsc/_envadt.scm
++++ b/gsc/_envadt.scm
+@@ -33,7 +33,9 @@
+ (define (var-constant x)        (vector-ref x 9))
+ (define (var-clone x)           (vector-ref x 10))
+ (define (var-temp? x)           (vector-ref x 11))
+-(define (var-name-set! x y)     (vector-set! x 1 y))
++;; The constructor assigns binding names. Resolution indexes and namespace
++;; views share that identity; rewriting a name in place has no production
++;; caller and is no longer an internal mutation operation.
+ (define (var-bound-set! x y)    (vector-set! x 2 y))
+ (define (var-refs-set! x y)     (vector-set! x 3 y))
+ (define (var-sets-set! x y)     (vector-set! x 4 y))
+diff --git a/gsc/fixnum.scm b/gsc/fixnum.scm
+index d3b22966f3f066c826b0711e22ee64ed0352d8a9..7553e19c94d3fb2dc8a7cc4db749b527e595e935 100644
+--- a/gsc/fixnum.scm
++++ b/gsc/fixnum.scm
+@@ -396,6 +396,9 @@ env-declare
+ env-define-var
+ env-externals-ref
+ env-frame
++env-find-var
++env-binding-index
++env-macro-name?
+ env-global-variables
+ env-lookup
+ env-lookup-global-var
+@@ -437,7 +440,6 @@ var-info
+ var-info-set!
+ var-lexical-level
+ var-name
+-var-name-set!
+ var-refs
+ var-refs-set!
+ var-sets
+diff --git a/tests/compiler-environment.scm b/tests/compiler-environment.scm
+new file mode 100644
+index 0000000000000000000000000000000000000000..c0786e7edbbecb33c44ea526a2dcbaa8171456b5
+--- /dev/null
++++ b/tests/compiler-environment.scm
+@@ -0,0 +1,53 @@
++;;; Run with the built GSC: -f -e '(load "tests/compiler-environment.scm")'.
++;;; Binding views share variables, while macros/namespaces retain their order.
++(##namespace ("gambit#tests#compiler#environment#" check lookup root first
++               macro-view late local child replacement duplicate alias-view
++               namespace-entry bound index branch-a branch-b private declaration-view))
++(define (check expected actual)
++  (if (not (eq? expected actual))
++      (error "compiler environment binding identity" expected actual)))
++(define (lookup env name)
++  (c#env-lookup env name #f (lambda (owner name value) value)))
++(c#env.begin!)
++(define root (c#env-frame #f '()))
++(define first (c#env-new-var! root 'first #f))
++(check first (lookup root 'first))
++(define index (cdr (vector-ref root 0)))
++(if (not (vector? index)) (error "global lookup did not construct its index"))
++(define macro-view (c#env-macro root 'first '(test-macro)))
++(define declaration-view (c#env-declare root '(test-declaration)))
++(check 'test-macro (car (lookup macro-view 'first)))
++(define late (c#env-new-var! macro-view 'late #f))
++(check late (lookup root 'late))
++(check late (lookup declaration-view 'late))
++(check index (cdr (vector-ref root 0)))
++(check late (c#env-lookup-global-var macro-view 'late))
++(define local (c#make-temp-var 'first))
++(define child (c#env-frame root (list local)))
++(check local (lookup child 'first))
++(check late (lookup child 'late))
++(check #f (cdr (vector-ref child 0)))
++(define replacement (c#make-temp-var 'replacement))
++(define duplicate (c#make-temp-var 'replacement))
++(c#env-vars-set! root (list replacement duplicate))
++(check #f (vector-ref (cdr (vector-ref root 0)) 0))
++(check replacement (lookup root 'replacement))
++(check #f (lookup root 'first))
++(check 'test-macro (car (lookup macro-view 'first)))
++(define branch-a (c#env-macro root 'private '(branch-a)))
++(define branch-b (c#env-macro root 'other '(branch-b)))
++(check #f (lookup root 'private))
++(define private (c#env-new-var! root 'private #f))
++(check private (lookup branch-b 'private))
++(check 'branch-a (car (lookup branch-a 'private)))
++(define namespace-entry (cons "pkg#" (list (cons 'alias 'bound))))
++(define alias-view (c#env-namespace root namespace-entry))
++(define bound (c#env-new-var! alias-view 'pkg#bound #f))
++(check bound (lookup alias-view 'alias))
++(check namespace-entry (table-ref (c#env-externals-ref alias-view) 'pkg#bound))
++(check bound (lookup root 'pkg#bound))
++(##gc)
++(check bound (lookup alias-view 'alias))
++(check replacement (lookup root 'replacement))
++(c#env.end!)
++(display "COMPILER-ENVIRONMENT-PASS shared-binding macro local namespace replacement gc\n")

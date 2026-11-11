@@ -1,0 +1,32 @@
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -1593,6 +1593,7 @@
+ (define-prim (##thread-terminate! thread)
+ 
+   (##declare (not interrupts-enabled))
++  (##fault-control-protect-owner! thread 'terminate)
+ 
+   (##thread-end!
+    thread
+@@ -3139,6 +3140,13 @@
+           (##vector-set! record 6 code)
+           #t)
+         #f)))
++
++(define-prim (##fault-control-protect-owner! thread operation)
++  (##declare (not interrupts-enabled))
++  (if (##fx> (##fault-control-native-phase) 0)
++      (let ((record (##fault-control-record)))
++        (if (and (##vector? record) (##eq? thread (##vector-ref record 0)))
++            (##error "fault coordinator lifecycle admission closed" operation)))))
+ 
+ (define-prim (##fault-control-callback! record item execute)
+   ;; Recovery is outside the winding guard, but still inside the mapped
+@@ -3282,6 +3290,7 @@
+ 
+ (define-prim (##thread-suspend! thread)
+   (##declare (not interrupts-enabled))
++  (##fault-control-protect-owner! thread 'suspend)
+   (macro-not-yet-implemented));;;;;;;;;;;;;;;;
+ 
+ (define-prim (##thread-resume! thread)

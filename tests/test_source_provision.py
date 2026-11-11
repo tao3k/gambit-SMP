@@ -54,6 +54,28 @@ class SourceProvisionTests(unittest.TestCase):
         provision.prepare_cache(root, root / provision.DEFAULT_CACHE, source=upstream)
         return root, record, manifest
 
+    def test_object_binding_never_admits_a_different_checkout_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, _ = self.fixture(directory)
+            provision.git(root, 'update-index', '--cacheinfo', '160000',
+                          record['parents'][0], record['submodule'])
+            self.assertEqual(record, provision.binding(root)[0])
+            with self.assertRaisesRegex(ValueError, 'index does not bind'):
+                provision.validate(root)
+            destination = root/'rejected-cache.git'
+            with self.assertRaisesRegex(ValueError, 'index does not bind'):
+                provision.prepare_cache(root, destination)
+            self.assertFalse(destination.exists())
+
+    def test_object_identity_retains_tree_commit_and_parent_guards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, _ = self.fixture(directory)
+            cache = root/provision.DEFAULT_CACHE
+            provision.verify_object_identity(cache,record)
+            for key, value in [('commitSha256','0'*64),('treeManifestSha256','0'*64),('parents',[])]:
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError,'object digest drift|parents drift'):
+                    provision.verify_object_identity(cache,{**record,key:value})
+
     def test_offline_source_without_versioned_bundle(self):
         with tempfile.TemporaryDirectory() as directory:
             root, record, _ = self.fixture(directory)
@@ -126,6 +148,43 @@ class SourceProvisionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "canonical URL drift"):
                 provision.initialize(root, offline=True)
             self.assertFalse((root / "vendor/gambit").exists())
+
+    def test_transport_mirror_preserves_source_identity(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, manifest = self.fixture(directory)
+            lock_path = root / record["sourceLock"]
+            original_lock = lock_path.read_bytes()
+            record["transportRepository"] = (Path(directory) / "upstream").as_uri()
+            manifest.write_text(json.dumps(record))
+            provision.git(root, "config", "-f", ".gitmodules",
+                          "submodule.vendor/gambit.url", record["transportRepository"])
+            cache = Path(directory) / "mirror.git"
+            with patch.object(provision, "git", wraps=provision.git) as calls:
+                provision.prepare_cache(root, cache)
+            fetches = [call.args[1:] for call in calls.call_args_list if "fetch" in call.args]
+            self.assertEqual([( "-c", "http.sslVerify=true", "fetch", "--no-tags", "--depth=1",
+                                record["transportRepository"], record["revision"])], fetches)
+            self.assertTrue(provision.initialize(root, cache=cache, offline=True)["fsckPassed"])
+            self.assertEqual(original_lock, lock_path.read_bytes())
+            self.assertEqual(record["transportRepository"],
+                             provision.git(root / record["submodule"], "remote", "get-url", "origin"))
+            record["commitSha256"] = "0" * 64
+            manifest.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "object digest drift"):
+                provision.verify_objects(cache, record)
+
+    def test_transport_requires_explicit_matching_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, manifest = self.fixture(directory)
+            record["transportRepository"] = "https://example.invalid/mirror.git"
+            manifest.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "canonical submodule URL drift"):
+                provision.validate(root)
+            record["transportRepository"] = None
+            manifest.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "invalid source transport"):
+                provision.validate(root)
 
     def test_incomplete_git_objects_fail_before_checkout(self):
         with tempfile.TemporaryDirectory() as directory:

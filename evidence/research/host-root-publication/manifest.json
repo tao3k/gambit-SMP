@@ -1,0 +1,46 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    "docs/host-root-publication-recipe.md": "b52b780d686f7668414bd3245b1cc8700516e151c460505dbc75a407f7f90aac",
+    "docs/experimental/host-root-registration.md": "fde02d8d909342f020e8c7e7aba4d70bbb138d9203233afe835e3721b6c06910",
+    "models/gambit/host_root_publication_lifetime.qnt": "e85a3ca15b6928ce4724110ccf6132b117c267ed195410fa4df57935895ffe92",
+    "models/gambit/vm_list_c_memory_order.qnt": "e90a4ed7d68935a37ec0bf8a45412f19b6fa3f6261f4d84a96cad6a9007d1075",
+    "models/gambit/vm_list_reader_retirement.qnt": "7bb56b5964657b7b7f7f41096c629a0882e00a89f6dbf9fffde5407cf27f5952",
+    "models/gambit/lean/HostRootPublicationLifetime.lean": "3d593eb3a809e71d3d88723b7353798f53ede55ec83ae94d5de11a6134bbeb6c",
+    "models/gambit/lean/WorkAccounting.lean": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e",
+    "vendor/ocaml/otherlibs/systhreads/st_stubs.c": "fc7040e061f0509316e9f3d79e452d58d3b42fadf623dca034d130088d500898",
+    "vendor/ocaml/otherlibs/systhreads/st_pthreads.h": "a9c0db477881c88bf0c25addee0d99de7b3e2e02b0045bb27f884127930a224f",
+    "vendor/chez/c/types.h": "5870d3cd0a6ffd670c4b0c406ec17719480bfac49380bb0e5da996860b1ab407",
+    "vendor/chez/c/thread.c": "6081cd912e5903e19cba808fbe646a846ad49459bab73e79b4d67d6ff59c1c72",
+    "vendor/chez/c/gc.c": "6d937386a3aa466cf908fb2990047aba006c01662f28866e328b5a9f15e15fc9",
+    "vendor/chez/s/mkgc.ss": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406",
+    "vendor/gambit/lib/mem.c": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+    "vendor/gambit/lib/c_intf.c": "40c42c6ece7b40a2ddeb4d3082b093b85795cb9b193d47e429ee686f06eff0ae",
+    "vendor/gambit/lib/setup.c": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46"
+  },
+  "cases": [{
+    "id": "host_root_publication_lifetime",
+    "mode": "characterization",
+    "dependencies": ["vm_list_c_memory_order.qnt", "vm_list_reader_retirement.qnt"],
+    "composes": ["vm_list_c_memory_order", "vm_list_reader_retirement"],
+    "invariants": ["safe"],
+    "protocolInitializers": {"safe": "initFixed"},
+    "oldInvariants": ["rootCensusSafe", "publicationSafe", "hostTailSafe", "noInactiveScan", "noCompleteCleanup"],
+    "oldInitializers": {
+      "rootCensusSafe": "initMissingRoot",
+      "publicationSafe": "initReleaseOnly",
+      "hostTailSafe": "initCollectorDoneAsHostDone",
+      "noInactiveScan": "initFixed",
+      "noCompleteCleanup": "initFixed"
+    },
+    "counterexampleMeaning": {
+      "noInactiveScan": "reachable-collector-scan-of-still-live-inactive-host-not-protocol-failure",
+      "noCompleteCleanup": "reachable-full-last-use-and-reclamation-not-protocol-failure"
+    },
+    "temporal": "completion",
+    "source": ["lib/c_intf.c:___make_sfun_stack_marker", "lib/mem.c:mark_rc", "lib/mem.c:prepare_mem_pstate", "lib/setup.c:___call"],
+    "scope": "Current-repair composition for one already-owned host and one admitted scanner, with two declared logical root roles. Imports unchanged publication and reader-lifetime machines under independent identities. Complete census, observer publication and both host/collector last uses are separate obligations. C mutex/atomic refinement, legal caller census, physical root maps/relocation/reload, nonlocal C unwinding, arbitrary attachment, actual candidate correctness and performance are not proved. Finite roles are not CPU settings."
+  }]
+}

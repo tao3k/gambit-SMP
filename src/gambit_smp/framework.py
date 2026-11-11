@@ -78,12 +78,20 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def evidence_file(path, resolved=None):
+    """Compressed raw artifacts belong in local cache, never evidence inputs."""
+    if any(Path(candidate).suffix.casefold() == ".gz"
+           for candidate in (path, resolved) if candidate is not None):
+        raise ValueError("compressed archives are cache artifacts, not evidence")
+
+
 def relative(root, name):
     if not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts:
         raise ValueError("relative evidence path required")
     root = resolved_root(root)
     path = (root / name).resolve()
     path.relative_to(root)
+    evidence_file(name, path)
     return path
 
 
@@ -96,12 +104,16 @@ def parallel_jobs(items, worker, jobs, timeout):
         return [future.result() for future in futures]
 
 
-def apply_untracked_patch(root, data, allowed):
+def apply_untracked_patch(root, data, allowed, *, new_files=(), preserve_whitespace=False):
+    from gambit_smp.task_processes import run
     if not data:
         raise ValueError("empty patch")
     command = ["git", "--git-dir=/dev/null", "apply"]
-    stats = subprocess.run(command + ["--numstat", "-z"], input=data,
+    stats = run(command + ["--numstat", "-z"], input=data,
                            cwd=root, capture_output=True, check=True, timeout=10).stdout
+    new_files = set(new_files)
+    if not new_files <= set(allowed):
+        raise ValueError("new files must be explicitly allowed")
     names = []
     for row in stats.decode().split("\0"):
         if not row:
@@ -110,13 +122,24 @@ def apply_untracked_patch(root, data, allowed):
         target = (root / name).resolve()
         if (not added.isdecimal() or not removed.isdecimal() or name not in allowed
             or Path(name).is_absolute() or not target.is_relative_to(root.resolve())
-            or not target.is_file() or name in names):
+            or (target.exists() if name in new_files else not target.is_file())
+            or name in names):
             raise ValueError("patch must remain inside unique allowed existing files")
+        if name in new_files:
+            path = root
+            for part in Path(name).parts:
+                path = path / part
+                if path.is_symlink():
+                    raise ValueError("new source cannot traverse a symlink")
         names.append(name)
     if not names:
         raise ValueError("empty patch")
+    # Source snapshots may split existing text at a blank line. Preserve those
+    # bytes, including blank-at-EOF, rather than treating archival reproduction
+    # as a style edit. This never ignores context whitespace or repairs input.
+    whitespace = "nowarn" if preserve_whitespace else "error"
     for arguments in (("--check",), ()):
-        subprocess.run(command + ["--whitespace=error", *arguments], input=data,
+        run(command + ["--whitespace=" + whitespace, *arguments], input=data,
                        cwd=root, capture_output=True, check=True, timeout=10)
     if any(not (root / name).is_file() for name in names):
         raise ValueError("patch cannot remove a file")
@@ -134,7 +157,7 @@ def snapshot_fixture(source, out):
 
 
 def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=None, completion_grace=0,
-            progress_check=None):
+            progress_check=None, on_spawn=None, process_recorder=None):
     if metadata is not None and not isinstance(metadata, dict):
         raise ValueError("execution metadata must be a mutable dictionary")
     if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
@@ -142,18 +165,49 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
     if (isinstance(completion_grace, bool) or not math.isfinite(completion_grace)
             or completion_grace < 0):
         raise ValueError("nonnegative finite finalization grace required")
+    from gambit_smp.task_processes import recorder as task_recorder, check_deferred_environment
+    check_deferred_environment(env)
+    task_record=task_recorder()
+    inherited=()
+    if task_record:
+        from gambit_smp.workspace import inherited_lease
+        inherited=(inherited_lease(Path(os.environ['GAMBIT_SMP_TASK_ROOT']),os.environ['GAMBIT_SMP_TASK_ID']),)
+        if env is not None:
+            env=dict(env)
+            env.update({key:value for key,value in os.environ.items() if key.startswith('GAMBIT_SMP_TASK_')})
+        original_recorder=process_recorder
+        def process_recorder(event,token,fields):
+            task_record(event,token,fields)
+            if original_recorder:original_recorder(event,token,fields)
+        process_recorder.root=task_record.root
+        process_recorder.spawn_root=task_record.spawn_root
     start = time.monotonic()
-    process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, start_new_session=True, env=env)
+    token = os.urandom(16).hex()
+    from gambit_smp.artifact_storage import workspace_custody
+    try:
+        with workspace_custody(env) as (workspace_fds, child_environment):
+            import json
+            from gambit_smp.spawn_protocol import launch
+            process = launch(argv,record=process_recorder,token=token,birth_budget=min(10,timeout),launch_deadline=start+timeout,planned=dict(
+                workspaces=[row['source'] for row in json.loads(child_environment.get('GAMBIT_SMP_WORKSPACE_LEASES','[]'))]),
+                cwd=cwd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True,
+                env=child_environment,pass_fds=tuple(set(inherited)|set(workspace_fds)))
+    except OSError:
+        if process_recorder is not None:
+            process_recorder("spawn-failed", token, {})
+        raise
     if metadata is not None:
         metadata.update(pid=process.pid, startedAt=datetime.now(timezone.utc).isoformat())
     timed_out = False
     try:
+        if on_spawn is not None:
+            on_spawn(process.pid)
         if progress_check is None:
-            output, _ = process.communicate(timeout=timeout)
+            output, _ = process.communicate(timeout=max(.001,start+timeout-time.monotonic()))
         else:
             from gambit_smp.process_observation import communicate_progress
-            output, _ = communicate_progress(process, timeout, progress_check)
+            output, _ = communicate_progress(process, timeout, progress_check,
+                                              recorder=process_recorder, token=token)
     except subprocess.TimeoutExpired:
         try:
             completed = completion_check is not None and completion_grace > 0 and completion_check()
@@ -183,17 +237,22 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
             except ProcessLookupError:
                 pass
             output, _ = process.communicate()
+    except BaseException:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
+        raise
     if metadata is not None:
         metadata["endedAt"] = datetime.now(timezone.utc).isoformat()
         metadata["parentReaped"] = process.returncode is not None
-        try:
-            os.killpg(process.pid, 0)
-        except ProcessLookupError:
-            metadata["processGroupQuiescent"] = True
-        except PermissionError:
-            metadata["processGroupQuiescent"] = None
-        else:
-            metadata["processGroupQuiescent"] = False
+        from gambit_smp.process_observation import probe_group
+        quiet, probes = probe_group(process.pid, start + timeout)
+        metadata['processGroupQuiescent'] = quiet
+        metadata['processGroupProbes'] = list(probes)
+    if task_record:
+        task_record("finished",token,dict(exit=process.returncode,parentReaped=process.returncode is not None,timedOut=timed_out))
     return process.returncode, output, timed_out, time.monotonic() - start
 
 

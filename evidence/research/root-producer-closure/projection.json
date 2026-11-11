@@ -1,0 +1,405 @@
+{
+  "root": [
+    {
+      "key": "vm-body",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, ___BODY0_AS(___VM_SCMOBJ(___vms),___tSUBTYPED),",
+      "identity": "VM body cells",
+      "worker": "worker 0",
+      "condition": "VM epoch and fixed body layout"
+    },
+    {
+      "key": "resize-request",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, &___vms->resize.thunk, 1);",
+      "identity": "address of resize.thunk",
+      "worker": "worker 0",
+      "condition": "Keep current serialized request root"
+    },
+    {
+      "key": "intern-tables",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, &___GSTATE->symbol_table, 1);",
+      "identity": "symbol and keyword table cells",
+      "worker": "worker 0",
+      "condition": "Both table roots; symbol names are derived graph fields"
+    },
+    {
+      "key": "global-cells",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "int lo = (id * ___GLO_SUBLIST_COUNT) / np;",
+      "identity": "GLOCELL or VM glos element",
+      "worker": "floor interval per worker",
+      "condition": "Single VM partitions sublists; not equal cell counts"
+    },
+    {
+      "key": "stack-frames",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "___frame_root_cursor cursor = ___frame_root_begin (frame);",
+      "identity": "descriptor-selected FP_STK addresses",
+      "worker": "context participant worker",
+      "condition": "RETI/RETN decode and monotone gcmap runs; link forwarding handled separately"
+    },
+    {
+      "key": "context-registers",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, context->r, sizeof(context->r)/sizeof(*context->r));",
+      "identity": "r element",
+      "worker": "context participant worker",
+      "condition": "Every register slot rewritten; equal values do not merge slots"
+    },
+    {
+      "key": "saved-and-cache",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, context->saved, sizeof(context->saved)/sizeof(*context->saved));",
+      "identity": "saved and type_cache elements",
+      "worker": "context participant worker",
+      "condition": "Disjoint arrays; physical layout qualification still required"
+    },
+    {
+      "key": "context-startup",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, &context->startup_thunk, 1);",
+      "identity": "startup_thunk and entry_marker addresses",
+      "worker": "context participant worker",
+      "condition": "Existing startup and marker adapters retained"
+    },
+    {
+      "key": "processor-body",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, ___BODY0_AS(___CONTEXT_PROCESSOR_SCMOBJ(context),___tSUBTYPED),",
+      "identity": "processor Scheme body cells",
+      "worker": "context participant worker",
+      "condition": "Current thread reaches denv through ordinary graph traversal"
+    },
+    {
+      "key": "rc-data",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, &h->data, 1);",
+      "identity": "RC node data address",
+      "worker": "context participant worker",
+      "condition": "Each context list scanned; external writer freeze is a separate admission obligation"
+    },
+    {
+      "key": "externally-held-still",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "if (base[___STILL_REFCOUNT] == 0)",
+      "identity": "positive-refcount still object seed",
+      "worker": "context allocation-region worker",
+      "condition": "Not a synthetic Scheme slot; seed list produces object fields"
+    },
+    {
+      "key": "continuation-graph",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_captured_continuation (work, &body[___CONTINUATION_FRAME]);",
+      "identity": "captured frame link and denv fields",
+      "worker": "winning copier or lock owner then chunk scanner",
+      "condition": "Graph roots are not a second flat root table; special frame copy lock applies"
+    },
+    {
+      "key": "weak-and-local-roots",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, &will, 1);",
+      "identity": "temporary will and weak graph slots",
+      "worker": "weak phase worker",
+      "condition": "Strong root closure excludes later process_wills and foreign cleanup"
+    }
+  ],
+  "flow": [
+    {
+      "key": "forward",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "___COMPARE_AND_SWAP_WORD(&body[-1],",
+      "nextNode": "copying",
+      "custody": "Winner retains initialization and first-field Tail; losers rewrite their own slot",
+      "diagramLabel": "winner owns payload"
+    },
+    {
+      "key": "initialize",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "*alloc++ = *body++;",
+      "nextNode": "publish",
+      "custody": "Payload initialized before completed chunk publication",
+      "diagramLabel": "initialized payload"
+    },
+    {
+      "key": "publish",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "heap_chunks_to_scan_tail = new_tail;",
+      "nextNode": "claim",
+      "custody": "FIFO lock plus content/link visibility; not forwarding CAS",
+      "diagramLabel": "release FIFO publish"
+    },
+    {
+      "key": "claim",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "scan_complete_heap_chunk (work, ptr+1);",
+      "nextNode": "scan",
+      "custody": "Dequeued chunk remains owned by active scanner after unlock",
+      "diagramLabel": "transfer scan custody"
+    },
+    {
+      "key": "scan",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, body+1, words-1);",
+      "nextNode": "idle",
+      "custody": "Current generic movable scan skips first field assigned to winner Tail; prior direct PAIR macro is retired",
+      "diagramLabel": "skip Tail field"
+    },
+    {
+      "key": "private",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "ptr = alloc_heap_chunk_start;",
+      "nextNode": "idle",
+      "custody": "Private incomplete chunk scanned locally before idle",
+      "diagramLabel": "drain private work"
+    },
+    {
+      "key": "idle",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "if (--(*workers_count) == 0)",
+      "nextNode": "strong-cut",
+      "custody": "Last-use local drain and steal precede mutex count decrement",
+      "diagramLabel": "last active decrement"
+    },
+    {
+      "key": "strong-cut",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "process_wills (work);",
+      "nextNode": "weak-cut",
+      "custody": "Weak producers and second termination round remain mandatory",
+      "diagramLabel": "weak work reopens scan"
+    },
+    {
+      "key": "weak-cut",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "free_unmarked_still_objs (work);",
+      "nextNode": "cleanup",
+      "custody": "Foreign release side effects are outside strong termination proof",
+      "diagramLabel": "cleanup remains"
+    },
+    {
+      "key": "frame-lock",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "MISC_MEM_LOCK();\n\n      next_frame:",
+      "nextNode": "publish",
+      "custody": "Special frame-copy producer requires the MISC_MEM_LOCK path audited independently",
+      "diagramLabel": "frame copier lock"
+    },
+    {
+      "key": "synchronous-binding",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "if (work->context != ___ps->context || work->carrier != ___ps)",
+      "nextNode": "idle",
+      "custody": "Current runtime enforces worker context and native carrier identity",
+      "diagramLabel": "carrier binding"
+    },
+    {
+      "key": "round-counters",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "scan_workers_count[0] = np;",
+      "nextNode": "idle",
+      "custody": "Setup initializes separate strong and weak active counts",
+      "diagramLabel": "two round counters"
+    },
+    {
+      "key": "object-ready",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "publish_object_scan (work, copy_header);",
+      "nextNode": "publish",
+      "custody": "Current concurrent source separately publishes initialized-object scan authority; not proved by this study",
+      "diagramLabel": "publish scan readiness"
+    },
+    {
+      "key": "object-authority",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "GC_SCAN_OWNED,GC_SCAN_DONE",
+      "nextNode": "scan",
+      "custody": "Current object scan state transition excludes duplicate graph-field mutation; chunk ownership remains distinct",
+      "diagramLabel": "object scan completion"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "slot-identity",
+      "status": "open",
+      "scope": "Source families enumerated; no exhaustive generated slot certificate or arbitrary FFI closure"
+    },
+    {
+      "key": "alias-coverage",
+      "status": "conditional-proved",
+      "scope": "Physical slot quotient preserves updates; object-value dedup counterexample"
+    },
+    {
+      "key": "worker-assignment",
+      "status": "conditional-proved",
+      "scope": "Disjoint exhaustive provider sets imply unique owner; current floor partitions preserved"
+    },
+    {
+      "key": "producer-custody",
+      "status": "bounded-checked",
+      "scope": "One winner one chunk two roles; Tail and dequeued work remain active"
+    },
+    {
+      "key": "c11-publication",
+      "status": "open",
+      "scope": "Current volatile barriers and lock macros need effective-config C11 refinement"
+    },
+    {
+      "key": "typed-ir-bridge",
+      "status": "open",
+      "scope": "Actual Quint typed IR retained; manual Lean mirror not extraction proof"
+    },
+    {
+      "key": "whole-gc-closure",
+      "status": "open",
+      "scope": "Still lists frame copier weak phases foreign release and external writers not fully simulated"
+    },
+    {
+      "key": "object-scan-authority",
+      "status": "open",
+      "scope": "New concurrent source READY OWNED DONE transitions and duplicate-task behavior need separate QNT refinement; current one-chunk model assumes one consumer"
+    }
+  ],
+  "gain": [
+    {
+      "key": "resize reuse",
+      "avoided": "0 extra general directory for existing request",
+      "added": "Retain existing VM thunk and context adapters",
+      "condition": "No new concurrent provider requirement"
+    },
+    {
+      "key": "slot canonicalization",
+      "avoided": "D-C duplicate descriptors only; never equal-valued distinct slots",
+      "added": "O(D) expected indexing plus O(C) stable metadata and generation validation",
+      "condition": "Duplicate descriptors measured and avoided visits exceed index plus freeze cost"
+    },
+    {
+      "key": "worker balance",
+      "avoided": "At most max(load_i)-ceil(total/W) removable unit-cost imbalance",
+      "added": "Enumeration scheduling and cross-worker locality cost",
+      "condition": "Existing globals already partitioned; recursive graph skew remains"
+    },
+    {
+      "key": "publisher counter fusion",
+      "avoided": "0 additional counter RMW per synchronous publication",
+      "added": "Keep active worker until initialization Tail and local drain settle",
+      "condition": "Every publisher covered by active carrier; detached producers invalidate fusion"
+    },
+    {
+      "key": "generic manifest",
+      "avoided": "Repeated independent provider discovery and N adapters can share one protocol",
+      "added": "Snapshot freeze pin generation and retirement per provider",
+      "condition": "R*(saved discovery+saved coordination) > setup+R*(freeze+index+leases+extra visits)"
+    },
+    {
+      "key": "modern C baseline",
+      "avoided": "No second language needed for this protocol",
+      "added": "Generated descriptors C11 atomics and source qualifications remain",
+      "condition": "Zig not justified by root partitioning alone"
+    },
+    {
+      "key": "current scan authority",
+      "avoided": "Repeated graph-field mutation from duplicate chunk/frontier tasks",
+      "added": "Per-object UNPUBLISHED to READY to OWNED to DONE transitions plus section lookup and CAS retries",
+      "condition": "Current concurrent runtime change only; model-source refinement and performance remain unqualified"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "publish",
+      "lemma": "publishPreserves",
+      "condition": "Payload before FIFO visibility"
+    },
+    {
+      "actionName": "claim",
+      "lemma": "claimPreserves",
+      "condition": "Lock-step head removal transfers custody"
+    },
+    {
+      "actionName": "idleProducer",
+      "lemma": "idlePreserves",
+      "condition": "Tail and private chunk block idle"
+    }
+  ],
+  "parameter": [
+    {
+      "key": "registers",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___NB_GVM_REGS 5",
+      "value": "5"
+    },
+    {
+      "key": "saved",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "___WORD saved[3];",
+      "value": "3"
+    },
+    {
+      "key": "type-cache",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "___WORD type_cache[2];",
+      "value": "2"
+    },
+    {
+      "key": "processor-body",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___PROCESSOR_SIZE 22",
+      "value": "22"
+    },
+    {
+      "key": "vm-body",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___VM_SIZE 20",
+      "value": "20"
+    }
+  ],
+  "diagramedge": [
+    {
+      "fromNode": "copying",
+      "toNode": "initialize",
+      "label": "winner copies payload"
+    },
+    {
+      "fromNode": "forward",
+      "toNode": "tail",
+      "label": "winner reserves first field"
+    },
+    {
+      "fromNode": "tail",
+      "toNode": "idle",
+      "label": "settled Tail required"
+    },
+    {
+      "fromNode": "publish",
+      "toNode": "tail",
+      "label": "Tail may remain pending"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "RPC-history",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/root_producer_closure.qnt",
+      "subjectScope": "one-copy two-role custody and two canonical root slots"
+    },
+    "induction": {
+      "obligationId": "RPC-induction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/RootProducerClosure.lean",
+      "subjectScope": "physical-slot coverage and three selected guarded transitions"
+    },
+    "source": {
+      "obligationId": "RPC-source",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/root-producer-closure-design.org",
+      "subjectScope": "bounded source inventory; full runtime refinement unresolved"
+    },
+    "bridge": {
+      "obligationId": "RPC-bridge",
+      "kind": "expression-refinement",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/root_producer_closure.qnt",
+      "subjectScope": "actual typed IR to manual Lean semantic mirror unresolved"
+    }
+  }
+}

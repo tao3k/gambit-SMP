@@ -1,0 +1,325 @@
+{
+  "source": [
+    {
+      "key": "scan",
+      "path": "vendor/gambit/lib/_mem/rc-roots.inc",
+      "needle": "___SPINLOCK_LOCK(context->mem.rc_gate_);",
+      "limit": "entire normal list scan under same gate"
+    },
+    {
+      "key": "unlink",
+      "path": "vendor/gambit/lib/_mem/rc-allocation.inc",
+      "needle": "if (--h->refcount != 0) return 0;",
+      "limit": "zero reference under gate; not stable receipt"
+    },
+    {
+      "key": "free",
+      "path": "vendor/gambit/lib/_mem/rc-allocation.inc",
+      "needle": "if (reclaim) ___FREE_MEM(h);",
+      "limit": "native free after unlock"
+    },
+    {
+      "key": "borrow",
+      "path": "vendor/gambit/lib/_mem/rc-allocation.inc",
+      "needle": "___SCMOBJ *___borrow_rc_root",
+      "limit": "pins storage and contributes to refcount"
+    },
+    {
+      "key": "cleanup",
+      "path": "vendor/gambit/lib/_mem/rc-allocation.inc",
+      "needle": "___SPINLOCK_DESTROY(___ps->context->mem.rc_gate_);",
+      "limit": "whole-domain teardown is stronger than node unlink"
+    },
+    {
+      "key": "copy",
+      "path": "vendor/gambit/lib/_mem/copy-reservations.inc",
+      "needle": "work->tail_cell_ = cell;",
+      "limit": "normal Tail points to destination payload; inspect assignment chain"
+    },
+    {
+      "key": "diagnostic",
+      "path": "vendor/gambit/lib/_mem/copy-reservations.inc",
+      "needle": "invalid_copy_cell = cell;",
+      "limit": "exceptional source address escape; no recovery qualification"
+    },
+    {
+      "key": "root-task",
+      "path": "vendor/gambit/lib/_mem/collection-round.inc",
+      "needle": "context = task->origin->context;",
+      "limit": "pre-claim context load must be covered"
+    },
+    {
+      "key": "bank",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "___EXP_FUNC(void,___end_sfun)",
+      "limit": "borrow return then owner release"
+    },
+    {
+      "key": "tcl",
+      "path": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "scheme_delete_cmd",
+      "limit": "separate Scheme payload and native storage obligations"
+    },
+    {
+      "key": "allocator",
+      "path": "vendor/gambit/lib/os_base.c",
+      "needle": "free (ptr);",
+      "limit": "origin-matched provider; backend result receipt remains premise"
+    },
+    {
+      "key": "origin-model",
+      "path": "dev/refactoring/modern-c/models/quint/darwin_target_lease.qnt",
+      "needle": "action beginOriginFree=",
+      "limit": "existing model lacks explicit root-storage precondition"
+    },
+    {
+      "key": "gate-selection",
+      "path": "vendor/gambit/include/_gambit/gvm_operations.h.in",
+      "needle": "#define ___SPINLOCK_LOCK(lock) ___TICKETLOCK_LOCK(lock)",
+      "limit": "no-thread, mutex and ticketlock branches; effective atomic backend unresolved"
+    },
+    {
+      "key": "word-atomics",
+      "path": "vendor/gambit/include/_gambit/activity_log.h.in",
+      "needle": "#define ___WORD_LOAD_ACQUIRE(p) __atomic_load_n(p,__ATOMIC_ACQUIRE)",
+      "limit": "GCC/Clang builtin branch versus fallback; not effective C23 _Atomic qualification"
+    },
+    {
+      "key": "still-order",
+      "path": "vendor/gambit/lib/_mem/memory-lifecycle.inc",
+      "needle": "prepare_rc_cleanup (___ps);",
+      "limit": "prepare before still-object freeing and RC teardown"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "node-safety",
+      "status": "conditional-model",
+      "condition": "same gate; bounded balanced references; managed source acquisition; no escaping normal slot"
+    },
+    {
+      "key": "alias-closure",
+      "status": "unresolved",
+      "condition": "all exported slots, diagnostic overrides and raw FFI readers enrolled or denied"
+    },
+    {
+      "key": "domain-grace",
+      "status": "unresolved",
+      "condition": "pre-claim readers, root tasks, descendants and external owners drained or handed off"
+    },
+    {
+      "key": "native-free",
+      "status": "unresolved",
+      "condition": "non-abandoning capture or authoritative same-operation receipt; never blind retry"
+    },
+    {
+      "key": "c23-refinement",
+      "status": "unresolved",
+      "condition": "gate implementation, release/acquire, source lifetime and native widths qualified"
+    }
+  ],
+  "route": [
+    {
+      "actionName": "acquireBorrow",
+      "lemma": "RcRootRelease.acquireBorrowPreserves",
+      "source": "unlink",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "exportAlias",
+      "lemma": "RcRootRelease.exportAliasPreserves",
+      "source": "unlink",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "closeSource",
+      "lemma": "RcRootRelease.closeSourcePreserves",
+      "source": "unlink",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "dropOwner",
+      "lemma": "RcRootRelease.dropOwnerPreserves",
+      "source": "unlink",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "returnBorrow",
+      "lemma": "RcRootRelease.returnBorrowPreserves",
+      "source": "unlink",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "returnAlias",
+      "lemma": "RcRootRelease.returnAliasPreserves",
+      "source": "unlink",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "beginScan",
+      "lemma": "RcRootRelease.beginScanPreserves",
+      "source": "scan",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "endScan",
+      "lemma": "RcRootRelease.endScanPreserves",
+      "source": "scan",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "enterReader",
+      "lemma": "RcRootRelease.enterReaderPreserves",
+      "source": "root-task",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "exitReader",
+      "lemma": "RcRootRelease.exitReaderPreserves",
+      "source": "root-task",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "unlinkAndPermit",
+      "lemma": "RcRootRelease.unlinkAndPermitPreserves",
+      "source": "unlink",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "beginFree",
+      "lemma": "RcRootRelease.beginFreePreserves",
+      "source": "allocator",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "loseFreeResult",
+      "lemma": "RcRootRelease.loseFreeResultPreserves",
+      "source": "allocator",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "backendReceipt",
+      "lemma": "RcRootRelease.backendReceiptPreserves",
+      "source": "allocator",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "settleFree",
+      "lemma": "RcRootRelease.settleFreePreserves",
+      "source": "allocator",
+      "obligation": "node-safety"
+    },
+    {
+      "actionName": "retireDomain",
+      "lemma": "RcRootRelease.retireDomainPreserves",
+      "source": "root-task",
+      "obligation": "node-safety"
+    }
+  ],
+  "gain": [
+    {
+      "key": "normal-node-grace",
+      "saved": "0 extra whole-GC barriers per admitted node; reuse existing gate",
+      "added": "existing gate serialization remains; no speedup measured",
+      "condition": "synchronous scan; source admission closed; no escaping RC slot",
+      "status": "source-bound/conditional"
+    },
+    {
+      "key": "last-borrow",
+      "saved": "no second per-node borrow census; existing refcount includes borrow",
+      "added": "balanced ownership proof and bounded counters",
+      "condition": "borrow increments and return decrements same node",
+      "status": "source-bound"
+    },
+    {
+      "key": "domain-retirement",
+      "saved": "avoid waiting for unrelated domain borrowers on a single-node release",
+      "added": "whole-domain reader/task/owner census still required",
+      "condition": "node receipt never authorizes gate destruction",
+      "status": "unresolved-native"
+    },
+    {
+      "key": "unknown-free",
+      "saved": "0 speculative retry frees; 0 GC scans of detached possibly freed storage",
+      "added": "O(K) stable records and retained origin holds for K unresolved operations; potentially unbounded retention",
+      "condition": "pre-reserved independent metadata; authoritative operation reconciliation",
+      "status": "conditional-model"
+    },
+    {
+      "key": "legacy-retirement",
+      "saved": "0 current runtime paths retired by this research",
+      "added": "future typed release adapter and managed source acquisition",
+      "condition": "all caller and bulk-cleanup refinements pass",
+      "status": "design-only"
+    }
+  ],
+  "edge": [
+    {
+      "fromNode": "Source owner",
+      "toNode": "RC domain gate",
+      "contract": "close lookup before header load; drain acquired references"
+    },
+    {
+      "fromNode": "RC domain gate",
+      "toNode": "Slot-release receipt",
+      "contract": "last zero + unlink + synchronous scan grace; alias closure"
+    },
+    {
+      "fromNode": "Slot-release receipt",
+      "toNode": "Origin release service",
+      "contract": "single-use StorageId/generation; reserved independent record"
+    },
+    {
+      "fromNode": "Origin release service",
+      "toNode": "Native free",
+      "contract": "retain original allocator family and provider"
+    },
+    {
+      "fromNode": "Native free",
+      "toNode": "Unknown custody",
+      "contract": "no blind retry; no payload dereference"
+    },
+    {
+      "fromNode": "Native free",
+      "toNode": "Origin retirement",
+      "contract": "authoritative completion, not physical-effect inference"
+    },
+    {
+      "fromNode": "Root task readers",
+      "toNode": "Domain retirement",
+      "contract": "pre-claim readers and descendants drained; separate permit"
+    }
+  ],
+  "issuer": [
+    {
+      "key": "source-owner",
+      "source": "tcl",
+      "signature": "source admission closed before header load; existing acquisitions drained",
+      "gap": "raw ClientData acquisition closure unresolved"
+    },
+    {
+      "key": "rc-domain",
+      "source": "unlink",
+      "signature": "release_rc_locked / return_rc_root: same-gate final zero and unlink; proposed stable record commit",
+      "gap": "current Boolean is not persistent receipt"
+    },
+    {
+      "key": "scan-authority",
+      "source": "copy",
+      "signature": "mark_rc normal return: completed slot accesses; exported-slot closure needs separate issuer",
+      "gap": "diagnostic and override reader closure unresolved"
+    },
+    {
+      "key": "origin-service",
+      "source": "allocator",
+      "signature": "proposed release service: original allocator family and one-use OperationId; FREE_MEM return alone is local",
+      "gap": "free completion receipt is a native premise"
+    },
+    {
+      "key": "roster-owner",
+      "source": "root-task",
+      "signature": "proposed roster authority: pre-claim readers and descendants drained before cleanup_rc gate destruction",
+      "gap": "whole-domain census unresolved"
+    }
+  ]
+}

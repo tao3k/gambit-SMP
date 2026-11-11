@@ -1,0 +1,185 @@
+#+TITLE: C23 exit domains — producer closure, local data drain and global key retirement
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Decision and architecture scope
+:PROPERTIES:
+:CUSTOM_ID: exit-domain-drain
+:AUTHORITY: GambitExitDomainDrain
+:STATUS: conditional model; native admission withheld
+:BASELINE: C23; no runtime implementation or native tests
+:END:
+
+This study refines the foreign-runtime shutdown boundary of the Gambit modernization
+blueprint. It does not replace the GC/SMP design or establish faster Scheme builds.
+C23 remains the required runtime baseline. Zig does not remove any of the callback,
+root, native-resource or global-key obligations established here.
+
+The single organizational authority is [[file:models/sysml/exit-domain-drain.sysml][GambitExitDomainDrain]].
+Its native projection supplies source anchors, action/lemma routes, issuers,
+consumers, writer closure, proof premises, [[file:exit-domain-drain-matrix.org][cost and closure matrix]], and
+[[file:diagrams/exit-domain-drain.d2][D2 graph]]. The [[file:../../modeling/ascent/exit-domain-drain.rules.scm][actual ASCENT DSL]] checks these relations;
+it cannot manufacture native premises. The [[file:models/quint/exit_domain_drain.qnt][QNT state machine]] is extracted
+through typed IR into [[file:models/lean/ExitDomainDrainAst.lean][Lean expressions]], with [[file:models/lean/ExitDomainDrain.lean][guarded step induction]].
+The [[file:../../modeling/tools/exit-domain-drain-study.py][Python driver]] runs existing tools and records failed attempts.
+
+* FACT Source authority and real consumers
+:PROPERTIES:
+:EVIDENCE_SCOPE: pinned source; not a loaded Darwin or Windows binary
+:END:
+
+All Tcl findings refer to local immutable commit
+=cbf86d62348d6b052e1961b4df995960fb21545f=. The study verifies retained Git blob
+identities and SHA-256 bindings; it does not search a newer upstream tree.
+
+** Independent registration identity
+=Tcl_CreateThreadExitHandler= allocates a new ExitHandler on every call. There is
+no pair-key deduplication. =Tcl_DeleteThreadExitHandler= removes the first queued
+match by =(proc, clientData)=. The dispatcher removes a node before invoking it,
+then frees it after callback return. If active A registers identical B and deletes
+that pair, it cancels B; it cannot cancel popped A. Registration identity, delivery
+retry identity and resource identity must therefore be separate.
+
+** Lookup can be noncreating without being lifetime-free
+The delete API uses =TCL_TSD_INIT= even on a miss. =FinalizeThread= deliberately
+uses =TclThreadDataKeyGet= to avoid creating missing event data. The latter calls
+the noncreating storage getter, which still reads the global native key and table.
+A key-only reader need not have an allocator cache or interpreter. Neither list
+is a complete key-borrower roster.
+
+** Actual platform producer and service dependency
+Windows =Tcl_ConditionWait= creates its condition-event exit handler outside the
+global lock. The source explicitly says handler registration initializes another
+TSD block and can return into that lock. A new coordinator cannot hold its global
+service lock across this operation. =FinalizeConditionEvent= resets flags then
+calls =CloseHandle= with ignored status. Its ClientData points to a distinct TSD
+allocation, not into the ExitHandler node. Callback return proves neither native
+close success nor removal of all TSD dependencies.
+
+A resource authority must capture the exact handle while data is live and either
+settle it or transfer the duty into a record independent of the retiring TSD,
+key, allocator cache and destroyed services. The old void callback does not supply
+this receipt. Failure/unknown completion is retained rather than retried blindly.
+
+* DESIGN Owner exit-domain protocol
+:PROPERTIES:
+:SEMANTICS: proposed contract, not current native behavior
+:END:
+
+1. Close external registration admission for an owner epoch. In-flight creation
+   already admitted remains a tracked operation even if its response is lost.
+2. Before unlink, register stable in-flight custody of callback, node and resource
+   duties. Keep receipt state outside a node which may already have been freed.
+3. Invoke callbacks without coordinator/global service locks. Give permitted
+   descendants a new registration serial; do not deduplicate repeated real calls.
+4. Run native subsystem tails with explicit producer permits. Drain permitted
+   descendants before declaring producers closed. A child whose required service
+   has already been destroyed is not admitted; arbitrary callbacks cannot simply
+   be reordered after IO/notifier/object teardown.
+5. Reentrant finalization joins/defer-resolves the existing epoch; it never waits
+   on its own active callback or frees its outer data. Mapping this result to an
+   old void API is still an open admission question, not silent equivalence.
+6. Once all callback/node operations are known complete and resource duties no
+   longer depend on data, close key lookup admission and drain admitted readers.
+7. Detach the native slot with a known outcome before freeing its table and data.
+   The old source frees before clearing. Unknown detach retains custody and does
+   not license either free or a second non-idempotent platform operation.
+8. Issue a local data-drain receipt. Global cache drain, every TLS owner including
+   interpreter-less threads, and key-only borrowers require separate authority
+   before deleting the native key or provider services.
+
+An absent delete after detachment can answer from a stable absence receipt rather
+than touch an already retiring key. Before that point it needs a valid key lease.
+
+** State and boundedness
+=phase= is open/draining/producers-closed/detached/data-freed/local-receipt/key-retired.
+A and B each represent distinct registrations, including duplicate pairs. Their
+states separate private reservation, queued, in-flight, callback-returned,
+node-freed, canceled-node-pending, unknown-free and unknown-callback. =ack= tracks
+B publication independently of node lifetime. =parent= records external, callback
+or subsystem producer. =lookupPin= is one bounded representative reader.
+
+=attestNoTsdDependencies= and =attestCacheAndOwnerRoster= are external-premise
+steps, not inference from callback return or empty queues. A correct mirror must
+bind owner epoch and actual authority. This bounded model does not prove unbounded
+queue fairness, operation-result resolution, OS key API success or weak memory.
+
+* PROOF Refinement and failure controls
+:PROPERTIES:
+:MODEL: 20 scalar fields; 36 guarded actions; 45 Safe clauses
+:NATIVE_REFINEMENT: unresolved
+:END:
+
+Each action is mapped by SysML to its actual Lean preservation lemma and pinned
+source anchor. Guarded induction proves Safe for finite reachable abstract traces.
+The actual previous =RuntimeTlsReadyAst.finishFinalizer= action is joined only
+under an explicit same-epoch =FinishMirror=. This is not a full product simulation
+or evidence that every native callback is tracked. The previous AST object is
+reused only after matching source, artifact manifest and Lean executable hashes.
+
+#+NAME: boundary-counterexamples
+| History | Invalid inference rejected | Retained responsibility |
+|---------+----------------------------+-------------------------|
+| pop A, queue empty | all callbacks drained | A in-flight owner |
+| callback returned | node freed | separate node duty |
+| child published, response lost | operation absent or resolved | stable operation record |
+| node free result unknown | safe to retry free | unresolved custody |
+| nested finalize | outer data may retire | same epoch guard |
+| tail finished, child queued | all work done | child registration |
+| local data receipt | global key may retire | cache and all-owner authorities |
+| key-only reader active | detach may proceed | lookup pin |
+
+C23 publication requires initialized record writes sequenced before release,
+matching acquire observation for a same-epoch operation, and an admission close
+that excludes new readers before the last-reader decision. Epoch identity must be
+validated while storage is pinned. Lookup pin must precede the first key/table
+load and remain until last use; an acquire after an unprotected load is too late.
+The sequential QNT machine does not prove these reads-from edges or ABA safety.
+Native cleanup tails need an explicit non-abandon guarantee or stable unknown
+custody; an atomic decrement alone does not prove cleanup finished.
+
+* RESEARCH Paper connection and limits
+:PROPERTIES:
+:FACT_VS_DESIGN: explicit separation
+:END:
+
+Feeley's /A Portable Implementation of First-Class Continuations for Unrestricted
+Interoperability with C in a Multithreaded Scheme/ is retained locally as a
+[[file:../../../evidence/research/source-references/feeley-sfp/8bb2fae8ae4b54d3a86206596f90e9cf73da39846af0f39244a476074cf81ed4.txt][content-addressed paper]]. It motivates preserving first-class continuation and
+native interoperability while separating Scheme control lifetime from native
+activation lifetime. It does not prescribe this exit-domain protocol, a modern
+TLS roster or a C23 ordering proof. Those are our proposed contracts grounded in
+the source findings above. No claim about OCaml/Erlang behavior is needed to
+justify this local correction. The wider modernization choice remains in the
+Gambit-centered runtime blueprint; this foreign-runtime study supplies one
+necessary ownership boundary rather than an independent replacement runtime.
+
+* RESEARCH Net benefit and retirement gates
+:PROPERTIES:
+:MEASUREMENT: source operation counts; no timing claim
+:RETIRED_PATHS: 0
+:END:
+
+For D absent deletes with no event-data block, a noncreating lookup can avoid D
+payload allocations and D zero-fills; if a thread has no TSD table, its first
+creating set additionally allocates a table and initial array. This is a
+conditional per-state count, not D times every allocation: once data exists later
+misses do not allocate it again. Table growth and allocator bootstrap depend on
+configuration. Admission metadata, reconciliation, pins and resource records
+remain new costs.
+
+Use =net work = avoided recreation + avoided unnecessary lookup allocation -
+admission - receipt storage - reconciliation - pin/close synchronization=.
+A positive result requires frequent relevant misses/recreation and amortized
+service registration. With rare shutdown and no absent deletes, this study mainly
+improves correctness and may increase normal-path work. It establishes no speedup
+for gxi/gxc expansion and no Zig-specific gain.
+
+Retire the creating delete only after all relevant callers preserve miss and
+reentry semantics. Retire free-before-clear only after native clear outcome and
+reader exclusion are proved. Retire repeated cleanup only after the complete
+producer graph is closed. Retire global key precondition comments only after all
+owner/key borrower receipt collection is real. Currently none of these native
+paths are retired; models and source evidence are not execution authorization.

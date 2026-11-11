@@ -1,0 +1,164 @@
+#+TITLE: Size-family guard and GC exclusion — evidence and net return
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML authority
+:PROPERTIES:
+:CUSTOM_ID: size-family-guard-gc-matrix
+:AUTHORITY: GambitSizeFamilyGuardGc
+:END:
+Formal and source-bound rows qualify only their named abstract boundaries. Native issuers remain unresolved.
+
+** Component
+
+| componentId | role | sharedContract | boundary |
+|---+---+---+---|
+| ffi-conversion | Scheme-generated direction and root transfer plan | ConversionAttempt/RootSlot/NativeHold | no native release inferred from type name or cleanup bit |
+| gc-root-domain | freeze and collector scan-view authority | ConversionAttempt/RootSlot/NativeHold | worker owns scan tasks; root owner owns slot updates |
+| native-return | escaped completion and receipt coordination | ConversionAttempt/RootSlot/NativeHold | native return extent distinct from Scheme multi-shot continuation |
+
+** Issuer
+
+| key | source | existing | candidate | gap |
+|---+---+---+---+---|
+| SFUN-entry | generator-plan | C wrapper and stack marker exist | generated prolog reserves VM root-domain guard before marker and first converter | no current per-attempt stable issuer |
+| CFUN-entry | cfun-backend | context spill / out-of-line wrapper exist | generated wrapper reserves before native body; stable root output plus PSR1 handoff | input cleanup flag cannot stand in for result ownership |
+| landing | catcher | automatic catcher restores chain | outer native return coordinator adopts escaped guard subtree by attempt identity | landing-to-stable-coordinator composition unresolved |
+| scan | scan-context | context registers/saved/startup/RC scanned | enumerate registered conversion root slots in same frozen root domain | no generic conversion table in current enumeration |
+| drop | count-effect | plain decrement exists | exclusive owner + short epoch lease from claim through receipt then release | C23 gate, NoAbandon and all-writer admission unqualified |
+| retire | scan-drain | collective stopped-view drain exists | remove carrier only inside root-update lease after settled receipt and no scan readers | lookup tombstone and descriptor/code lifetime still separate |
+
+** Composition
+
+| key | lemma | source | obligation | boundary |
+|---+---+---+---+---|
+| parent-drop | SizeGuardBridge.normalDropBoundary | count-effect | normal-parent-bridge | normal outcome only; aborted CFUN must not fabricate PSR1 |
+| parent-effect | SizeGuardBridge.dropEffectAgreement | count-effect | normal-parent-bridge | physical hold/effect fields only; not full state simulation |
+| fusion | SizeGuard.fusedCfunEqualsSeparate | cfun-result | fused-handoff | no safepoint/callback/foreign call between root publication and drop claim |
+
+** Need
+
+| key | status | condition |
+|---+---+---|
+| guard-safety | formal | each step preserves guard/carrier/hold/lease invariants |
+| normal-parent-bridge | conditional formal | normal last-use cut refines parent drop guard and physical effect |
+| fused-handoff | formal | CFUN normal handoff algebraically matches separate root transfer and claim |
+| native-issuer | unresolved | stable pool/root-domain/catcher registration before all allocation or callback boundaries |
+| constructor-adoption | unresolved | initialization and output-slot adoption no-abandon proof; allocator debug/foreign escape remains external |
+| C23-mutator-gate | unresolved | atomic generation gate + short lease + owner checkpoint mapped to actual collective |
+| root-enumeration | unresolved | conversion slot census and register/frame maps incl nested callbacks |
+| landing-subtree | unresolved | outer unwind adopts every inner live attempt without discarded C-stack records |
+| all-writers-cohort | unresolved | manual decrements/overrides/headers/loaded modules qualified as one cohort |
+| retirement | unresolved | receipt readers and code/storage lifetime drained; generation exhaustion refuses reuse |
+
+** Memory
+
+| key | order | premise | obligation |
+|---+---+---+---|
+| gate-close | same-word CAS acq_rel closes generation and observes outstanding leases | ordinary GC_RUNNING load is not admission | C23-mutator-gate |
+| root-update | acquire short lease before slot write; release on final decrement | do not block/allocate/call Scheme under the short lease | C23-mutator-gate |
+| freeze | acquire observe drained lease count then owner publishes frozen roots before worker scan | all real participants and root producers joined same epoch | root-enumeration |
+| drop | plain still decrement under sole admitted owner; record completion before release of lease | no callback/cancel/GC/allocation/longjmp in physical-effect interval | constructor-adoption |
+| receipt | release completion; acquire lookup matches exact VM/context/attempt/generation | stale receipt cannot settle fresh attempt | retirement |
+
+** Gain
+
+| key | benefit | cost | condition | refutation |
+|---+---+---+---+---|
+| balanced-native-holds | B native boxed conversion holds can be discharged exactly once | N release decisions plus B physical decrements; no boxing eliminated | source holds exclusive and last use established | manual old decrements admitted without transfer gives double release |
+| short-leases | long-lived guards may cross GC without holding short mutation leases | one frozen-root enumeration per live carrier per collection | guard lifetime != GC exclusion lifetime | holding lease across ___call or allocating converter can deadlock collector |
+| CFUN-fusion | M eligible CFUN handoffs save M acquire/release pairs: 2M successful RMWs in chosen gate design | fused path retains one pair; retries and metadata accesses still cost | no callback/allocation/unwind between handoff and drop claim; same root domain | SFUN Scheme call allocates or nested callbacks need separate windows |
+| shared-support | VM guard pool/root adapter/landing coordinator shared by six size END responsibilities and later converters | A simultaneous attempts need O(A) live records; T retained receipts need O(T) metadata | root/receipt storage and key exhaustion policies explicit | wrapper-only layer adds runtime without retiring old ownership paths |
+| language-choice | C23 contracts directly reuse Gambit GC/context/trampoline and C interface | Zig would still require the same roots/gate/landing protocol | modern C mandatory mainline; no extra language needed for this defect | no proven Zig-specific reduction of required support here |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| ffi-conversion | size_family_guard_gc.reserveSfun | SizeGuard.reserveSfunPreserves | generator-plan | guard-safety |
+| ffi-conversion | size_family_guard_gc.reserveCfun | SizeGuard.reserveCfunPreserves | generator-plan | guard-safety |
+| ffi-conversion | size_family_guard_gc.beginConversion | SizeGuard.beginConversionPreserves | alloc-gc | guard-safety |
+| ffi-conversion | size_family_guard_gc.completeBoxed | SizeGuard.completeBoxedPreserves | converter-output | guard-safety |
+| ffi-conversion | size_family_guard_gc.completeImmediate | SizeGuard.completeImmediatePreserves | converter-output | guard-safety |
+| native-return | size_family_guard_gc.abortBeforeConversion | SizeGuard.abortBeforeConversionPreserves | call-rethrow | guard-safety |
+| ffi-conversion | size_family_guard_gc.acquireRootUpdate | SizeGuard.acquireRootUpdatePreserves | scan-context | guard-safety |
+| ffi-conversion | size_family_guard_gc.publishLanguage | SizeGuard.publishLanguagePreserves | cfun-result | guard-safety |
+| ffi-conversion | size_family_guard_gc.releaseRootUpdate | SizeGuard.releaseRootUpdatePreserves | scan-context | guard-safety |
+| ffi-conversion | size_family_guard_gc.captureArgument | SizeGuard.captureArgumentPreserves | scan-context | guard-safety |
+| ffi-conversion | size_family_guard_gc.finishNative | SizeGuard.finishNativePreserves | scan-context | guard-safety |
+| native-return | size_family_guard_gc.escapeNative | SizeGuard.escapeNativePreserves | call-rethrow | guard-safety |
+| native-return | size_family_guard_gc.claimDrop | SizeGuard.claimDropPreserves | count-effect | guard-safety |
+| ffi-conversion | size_family_guard_gc.fuseCfunHandoff | SizeGuard.fuseCfunHandoffPreserves | cfun-result | guard-safety |
+| native-return | size_family_guard_gc.physicalDrop | SizeGuard.physicalDropPreserves | count-effect | guard-safety |
+| native-return | size_family_guard_gc.recordDrop | SizeGuard.recordDropPreserves | count-effect | guard-safety |
+| native-return | size_family_guard_gc.releaseDrop | SizeGuard.releaseDropPreserves | count-effect | guard-safety |
+| native-return | size_family_guard_gc.loseReply | SizeGuard.loseReplyPreserves | scan-context | guard-safety |
+| native-return | size_family_guard_gc.queryReceipt | SizeGuard.queryReceiptPreserves | scan-context | guard-safety |
+| ffi-conversion | size_family_guard_gc.dropCapture | SizeGuard.dropCapturePreserves | scan-context | guard-safety |
+| ffi-conversion | size_family_guard_gc.clearLanguage | SizeGuard.clearLanguagePreserves | scan-context | guard-safety |
+| native-return | size_family_guard_gc.retireGuard | SizeGuard.retireGuardPreserves | scan-drain | guard-safety |
+| ffi-conversion | size_family_guard_gc.reissueSfun | SizeGuard.reissueSfunPreserves | generator-plan | guard-safety |
+| ffi-conversion | size_family_guard_gc.reissueCfun | SizeGuard.reissueCfunPreserves | generator-plan | guard-safety |
+| gc-root-domain | size_family_guard_gc.closeGate | SizeGuard.closeGatePreserves | root-freeze | guard-safety |
+| gc-root-domain | size_family_guard_gc.freezeOwner | SizeGuard.freezeOwnerPreserves | root-freeze | guard-safety |
+| gc-root-domain | size_family_guard_gc.beginScan | SizeGuard.beginScanPreserves | root-freeze | guard-safety |
+| gc-root-domain | size_family_guard_gc.endScan | SizeGuard.endScanPreserves | scan-drain | guard-safety |
+| gc-root-domain | size_family_guard_gc.resumeOwner | SizeGuard.resumeOwnerPreserves | scan-drain | guard-safety |
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| sfun-prolog | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___BEGIN_SFUN_VOID(proc) | marker allocated before input conversion; no conversion guard |
+| sfun-input | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___SFUN_ARG(i,arg)___PSSTK | stack publication before call; not still-count release |
+| sfun-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_SIZE_T_TO_SCMOBJ(c,s,i)} | three family ENDs lack drop |
+| sfun-error | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___SFUN_ERROR_VOID | retry calls and error propagation outlive argument scope |
+| sfun-finish | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_VOID | marker invalidation then propagate; not conversion guard |
+| cfun-result | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___CFUN_RESULT ___PSR1 | actual output root |
+| cfun-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_CFUN_SIZE_T_TO_SCMOBJ(c,s) | three result ENDs lack drop |
+| cfun-context | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___BEGIN_CFUN_CTX | spill before out-of-line C; reload after |
+| cfun-cleanup | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___BEGIN_CFUN_BODY_CLEANUP | conditional TRY selected by input cleanup flag |
+| catcher | vendor/gambit/include/_gambit/foreign_conversion.h.in | ___ps->catcher = &___jbuf; | catcher is automatic activation, restored at END_TRY |
+| throw | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___THROW(e)do { ___ps->longjmp_err | nonlocal jump can bypass nested local ENDs |
+| language-c | vendor/gambit/include/_gambit/language.h.in | #define ___USE_SETJMP | C path uses setjmp; no C++ RAII assumption |
+| call-entry | vendor/gambit/lib/setup.c | ___EXP_FUNC(___SCMOBJ,___call) | GC phase rejection before frame writes; catcher created later |
+| call-rethrow | vendor/gambit/lib/setup.c | stack_marker != ___ps->context->fp[___FRAME_SPACE(2)-2] | mismatched marker rethrows across wrapper scope |
+| run-landing | vendor/gambit/lib/setup.c | ___VOLATILE ___SCMOBJ marker = ___FAL; | run catches its own marker; no per-conversion record |
+| error-propagation | vendor/gambit/lib/setup.c | ___EXP_FUNC(void,___propagate_error) | error triggers throw |
+| marker-rooted | vendor/gambit/lib/c_intf.c | proc_or_false = *proc_root; /* reload after allocating the marker */ | rooted startup endpoint reloads; generic wrapper local not registry |
+| marker-raw | vendor/gambit/lib/c_intf.c | Legacy raw SFUN entry is not made a registered-root interface | do not infer generic ingress roots |
+| marker-kill | vendor/gambit/lib/c_intf.c | ___still_obj_refcount_dec (marker); | different object and native lifetime |
+| size-wrapper | vendor/gambit/lib/c_intf.c | return ___U64_to_SCMOBJ (___ps, ___U64_from_ULONGLONG | delegates allocating converter |
+| signed-wrapper | vendor/gambit/lib/c_intf.c | return ___S64_to_SCMOBJ (___ps, ___S64_from_LONGLONG | signed family |
+| converter-output | vendor/gambit/lib/c_intf.c | if (___S64_fits_in_width (x, ___FIX_WIDTH)) | fresh body initialized before output assignment |
+| alloc-init | vendor/gambit/lib/_mem/object-allocation.inc | still objects this initialization must be done before the next | constructor-return handoff has no new allocation |
+| alloc-gc | vendor/gambit/lib/_mem/object-allocation.inc | if (___garbage_collect (___PSP words)) | never hold short mutation lease across allocating converter |
+| alloc-count | vendor/gambit/lib/_mem/object-allocation.inc | base[___STILL_REFCOUNT] = 1; | native temporary hold protects fresh still object |
+| release-check | vendor/gambit/lib/_mem/object-allocation.inc | ___EXP_FUNC(___SCMOBJ,___release_scmobj) | immediate/permanent no-op; still decrement |
+| count-effect | vendor/gambit/lib/_mem/still-refcount.inc | ___BODY0(obj)[___STILL_REFCOUNT-___STILL_BODY]--; | plain effect requires exclusive owner and GC exclusion |
+| scan-still | vendor/gambit/lib/_mem/object-scanning.inc | if (base[___STILL_REFCOUNT] == 0) | nonzero native holds become still roots |
+| scan-context | vendor/gambit/lib/_mem/root-origins.inc | mark_array (work, context->r, sizeof(context->r)/sizeof(*context->r)); | includes exact PSR1 slot |
+| scan-saved | vendor/gambit/lib/_mem/root-origins.inc | mark_array (work, context->saved, sizeof(context->saved)/sizeof(*context->saved)); | saved roots have current consumers |
+| scan-startup | vendor/gambit/lib/_mem/root-origins.inc | mark_array (work, &context->entry_marker, 1); | startup has dedicated roots, not generic conversion table |
+| root-freeze | vendor/gambit/lib/_mem/collection-round.inc | participant->phase = ___GC_ROOTS_FROZEN; | synchronous context publication cut |
+| root-barrier | vendor/gambit/lib/_mem/collection-round.inc | BARRIER(); /* actual W and every grant published after complete R freeze */ | all participants frozen before worker access |
+| owner-cleanup | vendor/gambit/lib/_mem/collection-round.inc | vm->gc_participants[id].phase = ___GC_OWNER_CLEANUP; | restored stacks do not authorize managed reentry |
+| scan-drain | vendor/gambit/lib/_mem/collection-round.inc | BARRIER(); /* no worker may retain a stopped root view past this cut */ | scanner view retirement before reuse |
+| context-storage | vendor/gambit/include/_gambit/runtime_roles.h.in | ___WORD saved[3]; /* Scheme objects protected from GC */ | VM context stable but fixed saved cells cannot hold unbounded nested guards |
+| phase-field | vendor/gambit/include/_gambit/runtime_roles.h.in | ___gc_participant_phase phase; | ordinary enum, not an atomic admission pin |
+| cleanup-escrow | vendor/gambit/include/_gambit/runtime_roles.h.in | typedef struct ___gc_cleanup_escrow_struct | dedicated sweep debt, not conversion ownership |
+| psr1 | vendor/gambit/include/_gambit/gvm_registers.h.in | #define ___PSR1 ___ps->context->r[1] | slot identity and reload/writeback must agree |
+| spill-select | vendor/gambit/include/_gambit/stack_operations.h.in | #define ___W_ALL ___SM | local and process register coherence |
+| generator-args | vendor/gambit/gsc/_ptree2.scm | (define (c-convert-argument sfun? numbered-typ body) | SFUN args converted before call |
+| generator-result | vendor/gambit/gsc/_ptree2.scm | (define (c-set-result sfun? result-typ) | CFUN native result converted into PSR1 |
+| generator-cleanup | vendor/gambit/gsc/_ptree2.scm | (define (type-needs-cleanup? typ-source) | false parameter flags omit cleanup TRY; not result ownership |
+| generator-plan | vendor/gambit/gsc/_ptree2.scm | (define (c-make-function sfun? name param-typs result-typ make-body) | candidate producer of direction-aware guard plan |
+| cfun-backend | vendor/gambit/gsc/_t-c-2.scm | setjmp interfering with C TCO | out-of-line C policy and stack maps; guard must not silently force inline TRY |
+| type-registry | vendor/gambit/gsc/_parms.scm | (cons size_t-sym | three flags false; unchanged ownership omission |
+| darwin-config | vendor/gambit/config.status | '--disable-smp' | configured arm64 GCC16 subset not SMP native qualification |
+| width-config | vendor/gambit/config.log | ac_cv_sizeof_long=8 | historical generated profile |
+| build-command | vendor/gambit/bin/gambuild-C | /opt/homebrew/Cellar/gcc/16.2.0/bin/gcc-16 | actual recorded toolchain command |
+| generated-header | vendor/gambit/include/gambit.h | #define ___CFUN_RESULT ___PSR1 | same macro subset not same full code cohort |
+| parent-design | dev/refactoring/modern-c/size-family-hold-balance-design.org | A successful out-of-fixnum conversion | prior conditional ownership defect; preserve receipt |
+| feeley-paper | evidence/research/sfun-converter-use-closure/feeley-sfp-paper.txt | return to C frames | Scheme continuation extent versus C activation extent |

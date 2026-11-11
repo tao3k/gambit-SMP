@@ -1,0 +1,217 @@
+#+TITLE: W collector workers and R root-domain owner services
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+PROPERTY: header-args :eval never
+
+* Implemented responsibility replacement :gc:smp:c23:
+:PROPERTIES:
+:CUSTOM_ID: worker-root-domain-cut
+:AUTHORITY: GambitRootWorkerExit::workerDomains
+:STATUS: SELECTED-NATIVE-PASS; COMPLETE-RUNTIME-ADMISSION-OPEN
+:END:
+
+The =modern-c= C runtime now admits selected =1 <= W <= R= rounds. This is an
+actual dispatcher, restoration, cleanup and phase-completion replacement. The
+atomic request defaults to all workers and is a VM-internal ceiling, not another
+Bazel/configure profile. Every admitted request is clamped to the frozen root
+population; actual W is published only after physical restoration admission.
+
+The [[file:models/sysml/root-worker-exit.sysml][SysML authority]] owns three realizations and the seven worker admission
+conditions. [[file:root-worker-exit.org::#root-phase-realization][Generated Org tables]] and [[file:diagrams/root-worker-exit.svg][D2]] are projections. The [[file:models/sysml/root-task-c-refinement.sysml][C refinement contract]]
+now has twelve operations. [[file:../../modeling/ascent/root-worker-exit.rules.scm][Actual ASCENT DSL]] qualifies the selected source/native
+slice and keeps full unequal-count and whole-runtime retirement queries empty.
+QNT and Lean files were not rewritten or duplicated.
+
+** Responsibility and retirement matrix
+
+#+NAME: worker-domain-responsibilities
+| Owner | Actual source | Work and authority | Replaced path |
+|-------+---------------+--------------------+---------------|
+| W collector executors | collection-round.inc::collect_root_tasks, mark_reachable_from_marked | Claim all R preparation/strong/weak domains; copy, steal and drain descendants using W arenas and W idle participants | R carriers no longer all execute collector phases or own a copy arena |
+| R physical carriers | collection-round.inc::garbage_collect_pstate | Every carrier reaches every physical collective cut, including inactive collectors | No subset-only physical barrier inside worker helpers |
+| W tail recipients | vm_state.h.in::gc_arena_handoff | Receive final copy span and all retired copied-prefix accounting once | No requirement that all R contexts have a worker tail |
+| R-W other domains | vm_state.h.in::gc_resume_without_arena | Empty heap in a bounded bottom interval of their own reserved stack section; no copied-prefix credit | No fictitious arena, duplicate tail or extra heap section |
+| R restoration owners | capacity-resize.inc::move_continuation, memory-lifecycle.inc::prepare_mem_pstate | Copy each active stack on its original owner, then finalize GVM fp/hp/interrupt limits after public capacity outcome | Active continuation restoration no longer depends on collector eligibility |
+| R native cleanup owners | collection-round.inc::cleanup_root_domain, still-sweep.inc::free_unmarked_still_objs | Direct domain lookup; restored prerequisite; CLEANUP task token =4+MAX_PROCESSORS+id=; original OS thread/PSTATE | Cleanup removed from worker root dispatch; helper takes PSTATE, not collector/context pair |
+| Round coordinator | heap-sections.inc::setup_stack_heap_vmstate, restore_loan_words | Snapshot atomic ceiling after full R freeze; choose actual W; initialize R stack grants and W copy grants | Count-only publication and W=R allocation guard retired |
+
+Only W slots receive current copy arenas, private queues/frontiers and scan
+participation. The VM still has fixed descriptor storage for all possible slots;
+an inactive carrier's legacy instrumentation pointer is not collector authority.
+Native controls check its reserve pointer is null and its root-domain receipt has
+=source_worker=-1=.
+
+** Complete round sequence
+
+1. All R managed carriers stop and publish complete context root views.
+2. The coordinator snapshots the atomic worker ceiling and examines actual stack
+   restore lengths. Every nonworker needs a bounded empty heap with heap fudge.
+3. If that restoration condition fails, this round uses W=R within the same new
+   role architecture. All initial grants still fit the old =2R= envelope; no heap
+   is added to make a requested W<R pass. Full copy packing remains open.
+4. The setup barrier publishes actual W, R restoration grants and W arenas. Only
+   these W executors service all R PREPARE/STRONG/WEAK tasks. Their termination
+   counter has W participants; every physical barrier still has R carriers.
+5. After weak descendants drain, W tails and retired prefixes transfer to W
+   distinct recipients. The other R-W contexts accept their own empty span.
+6. Every owner copies its active stack and sets the physical =restored= receipt.
+   One additional all-R barrier precedes all native cleanup callbacks.
+7. W workers finish their reached hash tables; all R native owners independently
+   claim and finish their CLEANUP task, including inactive collectors.
+8. Cleanup completion, public resize/capacity outcome, GVM pointer/limit
+   finalization, root thaw and final acknowledgement gate actual Scheme resume.
+
+A physical stack-copy receipt does not authorize execution. In particular,
+=move_continuation= prepares physical stack storage; =prepare_mem_pstate= still
+finalizes GVM fp/hp and interrupt limits after cleanup and capacity outcome.
+Collecting/reentrant native cleanup is not admitted by this slice.
+
+** Conditional correctness and counterexamples
+
+| Obligation | Source argument | Counterexample prevented / remaining limit |
+|------------+-----------------+---------------------------------------------|
+| All R roots serviced by W | Every active worker iterates all R tasks; per-epoch claim is exclusive; coordinator requires exact predecessor completion | Merely lowering worker_count while dispatching roots by worker index loses R-W domains |
+| Scan termination | All W workers begin active, finish root production before declaring idle, and drain chunk/Tail work before phase advance | Decrementing an R-sized counter from W workers never terminates; counting inactive owner services as scan workers is invalid |
+| Unique copy accounting | W worker identities have W distinct recipients; retired prefix credit transfers once; other R-W spans carry zero copy credit | Reusing one tail for multiple contexts double-counts or overlaps copied objects |
+| Restore capacity | One shared partition function drives pre-flip admission and actual empty-span bounds; insufficient-fudge cases choose W=R before flip | Accepting a tiny nonworker heap then computing limit-fudge can construct invalid bounds after flip |
+| Native affinity | Direct owner-domain service uses actual original PSTATE and pthread; token namespace is disjoint from worker tokens | Scheduling an affine destructor on a different worker changes library semantics |
+| Final resume | All R physical stack copies precede cleanup; task completion and final prepare/thaw follow the public result | A physical receipt or worker idle result alone cannot permit Scheme reentry |
+| Unknown join | Existing empty unpublished abort isolation excludes held actor from both R and W; healthy registered domains still participate | Unknown published/native writers and arbitrary collector death remain unqualified |
+
+No copy/restore grant or unknown completion is silently duplicated. An unreturned
+native cleanup callback retains its claimed task and prevents unsafe resume; this
+change does not create an asynchronous release coordinator or make an unknown
+shared-heap writer safe.
+
+* Native evidence :evidence:
+:PROPERTIES:
+:CUSTOM_ID: worker-domains-native-matrix
+:END:
+
+The existing Darwin/GCC/C23 Bazel-derived profile, configure and Make were used.
+The full source directory stayed at the same Modern C cache identity. Completed
+Scheme generation was explicitly reused; neither run is a new full two-pass
+Scheme bootstrap.
+
+#+NAME: worker-domains-native-results
+| Case | Observed configuration | Result and scope |
+|------+------------------------+------------------|
+| Domain transition and native release | R=3; W=1,2,3,1 | PASS; all R accepted/restored, all root tasks cleanup DONE, correct active/inactive authority |
+| Foreign destructor affinity | Three actual FOREIGN constructors on owners 0/1/2 | PASS; each owner exactly one callback; pthread and PSTATE match original constructor |
+| Pre-growth foreign protection | Main still object retains refcount=1 through growth GC; child objects held until all entries complete | PASS; all three become collectible only after explicit drop, then release with W=1/R=3 |
+| Map multi-shot continuation | W=1/R=11 plus single-processor control | PASS; repeated restoration, dynamic-wind and native suffix preserved; actual census asserted |
+| Wide map/root masks | W=10/R=11 plus single-processor control | PASS; live slots beyond 64, eleven completed forced collections, repeated restore and actual census |
+| Real refill and bounded loan | Existing 1/11 processor topologies and one-member no-new-section hook | PASS; private copy/refund/handoff contracts and subsequent GC retained |
+| C transition kernel | Real pthread claim race plus nonworker empty-span epoch, loan and duplicate rejection | PASS; same actual header implementation |
+| Unknown native join | Healthy R=3/W=1, aborted actor held before Scheme entry | PASS; three healthy GCs, all three restored receipts, quarantined slot not reused |
+| Interposition calibration | Separate create/join/held-entry native calibration | PASS; injected library byte identity and execution environment bound |
+
+The unknown-join fixture retains its safety =_Exit= boundary. Natural handle
+reaping, a published retiring actor and arbitrary unmanaged borrowers are not
+covered. Holding the FOREIGN test objects uses existing still refcount roots;
+it is not a new admission rule for unregistered movable Scheme pointers.
+
+Both source candidates and raw results are preserved:
+
+| Run | Outcome | Whole wall | Native work |
+|-----+---------+------------+-------------|
+| worker-domains-native | PASS | 283.355 s / 600 | Initial layout change: 114.494 s native stage; configured header and all native consumers rebuilt |
+| worker-domains-restore | PASS | 124.594 s / 600 | Final pre-flip restore admission and stronger controls: 9.334 s native stage; configuration reused, one object changed |
+
+The final run has 25 PASS stages and thirteen distinct fresh native execution
+PIDs. Six topology/domain compilation pipelines support ten Scheme executions;
+unknown-join compilation and two C native executions are separate. Framework
+controls reuse the unchanged 189-test source-bound certificate, not a fresh
+Python test run. No Python test or task-specific execution script was added.
+
+The final native Make actions were one =mem.o= compilation and two executable
+links. Make phases took 2.070 + 0.423 s. There were zero aclocal/autoconf/configure
+invocations in this leaf-only correction, zero new full source copies, zero
+Scheme generation commands, and 51 byte-identical generated C artifacts reused.
+The two native timings represent different invalidation work, not a matched
+runtime speed comparison. Whole-run wall includes compilation, authentication,
+controls and actual fresh executions.
+
+* Benefits and costs :matrix:
+:PROPERTIES:
+:CUSTOM_ID: worker-domains-benefit-matrix
+:END:
+
+The following dispatch counts are derived from exact old/current source loop
+bounds. They are not measured machine-instruction or throughput counters.
+The original [[file:../../../evidence/research/worker-role-handoff/worker-arena-source-closure/receipt.json][source archive]] preserves the earlier dispatcher for comparison.
+
+#+NAME: worker-domains-net-benefit
+| Dimension | Earlier source | Current source | Quantified boundary / added cost |
+|-----------+----------------+----------------+----------------------------------|
+| Three root dispatch phases | 3R^2 task visits at W=R | 3WR visits | R=11/W=1: 363 to 33 visits; all 3R successful domain tasks remain necessary |
+| Cleanup selection | R workers each test eligibility for R contexts | R owners directly address their own task | R=11: 121 to 11 eligibility checks; actual R destructors/list sweeps remain |
+| Initial destination grants | R copy sections plus R stack sections | W copy sections plus R stack sections | R=11/W=1: 22 to 12 initial assigned sections; not a ten-section RSS or whole-peak claim |
+| Private arena initialization | R arenas/chunk markers/frontiers | W | Ten fewer initial arena/frontier jobs at R=11/W=1 |
+| Logical root work | All live roots, frames and shared graph | Same | No skipped roots or one-shot restriction introduced |
+| Native release | Cleanup eligible only through paired collector | R explicit host services independent of W | No new host threads or deferred task heap; native effect/reentry closure still needed |
+| Synchronization | Previous root-phase collective | Same physical carriers plus restored-stack seal | One extra all-R barrier this turn; five extra versus pre-root-phase predecessor |
+| Fixed metadata | Existing WorkerArena/resume layout | restored/source_worker and atomic requested_workers | Conventional 64-bit layout estimate: 8N+8 additional bytes versus prior cut; 520 bytes for N=64, not measured RSS |
+| Selection policy | Implicit W=R | Atomic ceiling, frozen footprint check, pre-flip safe W=R fallback | O(R) existing setup traversal; no extra allocation or heap profile |
+| Native rebuild | Layout edits rebuild native consumers | C-only correction reuses configuration/generated C | One changed object, three native Make actions; 51 generation artifacts reused |
+| Runtime speed and peak | Not established | Still not established | Extra barrier can outweigh dispatch savings; W=1 can serialize useful scan work; existing min-heap/history policy can prevent RSS reduction |
+
+This creates a real architectural choice between root population and collector
+parallelism. It does not justify selecting a universally optimal W, changing the
+production default, claiming faster GC, or claiming all SMP failures solved.
+
+* Gambit leverage and existing model responsibilities :architecture:
+
+The native case demonstrates that a worker on another physical carrier can
+repair roots for a map continuation that resumes repeatedly on its owning
+execution context. Captured frames, shared aliases, root masks and dynamic-wind
+stay Gambit's semantics. Splitting work authority from context/native ownership
+amplifies that portable explicit-stack design; it does not impose isolated
+process heaps, message copying or one-shot continuations.
+
+The same design separates three completion facts: W scan executors drained,
+R contexts physically restored, and R affine cleanup services completed. An
+OS-thread count, one idle counter or one task flag cannot substitute for all three.
+Physical carrier migration and cleanup reentry need their own ownership proof.
+
+Existing QNT owns bounded task/producer/termination interleavings. Existing Lean
+owns coverage, interval/accounting algebra and refinement premises. SysML assigns
+those owners; the current work supplies C/native adapters. No duplicate scheduler
+model, repeated theorem claim, or general C memory-model proof is introduced.
+
+* Closure and commit boundary :gate:
+
+The [[file:root-worker-exit.org::#root-phase-realization][SysML-derived admission inventory]] now has five selected source-adapter conditions
+supplied: independent-refill, resume-coverage, affine-cleanup, collective-split
+and descendant-termination. Two remain open: physical-packing and
+native-writer-closure. Five of seven conditions is not a completion percentage.
+
+| Commit gate | Current evidence | Remaining whole-refactor limit |
+|-------------+------------------+--------------------------------|
+| Required tests | Selected W<R, roots, multi-shot map, native affinity and unknown join PASS | Arbitrary copy packing, native writers, cleanup reentry and general actor exit absent |
+| Architectural learning / benefit | Actual worker/owner authority split and retired loops documented | Pause, throughput and RSS net benefit unmeasured |
+| Current process | Modern C C23 source replacement and bounded fallback implemented | Independent carrier migration and W>R outside admission |
+| Models / source | Native SysML, actual ASCENT, exact source and native process identities linked | Existing QNT/Lean premises not automatically discharged by native passes |
+| Gambit amplification questions | Precise frames/shared semantics/multi-shot restoration retained across unequal counts | Full native borrower/continuation writer closure and whole capacity plan open |
+
+No commit is admitted by this slice. The new adapter always runs the same role
+architecture, including a W=R fallback; it does not restore the retired collector
+context-allocation or cleanup-dispatch paths. Existing staged work is preserved.
+
+** Source-bound evidence receipt
+
+[[file:../../../evidence/research/worker-role-handoff/worker-domains-source-closure/receipt.json][Final source/SysML/ASCENT/native receipt]] authenticates thirteen current C input
+files, the fixed build directory, original profile, native process receipts and
+unchanged framework controls. The native SysML projection contains three
+realizations, twelve C operations and seven admission conditions. ASCENT passes
+one positive and ten missing-guard controls. In the positive case exactly
+=physical-packing= and =native-writer-closure= remain missing.
+
+=workerRootDomainSliceQualified=true= and =selectedWLessRVerified=true= identify
+the selected native cases. =unequalWorkerCountsAdmitted=false=,
+=retirementAdmitted=false= and =commitAdmitted=false= retain the broader proof
+boundary. No whole-SMP or universal W/R admission is inferred from these cases.
+
+[[file:../../../evidence/research/worker-role-handoff/worker-domains-source-closure/view-bindings.json][Derived-view bindings]] connect this report, index, generated Org and D2/SVG to
+the source-bound receipt. Historical native runs and prior model snapshots remain
+available with their original outcomes and byte identities.

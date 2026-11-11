@@ -1,0 +1,271 @@
+#+TITLE: Derivation Authority, Commit Receipts and Finite Resolver Environments
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: derivation-receipt-environment
+:AUTHORITY: GambitDerivationReceiptEnvironment
+:STATUS: scoped-formal; C11-source-and-full-extraction-open
+:END:
+
+Modern C remains the required runtime/backend direction. This study extends
+[[file:darwin-force-binding-design.org][the prior Darwin/binding design]] without changing its
+receipts. New observations bind current source hashes, not an inherited native
+configuration. No runtime/backend implementation, native build or performance
+experiment is performed. Formal model checks and proof artifact generation are
+separate from implementation acceptance.
+
+The prior design's proposed counter/state/receipt updates cannot simply be called
+one atomic QNT step when they occupy different memory locations. A release barrier
+cannot fix abandonment between incrementing the count and recording its TaskId.
+The design now defines an immutable-snapshot ledger as a LINEARIZABLE REFERENCE
+PROTOCOL. Its costs are explicit; it is not selected as the fastest production
+algorithm. Any lock-based, packed-word, batched or sharded replacement must refine
+the same ownership and observation contract.
+
+* RESEARCH Current producer and consumer evidence
+:PROPERTIES:
+:CUSTOM_ID: derivation-current-source
+:EVIDENCE_KIND: source-inspection
+:END:
+
+[[file:../../../vendor/gambit/lib/mem.c::___HIDDEN void end_heap_chunk][end_heap_chunk]] writes
+the ending marker, conditionally acquires the queue lock, links the chunk, issues
+a barrier, changes tail, issues another barrier, unlocks and signals. Existing
+logic excludes the chunk currently being scanned. Its synchronous publication
+has no remote response receipt, independent child TaskId or immutable ledger.
+This study does not report a lost-ACK bug in that existing path.
+
+Local dequeue and remote stealing update head under the queue lock, release the
+lock and invoke scan_complete_heap_chunk. A successful dequeue is therefore not
+scan completion. The thief returns to continue_local_scan, where still/movable
+work can create more work. mark_reachable_from_marked eventually decrements
+workers_count under scan_termination_mutex and waits or declares termination.
+That is a worker/phase protocol; it is not a proved per-task reference count or
+module-retirement ledger. Private chunks, still work and derived work must remain
+represented even while absent from a public FIFO.
+
+The current header has single-threaded no-op, mutex and ticketlock spinlock
+branches. Backend selection and actual C memory effects need target-specific
+qualification. Current stack and captured-frame scans use the central frame
+descriptor decoder; trailing OFD map storage remains borrowed until final scan
+access. Current dlclose is global cleanup, not the proposed cohort grace protocol.
+No current macro, counter or cleanup routine is retired by these documents.
+
+* RESEARCH Parent authority versus final release
+:PROPERTIES:
+:CUSTOM_ID: derivation-parent-race
+:END:
+
+The canonical parent phase is LIVE, DERIVING, FINISHING or DONE. Acquiring derive
+authority competes with acquiring finish authority on the SAME canonical state.
+A stale read of LIVE is not authority. DERIVING keeps parent execution debt and
+payload/cohort access alive. FINISHING prevents further child reservation. A
+successful finish cannot race a still-authorized deriver into a zero-debt gap.
+
+The reference ledger is one atomic LedgerHead pointer to an immutable snapshot.
+Each snapshot contains generation, close/retirement state, debt total and a
+TaskId-to-state/receipt map. A TaskId contains VM/cohort generation, epoch, parent
+identity and child ordinal, with input digest. Identical retries refer to this
+identity; a real re-execution obtains a distinct identity. Same ID with different
+input rejects. IDs are not reused while any observer may retain them.
+
+| Event | Before / after | Linearization and ownership |
+|-------+----------------+-----------------------------|
+| beginDerive | LIVE to DERIVING | Successful LedgerHead CAS; parent debt unchanged |
+| beginFinish | LIVE to FINISHING | Competing CAS; stale losing candidate is discarded/retried |
+| reserveChild | absent to PRIVATE; count plus one | Task registration and debt are in the SAME published snapshot |
+| publish | PRIVATE to READY; accepted receipt and pending delivery | Same CAS commits initialized payload reference and canonical readiness |
+| endDerive | DERIVING to LIVE | Parent retains its execution debt; child record owns reserved debt |
+| finishParent | FINISHING to DONE; count minus one | After parent's actual final use and cleanup |
+| claim | READY to RUNNING | Exactly one canonical claim wins; duplicate hints confer no authority |
+| finishChild | RUNNING to DONE; terminal receipt; count minus one | Joint snapshot commit after final use |
+| abortPrivate | PRIVATE to ABORTED; count minus one | Only known prepublication failure; no queued task can also execute |
+
+Private candidate allocation happens before the CAS. Failure before a winning CAS
+has no canonical effect and leaves the old snapshot authoritative. Candidate/root
+cleanup is owned by the issuer until known transfer. Failure to deliver the result
+AFTER a winning CAS cannot roll back the count or create a second TaskId. Unknown
+issuer outcome is reconciled against current/terminal canonical records. A raw
+asynchronous jump inside candidate cleanup is not admitted as safe by this model.
+
+Task-state and count cannot be updated in separate words and then cited as this
+reference protocol. An alternative can be valid, but requires a real intermediate
+state, recoverable intent and exactly-once settlement proof. Merely introducing
+another receipt store reproduces the original gap.
+
+* RESEARCH Publication after lost response
+:PROPERTIES:
+:CUSTOM_ID: derivation-response-loss
+:END:
+
+READY in the canonical ledger is the logical queue publication point. Physical
+work-queue entries are scheduling hints. They may be duplicated or fail to arrive;
+execution requires a canonical READY-to-RUNNING claim. The scheduler/coordinator
+must be able to discover READY records even when every hint is lost. Without that
+fallback, safety can hold while progress fails. The ledger is in-memory stable
+ownership, not durable storage or crash recovery across process death.
+
+Publication also atomically registers pending delivery (uncertain=true in the
+model), BEFORE any loss notification. Otherwise a completed task could reach zero
+debt and retire while its publisher is still waiting. A delivered ACK or exact-ID
+reconciliation clears this bit. loseAck only observes an already-pending state; it
+cannot resurrect uncertainty after reconciliation. The earlier model that omitted
+this window is retained as delivery-gap-countermodel.qnt with a failing control.
+
+The accepted receipt means the service owns the task. It does NOT mean execution
+completed, that an ACK reached the publisher, or that the old cohort is reclaimable.
+A consumer may finish before the publisher observes any receipt. Replaying the
+same TaskId returns READY/RUNNING/DONE and never increments logical publication
+count. An accepted-but-not-running task is still queued debt; a terminal receipt
+is kept for late observers. Cancellation must either win PRIVATE-to-ABORTED or
+settle an already accepted task through its execution owner, not fabricate failure.
+
+This reference model conservatively blocks code retirement while the publisher's
+result is unknown, even if execution debt is zero. In a future optimized design,
+a terminal receipt containing only stable numeric identity/result data could
+outlive code independently IF all observers are proven unable to resume old code
+or touch its descriptors. That is a separate refinement, not assumed here.
+Tombstone retirement needs observer admission close, generation/epoch cut, observer
+drain and known delivery outcome. Removing a receipt because its task finished
+would permit a late retry to look like a new task. No finite memory bound is proved.
+
+* RESEARCH C11 event-to-model mapping
+:PROPERTIES:
+:CUSTOM_ID: derivation-c11-refinement
+:PROOF_STATUS: reference-linearization-premises; actual-C11-open
+:END:
+
+Initialize candidate snapshot and immutable task payloads before successful release
+publication on LedgerHead. An admitted operation obtains a valid lifetime pin on
+the directory and snapshot before dereferencing either. The proposed successful
+CAS uses acq_rel; a failed CAS is an abstract stutter plus issuer-owned candidate
+cleanup. Revalidation after failure includes generation, parent phase and existing
+TaskId. A failed CAS cannot imply successful admission. No plain store/reset or
+pointer-generation reuse may break the ledger chain.
+
+After acquiring a snapshot, a worker may prepare a READY claim candidate. The
+successful CAS must still refer to that observed snapshot; otherwise it reloads.
+The payload and debt precede claim visibility. Last actual payload/label/OFD use
+is sequenced before successful completion publication. Snapshots contain metadata and stable identities; reading an old snapshot does
+not authorize dereferencing a Scheme value, code label or OFD. A current canonical
+grant must be won first. Inspector/FFI/root readers outside this small model must
+also be accounted or excluded by an explicit premise. Final old-code release must
+run in resident completion code after no old native frame/catcher can return or
+resume; a memory-order proof alone cannot establish that machine-control fact.
+
+Retirement requires closed
+independent producers, zero execution debt, no unknown outcome, drained readers
+and the appropriate loader lifetime permission.
+
+The C11 basis is [[https://www9.open-std.org/JTC1/SC22/WG14/www/docs/n1570.pdf][WG14 N1570]],
+5.1.2.4 and 7.17. Release/acquire synchronization depends on the observed atomic
+modification or its release sequence. Atomicity of one object does not make writes
+to other objects a transaction. This reference design's joint immutable snapshot
+is a proposed means of meeting the atomic model boundary, not a standard guarantee.
+
+| Concrete event / obligation | QNT observation | Lean relation / scope |
+|-----------------------------+-----------------+-----------------------|
+| winning authority CAS | beginDerive / beginFinish | derivingExcludesFinish / finishingExcludesDerive |
+| joint registration and count CAS | reserveChild | reserveRefines and generated reserveChild guard/next certificates |
+| initialized READY snapshot CAS | publish | publishRefines and generated publish guard/next certificates |
+| final child-use completion CAS | finishChild | finishRefines and generated finishChild guard/next certificates |
+| failed CAS / same-ID query | stutter / replay | replayDoesNotPublish; no failed-CAS weak-memory theorem |
+| late response reconciliation | reconcile | reconcileDoesNotComplete |
+| raw snapshot load/pin/revalidation | no payload observation until valid pin | lifetime/ABA proof OPEN |
+| successful final acquire and reclaim | retire after cut/drain | full all-user C11/reclamation proof OPEN |
+
+The typed IR from the ACTUAL new QNT is projected for three selected actions.
+Generated guard/next expressions are checked by Lean against maintained Flat
+semantics, which are related to structured State. This is stronger than matching
+action names, but the parser and restricted emitter remain trusted. Other actions,
+whole QNT history simulation and C11 weak-memory semantics are not proved.
+The bounded QNT has one parent, one child, one generation; 14 explicit histories
+include five violating controls. Random exploration is not exhaustive verification.
+
+Snapshot reclamation is a separate obligation. Loading a pointer before publishing
+a hazard is not enough: publish the pin and revalidate before dereference, or use
+an independently established epoch/owner lifetime protocol. Inactive issuer,
+exception, GC and nested FFI paths must keep pins recoverable. Candidate payloads
+containing Scheme values require real movable-root protection; native allocation
+alone does not establish it. None of these mechanisms is implemented here.
+
+* RESEARCH JSON reference rows to a Lean environment
+:PROPERTIES:
+:CUSTOM_ID: derivation-finite-environment
+:TRUST_BOUNDARY: JSON-parser; canonical-row-extraction; field-slot-map; restricted-emitter
+:END:
+
+The prior proof accepted a resolver function as a premise. This study constructs
+buildEnv from a finite list of occurrence-ID/declaration-ID pairs, with explicit
+first-occurrence semantics. tableCheck requires EVERY row to agree with that
+constructed environment. checkedEnvironment and lookupFromWitness prove the
+row-to-function relation. Conflicting duplicate rows are an explicit rejected
+example. A duplicate with the same target can be consistent mathematically; the
+JSON gate still rejects duplicate JSON keys and syntax IDs.
+
+The existing rejecting JSON witness checker supplies 91 selected references from
+the frozen map IR; the generated Lean module includes those concrete pairs and
+proves actualRowsChecked and actualEnvAgrees. The new protocol IR independently
+resolves the selected state references by occurrence ID, not spelling. The two
+inputs and scopes are hashed separately; the 91-row map witness is not presented
+as all references in the new protocol module.
+
+The environment theorem composes with the previously proved resolved-expression
+meaning theorem. It does NOT prove that a fabricated but internally consistent
+list corresponds to the original JSON. The extraction adapter must preserve all
+selected occurrences exactly, canonical declaration bodies, scope, inferred type,
+state target and field-slot mapping. Missing or extra used rows refuse admission;
+unrelated ignored declarations cannot silently become required semantics.
+
+The study retains rejecting controls for dropping a row, changing a target and
+reordering the emitted rows before the exact witness comparison. Reordering
+unique rows need not change lookup semantics; this is a strict manifest rejection,
+not a claimed semantic counterexample. These can catch
+an emitter mismatch; they are not a proof of Python or JSON decoding. Cryptographic
+hashes identify inputs and outputs but cannot establish semantic truth. The actual
+AST certificate covers integer comparison/update syntax for reserve/publish/finish
+only, plus finite environment lookup. Boolean/choice/full parser semantics remain
+open. A mutation of a projected guard must fail its Lean correspondence certificate.
+
+* RESEARCH Migration and net benefit
+:PROPERTIES:
+:CUSTOM_ID: derivation-receipt-benefit
+:END:
+
+[[file:derivation-receipt-environment-matrix.org][The benefit/closure matrix]] and
+[[file:diagrams/derivation-receipt-environment.d2][D2]] are native SysML projections.
+Each contract has typed accountable/counterpart references to canonical runtime
+modules (collector, roots, control, release, native, build or semantic). The
+assurance planner routes proof work; it does not take runtime ownership.
+SysML binds three actual guard/update certificate pairs as well as maintained
+refinement lemmas. ASCENT requires their exact scoped inputs; missing expression
+receipts, certificate lemmas or predecessor source closure prevent qualification.
+Synthetic-complete scenarios exercise inference only and are never real evidence.
+
+Migration order: inventory current synchronous/phase producers; define canonical
+identity and authority; establish stable directory/snapshot/root lifetimes; prove
+joint commits and known/unknown cleanup; refine queue hints and completion; prove
+all-user cut before replacing phase/global-only retirement assumptions. Current
+FIFO/worker counters are reusable source evidence, not implementations of this
+new contract. No old path can retire until its actual consumers migrate.
+
+For D tasks and A ledger-CAS attempts, the reference protocol adds candidate
+snapshot construction/cleanup for A attempts, plus canonical task/receipt metadata.
+Logical child work needs reserve, READY commit, claim and completion transitions;
+parent authority/finish needs its own transitions. Queue linking, payload creation
+and execution already cost work today and must not be double-counted as new costs.
+A flat copied map costs O(T) entries per candidate for T retained records; a
+persistent map can reduce update path copying to O(log T) under its own balance
+and sharing guarantees. Root protection, snapshot pins and reclamation still cost
+work in either representation. No persistent-map implementation is selected.
+
+One global head can serialize a 12-core workload and amplify retries. The reference
+protocol may therefore be a NEGATIVE net-performance choice for per-object/per-chunk
+use. Batching can amortize ownership metadata only while one grant covers every
+private/queued/active descendant and observer; sharding requires a new global-cut
+proof. The value established now is a precise specification that alternatives
+must preserve, not demonstrated throughput. Native/global-language substitution,
+including Zig, would not remove these shared responsibilities.

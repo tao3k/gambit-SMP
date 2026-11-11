@@ -1,0 +1,413 @@
+{
+  "census": [
+    {
+      "key": "vm-object",
+      "anchor": "mem.c:6573-6587,6847",
+      "condition": "processor-zero VM object body; root ownership stable until strong phase closes",
+      "status": "entry-closed; slot-layout-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "symbols-keywords",
+      "anchor": "mem.c:6651-6664,6848",
+      "condition": "processor-zero symbol/key table roots; table bodies use object scan semantics",
+      "status": "entry-closed; external-writers-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "globals",
+      "anchor": "mem.c:6591-6647,6852",
+      "condition": "all processors partition SINGLE_VM sublists or per-VM global slots using floor endpoints; fixed n and np required",
+      "status": "entry-closed; mutation-and-snapshot-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "continuation-denv",
+      "anchor": "mem.c:3817-3965,6854,4096-4099,4145",
+      "condition": "each processor live stack with frame GC map plus break-frame captured chain; denv is a traced object edge, not a separate arbitrary C root",
+      "status": "entry-closed; generated-map-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "registers",
+      "anchor": "mem.c:6511-6522,6856; gambit.h.in:7057-8058",
+      "condition": "each processor ps->r array; compiler must spill actual live machine values before synchronized GC",
+      "status": "entry-closed; spill-completeness-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "saved",
+      "anchor": "mem.c:6526-6537,6858; gambit.h.in:8059-8083",
+      "condition": "each processor saved array; explicit SAVE macros retain temporary Scheme arguments across allocating calls",
+      "status": "entry-closed; caller-coverage-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "type-cache",
+      "anchor": "mem.c:6541-6552,6860",
+      "condition": "each processor type_cache array",
+      "status": "entry-closed; all-writers-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "processor-object",
+      "anchor": "mem.c:6556-6569,6862",
+      "condition": "each processor Scheme object body, including threaded language state reachable through its fields",
+      "status": "entry-closed; layout-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "external-still",
+      "anchor": "mem.c:164-175,4210-4247,6800",
+      "condition": "each processor setup traverses still chain and seeds objects with nonzero external refcount; descendants are scanned under active credit",
+      "status": "entry-closed; lifetime-and-raw-writes-open",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "rc-payload",
+      "anchor": "mem.c:277,306,723-825,3969-3986,6845-6850",
+      "condition": "registered h->data is a root slot; registration is per PSTATE but only processor zero currently walks its RC chain",
+      "status": "structural-gap; nonzero-profile-rejected",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves"
+    },
+    {
+      "key": "ffi-temporary",
+      "anchor": "c_intf.c:6511-6561; os_dyn.c:639-672,744-769; tcltk.scm:150,193-194,316-326",
+      "condition": "Explicit marker proc needs a root before allocating; implicit closure relies on RC and c_closure_self; Tcl still vector already has external protection",
+      "status": "admission-gap; no-native-defect-claim",
+      "qntAction": "protectArgument",
+      "leanLemma": "markerBeforeAllocation"
+    },
+    {
+      "key": "weak-exclusion",
+      "anchor": "mem.c:4035-4085,5046-5103,6872-6907",
+      "condition": "Will testators and weak table edges follow weak policy; do not add them as strong roots to make coverage look complete; reachable actions follow strong scan policy",
+      "status": "policy-separated; cross-worker-global-cut-open",
+      "qntAction": "issueReceipt",
+      "leanLemma": "incompleteManifestBlocks"
+    }
+  ],
+  "settle": [
+    {
+      "key": "copy",
+      "anchor": "mem.c:3578-3611,3667-3813",
+      "condition": "Forwarding visibility does not discharge payload initialization; copying call returns before caller can idle",
+      "status": "call-order-closed; layout-refinement-open",
+      "qntAction": "finishPayload",
+      "leanLemma": "zeroClosesDebts"
+    },
+    {
+      "key": "tail",
+      "anchor": "mem.c:3602-3624,4196-4204",
+      "condition": "PAIR first field follows inline tail, remaining field follows body scan; tail completion cannot be inferred from only scan_and_advance",
+      "status": "call-order-closed; exact-tail-proof-open",
+      "qntAction": "finishTail",
+      "leanLemma": "zeroClosesDebts"
+    },
+    {
+      "key": "cursor",
+      "anchor": "mem.c:3663,3808,4324-4334",
+      "condition": "Local alloc cursor is committed before control returns; incomplete-chunk scan compares against current alloc_heap_ptr",
+      "status": "call-order-closed; full-path-proof-open",
+      "qntAction": "commitCursor",
+      "leanLemma": "zeroClosesDebts"
+    },
+    {
+      "key": "publication",
+      "anchor": "mem.c:3251-3305,4348-4368",
+      "condition": "Body/end marker/link precede published tail; active producer covers synchronous call; independent producers require explicit credit",
+      "status": "ordering-seams-closed; C-memory-order-open",
+      "qntAction": "commitPublish",
+      "leanLemma": "transferPreserves"
+    },
+    {
+      "key": "scanner",
+      "anchor": "mem.c:4243-4247,4252-4271,6717-6727",
+      "condition": "Popped still node and dequeued chunk remain in live native scanner frames; recursive children settle before next idle attempt",
+      "status": "call-order-closed; native-unwind-open",
+      "qntAction": "finishScan",
+      "leanLemma": "zeroClosesDebts"
+    },
+    {
+      "key": "still-derived",
+      "anchor": "mem.c:3633-3645,6686-6690",
+      "condition": "Movable scanning may enqueue still objects, so still/movable local loop repeats until no still work remains",
+      "status": "fixed-point-loop-closed; producer-census-open",
+      "qntAction": "drainDerived",
+      "leanLemma": "zeroClosesDebts"
+    },
+    {
+      "key": "idle",
+      "anchor": "mem.c:6738-6767",
+      "condition": "Under termination mutex, decrement only after local drain/steal; waiter seeing zero returns without reacquiring; nonzero wake reacquires first",
+      "status": "control-flow-closed; count-coverage-open",
+      "qntAction": "idle",
+      "leanLemma": "zeroClosesDebts"
+    }
+  ],
+  "caller": [
+    {
+      "key": "rc-owner",
+      "anchor": "mem.c:277,306,723-825,3969-3986,6845-6850",
+      "condition": "Registration binds to current PSTATE rc_head, but strong scan invokes mark_rc only on processor zero; nonzero RC with a unique movable payload cannot be admitted by current closure evidence"
+    },
+    {
+      "key": "callback-entry",
+      "anchor": "c_intf.c:6511-6561; gambit.h.in:10043-10059; os_dyn.c:744-769",
+      "condition": "Explicit proc_or_false is not materialized before marker allocation; TODO remains; implicit closure path relies on architecture-gated RC and non-thread-local c_closure_self"
+    },
+    {
+      "key": "still-root",
+      "anchor": "mem.c:1490-1496,1647,1730-1737,4210-4247,6798-6805; tcltk.scm:297-337",
+      "condition": "Every participating processor seeds nonzero-refcount still objects during setup; Tcl vector starts with external protection independently of its RC payload"
+    },
+    {
+      "key": "local-drain",
+      "anchor": "mem.c:3504-3663,3667-3813,4196-4204,4235-4383,6682-6767",
+      "condition": "A counted owner remains responsible for synchronous copy, inline tail, alloc cursor, popped still node and dequeued chunk until descendants and cursor advances settle"
+    },
+    {
+      "key": "gc-entry",
+      "anchor": "setup.c:1022-1029,1065-1105; mem.c:3458-3459,7002-7023",
+      "condition": "Sync-op dispatch and setup barriers establish source rendezvous seams; they do not themselves close arbitrary external root mutation or prove generated register maps"
+    }
+  ],
+  "protocol": [
+    {
+      "key": "manifest",
+      "anchor": "mem.c:6511-6664,6798-6864",
+      "condition": "Enumerate ten root families plus callback admission and weak-phase exclusions; exact physical slot completeness and supported configuration remain separate obligations"
+    },
+    {
+      "key": "writer-close",
+      "anchor": "mem.c:723-825; setup.c:5900-5922",
+      "condition": "Close new register/write/read/unlink/exit admission, drain accepted operations without holding GC-required locks, then freeze root membership and payload versions; current API does not implement this protocol"
+    },
+    {
+      "key": "stable-scan",
+      "anchor": "mem.c:3981-3984,6511-6664",
+      "condition": "Scanner records stable owner, epoch and payload version; a value read lease alone cannot prevent set_data_rc or unlink; stale snapshot never issues a receipt"
+    },
+    {
+      "key": "idle-custody",
+      "anchor": "mem.c:6682-6767",
+      "condition": "idle decrements only after own root producers and all private/published/scanner/derived responsibilities settle; active credit transfers before a thief scans"
+    },
+    {
+      "key": "receipt",
+      "anchor": "mem.c:6864,7016",
+      "condition": "Full root census plus same-epoch stable scans and no outstanding owner duties permit a conditional closure receipt; peer-return and storage retirement remain separate"
+    }
+  ],
+  "route": [
+    {
+      "key": "registration",
+      "anchor": "mem.c:723-825",
+      "qntAction": "admitWrite",
+      "leanLemma": "freezeDrainsLeases",
+      "condition": "Accepted writers retain a lease until commit or abort; freeze requires closed admission and empty accepted set; a writer awaiting GC blocks freeze without a scan-ready handoff"
+    },
+    {
+      "key": "custody",
+      "anchor": "mem.c:6717-6727",
+      "qntAction": "dequeue",
+      "leanLemma": "transferPreserves",
+      "condition": "Receiver must already have active credit and source loses queue custody only on accepted dequeue"
+    },
+    {
+      "key": "coverage",
+      "anchor": "mem.c:6511-6664,6845-6864",
+      "qntAction": "scanFamily",
+      "leanLemma": "scanPreserves",
+      "condition": "Every modeled root family needs a fresh scan; family aggregation is not a native slot-map proof"
+    },
+    {
+      "key": "publication",
+      "anchor": "mem.c:3602-3624,3663,4324-4334",
+      "qntAction": "commitCursor",
+      "leanLemma": "zeroClosesDebts",
+      "condition": "Copy completion, inline tail, cursor commit and scanner work cannot disappear at idle; model debt is ghost state"
+    },
+    {
+      "key": "retirement",
+      "anchor": "mem.c:6864,7016",
+      "qntAction": "issueReceipt",
+      "leanLemma": "incompleteManifestBlocks",
+      "condition": "Source-shaped nonzero-RC omission may terminate accounted work but cannot issue root-complete receipt"
+    }
+  ],
+  "gain": [
+    {
+      "key": "root-scan",
+      "avoided": "Reuse current register/saved/cache/frame walkers and still seed traversal",
+      "added": "RootDomain manifest and ownership/admission protocol; exact maps and cleanup ordering",
+      "condition": "No additional graph traversal is required merely for the receipt; added census bookkeeping and changed RC coverage are real"
+    },
+    {
+      "key": "credit",
+      "avoided": "Avoid per-object publication atomics for synchronous owner-covered paths",
+      "added": "Seven ghost duty classes with real idle/exit discipline; detached work needs durable credit",
+      "condition": "Existing worker count may cover work but cannot cover omitted roots or uncontrolled FFI writers"
+    },
+    {
+      "key": "rc-coverage",
+      "avoided": "Retire processor-zero-only RC scan authority once every registered domain is owned",
+      "added": "Scan all registered payload slots and synchronize register/write/unlink; retain still external roots",
+      "condition": "Additional RC scan cost is proportional to roots previously omitted; this is correctness cost, not a performance regression benchmark"
+    }
+  ],
+  "refinement": [
+    {
+      "key": "roots",
+      "qntScope": "admitWrite;commitWrite;abortWrite;needsGC;closeAdmission;freeze;scanFamily;closeProducer",
+      "leanScope": "freezeDrainsLeases;waitingWriterPreventsFreeze;scanPreserves;idleNeedsOwnRoots;rcOmissionBlocks;committedWriteInvalidates",
+      "sourceDuty": "Prove physical slot census, stable domain ownership and root-map spill coverage, then linearize registration/writes/removal against freeze; current RC API lacks these guards"
+    },
+    {
+      "key": "work",
+      "qntScope": "startCopy;finishPayload;finishTail;commitCursor;beginPublish;commitPublish;scanPrivate;dequeue;discover;drainDerived;finishScan",
+      "leanScope": "zeroClosesDebts;transferPreserves",
+      "sourceDuty": "Refine seven nonempty duty classes to arbitrary copy/frame/chunk tasks with multiplicity; no duty can clear while another task in the same abstract class remains"
+    },
+    {
+      "key": "callback",
+      "qntScope": "protectArgument;allocateMarker",
+      "leanScope": "markerBeforeAllocation",
+      "sourceDuty": "Protect explicit proc before allocating marker and keep closure/RC lease until re-reading movable payload; qualify implicit trampoline only on supported architectures"
+    },
+    {
+      "key": "receipt",
+      "qntScope": "idle;issueReceipt",
+      "leanScope": "incompleteManifestBlocks;netBenefit",
+      "sourceDuty": "Count exactness and all-scanned input must compose with previous work-closure model; no full simulation or C memory-model proof is claimed"
+    }
+  ],
+  "prior": [
+    {
+      "key": "strong-receipt",
+      "path": "models/build/strong_closure_receipt.qnt",
+      "invariant": "safe",
+      "qntAction": "idle",
+      "leanLemma": "zeroClosesDebts",
+      "condition": "Previous rootCoverage Boolean is refined into explicit root-family membership, writer leases and fresh scan observations; product refinement remains open"
+    },
+    {
+      "key": "scan-count",
+      "path": "models/gambit/gc_scan_termination.qnt",
+      "invariant": "safe",
+      "qntAction": "closeProducer",
+      "leanLemma": "idleNeedsOwnRoots",
+      "condition": "Counted producer assumption now requires current source root owner coverage and cannot erase nonzero RC or marker gaps"
+    },
+    {
+      "key": "work-closure",
+      "path": "models/gambit/gc_work_closure.qnt",
+      "invariant": "terminationSafe",
+      "qntAction": "finishScan",
+      "leanLemma": "zeroClosesDebts",
+      "condition": "Existing canonical object graph remains a separate payload-closure model; this study checks root admission and idle duties, not actual object bytes"
+    }
+  ],
+  "gate": [
+    {
+      "key": "producer-closure",
+      "qualified": false,
+      "condition": "Entry census is closed for inspected in-tree dispatch; arbitrary FFI aliases, native stack roots and generated maps are not a full root certificate"
+    },
+    {
+      "key": "vm-ownership",
+      "qualified": false,
+      "condition": "Nonzero RC registration/scan asymmetry and exit cleanup require explicit VM domain membership and storage handoff"
+    },
+    {
+      "key": "gc-seal",
+      "qualified": false,
+      "condition": "Private synchronous call-return order is established structurally; arbitrary task coverage, multiplicity and exceptional paths still need full source simulation"
+    },
+    {
+      "key": "scan-coverage",
+      "qualified": false,
+      "condition": "Families aggregate real slots; per-point GVM spills, frame descriptors, PAIR tails and C configurations remain unqualified"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "condition": "Accepted writers/readers, callback marker, RC unlink/free and processor cleanup must drain without lock cycles; writer awaiting its own GC needs pre-GC scan-ready handoff"
+    },
+    {
+      "key": "source-replacement",
+      "qualified": false,
+      "condition": "New RootDomain admission, preallocation root materialization and all-owner RC scan are proposed changes, not current runtime features"
+    },
+    {
+      "key": "platform",
+      "qualified": false,
+      "condition": "Current plain RC links/data/refcounts and legacy FIFO synchronization need C happens-before qualification; inherited host attestation remains unresolved"
+    }
+  ],
+  "scalar": {
+    "": {
+      "workspaceCount": 2,
+      "familyCount": 12,
+      "actualAdmitted": false
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "RPC-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/root_producer_census.qnt",
+      "subjectScope": "root_producer_census:Test$",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "RPC-I",
+      "kind": "induction",
+      "subjectPath": "models/build/RootProducerCensus.lean",
+      "subjectScope": "RootProducerCensus:scanPreserves;idleNeedsOwnRoots;rcOmissionBlocks;committedWriteInvalidates;freezeDrainsLeases;waitingWriterPreventsFreeze;zeroClosesDebts;transferPreserves;incompleteManifestBlocks;markerBeforeAllocation;netBenefit",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "RPC-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/root-producer-census-design.org",
+      "subjectScope": "RPC-S:source",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "RPC-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/root-producer-census-design.org",
+      "subjectScope": "RPC-E:platform",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "RPC-S",
+      "prerequisite.obligationId": "RPC-H"
+    },
+    "1": {
+      "dependent.obligationId": "RPC-S",
+      "prerequisite.obligationId": "RPC-I"
+    },
+    "2": {
+      "dependent.obligationId": "RPC-S",
+      "prerequisite.obligationId": "RPC-E"
+    },
+    "3": {
+      "dependent.obligationId": "RPC-S",
+      "prerequisite.obligationId": "SR-S"
+    }
+  }
+}

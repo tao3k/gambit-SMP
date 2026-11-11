@@ -1,0 +1,867 @@
+{
+  "source": [
+    {
+      "key": "close-marker",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK;",
+      "obligation": "Writes closing marker and first section prefix; both locations must be qualified"
+    },
+    {
+      "key": "append-link",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*heap_chunks_to_scan_tail = ___TAG(new_tail, ___FORW);",
+      "obligation": "Plain write under FIFO gate; may target prior physical terminator"
+    },
+    {
+      "key": "take-link",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "node = ___UNTAG_AS(*owner->heap_chunks_to_scan_head_, ___FORW);",
+      "obligation": "Pointer load under successful gate"
+    },
+    {
+      "key": "scan-classifier",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "while (!___TESTTYPE(head = *ptr, ___FORW))",
+      "obligation": "Two raw classifier loads: complete and local frontier"
+    },
+    {
+      "key": "tail-address",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___WORD *new_tail = alloc_heap_chunk_start-1;",
+      "obligation": "Next chunk prefix aliases preceding terminal word"
+    },
+    {
+      "key": "advance-start",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "alloc_heap_chunk_start = work->context->mem.alloc_heap_ptr_;",
+      "obligation": "New start follows prior terminal write/increment"
+    },
+    {
+      "key": "dummy-head",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "heap_chunks_to_scan_head = &heap_chunks_to_scan;",
+      "obligation": "Empty queue still retains head/tail address"
+    },
+    {
+      "key": "gate-lock",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "while (___COMPARE_AND_SWAP_WORD(&owner->chunk_gate_,0,1) != 0)",
+      "obligation": "Protects FIFO accesses; not all scan loads"
+    },
+    {
+      "key": "gate-take",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (___COMPARE_AND_SWAP_WORD(&owner->chunk_gate_,0,1) != 0)",
+      "obligation": "Failed steal returns without observing queue"
+    },
+    {
+      "key": "gate-release",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___FETCH_AND_CLEAR_WORD(&owner->chunk_gate_);",
+      "obligation": "Legacy native adapter release candidate"
+    },
+    {
+      "key": "steal",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___WORD *ptr = take_heap_chunk(work,victim);",
+      "obligation": "Claim precedes later ungated complete-chunk scanning"
+    },
+    {
+      "key": "scan-done",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "require_chunk_transition(work,start,2,3);",
+      "obligation": "Scan completion does not detach FIFO head"
+    },
+    {
+      "key": "frame-pending",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "ptr = &___FP_STK(alloc,link+1);",
+      "obligation": "Delayed copied link retains original chunk/epoch responsibility"
+    },
+    {
+      "key": "frame-ready",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "publish_object_scan (work, copy_header);\n          work->copied_words += words+___SUBTYPED_BODY;",
+      "obligation": "Current frame READY still precedes later successor fixup"
+    },
+    {
+      "key": "weak-entry",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "traverse_weak_refs = 1;",
+      "obligation": "Global cut must precede all weak producers"
+    },
+    {
+      "key": "will-fused",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "determine_will_executability (nonexecutable_wills);",
+      "obligation": "Classification and weak retention remain fused"
+    },
+    {
+      "key": "idle",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (--(*workers_count) == 0)",
+      "obligation": "Active count valid only if every delayed/private/Tail child is covered"
+    },
+    {
+      "key": "gc-reset",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "heap_chunks_to_scan = NULL_CHUNK_LINK;",
+      "obligation": "Epoch setup reset; requires all prior observers detached"
+    },
+    {
+      "key": "native-cas",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "__sync_val_compare_and_swap(p,oldval,newval)",
+      "obligation": "Effective native/C11 adapter mapping remains open"
+    },
+    {
+      "key": "native-fence",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "__sync_synchronize()",
+      "obligation": "A fence does not order future link stores before prior scan reads"
+    },
+    {
+      "key": "native-word",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "___VOLATILE ___WORD chunk_gate_;",
+      "obligation": "Current gate storage is a native-layer contract, not new C11 qualification"
+    }
+  ],
+  "option": [
+    {
+      "key": "unified-atomic",
+      "representation": "Preserve shared terminal/link storage",
+      "accessRule": "Every conflicting access and every undecided classifier uses compatible atomics",
+      "reuse": "No distinct next-link node required in best case",
+      "cost": "Storage typing/alignment ABI profiles debugging and generated raw access",
+      "mechanism": "Convert K+C classifier loads; no speed estimate",
+      "decision": "Control; promote only after full access/storage qualification"
+    },
+    {
+      "key": "split-record",
+      "representation": "Immutable in-band terminal plus independently mutable queue record",
+      "accessRule": "Reuse central queue gate; scanner reads immutable marker or sealed bound",
+      "reuse": "Start/term/next descriptor plus pool and lifetime custody",
+      "cost": "Reserve native nodes before close; no recursive Scheme GC; dummy head and late receipts",
+      "mechanism": "Selected node has 3 pointer fields; at P=8 at least 24*C bytes before overhead",
+      "decision": "Main design candidate; pool/lifetime/ABI refinement still open"
+    }
+  ],
+  "trace": [
+    {
+      "key": "close-C0",
+      "operationText": "Writer closes nonlocal C0 at t0",
+      "consequence": "C0 becomes eligible for victim queue",
+      "gap": "Source assumptions; no legal-input compiled witness"
+    },
+    {
+      "key": "start-C1",
+      "operationText": "C1.start=t0+1; C1.leading=t0",
+      "consequence": "Same address is previous terminator",
+      "gap": "Address arithmetic proved by predecessor"
+    },
+    {
+      "key": "queue-C1",
+      "operationText": "Publishing C1 sets FIFO tail=t0",
+      "consequence": "Does not yet require storing next link at t0",
+      "gap": "Distinguish selecting a tail from later writing it"
+    },
+    {
+      "key": "claim-C0",
+      "operationText": "Thief claims C0 under gate then scans outside it",
+      "consequence": "Acquire covers earlier stores only",
+      "gap": "Later append is not ordered by this earlier acquire"
+    },
+    {
+      "key": "queue-C2",
+      "operationText": "Publishing C2 writes through tail=t0",
+      "consequence": "Queue gate serializes queue users",
+      "gap": "No automatically established scanner read happens-before"
+    },
+    {
+      "key": "read-t0",
+      "operationText": "Thief eventually reads t0 to test FORW",
+      "consequence": "Both old/new tags may be FORW",
+      "gap": "Tag preservation alone is not a C11 race proof"
+    },
+    {
+      "key": "head-retention",
+      "operationText": "Consumed node becomes FIFO head even when empty",
+      "consequence": "Scan DONE cannot free node or its backing storage",
+      "gap": "Retention pin is distinct from work debt"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "source-marker",
+      "toNode": "unified-atomic",
+      "custody": "All classifiers and writers atomically compatible"
+    },
+    {
+      "fromNode": "source-marker",
+      "toNode": "split-record",
+      "custody": "Immutable marker; mutable queue next separate"
+    },
+    {
+      "fromNode": "unified-atomic",
+      "toNode": "transport-permit",
+      "custody": "Qualified storage and lifetime"
+    },
+    {
+      "fromNode": "split-record",
+      "toNode": "transport-permit",
+      "custody": "Reserved node pool and retained dummy head"
+    },
+    {
+      "fromNode": "strong-close",
+      "toNode": "classify-all",
+      "custody": "No hidden strong delayed debt"
+    },
+    {
+      "fromNode": "classify-all",
+      "toNode": "weak-cut",
+      "custody": "Same epoch and all context lists"
+    },
+    {
+      "fromNode": "weak-cut",
+      "toNode": "accept-delayed",
+      "custody": "One task identity and accepted debt"
+    },
+    {
+      "fromNode": "accept-delayed",
+      "toNode": "seal-delayed",
+      "custody": "Keep original chunk/frame/root pin"
+    },
+    {
+      "fromNode": "seal-delayed",
+      "toNode": "queue-publish",
+      "custody": "Transport permit plus whole physical seal"
+    },
+    {
+      "fromNode": "transport-permit",
+      "toNode": "queue-publish",
+      "custody": "Guarded product; real C issuer open"
+    },
+    {
+      "fromNode": "queue-publish",
+      "toNode": "scan-owner",
+      "custody": "Same work debt; unknown ack not another task"
+    },
+    {
+      "fromNode": "scan-owner",
+      "toNode": "derived-child",
+      "custody": "Reserve before releasing parent"
+    },
+    {
+      "fromNode": "derived-child",
+      "toNode": "weak-complete",
+      "custody": "Root admission closed and all work zero"
+    },
+    {
+      "fromNode": "weak-complete",
+      "toNode": "future-users-closed",
+      "custody": "Cleanup and callbacks must not reuse queue"
+    },
+    {
+      "fromNode": "future-users-closed",
+      "toNode": "head-detached",
+      "custody": "Drop lifetime pin; no new work"
+    },
+    {
+      "fromNode": "head-detached",
+      "toNode": "epoch-retired",
+      "custody": "Receipt observers also retired"
+    },
+    {
+      "fromNode": "epoch-retired",
+      "toNode": "storage-free",
+      "custody": "Product permits transport reclamation only now"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "source-interleaving",
+      "status": "source-enabled-under-premises",
+      "scope": "Three adjacent physical chunks and thief",
+      "gap": "No exact Scheme/configuration witness or native race claim"
+    },
+    {
+      "key": "atomic-protocol",
+      "status": "proved-in-model",
+      "scope": "Managed shared accesses are atomic and lifetime valid",
+      "gap": "No C atomic type/profile/weak-memory proof"
+    },
+    {
+      "key": "split-protocol",
+      "status": "proved-in-model",
+      "scope": "Plain reader/writer use distinct locations",
+      "gap": "Concrete node pool and all scanner callers unmigrated"
+    },
+    {
+      "key": "ledger",
+      "status": "proved-in-model",
+      "scope": "debt=accepted-settled; private to queue is transfer",
+      "gap": "Real all-producer task mapping open"
+    },
+    {
+      "key": "pins",
+      "status": "proved-in-model",
+      "scope": "Weak completion can retain dummy/receipt pins",
+      "gap": "Future cleanup user closure is an external premise"
+    },
+    {
+      "key": "phase-refinement",
+      "status": "proved-model-step-simulation",
+      "scope": "18 new actions map to old weak actions or stutter",
+      "gap": "Subset safety refinement; no fairness/completeness/source simulation"
+    },
+    {
+      "key": "product",
+      "status": "proved-guarded-product",
+      "scope": "Transport permission and epoch lifetime gates",
+      "gap": "Native implementation of those guards unproved"
+    },
+    {
+      "key": "spatial-seal",
+      "status": "open",
+      "scope": "Real mixed-span and late-writer closure receipt",
+      "gap": "Ledger sealed flag is not a source extraction proof"
+    },
+    {
+      "key": "C11",
+      "status": "open",
+      "scope": "Reads-from HB storage typing mixed metadata and reset",
+      "gap": "No SC model can qualify the actual Darwin/GCC program"
+    },
+    {
+      "key": "retirement",
+      "status": "open",
+      "scope": "All cleanup and unknown observers detached before pool reuse",
+      "gap": "No native shutdown/receipt deduplication evidence"
+    }
+  ],
+  "gain": [
+    {
+      "key": "C payload preservation",
+      "avoided": "Split keeps ordinary object/frame word representation",
+      "added": "Extra queue records and native pool",
+      "condition": "Main candidate only; node storage remains bounded/admitted"
+    },
+    {
+      "key": "atomic alternative",
+      "avoided": "Can avoid out-of-band next-link node",
+      "added": "K+C classifier loads become atomic plus atomic metadata access",
+      "condition": "No plain/atomic concurrent mixture; all storage cases qualified"
+    },
+    {
+      "key": "split space",
+      "avoided": "Avoid whole heap conversion to atomic word storage",
+      "added": "3 pointer fields per selected node plus epoch/pin/pool cost",
+      "condition": "At 8-byte pointers lower bound 24*C bytes; no measured peak"
+    },
+    {
+      "key": "one work ledger",
+      "avoided": "No extra publication debt when same accepted chunk moves",
+      "added": "One identity and child reservation/settlement",
+      "condition": "Work lifetime spans delayed state through scanning"
+    },
+    {
+      "key": "lifetime distinction",
+      "avoided": "No false weak-stage stall from persistent dummy head pin",
+      "added": "Separate lifetime accounting; cannot free at debt zero",
+      "condition": "All future users closed before node/epoch reuse"
+    },
+    {
+      "key": "will decision",
+      "avoided": "No new strong graph rescan",
+      "added": "O(W) classification plus one collective cut or snapshot",
+      "condition": "Queue alternative alone does not solve global will semantics"
+    },
+    {
+      "key": "net benefit",
+      "avoided": "Useful prefix overlap H",
+      "added": "Transport cost A plus phase/custody cost B and retention",
+      "condition": "Need H>A+B; memory budget separately admits pool"
+    },
+    {
+      "key": "old retirement",
+      "avoided": "Remove shared plain relink/read overlap and frame early READY",
+      "added": "Replace all queue readers/writers and seal-aware local frontier",
+      "condition": "Existing CAS queue gate and suffix reuse get no new credit"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "chunk_marker_transport.chooseAtomic",
+      "lemma": "MarkerTransport.chooseAtomicPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.chooseSplit",
+      "lemma": "MarkerTransport.chooseSplitPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.expose",
+      "lemma": "MarkerTransport.exposePreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.plainRead",
+      "lemma": "MarkerTransport.plainReadPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.atomicRead",
+      "lemma": "MarkerTransport.atomicReadPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.acquireGate",
+      "lemma": "MarkerTransport.acquireGatePreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.plainWrite",
+      "lemma": "MarkerTransport.plainWritePreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.atomicWrite",
+      "lemma": "MarkerTransport.atomicWritePreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.finishRead",
+      "lemma": "MarkerTransport.finishReadPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.finishWrite",
+      "lemma": "MarkerTransport.finishWritePreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.releaseGate",
+      "lemma": "MarkerTransport.releaseGatePreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "chunk_marker_transport.retireStorage",
+      "lemma": "MarkerTransport.retireStoragePreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.drainStrong",
+      "lemma": "DelayedLedger.drainStrongPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.freezeStrong",
+      "lemma": "DelayedLedger.freezeStrongPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.classifyA",
+      "lemma": "DelayedLedger.classifyAPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.classifyB",
+      "lemma": "DelayedLedger.classifyBPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.enterWeak",
+      "lemma": "DelayedLedger.enterWeakPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.acceptDelayed",
+      "lemma": "DelayedLedger.acceptDelayedPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.sealDelayed",
+      "lemma": "DelayedLedger.sealDelayedPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.publishAccepted",
+      "lemma": "DelayedLedger.publishAcceptedPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.observeReceipt",
+      "lemma": "DelayedLedger.observeReceiptPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.claim",
+      "lemma": "DelayedLedger.claimPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.deriveChild",
+      "lemma": "DelayedLedger.deriveChildPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.settleParent",
+      "lemma": "DelayedLedger.settleParentPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.settleChild",
+      "lemma": "DelayedLedger.settleChildPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.closeRoots",
+      "lemma": "DelayedLedger.closeRootsPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.finishWeak",
+      "lemma": "DelayedLedger.finishWeakPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.closeFutureUsers",
+      "lemma": "DelayedLedger.closeFutureUsersPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.releaseHead",
+      "lemma": "DelayedLedger.releaseHeadPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.retireEpoch",
+      "lemma": "DelayedLedger.retireEpochPreserves",
+      "scope": "Actual restricted typed IR; no C11 qualification"
+    }
+  ],
+  "refinement": [
+    {
+      "actionName": "delayed_chunk_ledger.drainStrong",
+      "targetStep": "weak_producer_admission.drainStrong",
+      "lemma": "TransportComposition.drainStrongSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.freezeStrong",
+      "targetStep": "weak_producer_admission.freezeStrong",
+      "lemma": "TransportComposition.freezeStrongSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.classifyA",
+      "targetStep": "weak_producer_admission.classifyA",
+      "lemma": "TransportComposition.classifyASimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.classifyB",
+      "targetStep": "weak_producer_admission.classifyB",
+      "lemma": "TransportComposition.classifyBSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.enterWeak",
+      "targetStep": "weak_producer_admission.openWeak",
+      "lemma": "TransportComposition.enterWeakSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.acceptDelayed",
+      "targetStep": "weak_producer_admission.continuationProducer",
+      "lemma": "TransportComposition.acceptDelayedSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.sealDelayed",
+      "targetStep": "weak_producer_admission.stutter",
+      "lemma": "TransportComposition.sealDelayedSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.publishAccepted",
+      "targetStep": "weak_producer_admission.stutter",
+      "lemma": "TransportComposition.publishAcceptedSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.observeReceipt",
+      "targetStep": "weak_producer_admission.stutter",
+      "lemma": "TransportComposition.observeReceiptSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.claim",
+      "targetStep": "weak_producer_admission.stutter",
+      "lemma": "TransportComposition.claimSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.deriveChild",
+      "targetStep": "weak_producer_admission.deriveChild",
+      "lemma": "TransportComposition.deriveChildSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.settleParent",
+      "targetStep": "weak_producer_admission.settleTask",
+      "lemma": "TransportComposition.settleParentSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.settleChild",
+      "targetStep": "weak_producer_admission.settleTask",
+      "lemma": "TransportComposition.settleChildSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.closeRoots",
+      "targetStep": "weak_producer_admission.closeRoots",
+      "lemma": "TransportComposition.closeRootsSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.finishWeak",
+      "targetStep": "weak_producer_admission.finishWeak",
+      "lemma": "TransportComposition.finishWeakSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.closeFutureUsers",
+      "targetStep": "weak_producer_admission.stutter",
+      "lemma": "TransportComposition.closeFutureUsersSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.releaseHead",
+      "targetStep": "weak_producer_admission.stutter",
+      "lemma": "TransportComposition.releaseHeadSimulates"
+    },
+    {
+      "actionName": "delayed_chunk_ledger.retireEpoch",
+      "targetStep": "weak_producer_admission.stutter",
+      "lemma": "TransportComposition.retireEpochSimulates"
+    }
+  ],
+  "composition": [
+    {
+      "key": "marker-induction",
+      "lemma": "MarkerTransport.reachableSafe",
+      "scope": "All access protocol steps"
+    },
+    {
+      "key": "mixed-access",
+      "lemma": "MarkerTransport.noMixedSharedAccess",
+      "scope": "Managed modes only; no weak-memory theorem"
+    },
+    {
+      "key": "ledger-induction",
+      "lemma": "DelayedLedger.reachableSafe",
+      "scope": "All ledger steps"
+    },
+    {
+      "key": "balance",
+      "lemma": "DelayedLedger.workConservation",
+      "scope": "Accepted minus settled work"
+    },
+    {
+      "key": "publication",
+      "lemma": "DelayedLedger.publicationPreservesDebt",
+      "scope": "No new debt at queue visibility"
+    },
+    {
+      "key": "pins",
+      "lemma": "DelayedLedger.retirementRequiresNoPins",
+      "scope": "Epoch retirement excludes work and storage pins"
+    },
+    {
+      "key": "step-refinement",
+      "lemma": "TransportComposition.stepSimulates",
+      "scope": "Exact old weak AST actions plus stutter"
+    },
+    {
+      "key": "reachable-refinement",
+      "lemma": "TransportComposition.reachableProjects",
+      "scope": "New reachability mapped to old reachability"
+    },
+    {
+      "key": "old-safety",
+      "lemma": "TransportComposition.projectedSafety",
+      "scope": "Old weak invariant reused"
+    },
+    {
+      "key": "product-step",
+      "lemma": "TransportComposition.combinedStepPreserves",
+      "scope": "Two added admission guards are necessary premises"
+    },
+    {
+      "key": "product-induction",
+      "lemma": "TransportComposition.combinedReachableSafe",
+      "scope": "Guarded interleaving product"
+    },
+    {
+      "key": "publish-gate",
+      "lemma": "TransportComposition.publicationUsesManagedTransport",
+      "scope": "Transport permit at new queue publication"
+    },
+    {
+      "key": "free-counterexample",
+      "lemma": "TransportComposition.lifetimeGuardNecessary",
+      "scope": "Removing lifetime guard admits invalid storage free"
+    },
+    {
+      "key": "publish-counterexample",
+      "lemma": "TransportComposition.transportGuardNecessary",
+      "scope": "Separate passes alone admit legacy publish"
+    }
+  ],
+  "access": [
+    {
+      "key": "marker-initialize",
+      "source.key": "close-marker",
+      "callerName": "end_heap_chunk / prepare_heap_msection",
+      "accessMode": "plain write",
+      "lane": "shared marker",
+      "lock": "before publication",
+      "scope": "All initialization before consumer reads"
+    },
+    {
+      "key": "queue-relink",
+      "source.key": "append-link",
+      "callerName": "end_heap_chunk",
+      "accessMode": "plain write",
+      "lane": "shared marker / queue next",
+      "lock": "FIFO gate",
+      "scope": "Reader outside gate still needs atomic/separate protocol"
+    },
+    {
+      "key": "queue-consume",
+      "source.key": "take-link",
+      "callerName": "take_heap_chunk",
+      "accessMode": "plain read",
+      "lane": "queue next",
+      "lock": "FIFO gate",
+      "scope": "Node survives as new dummy head"
+    },
+    {
+      "key": "complete-classify",
+      "source.key": "scan-classifier",
+      "callerName": "scan_complete_heap_chunk",
+      "accessMode": "plain read",
+      "lane": "object header or terminal",
+      "lock": "no FIFO gate",
+      "scope": "Victim may publish later chunks concurrently"
+    },
+    {
+      "key": "local-classify",
+      "source.key": "scan-classifier",
+      "callerName": "scan_movable_objs_to_scan",
+      "accessMode": "plain read",
+      "lane": "object header or terminal",
+      "lock": "local work owner",
+      "scope": "Same-carrier writes alone do not establish cross-thread witness"
+    },
+    {
+      "key": "queue-dummy",
+      "source.key": "dummy-head",
+      "callerName": "setup_stack_heap_vmstate",
+      "accessMode": "pointer retention",
+      "lane": "queue dummy/head",
+      "lock": "epoch setup collective",
+      "scope": "Work zero does not remove storage reference"
+    },
+    {
+      "key": "address-alias",
+      "source.key": "tail-address",
+      "callerName": "end_heap_chunk",
+      "accessMode": "address derivation",
+      "lane": "previous terminal",
+      "lock": "not a memory access",
+      "scope": "Needs adjacent physical chunks and later relink"
+    },
+    {
+      "key": "epoch-reset",
+      "source.key": "gc-reset",
+      "callerName": "setup_stack_heap_vmstate",
+      "accessMode": "plain reset",
+      "lane": "queue root",
+      "lock": "GC setup collective",
+      "scope": "All old queue users and receipts retired"
+    }
+  ],
+  "seam": [
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "native",
+      "contract": "Marker/link storage ABI and accesses",
+      "modelNeed": "TL-platform"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "collector",
+      "contract": "Delayed chunk is one accepted task",
+      "modelNeed": "TL-weakInduction"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "control",
+      "contract": "Frozen list cut and future-user closure",
+      "modelNeed": "TL-compositionProof"
+    },
+    {
+      "producer.moduleId": "roots",
+      "consumer.moduleId": "collector",
+      "contract": "Physical frame seal and retained stack roots",
+      "modelNeed": "TL-source"
+    }
+  ],
+  "need": {
+    "frameHistory": {
+      "obligationId": "TL-frameHistory",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/chunk_marker_transport.qnt",
+      "subjectScope": "Legacy overlap atomic and split access intervals",
+      "owner.componentId": "gc-work"
+    },
+    "weakHistory": {
+      "obligationId": "TL-weakHistory",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/delayed_chunk_ledger.qnt",
+      "subjectScope": "Private queued child work and retained pins",
+      "owner.componentId": "gc-work"
+    },
+    "frameInduction": {
+      "obligationId": "TL-frameInduction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/MarkerTransport.lean",
+      "subjectScope": "All access steps",
+      "owner.componentId": "gc-work"
+    },
+    "weakInduction": {
+      "obligationId": "TL-weakInduction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/DelayedLedger.lean",
+      "subjectScope": "All work and pin steps",
+      "owner.componentId": "gc-work"
+    },
+    "compositionProof": {
+      "obligationId": "TL-compositionProof",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/TransportComposition.lean",
+      "subjectScope": "Old AST step simulation and guarded transport/ledger product",
+      "owner.componentId": "gc-work"
+    },
+    "projection": {
+      "obligationId": "TL-projection",
+      "kind": "restricted-projection",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/DelayedLedgerAst.lean",
+      "subjectScope": "Both new ASTs and exact pinned old weak AST",
+      "owner.componentId": "gc-work"
+    },
+    "source": {
+      "obligationId": "TL-source",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/chunk-transport-ledger-design.org",
+      "subjectScope": "Actual sentinel access node layout and same ledger mapping open",
+      "owner.componentId": "gc-work"
+    },
+    "platform": {
+      "obligationId": "TL-platform",
+      "kind": "native-memory-order",
+      "subjectPath": "dev/refactoring/modern-c/chunk-transport-ledger-design.org",
+      "subjectScope": "Effective storage atomic profile reads-from and epoch reclamation open",
+      "owner.componentId": "gc-work"
+    }
+  }
+}

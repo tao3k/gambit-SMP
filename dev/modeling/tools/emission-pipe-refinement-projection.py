@@ -1,0 +1,6 @@
+from pathlib import Path
+import importlib.util
+SPEC={'module': 'emission_pipe_refinement', 'namespace': 'EmissionPipeAst', 'fields': {'ep': 'int', 'profile': 'int', 'demand': 'int', 'epoch': 'int', 'planEpoch': 'int', 'certEpoch': 'int', 'outputCalls': 'int', 'pc': 'int', 'wlo': 'int', 'whi': 'int', 'rlo': 'int', 'rhi': 'int', 'emitted': 'int', 'delivered': 'int', 'index': 'int', 'savedIndex': 'int', 'wgen': 'int', 'rgen': 'int', 'resumes': 'int', 'completed': 'int', 'writer': 'int', 'savedWriter': 'int', 'unknown': 'bool', 'fault': 'bool', 'attested': 'bool', 'certificate': 'bool', 'special': 'bool', 'shared': 'bool', 'locked': 'bool', 'captured': 'bool', 'custody': 'bool', 'clobbered': 'bool'}, 'actions': ['first', 'selectDebug', 'selectCustom', 'prmRemainder', 'initText', 'gloPrefix', 'scalarDispatch', 'namedEffect', 'customRaw', 'replaceEntry', 'unknownEffect', 'ioAbort', 'attest', 'issue', 'second', 'omitSecond', 'pause', 'readChunk', 'advanceReader', 'exposeWriter', 'consumeWriter', 'resume', 'publish', 'appendTail', 'finish', 'installNew']}
+def generate(ir):
+ p=Path(__file__).with_name('chunk-capacity-charge-projection.py');s=importlib.util.spec_from_file_location('interval_scalar',p);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+ return m.generate(ir,SPEC['module'],SPEC['fields'],SPEC['actions'],SPEC['namespace'])

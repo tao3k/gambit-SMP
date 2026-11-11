@@ -1,0 +1,20 @@
+module external_interrupt_admission_tests {
+ import external_interrupt_admission.* from "./external_interrupt_admission"
+ run closingRefusalDoesNotTouchCallerNode=initClosingRefusal.then(enterOwner)
+ .then(borrowInstance).then(rejectBeforeCommit).then(releaseBorrow)
+ .expect(done and safe and s.nodeOwner==0 and s.link==7 and s.enqueues==0)
+ run acceptedWakeFaultNeverBecomesRefusal=initAcceptedWakeFault.then(enterOwner)
+ .then(borrowInstance).then(commitQueue).then(notifyResult).then(releaseBorrow)
+ .expect(retained and safe and s.status==3 and s.accepted and s.nodeOwner==1)
+ run stalePointerAddressIsNotAnInstanceToken=initStaleRefusal.then(enterOwner)
+ .then(borrowInstance).then(rejectBeforeCommit).then(releaseBorrow)
+ .expect(done and safe and s.instance==2 and s.expected==1 and not(s.accepted))
+ run tlsDoesNotSupplyAnOwnerReference=initTlsRefusal.then(refuseOwner)
+ .expect(done and safe and s.tls and not(s.vmPin) and not(s.instancePin))
+ run foreignThreadCanEnqueueNativeNodeWithOwner=initForeignOwner.then(enterOwner)
+ .then(borrowInstance).then(commitQueue).then(notifyResult).then(releaseBorrow)
+ .then(service).expect(done and safe and not(s.tls))
+ run vmOwnerDoesNotRootSchemeRequest=initScmRefusal.then(enterOwner)
+ .then(borrowInstance).then(rejectBeforeCommit).then(releaseBorrow)
+ .expect(done and safe and s.requestKind==1 and s.enqueues==0)
+}

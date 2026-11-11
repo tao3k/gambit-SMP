@@ -1,0 +1,345 @@
+#+TITLE: Modern C Thread Thunk Custody and Native Activation Scope
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never :exports code
+#+TODO: OPEN PREMISE | CHECKED
+
+* Decision and research boundary
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-activation-decision
+:STATUS: CONDITIONAL-MODELS-SOURCE-REFINEMENT-OPEN
+:AUTHORITY: models/sysml/thread-thunk-activation.sysml
+:COMPONENT: host-roots
+:DEPENDENCY: gc-work
+:END:
+
+The first modern-c refactor must span the /producer-to-activation lifetime/,
+not only a local root around marker allocation. The worker thunk passes a
+possible resize GC before OS creation, and a possible synchronization GC after
+thread entry. These are two different root/reload boundaries. A common
+NativeActivationScope then owns marker construction and every caught exit.
+Modern C remains the required implementation direction. No Zig runtime or
+parallel language implementation is introduced by this design.
+
+Semantic authority is [[file:models/sysml/thread-thunk-activation.sysml][the SysML model]]. Its native-evaluated source routes,
+creation/exit transitions, obligations, method policy and cost rows generate
+[[file:thread-thunk-activation-matrix.org][the closure and benefit matrix]] and [[file:diagrams/thread-thunk-activation.d2][D2 topology]]. The model imports unresolved
+[[file:native-entry-close-cleanup-design.org][entry/cleanup]] and [[file:rest-allocator-root-publication-design.org][collector root]] duties rather than copying their authority.
+Repository and vendor identities, exact source digests and evidence scopes are
+bound in [[file:../../../../evidence/research/thread-thunk-activation/checks.json][the receipt]]. This study changes no runtime code and runs no native test.
+
+* Source-grounded chains
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-activation-source-chains
+:END:
+
+** Resize origin before thread publication
+
+The two conditional source definitions of =##cvmr= in
+[[file:../../../../vendor/gambit/lib/_thread.scm::3158][the scheduler]] pass =##startup-processor!= to =##current-vm-resize=.
+[[file:../../../../vendor/gambit/lib/_kernel.scm::2353][Its c-lambda]] forwards a =scheme-object= argument to
+[[file:../../../../vendor/gambit/lib/setup.c::1155][current_vm_resize]], which stores it in =sop.arg[0]= and invokes
+=on_all_processors=. =execute_sync_op= then forwards it to
+[[file:../../../../vendor/gambit/lib/setup.c::870][vm_resize_pstate]]. Capacity shortage can run =garbage_collect_pstate=
+there before additional processors and thread fields are initialized.
+
+The source proves the order and the ordinary named-procedure origin. It does
+/not/ prove an actual movable closure failure in that ordinary route. CFUN
+materialization, the procedure's generated representation and permanent/module
+lifetime must be checked for the selected profile before certifying an origin.
+The low-level C interface and arbitrary supplied thunks require a separate
+admission rule; naming a C parameter or an unscanned sop slot is insufficient.
+
+For growth, =setup_pstate= precedes =OP_SET_PROCESSOR_COUNT=, and processor_count
+is updated inside the barrier algorithm. Only afterwards does processor 0 fill
+=start_fn=, =data_ptr= and =data_scmobj= and call =thread_create=.
+This ordering forbids a naive patch that merely registers an OS-child root
+when the child starts. A VM-owned bootstrap descriptor and reservation must be
+visible before the first possible GC and before newly visible membership can
+make a collector expect the corresponding state. Planned capacity, collector
+membership and runnable membership must either be separated or their existing
+barrier ordering proved with the descriptor. Reordering the barrier alone is
+not an admitted change.
+
+** Worker caller and synchronization reload
+
+[[file:../../../../vendor/gambit/lib/setup.c::805][start_processor_execution]] first caches =self->data_scmobj= in a raw local,
+then binds its PSTATE, runs =execute_sync_op_loop=, and calls
+=run_and_throw_error_on_processor_0=. That function is the first direct =run=
+caller. The loop can execute a merged =OP_GC= through =execute_sync_op=.
+Binding the PSTATE does not update a previously copied movable C value.
+
+The replacement carries only stable descriptor/lease identity through the
+loop. It waits in a participating state, with no raw thunk borrow. After the
+loop it obtains a context-ready/binding seal for the current collector epoch,
+reloads the collector-updated cell, and accepts the activation root without an
+unprotected allocation in between. Marker allocation is another possible GC:
+reload the thunk from its mapped cell /after/ that allocation before storing
+marker[0]. A single post-loop load is not sufficient for the whole chain.
+
+** Main startup caller
+
+The second direct =run= call is [[file:../../../../vendor/gambit/lib/setup.c::6425][main startup]]. It obtains the first module thunk
+from GSTATE program_descr after binding its PSTATE. =setup_modules= uses
+=make_vector(NULL,...)= for program and descriptor vectors;
+[[file:../../../../vendor/gambit/lib/mem.c::1712][alloc_scmobj(NULL,...)]] selects permanent allocation. This proves container
+allocation class, not transitive permanence of every referenced closure.
+Certify the exact module thunk's generated origin/lifetime or accept it through
+a registered RootHandle. Main startup does not need a fictitious OS-spawn step.
+
+The [[file:../../../../evidence/research/thread-thunk-activation/thread-api-census.log][source census]] identifies these two direct caller families and the sole
+=data_scmobj= producer/consumer pair in selected C/header/Scheme files. The
+exported =run= function pointer and external embeddings remain separate ABI
+and caller-inventory obligations; the census cannot close arbitrary consumers.
+
+* Root origin, bootstrap descriptor and publication
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-activation-publication
+:END:
+
+** Typed conceptual records
+
+#+NAME: thread-thunk-activation-records
+| Record | Required state | Ownership rule |
+|--------+----------------+----------------|
+| RootOrigin | registered handle, frozen parent location, or certified stable module source | Valid before the first allocation or sync; no inferred raw-pointer authority |
+| BootstrapDescriptor | VM identity, generation, safe thunk cell, scan map, requested children, creation outcomes | VM-owned; lifetime independent of creator PSTATE and child membership |
+| ChildLease | descriptor identity, child identity, Reserved/Publishing/Accepted/Settled | Reserve before OS call; accepted child and creator result are independent facts |
+| NativeActivationScope | activation identity, root slots/map, marker progress, catcher/status, cleanup claimant | Stable native metadata; zeroed/safe mapped slots before linking |
+| ResumeSeal | collector epoch, owner/context binding, raw borrower stop, full root view | Root update alone cannot authorize resumed raw access |
+| StopReceipt | exact OS child generation, termination/drain evidence | Return from run is not an OS-stop receipt |
+
+These are design fields, not a proposed binary ABI or new runtime structs.
+Slot payload arithmetic is in SysML; padding, locks, allocator and maps remain
+unpriced until concrete representation work is authorized.
+
+** Publishing and moving GC
+
+Prepare metadata without triggering GC while the origin is unprotected. Either
+reserve it under a valid full caller view or use a certified non-GC native
+allocator with explicit failure ownership. Initialize mapped slots to valid
+Scheme values, fill the source through its guarded borrow, then link the VM
+registry under its registration/snapshot protocol. A registration racing a
+closed collector round must either enter that round's scan set or remain with
+the frozen caller until the next admissible epoch. A release store alone cannot
+supply missing relocation exclusion or registry-reader lifetime.
+
+One shared thunk cell can serve multiple child leases. The collector visits
+the cell once, while each child has its own start/accept/exit obligations.
+Dropping one child lease does not invalidate other children. Child acceptance
+precedes source ACK, and lost ACK retains overlap with the same identity.
+Do not copy a movable thunk into each OS descriptor and assume object identity
+implies collector visibility. A stable pointer to a descriptor is not itself a
+registered Scheme root.
+
+No registry lock is held across GC barrier, OS creation/join, Scheme callback,
+or cleanup that can reenter. Freeze/copy the registry view or pin its entries,
+release the control lock, scan under owner-stop/exclusion, then retire snapshot
+pins. The imported all-context scanner obligation is still open; existing
+P0-only RC scanning cannot certify nonzero/bootstrap roots by assertion.
+
+** OS outcomes and partial creation
+
+The POSIX create contract supplies known success or known failure; failure
+creates no child and leaves the output ID undefined. A lost result is a bridge
+observation failure, not a third POSIX return code. Successful creation can let
+the child enter before creator-side bookkeeping finishes. The descriptor and
+lease must therefore be ready before the OS call; child entry cannot depend
+on thread_id assigned by the creator after that call.
+
+In [[file:../../../../vendor/gambit/lib/os_thread.c::493][the actual POSIX wrapper]], the nonzero pthread_create result is discarded and
+=err_code_from_errno()= is used. [[file:../../../../vendor/gambit/lib/os_base.c::1060][That helper reads errno]] and substitutes an
+unknown error for zero. The candidate correction must preserve the returned
+pthread error code; this is a source-level diagnostic mismatch, not a newly
+observed failed spawn. The Win32 and unimplemented adapters need their own
+result contracts before cross-platform admission.
+
+Known failed child reservation may roll back after collector snapshot readers
+and any publication debts are settled. It cannot roll back already successful
+children or undo collector membership while those children/barriers use it.
+The current resize path aborts on create failure and ignores shrink join errors;
+neither path proves recoverable rollback. A failed/unknown join retains native
+storage and root duties until actual termination/ownership is known.
+
+For unknown create outcome, keep descriptor, root lease and any possible native
+child/PSTATE backing. Query the same attempt identity; never blindly create a
+replacement. Root retirement and descriptor storage retirement are separate:
+a completed activation may no longer need the thunk, yet native entry/stop
+uncertainty may still require descriptor metadata. No bounded-memory or eventual
+recovery result follows without bounded external settlement.
+
+* NativeActivationScope creation and exit
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-activation-state-machine
+:END:
+
+#+begin_quote
+Source accepted -> safe scope registered -> activation accepted -> marker
+allocation/reload -> call -> outer catcher restored -> one cleanup claim ->
+marker clear -> one owned-count decrement -> root reader drain -> status.
+#+end_quote
+
+The exact typed transition rows and QNT/Lean mappings are rendered in the
+[[file:thread-thunk-activation-matrix.org][matrix]]. Main startup enters at origin admission; the worker first traverses
+publication and sync/reload. Both then use the same scope lifecycle.
+
+=make_sfun_stack_marker= allocates a still vector with positive ownership and
+explicitly documents a possible stale proc_or_false after allocation. The
+future helper must take an admitted rooted input, retain marker ownership and
+initialization progress, and reload the proc after allocation. Reuse existing
+still refcount semantics rather than copying the object just to add a handle.
+
+=call= can restore its own catcher and rethrow to =run='s outer catcher, skipping
+the inline =kill_sfun_stack_marker=. Place cleanup after the outer END_TRY for
+normal return, rethrow and known marker failure. Record whether a marker ever
+existed, whether it was cleared, and whether the owned count was decremented.
+Modified nonvolatile locals in the setjmp frame cannot be the sole progress
+record. Keep the canonical record in valid VM/native storage until retirement.
+
+Unknown clear/count result retains the scope and root. Replay is permitted only
+with evidence that the side effect did not occur; a settled applied receipt
+skips that side effect. Nested callbacks require distinct activation identities,
+parent pin and LIFO catcher bindings, with arbitrary-depth source refinement
+still open. Status delivery preserves the original error, continuation escape
+and processor-0 forwarding behavior; run return does not stop the worker's
+subsequent sync service loop.
+
+* First modern-c source modification slice
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-activation-first-cut
+:STATUS: DESIGNED-NOT-IMPLEMENTED
+:END:
+
+#+NAME: thread-thunk-activation-source-cut
+| Order | Real source responsibility | Required change | Retirement/admission gate |
+|-------+----------------------------+-----------------+--------------------------|
+| 1 | gambit.h.in internal state/types; mem.c root registry and GC mark/setup | Define origin/descriptor/activation maps; VM/bootstrap scan independent of membership; safe insertion/snapshot/removal | Full slot coverage, P0/nonzero origins, closed-round registration and reader-drain source proof |
+| 2 | setup.c current_vm_resize, vm_resize_pstate and barrier membership | Acquire source before on_all_processors; reserve descriptor and all child leases before publication; separate membership stages or prove exact existing algorithm | No GC sees incomplete PSTATE/descriptor; partial creation debts remain VM-owned |
+| 3 | os_thread.c create/result adapter and internal declaration boundary | Preserve real return code; child-before-return contract; no fabricated child ID on error; retain pthread/Win32 portability adapters | Known failure/no-child proof per adapter; no retry over unknown result; selected platform ABI audit |
+| 4 | setup.c start_processor_execution and run_and_throw_error_on_processor_0 | Pass descriptor identity, bind/sync, context seal and reload, then source-to-scope handoff | Remove early data_scmobj raw cache only when all scanner/reload gates close |
+| 5 | setup.c main startup and both run routes; c_intf.c marker helpers | Internal admitted run entry plus common scope preparation, marker allocation/reload and post-catcher cleanup | Every known failure/rethrow clears/drops at most once and preserves original status |
+| 6 | setup.c cleanup/shrink, native descriptor and scope lifetime | Separate root-value release, descriptor metadata retirement and actual OS stop; preserve failures/unknowns | Ignored join cannot be stop evidence; no lock/barrier/callback wait cycle |
+| next | gsc/_t-c-2.scm, gsc/_t-c-3.scm SFUN/CFUN producers, embedding headers and Tcl adapter | Generate/admit origins and full root/exit maps; migrate callers to shared protocol | Separate generator/external ABI/ClientData pin/deletion gates; no blanket retirement claim |
+
+This is a vertical architectural slice with producer, scanner, consumer and exit
+changes. The source modification list is not authorization to implement now.
+Changing an internal thread descriptor can affect struct/GSTATE/header ABI;
+inventory the configured generated consumers before choosing representation.
+Keep external raw =run= explicitly legacy/nonadmitted until a typed source or
+validated active-parent origin exists. A raw value cannot manufacture proof
+that it survived the preceding GC. Preserve or deliberately migrate its ABI;
+claiming unchanged external semantics without an embedding inventory is open.
+
+** Admission gates and falsifiers
+
+- [ ] TA-ORIGIN: ordinary named startup/module origins and arbitrary supplied thunk profile separated; full CFUN/parent map covers the earliest window.
+- [ ] TA-PUBLISH: root descriptor precedes first GC and collector-visible publication; successful children and failed reservations have independent custody.
+- [ ] TA-RELOAD: loop, marker allocation and any later safepoint invalidate cached movable values; context-ready/reload matches the current epoch.
+- [ ] TA-SCOPE: exact marker/state/error paths and nested catcher lifetime refine the canonical state machine.
+- [ ] TA-ORDER: registration, snapshot pin, relocation exclusion, source ACK and retirement refine actual C/POSIX ordering.
+- [ ] Imported EC-RUN, EC-CLEANUP and ARP-ROOT source duties remain open.
+- [ ] Later native acceptance must cover GC at both windows, nonzero processors, child-before-return, each spawn result, partial growth, marker failure, rethrow and stop/join failure. No such test is run here.
+
+A missing origin map, early raw cache, a collector snapshot omitting bootstrap
+roots, cleanup replay, or membership rollback with a live child falsifies this
+first-cut admission. A finite-model pass cannot override any of these facts.
+
+* Models, refinement and retained counterexamples
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-activation-formal
+:END:
+
+[[file:../../../../models/gambit/thread_thunk_activation.qnt][QNT]] models one prospective worker, an independently observed create result,
+one moving epoch, source/descriptor/activation root overlap, marker allocation,
+catcher cleanup and explicit external no-child/OS-stop observations. Root lease
+and metadata-free flags are distinct. OS-stop observations are environmental
+premises; activation completion does not synthesize one. Histories also retain
+late-success terminal root release and child-stop-before-metadata-free paths.
+The bounded model does not prove arbitrary worker counts, C memory behavior,
+registry-reader drain, arbitrary callback depth, real continuation semantics or
+liveness under unknown outcomes.
+
+[[file:../../../../models/gambit/lean/ThreadThunkActivation.lean][Lean]] checks conditional custody/ack, stopped moving collection, fresh reload,
+unknown-result retention, cleanup and arithmetic laws. These are selective
+operation laws; complete QNT Step induction, QNT-to-C stuttering simulation and
+property reflection remain obligations. SysML references those open needs rather
+than labeling the component proved. Every mapped Lean law and QNT action is
+checked for existence; existence is not refinement evidence.
+
+The retained negative histories expose: removing roots before publication,
+cached thunk after sync GC, unknown create followed by free, child surviving
+creator metadata, stale value after marker GC, skipped exit guard, duplicate
+refcount decrement and unknown cleanup root retirement. The independent QNT
+negative run must report an invariant violation. Random profiles are finite
+sampling, not exhaustive verification.
+
+[[file:../../../modeling/ascent/thread-thunk-activation.rules.scm][The actual ASCENT DSL]] consumes native SysML need/method/dependency/route rows.
+[[file:../../../modeling/ascent/thread-thunk-activation.request.scm][Its maintained Scheme request]] binds source bundle, native SysML output and DSL
+digests jointly to one claim. Real Evidence queries exercise current,
+missing-history, wrong-scope, stale-digest and synthetic all-scoped-control cases.
+Only this study's completed TA-H/TA-I observations are receipts in the current
+case. Synthetic full qualification checks policy behavior, not runtime truth.
+
+* Benefits and peak boundary
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-activation-benefit
+:END:
+
+Let N be prospective children sharing one thunk, w a Scheme value word, A live
+activations, H shared descriptor support, L per-child lease support and R scan
+reader support. Relative to a /safe duplicate-cell candidate/, value slots fall
+from N*w to w: saving (N-1)*w. For eight children at w=8, this is 56 bytes and,
+conditionally, seven fewer root-cell visits per relevant collection. That is
+neither a mandatory extra allocation nor an observed speedup over current code.
+
+Support bytes are not free: a sufficient slot-only positive threshold is
+H+N*L+R < (N-1)*w when all those are incremental to the comparison candidate.
+If both candidates require equivalent support, compare the difference, not the
+entire common H/L/R. For N=1 there is no shared-slot saving. Active marker roots,
+child lifecycle accounting and native stacks still scale with actual use.
+
+Two dedicated activation slots give at most 2*A*w payload for that chosen
+representation before certified alias/permanent/owned-still reuse. No ABI size
+is inferred. Whole-round peak is the maximum over time of distinct live backing,
+separate root/map/lease metadata, still markers, native stacks/PSTATEs and unknown
+escrow. Treat the terms as disjoint physical backing classes: value backing
+excludes marker/native/metadata allocations, and unknown escrow includes only
+additional backing not already counted in stacks, leases or maps. Deduplicate
+backing across source/descriptor/activation overlap. Unknown
+U children can retain U native stacks and leases; no total peak reduction is
+proved merely by reducing root slots. See the native-generated benefit matrix.
+
+The modernization gain is a single explicit producer/collector/activation
+contract, reusable by Scheme-generated entry paths and future backend services.
+Zig does not remove these semantic or platform duties. It has no demonstrated
+incremental benefit in this slice. Neither language choice alone establishes
+lower pauses, throughput improvement or scalable collector membership.
+
+* Learning and platform evidence
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-activation-references
+:END:
+
+The [[https://ocaml.org/manual/5.2/intfc.html][OCaml C-interface manual]] ties registered locations to collector updates
+and requires runtime coordination for access. Gambit's response should exploit
+its own explicit frames, still objects and continuation machinery: admit sources
+and make reload/exit obligations visible to Scheme generators. Reproducing an
+OCaml registration API without Gambit's processor/bootstrap ownership would
+leave this gap intact.
+
+[[https://pubs.opengroup.org/onlinepubs/000095399/functions/pthread_create.html][POSIX pthread_create]] defines error/no-child behavior; successful creation must
+not be interpreted as creator-first scheduling. [[https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html][POSIX 4.15.2]] defines successful
+memory synchronization and leaves error synchronization unspecified unless
+otherwise stated. [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][C11 draft N1570]], 5.1.2.4, 6.2.4 and 7.13.2.1, constrains
+happens-before, storage lifetime and longjmp local state. POSIX page open requests
+returned HTTP 403 in this study; relevant official search excerpts were
+available. This is specification research, not installed Darwin adapter proof.
+
+[[https://melocoton-project.github.io/melocoton-oopsla23.pdf][Melocoton (OOPSLA 2023)]], sections 2.3–2.5 and the root-aware FFI semantics,
+separates source-language values from their runtime representations and models
+root registration/update at the boundary. The lesson applied here is to make
+source ownership and relocation-aware view reconciliation explicit, rather
+than equating a C local with a stable Scheme value. Its verified OCaml/C subset
+does not prove Gambit's SMP barrier, arbitrary continuation escape, thread
+publication or NativeActivationScope. Those remain this study's source and
+refinement obligations.

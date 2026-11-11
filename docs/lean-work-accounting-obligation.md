@@ -2,19 +2,29 @@
 
 ## Status
 
-`models/gambit/lean/WorkAccounting.lean` is an unqualified proof asset. It has
-not been run through the required ASCENT Python driver: that driver currently
-has QNT capabilities but no Lean capability. Do not register this file as a
-passed model, proof, runtime repair or GC termination result.
+`models/gambit/lean/WorkAccounting.lean` now has a local, guarded conditional
+proof qualification through the existing Python process/checker libraries.
+The nine named theorem inventories exclude `sorryAx`; six false propositions
+are rejected and the incomplete-proof control is detected. See the exact
+scope, input identities and observed results in
+[Runtime Transfer Boundary](runtime-transfer-boundary.md).
+
+This is not sealed research-kernel admission: that interface still has QNT
+capabilities but no Lean capability. No capability, native status or historical
+receipt is relabeled by these tests. The proofs establish conditional algebra
+and interface obligations, not a runtime repair or GC termination result.
 
 ## QNT Correspondence
 
 The proof imports `LeanPoo.Functional.TransformationResources` from immutable
-commit `9fbdf863e5d4a4544267e84bc6bdad284d45c29c`, confirmed available on GitHub.
-The Lake dependency declaration and Lean4.34.0 toolchain are versioned beside
-the proof. This fixes dependency identity, not proof qualification; a generated
-Lake manifest and import closure still need admission through the shared driver.
-The unrelated dirty local lean-poo checkout is not a dependency input.
+commit `d8adf138948c854e7564234bc046387b4a5ee63b` with Lean4.34.0. The previous
+`9fbdf863e5d4a4544267e84bc6bdad284d45c29c` remains fetchable, but a fresh Lake
+clone did not contain that detached revision. The replacement is reachable in
+the public clone; the imported `TransformationResources.lean`,
+`Transformation.lean` and toolchain are byte-identical between these revisions.
+The package version changes from 0.1.0 to 0.1.1. Lake owns its generated
+manifest/cache; neither a second lock implementation nor the unrelated dirty
+local lean-poo checkout is an input.
 
 `stageCostsStayWithinComposedBudget` reuses LeanPoo's resource composition
 theorem. Actual stage bounds remain premises to establish from source and
@@ -48,13 +58,20 @@ strong/weak phase completion, native memory ordering or scheduler progress.
 It does not bound repeated steal probes, condition wakeups or elapsed time.
 In particular, empty queues plus zero count alone do not establish complete GC.
 
-The shared driver must check exact proof/tool/import identities and the four
-named theorem axiom inventories, reject incomplete proofs and false theorem
-controls, and feed the results into existing ASCENT evidence evaluation. Until
-then this obligation stays open. No independent Lean runner is introduced.
+`tests.test_runtime_transfer_formal` uses existing `process_observation.capture`
+and `quint_backend.check`, with process-group cleanup, Lean heartbeat/recursion
+guards, exact input hashes and host-adaptive checker concurrency. No independent
+Lean runner or Python semantic model is introduced. Scheme's existing
+`transfer_premise_evidence` exposes the proof scope and remaining obligations;
+it does not derive `satisfies`. Sealed admission and source refinement remain
+open, including a list-to-worker bijection and preservation of the premises.
 
-Two unqualified driver-control assets are retained under `lean/controls`:
+The original driver-control assets are retained under `lean/controls`:
 `OmittedLifetime.lean` must fail elaboration of a false concrete conclusion;
 `SorryWitness.lean` may elaborate but must fail admission because its named
 theorem depends on `sorryAx`. Controls are separate from the positive library
-target. Their intended outcomes are not yet observed results.
+target. Both intended outcomes have now been observed through the guarded
+consumer. Five additional false controls cover unacknowledged service,
+mutation of inactive roots, reopened work, reused identity and an unowned exit.
+The first elaboration also exposed an existing Bool-case proof mismatch; it
+was corrected rather than treating the old unchecked asset as a passed proof.

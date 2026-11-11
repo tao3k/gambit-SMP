@@ -1,0 +1,220 @@
+{
+  "authority": "Derived from Org correspondence ledger; source identity is not proof or exploration acceptance",
+  "relations": [
+    {
+      "id": "ROOT-HANDOFF",
+      "owner": "execution",
+      "producer": "execution + FFI root custodian",
+      "consumer": "GC scanner",
+      "sysml": "RootCutClosureLaw / ScanGrantLaw",
+      "qnt": "models/gambit/host_root_participation.qnt",
+      "qSymbols": [
+        "freezeRootState",
+        "releaseExecution",
+        "observeRoots",
+        "finalRootObserved",
+        "readerEligible",
+        "participationCompletion"
+      ],
+      "lean": "models/gambit/lean/HostRootParticipation.lean",
+      "lSymbols": [
+        "frozenHandoffComposesRelocation",
+        "recordPublicationIsNotParticipation"
+      ],
+      "projection": "p.handed is one bounded logical root token. p.frozen and p.parked concern final-value handoff, distinct from earlier h record publication. For relocation, abstract original and relocated addresses through stable logical identity; literal p.observed == p.handed is not the Lean address equation.",
+      "assumptions": "Complete live-slot inventory; host stops relevant writes before handoff; scan sees final writes; relocation mapping and identity abstraction are sound. QNT atomic actions and abstract release/acquire do not prove C weak-memory behavior.",
+      "guarantee": "Given frozen(slot)=source(slot) and observed(slot)=relocate(handed(slot)), Lean composes observed=relocate(source) for each live slot. The QNT relation covers the selected handoff slice.",
+      "counterexample": "A record can be published while the host still performs its last root store; a reader admitted early can miss it. Equal values by accident do not establish acknowledgement.",
+      "gap": "No mechanized QNT-to-Lean projection, complete host writer census or C memory-order refinement. Temporal completion additionally assumes model progress and weak fairness."
+    },
+    {
+      "id": "CONTROL-ORIGIN",
+      "owner": "control",
+      "producer": "control save/restore/capture",
+      "consumer": "GC continuation traversal",
+      "sysml": "ResumptionLaw / RootCutClosureLaw",
+      "qnt": "models/gambit/continuation_saved_stack_origin.qnt",
+      "qSymbols": [
+        "saveCurrent",
+        "restoreNext",
+        "scanCurrentRoots",
+        "queueSavedContinuation",
+        "scanSavedContinuation",
+        "linkOwnership",
+        "rootCoverage",
+        "savedFrameRetained",
+        "traversalOrigin"
+      ],
+      "lean": "models/gambit/lean/SavedStackRetirementWindow.lean",
+      "lSymbols": [
+        "nonConsumingUsePreservesRawOrigin",
+        "completeOriginsBoundLastRawAccess"
+      ],
+      "projection": "s.savedPrevious denotes a retained raw frame origin, not a heap destination. s.breakNext is the current active link after restore; s.rootCopied covers that current link only. A copied continuation container does not imply its saved frame chain has been traversed.",
+      "assumptions": "Every actual raw origin is represented in the declared origin inventory; nonconsuming uses preserve it; raw frame backing stays live until traversal/forwarding. The QNT slice has two selected threads and finite origin IDs.",
+      "guarantee": "The selected save/restore/GC path retains the previous origin beyond current-root scan and the root barrier. Lean states inventory completeness and nonconsuming preservation as premises, not inferred source facts.",
+      "counterexample": "Scan the restored current thread, then reclaim the previous stack before queued continuation traversal: the current-root barrier leaves a raw origin that is still needed.",
+      "gap": "No whole-continuation heap graph refinement, concurrent frame-write proof or complete FFI/native origin inventory."
+    },
+    {
+      "id": "RETIRE-WINDOW",
+      "owner": "gc",
+      "producer": "GC phase coordinator + control/FFI producers",
+      "consumer": "resource reclamation / next collection reuse",
+      "sysml": "FinalUseLaw",
+      "qnt": "models/gambit/saved_stack_retirement_window.qnt",
+      "qSymbols": [
+        "freezeProducers",
+        "witnessQueue",
+        "transferQueue",
+        "finishStrong",
+        "finishWeak",
+        "finishCleanup",
+        "windowSafe",
+        "queueCoverage",
+        "fullPhaseCoverage",
+        "windowCompletion"
+      ],
+      "lean": "models/gambit/lean/SavedStackRetirementWindow.lean",
+      "lSymbols": [
+        "emptyWitnessNeedsStableWindow",
+        "foreignFrameClosureDoesNotEmptySchemeQueue",
+        "phaseCompletionOrdersReuse"
+      ],
+      "projection": "w.checked ranges over current/run/timeout/device/interrupt roles, not processor count. w.frozen is scoped producer quiescence; w.transferred retains custody obligations. Strong, weak and cleanup booleans abstract ordered completion events, not concrete atomic flags.",
+      "assumptions": "All real producers and transferred target custody covered; no arrival after the empty witness; complete phase order before backing reuse. Weak fairness is a model assumption, not an OS guarantee.",
+      "guarantee": "With a stable no-arrival window an empty set remains empty; ordered strong/weak/cleanup completion precedes reuse. The source-cohort QNT predicate requires queue coverage and scoped freeze.",
+      "counterexample": "Trust an earlier empty read, infer Scheme emptiness from no foreign frame, or reuse after strong work while cleanup remains: each drops a distinct premise.",
+      "gap": "No concrete shutdown/failure interleaving or native last-use proof; actual producer closure and phase/event mapping remain unresolved."
+    },
+    {
+      "id": "GC-WORK-CLOSURE",
+      "owner": "gc",
+      "producer": "collector workers",
+      "consumer": "GC completion / execution reentry",
+      "sysml": "SuccessfulCollectionCompletionLaw",
+      "qnt": "models/library/gc/CollectionContract.qnt",
+      "qSymbols": [
+        "publish",
+        "acquire",
+        "scan",
+        "finish",
+        "closureSafe",
+        "Safe"
+      ],
+      "lean": null,
+      "lSymbols": [],
+      "projection": "privateWork/queued/scanning are abstract work obligations; done is collection completion. The model has one object, two roots and stopped mutators; it cannot stand for the complete independent-worker design.",
+      "assumptions": "All actual work classes project into the accounting; publication, initialization and forwarding obey the selected model; no hidden producer after closure.",
+      "guarantee": "The chosen abstract collector must not finish while private, queued or scanning work remains. This is a required connection, not a complete worker proof.",
+      "counterexample": "Count only the visible queue and ignore private or in-flight scanning work, then publish a terminal result early.",
+      "gap": "No Lean theorem is claimed for the complete collector completion mapping. Worker-team termination, resize merging and weak-memory refinement remain OPEN."
+    }
+  ],
+  "sources": {
+    "models/library/gc/CollectionContract.qnt": {
+      "sha256": "c11981c73e967b50fc11b355c5783f100a9ef77c20ce23540fea5c622edaade6",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/library/gc/ContinuationVMTransfer.qnt": {
+      "sha256": "0ccf2f51b54a5b198afa2b3b628ea57f34dc4531a7e654e5f393ab9ff38bd2fe",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/lean/HostRootParticipation.lean": {
+      "sha256": "e5ce61239be5d9012b899f22b1f4e744886a78e08c63035bf60451ab564f1193",
+      "localImports": [
+        "models/gambit/lean/WorkAccounting.lean"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/lean/WorkAccounting.lean": {
+      "sha256": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/lean/SavedStackRetirementWindow.lean": {
+      "sha256": "5afc049d860549e74b5c10d4ed08ff7c9dc8f22b13e457c327d45ed1e9596e8a",
+      "localImports": [
+        "models/gambit/lean/WorkAccounting.lean"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/saved_stack_retirement_window.qnt": {
+      "sha256": "ada6f75c7b9107103de713892d11953c2fe0a1c03a22b77989cb8d6474ce03c0",
+      "localImports": [
+        "models/gambit/saved_stack_root_closure.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/saved_stack_root_closure.qnt": {
+      "sha256": "4c77c864581ae5e5f1317e3a3d210c5fd074db722e217c6462588a213197f5d4",
+      "localImports": [
+        "models/gambit/saved_stack_arena_ownership.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/saved_stack_arena_ownership.qnt": {
+      "sha256": "f460922d3e41fd850c39bcbc9f4ee994b69851edb866ca98500e5588c3b8fb74",
+      "localImports": [
+        "models/gambit/resize_saved_stack_retirement_isolated.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/resize_saved_stack_retirement_isolated.qnt": {
+      "sha256": "38dbe1b570efda86a261922781c3ee4de0ba9da379fbbd8d0697a177290c989c",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/continuation_saved_stack_origin.qnt": {
+      "sha256": "f1d745c10a46492117c2cfbbacbc4eaefa754c4b4d2148ab283f6b19f07d2830",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/host_root_participation.qnt": {
+      "sha256": "e24c2ce90f6264d5bcba6d4c72da46ccc56c11405d6b1b7725fa6bd6b6b2730e",
+      "localImports": [
+        "models/gambit/host_root_publication_lifetime.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/host_root_publication_lifetime.qnt": {
+      "sha256": "e85a3ca15b6928ce4724110ccf6132b117c267ed195410fa4df57935895ffe92",
+      "localImports": [
+        "models/gambit/vm_list_c_memory_order.qnt",
+        "models/gambit/vm_list_reader_retirement.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/vm_list_reader_retirement.qnt": {
+      "sha256": "7bb56b5964657b7b7f7f41096c629a0882e00a89f6dbf9fffde5407cf27f5952",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/vm_list_c_memory_order.qnt": {
+      "sha256": "e90a4ed7d68935a37ec0bf8a45412f19b6fa3f6261f4d84a96cad6a9007d1075",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    }
+  },
+  "externalImports": {
+    "models/gambit/lean/WorkAccounting.lean": [
+      "LeanPoo.Functional.TransformationResources"
+    ]
+  },
+  "execution": {
+    "quint": false,
+    "lean": false,
+    "native": false
+  },
+  "refinementStatus": "proposed-not-mechanized",
+  "externalDependencyDeclaration": {
+    "file": "models/gambit/lean/lakefile.toml",
+    "sha256": "cc92e61d7efa662f5c5b4609774fe63ac815bd7d8bd7910b074d4fc5f7fa13b8",
+    "package": "LeanPoo",
+    "declaredRevision": "d8adf138948c854e7564234bc046387b4a5ee63b",
+    "externalSourceInspected": false,
+    "environmentClosure": "unresolved"
+  }
+}

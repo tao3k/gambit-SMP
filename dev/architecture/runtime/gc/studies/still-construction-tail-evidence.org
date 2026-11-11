@@ -1,0 +1,95 @@
+#+TITLE: Still Construction and Tail Handoff: Evidence Ledger
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: gc
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Still Construction and Tail Handoff: Evidence Ledger :gc:
+:PROPERTIES:
+:ID: 05f278d7-017c-5e81-b75b-41649e2d900d
+:CUSTOM_ID: still-construction-and-tail-handoff-evidence-ledger
+:SOURCE_PATH: docs/experimental/zig/still-construction-tail-evidence.md
+:SOURCE_SHA256: 54f7336e2ee342e7ab720aa0c60bdfbd3be7656d84c0960e347b9438df4f4cd8
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Static selected-source and primary-literature research.
+Read the [[file:still-construction-tail-design.org][design]],
+[[file:still-construction-tail-cost-matrix.org][cost matrix]] and
+[[file:../../../../../docs/experimental/zig/still-construction-tail-traceability.json][trace map]]. No implementation,
+preprocessing/regeneration, native test, model/engine/solver/prover execution,
+checked proof, measured speedup or memory result is adopted.
+
+*** Selected Source and Actual Caller Ledger
+:PROPERTIES:
+:ID: 10319095-2a73-5ad5-8508-365b82f905ad
+:CUSTOM_ID: selected-source-and-actual-caller-ledger
+:END:
+
+| ID | Source anchors and exact selected spans | Observation / limit |
+|-
+| SC-S01 | [[file:../../../../../vendor/gambit/lib/mem.c::1487][API]], [[file:../../../../../vendor/gambit/lib/mem.c::1554][allocator]]. mem.c 1487--1500/1554--1705. | Caller must initialize still body before next allocation. Demand is STILL_BODY+rounded payload words. Small actual allocations defer accounting; larger paths precharge or invoke GC, then may fail native allocation and undo charge. Still list link precedes remaining metadata/body readiness. Existing synchronous/processor participation must not be replaced by an unproved concurrent scanner. |
+| SC-S02 | [[file:../../../../../vendor/gambit/lib/mem.c::1443][Refcount]], [[file:../../../../../vendor/gambit/lib/mem.c::1712][public wrapper/release]]. mem.c 1443--1481/1712--1739. | Increment/decrement operate on a count; release_scmobj calls decrement. Neither function physically frees the still block or refunds VM quota. ps=NULL selects permanent allocation and is outside the proposed still cohort. |
+| SC-S03 | [[file:../../../../../vendor/gambit/lib/mem.c::4210][Scan registration]], [[file:../../../../../vendor/gambit/lib/mem.c::4387][sweep/force free]], [[file:../../../../../vendor/gambit/lib/mem.c::6259][reduction]], [[file:../../../../../vendor/gambit/lib/mem.c::6794][deferred flush]]. mem.c 4210--4249/4387--4453/6259--6300/6794--6807. | Nonzero-refcount entries seed scanning; sweep frees unmarked storage, invokes FOREIGN release and recomputes surviving words. Force cleanup does not preserve refcount-pinned entries. Processor reductions/flushes describe actual storage; they do not carry asynchronous dormant grants. |
+| SC-S04 | [[file:../../../../../vendor/gambit/lib/c_intf.c::5420][String converters]]. c_intf.c 5420--5495. | ISO-8859-1 allocation is followed by payload writes; UTF-8's second pass has a post-allocation error path that releases the construction reference and returns an encoding error. This is selected real failure evidence for distinguishing decrement from unused-credit refund, not a reproduced malformed-input test. |
+| SC-S05 | [[file:../../../../../vendor/gambit/lib/os_io.c::11085][UDP result construction]]. os_io.c 11085--11142. | The absent-buffer path reads native bytes, allocates a U8VECTOR, copies bytes, releases its construction reference and returns it. Native input effects and storage publication are distinct; this source does not prove external cancellation is reversible. |
+| SC-S06 | [[file:../../../../../vendor/gambit/lib/_system.scm::1370][Weak-table construction]]. _system.scm 1370--1441. | Large objects allocate still storage with W_ALL/R_ALL, decrement before flags/counters/unused-slot initialization; small objects take a different movable path. This caller requires a subtype-specific initialization endpoint, not a generic allocator-return hook. |
+| SC-S07 | [[file:../../../../../vendor/gambit/lib/mem.c::4008][Subtype scan]]. mem.c 4008--4148. | FOREIGN/string/unboxed numeric payloads are skipped. Weak scan reads flags, selected key/value fields and list metadata. Frame/continuation scanning has structure. Garbage body bytes cannot universally be scanned; no change to existing FOREIGN tracing is inferred. |
+| SC-S08 | [[file:../../../../../vendor/gambit/lib/c_intf.c::1683][Foreign release]], [[file:../../../../../vendor/gambit/lib/c_intf.c::5148][pointer constructor]]. c_intf.c 1683--1715/5148--5197. | Constructor writes tags/function/pointer before result; release clears function/pointer before invoking native code. Destructor arming and unknown side effects need real ownership and all-exit disposition. Source clearing fields alone proves neither idempotent external effects nor affinity safety. |
+| SC-S09 | [[file:../../../../../vendor/gambit/lib/mem.c::1744][Pair/vector constructors]], [[file:../../../../../vendor/gambit/lib/_kernel.scm::2365][still-copy]], [[file:../../../../../vendor/gambit/lib/_kernel.scm::3995][statistics]], [[file:../../../../../vendor/gambit/lib/c_intf.c::4350][numeric conversion]]. mem.c 1744--1818; _kernel.scm 2365--2428/3995--4035; c_intf.c 4350--4410. | Pair/vector helpers restrict movable inputs; still-copy saves/reloads then copies from the restored source and decrements. Pointer-free numeric/statistics constructors still require semantic completion. A source Scheme declaration does not automatically make a raw native temporary GC-safe. |
+| SC-S10 | [[file:../../../../../vendor/gambit/lib/mem.c::559][Aligned allocator/free]]. mem.c 559--671. | Extra alignment/container-pointer storage and a recovered underlying container distinguish native allocation identity from still body/base. Logical word accounting cannot be reported as RSS. Deallocator pairing must be retained across private abort and later sweep. |
+| SC-S11 | [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch::3160][Candidate donor transfer]]. Patch 3160--3242. | Existing C splices actual still/RC chains, transfers counters, resets donor accounting and destroys source queue facilities after stated join/drain conditions. Credit actual support; this is not an implemented independent-worker interval transfer or a native receipt adopted by this study. |
+| SC-S12 | [[file:../../../../../vendor/gambit/lib/mem.c::3250][Chunk closure]], [[file:../../../../../vendor/gambit/lib/mem.c::3388][marker reserve]], [[file:../../../../../vendor/gambit/lib/mem.c::3495][copy alignment]], [[file:../../../../../vendor/gambit/lib/mem.c::4250][chunk parser]]. mem.c 3250--3313/3388--3410/3495--3568/4250--4386. | FORW chunk links, two end-marker slots, word-width-sensitive copy alignment and partial scan cursors are real layout facts. Tail reuse must retain chunk parser/borrower semantics or replace the adapter explicitly. A gap is not a valid object merely because it is unused. |
+| SC-S13 | [[file:../../../../../vendor/gambit/lib/mem.c::3066][Section selection]], [[file:../../../../../vendor/gambit/lib/mem.c::3314][stack/heap sharing]], [[file:../../../../../vendor/gambit/lib/mem.c::4525][resume preparation]]. mem.c 3066--3128/3314--3387/4525--4571. | Whole-section selection, stack fallback/sharing and approximate limits assume processor-owned cursors. They cannot remain authoritative for arbitrary nonoverlapping interval grants without a new bounds/layout mapping. |
+| SC-S14 | [[file:../../../../../vendor/gambit/lib/mem.h::12][Constants]], [[file:../../../../../vendor/gambit/lib/mem.c::360][occupancy]], [[file:../../../../../vendor/gambit/lib/mem.c::488][policy capacity]], [[file:../../../../../vendor/gambit/lib/mem.c::3410][initial assignment]]. mem.h 12--79; mem.c 360--370/488--509/3410--3464. | M=131072, active halves M/2, F=8193+SUBTYPED_BODY, allocation-check/fudge description and doubled movable policy charge have different roles. Native extent, policy charge, useful tail and reserve are not interchangeable quantities. |
+| SC-S15 | [[file:../../../../../vendor/gambit/lib/mem.c::6813][GC phases/preparation]], [[file:../../../../../vendor/gambit/lib/mem.c::6368][still demand policy]]. mem.c 6813--7086/6368--6472. | Strong tracing is followed by weak/continuation/cleanup/policy/resume work; still requested words can remain charged on success or be removed on recoverable overflow. The proposed credit/recount service replaces implicit synchronous lifetime assumptions, not copying/weak policy semantics. |
+
+Selected bindings cover mem.c/mem.h, c_intf.c, os_io.c, _kernel.scm,
+_system.scm and the candidate fixture. The fixture is a selected working-source
+artifact, not an applied configured build. Constructor queries included the
+explicit public/native call spellings in these files and os_dyn.c/_num.scm;
+the ledger binds only the ranges used above. No transitive/generated/external
+caller census is claimed. The trace binds exact current selected hashes.
+
+*** Primary Literature and Platform/Language Evidence
+:PROPERTIES:
+:ID: e7749335-d183-57f2-80d3-2dc72c9f41a3
+:CUSTOM_ID: primary-literature-and-platformlanguage-evidence
+:END:
+
+| ID | Primary reference | Narrow support / excluded inference |
+|-
+| SC-P01 | [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570]], §5.1.2.4. | Release/acquire synchronization can order initialized stores before consumer reads. Volatile/list-pointer stores and data-layout resemblance alone do not qualify C/Zig cross-language publication. One opaque service ABI or a proven native mapping is required. |
+| SC-P02 | [[https://simonmar.github.io/bib/papers/parallel-gc.pdf][Marlow et al., Parallel Generational-Copying Garbage Collection with a Block-Structured Heap]], §§3.1--3.3, Figure 2. | Forwarding/copy claims, private tospace allocation blocks and incomplete scan work are distinct responsibilities. Motivates explicit worker tails and borrowers; neither GHC block layout nor its performance transfers to Gambit. |
+| SC-P03 | [[https://ocaml.org/manual/5.3/intfc.html][OCaml manual, Interfacing C]], §§4.4, 5.1. | Safe high-level allocation initializes traced fields; low-level allocation requires legal initialization before another allocation. Local/parameter roots are explicit. This supports separate scan-safe and semantic initialization, not importing OCaml tags, generations, barriers or macros into Gambit. |
+| SC-P04 | [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][Retrofitting Parallelism onto OCaml]], §4.4. | Root coordination, stop-the-world entry and copying races are separate modernization duties. Runtime GC changes must preserve language/FFI behavior; switching the systems language does not discharge them. No OCaml collector or benchmark claim is adopted. |
+| SC-P05 | [[https://www.llvm.org/docs/Statepoints.html#overview-core-concepts][LLVM statepoints]]. | Compiler relocation/root support needs a runtime protocol and correct use of relocated references. It does not manage still credits, constructor effects, heap intervals or shutdown. LLVM/MLIR compiler benefits are available to both modern C and Zig service implementations. |
+| SC-P06 | [[https://ziglang.org/documentation/0.15.1/#Lifetime-and-Ownership][Zig lifetime/ownership]], [[https://ziglang.org/documentation/0.15.1/#errdefer][errdefer]]. | Explicit allocators and local error cleanup may reduce private builder support; pointer lifetime remains programmer responsibility. errdefer cannot legally refund a Consumed grant, free a published root, cancel a live native writer or replace GC rooting. |
+
+Links include actual publication/manual identities for reproducible evidence;
+these are not architectural generation names. Paraphrases support design
+premises only. No timing, speedup, pause, RSS or maintenance-hour number is
+imported from a paper into the net-benefit conclusion.
+
+*** Qualification Boundary
+:PROPERTIES:
+:ID: 6eb85750-ef67-5d01-8f57-beab041d38a7
+:CUSTOM_ID: qualification-boundary
+:END:
+
+SCU observations are source facts in the selected slice. SCP implications and
+SCX counterexamples are handwritten logical reasoning, not machine-checked
+proofs or executed failure witnesses. Source arithmetic distinguishes possible
+tail reuse from a guarantee that actual sections can be removed. Raw allocator
+effects, final safepoints, external clients, generated allocation checks,
+mixed-language ABI visibility, exact segment parser and all-exit progress remain
+unresolved. Historical receipts, registered research declarations/views and
+unrelated staged/dirty work are neither rewritten nor adopted.

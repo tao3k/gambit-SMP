@@ -1,0 +1,230 @@
+{
+  "caller": [
+    {
+      "key": "still-allocator",
+      "anchor": "mem.c:1556-1690,6800-6805",
+      "condition": "PSTATE still chain owns physical blocks; charged and deferred words are distinct; pending allocation reservation must settle before seal"
+    },
+    {
+      "key": "c-closure",
+      "anchor": "os_dyn.c:744-769,1047-1058; c_intf.c:1731-1738",
+      "condition": "Native RC code holds Scheme proc; relocation root and executable allocation lifetime are separate; no assumption that proc is still"
+    },
+    {
+      "key": "tcl-client",
+      "anchor": "examples/tcltk/tcltk.scm:136-194,297-338",
+      "condition": "Tcl holds RC client data plus still vector; callback result string has separate Tcl release_string lifetime; failed creation needs qualified ownership evidence"
+    },
+    {
+      "key": "foreign-release",
+      "anchor": "c_intf.c:1683-1710,5156-5190; mem.c:4397-4406,4437-4448",
+      "condition": "Foreign wrapper release clears callback/pointer before invocation; collector frees wrapper without propagating returned error; new asynchronous duty requires explicit settlement"
+    },
+    {
+      "key": "exit-and-census",
+      "anchor": "setup.c:918-978; mem.c:4928-4934,6268-6291",
+      "condition": "Old cleanup frees still chain then native RC headers; live census enumerates current processors only; VM arena must join scan and capacity census"
+    }
+  ],
+  "protocol": [
+    {
+      "key": "close-and-seal",
+      "anchor": "mem.c:1571-1684,4210-4247; proposed admission cut",
+      "condition": "Close native writers and allocation; drain raw borrows and accepted operations; exact whole arena membership, generation and GC epoch; roots and release lane admitted"
+    },
+    {
+      "key": "atomic-authority",
+      "anchor": "mem.c:723-739,1681-1684; proposed VM arena authority",
+      "condition": "Publish destination storage/RC membership, accounting delta, release duty and exact receipt together; source cleanup loses authority at same commit"
+    },
+    {
+      "key": "unknown-outcome",
+      "anchor": "setup.c:973-978; proposed durable receipt lookup",
+      "condition": "Precommit source retains custody; postcommit VM authority retains it; unknown ack blocks reclaim, not necessarily exit; repeated reclaim preserves monotonic retired identities"
+    },
+    {
+      "key": "gc-and-exit",
+      "anchor": "mem.c:4210-4247,6268-6291,7002-7038; setup.c:930-933",
+      "condition": "Serialize handoff with epoch freeze; invalidate stale seal after GC; destination scanner/census remains after processor leaves; join is not transfer"
+    },
+    {
+      "key": "release-and-retire",
+      "anchor": "c_intf.c:1699-1707; examples/tcltk/tcltk.scm:188-194",
+      "condition": "Lease/root survival differs from raw pin; destructor owner outlives creator; drain callbacks before final release; error or unknown retains separate task custody without blind pointer retry"
+    }
+  ],
+  "route": [
+    {
+      "key": "registration",
+      "anchor": "mem.c:1571-1684; os_dyn.c:764-769",
+      "qntAction": "seal",
+      "leanLemma": "rawBlocksSeal",
+      "condition": "No in-flight raw borrow, writer, allocation, requested reserve or creator-only affinity at seal"
+    },
+    {
+      "key": "accounting",
+      "anchor": "mem.c:1605,1624-1633,1668,6804-6805",
+      "qntAction": "commitHandoff",
+      "leanLemma": "chargeConservation",
+      "condition": "Fold deferred charge once; remove source authority and publish target chain/RC/receipt atomically"
+    },
+    {
+      "key": "coverage",
+      "anchor": "mem.c:4210-4247,6268-6291",
+      "qntAction": "endGC",
+      "leanLemma": "epochInvalidates",
+      "condition": "Source-or-target arena scanned and counted once independently of processor membership; GC invalidates seal"
+    },
+    {
+      "key": "retirement",
+      "anchor": "c_intf.c:1699-1707; mem.c:4404-4406",
+      "qntAction": "reclaim",
+      "leanLemma": "releaseErrorRetains",
+      "condition": "Error/unknown task, unresolved receipt, lease and scan ticket prevent reclaim; no callback retry after pointer clear"
+    },
+    {
+      "key": "resize",
+      "anchor": "setup.c:930-978; mem.c:4928-4934",
+      "qntAction": "depart",
+      "leanLemma": "transferredMayExit",
+      "condition": "Committed durable VM authority permits processor departure even if caller acknowledgement remains unknown"
+    }
+  ],
+  "gain": [
+    {
+      "key": "arena-handoff",
+      "avoided": "Payload graph copying solely to escape creator processor; repeat root rebinding per borrower",
+      "added": "O(1) ownership commit only after O(N+R) admission inventory or maintained metadata; retained whole-arena memory",
+      "condition": "Positive only when avoided copy/rebinding work exceeds inventory, synchronization and retained-memory cost; no claim of zero-copy across VM"
+    },
+    {
+      "key": "capacity-and-scan",
+      "avoided": "Duplicate enumeration or missing target arenas after shrink; source/target double charge",
+      "added": "Epoch membership, exact scanner assignment and charged/deferred/reserve ledger; O(N) tracing retained",
+      "condition": "Correctness gain is structural; scanning remains mandatory; consolidation need not improve asymptotic GC time"
+    },
+    {
+      "key": "compiler-service",
+      "avoided": "Creator-processor affinity for qualified shared semantic bundles and native holders",
+      "added": "Lease/receipt authority, foreign owner lane, callback drain and unknown-result retention",
+      "condition": "Parallel span improves only when affinity was critical path and independent sessions exist; unbounded leases can erase memory benefit"
+    }
+  ],
+  "refinement": [
+    {
+      "key": "seal",
+      "qntScope": "closeAdmission;seal;failAllocation",
+      "leanScope": "rawBlocksSeal;reserveBlocksSeal",
+      "sourceDuty": "Close every refcount/data/list writer, allocation and native callback admission; no waiting with an allocation lock or GC participation debt"
+    },
+    {
+      "key": "transfer",
+      "qntScope": "commitHandoff;lookupReceipt",
+      "leanScope": "chargeConservation;handoffNoDoubleCharge;exactChain;rcDetached",
+      "sourceDuty": "Linearize complete arena authority and exact idempotent receipt; prove C release/acquire plus exclusive plain-list mutation and allocation debt settlement"
+    },
+    {
+      "key": "epoch",
+      "qntScope": "beginGC;scan;endGC;depart",
+      "leanScope": "epochInvalidates;transferredMayExit",
+      "sourceDuty": "Refine source scan/mark/sweep/capacity census and resize barriers; root graph/still-object scanner retained; no stale receipt after membership changes"
+    },
+    {
+      "key": "retire",
+      "qntScope": "startRelease;errorRelease;settleRelease;reclaim",
+      "leanScope": "leaseBlocksFree;unknownBlocksFree;releaseErrorRetains;netBenefit",
+      "sourceDuty": "All true native holders, callback/continuation pins and destructor outcomes accounted; real source behavior and net work/span/retention remain open"
+    }
+  ],
+  "gate": [
+    {
+      "key": "producer-closure",
+      "qualified": false,
+      "condition": "Exact still/RC/refcount writers, Tcl callback/delete/failure and native trampoline configuration admitted"
+    },
+    {
+      "key": "vm-ownership",
+      "qualified": false,
+      "condition": "Whole arena/RC/roots/receipt authority implemented and source cleanup excluded after transfer"
+    },
+    {
+      "key": "gc-seal",
+      "qualified": false,
+      "condition": "Actual allocation reserve, preaccepted writer and GC participant quiescence refined without circular waiting"
+    },
+    {
+      "key": "scan-coverage",
+      "qualified": false,
+      "condition": "Target arena included exactly once in setup, strong/weak/sweep and capacity/bytes census after resize"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "condition": "Destructor thread/VM affinity, in-flight callbacks, native pins, continuations and unknown outcomes closed"
+    },
+    {
+      "key": "source-replacement",
+      "qualified": false,
+      "condition": "Old per-PSTATE free/RC/root/accounting authority retired only for migrated domains; unsupported foreign users excluded"
+    },
+    {
+      "key": "platform",
+      "qualified": false,
+      "condition": "C weak memory, configured ABI/GC, host registration, native correctness and measured benefit remain unqualified"
+    }
+  ],
+  "scalar": {
+    "": {
+      "workspaceCount": 2,
+      "actualAdmitted": false
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "SH-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/storage_handoff_receipt.qnt",
+      "subjectScope": "storage_handoff_receipt:Test$",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "SH-I",
+      "kind": "induction",
+      "subjectPath": "models/build/StorageHandoffReceipt.lean",
+      "subjectScope": "StorageHandoffReceipt:rawBlocksSeal;reserveBlocksSeal;epochInvalidates;chargeConservation;handoffNoDoubleCharge;exactChain;rcDetached;transferredMayExit;leaseBlocksFree;unknownBlocksFree;releaseErrorRetains;netBenefit",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "SH-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/storage-handoff-receipt-design.org",
+      "subjectScope": "SH-S:source",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "SH-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/storage-handoff-receipt-design.org",
+      "subjectScope": "SH-E:platform",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "SH-S",
+      "prerequisite.obligationId": "SH-H"
+    },
+    "1": {
+      "dependent.obligationId": "SH-S",
+      "prerequisite.obligationId": "SH-I"
+    },
+    "2": {
+      "dependent.obligationId": "SH-S",
+      "prerequisite.obligationId": "SH-E"
+    },
+    "3": {
+      "dependent.obligationId": "SH-S",
+      "prerequisite.obligationId": "VR-S"
+    }
+  }
+}

@@ -1,0 +1,212 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "modern-c-existing-configure-make",
+  "scope": "Existing executable-test path, same fixed Modern C workspace and current Bazel/configure/Make inputs. Control: five compilations and five fresh executions. Original600 total and native/test/run ceilings unchanged.",
+  "budgetSeconds": 600,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/research/darwin-native-policy/source.lock.json",
+    "evidence/research/darwin-native-policy/source.patch",
+    "evidence/research/worker-role-handoff/profile.json",
+    "vendor/gambit/tests/frame-continuation.scm",
+    "vendor/gambit/tests/frame-continuation-roots.scm",
+    "vendor/gambit/tests/smp/gc/worker-role-handoff.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/research/darwin-native-stage/native-c-leaf.lock.json",
+    "evidence/research/darwin-native-stage/native-c-leaf.patch",
+    "evidence/research/darwin-native-stage/shared-fixture-controls.json",
+    "vendor/gambit/lib/makefile.in",
+    "vendor/gambit/gsi/makefile.in",
+    "vendor/gambit/gsc/makefile.in",
+    "vendor/gambit/configure.ac",
+    "vendor/gambit/makefile.in",
+    "evidence/research/darwin-native-stage/completed-configure-make-producer.json"
+  ],
+  "steps": [
+    {
+      "id": "producer",
+      "capability": "gambit.generation-artifact",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "producer": "evidence/research/darwin-native-stage/completed-configure-make-producer.json",
+        "sourceLock": "evidence/research/darwin-native-policy/source.lock.json"
+      }
+    },
+    {
+      "id": "native-stage-shared-control",
+      "capability": "gambit.native-development",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 400,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "buildProfile": "evidence/research/worker-role-handoff/profile.json",
+        "policy": "vendor/gambit/configure.ac",
+        "nativeChanges": [
+          "lib/_mem/configuration.inc"
+        ],
+        "generationDemand": "reuse-explicit-artifact",
+        "nativeDelta": "evidence/research/darwin-native-stage/native-c-leaf.lock.json",
+        "generation": {
+          "step": "producer",
+          "output": "generation"
+        },
+        "templates": [
+          "vendor/gambit/makefile.in",
+          "vendor/gambit/lib/makefile.in",
+          "vendor/gambit/gsi/makefile.in",
+          "vendor/gambit/gsc/makefile.in"
+        ]
+      }
+    },
+    {
+      "id": "map",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "native-stage-shared-control"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "native-stage-shared-control",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "native-stage-shared-control",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/frame-continuation.scm",
+        "stdout": "FRAME-CONTINUATION-PASS\nHASH-INDEX-OWNER-PASS\n",
+        "processorTopology": "fixture-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "wide-map",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "native-stage-shared-control"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "native-stage-shared-control",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "native-stage-shared-control",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/frame-continuation-roots.scm",
+        "stdout": "FRAME-CONTINUATION-ROOTS-PASS\nFORCED-GC-COMPLETE count=11\n",
+        "processorTopology": "fixture-managed",
+        "executionBudgetSeconds": 30,
+        "publishCompilation": true
+      }
+    },
+    {
+      "id": "wide-map-host",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "native-stage-shared-control"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "native-stage-shared-control",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "native-stage-shared-control",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/frame-continuation-roots.scm",
+        "stdout": "FRAME-CONTINUATION-ROOTS-PASS\nFORCED-GC-COMPLETE count=11\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "worker-roles",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "native-stage-shared-control"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "native-stage-shared-control",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "native-stage-shared-control",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/smp/gc/worker-role-handoff.scm",
+        "stdout": "WORKER-ROLE-HANDOFF-PASS epochs=3\n",
+        "processorTopology": "fixture-managed",
+        "executionBudgetSeconds": 30,
+        "publishCompilation": true
+      }
+    },
+    {
+      "id": "worker-roles-host",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "native-stage-shared-control"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "native-stage-shared-control",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "native-stage-shared-control",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/smp/gc/worker-role-handoff.scm",
+        "stdout": "WORKER-ROLE-HANDOFF-PASS epochs=3\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "producer",
+        "native-stage-shared-control",
+        "map",
+        "wide-map",
+        "wide-map-host",
+        "worker-roles",
+        "worker-roles-host"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

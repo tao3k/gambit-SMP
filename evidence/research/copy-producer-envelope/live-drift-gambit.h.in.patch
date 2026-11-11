@@ -1,0 +1,34 @@
+--- evidence/research/copy-producer-envelope/source-snapshots/gambit.h.in
++++ vendor/gambit/include/gambit.h.in
+@@ -12224,6 +12224,23 @@
+     int gate_initialized;
+   } ___vm_resize_ledger;
+ 
++/* One bounded source root per origin, independent of processor membership.
++ * Sync trees transport serial*MAX_PROCESSORS+origin, never a movable pointer.
++ * Serials survive processor retirement; exhausted identities fail admission. */
++typedef enum ___resize_request_phase_enum
++  {
++    ___RESIZE_SOURCE_IDLE, ___RESIZE_SOURCE_WRITING,
++    ___RESIZE_SOURCE_QUEUED, ___RESIZE_SOURCE_SELECTED,
++    ___RESIZE_SOURCE_CONSUMED, ___RESIZE_SOURCE_RETAINED
++  } ___resize_request_phase;
++
++typedef struct ___resize_request_root_struct
++  {
++    ___VOLATILE ___WORD state; /* CAS publication; collectives exclude writers */
++    ___WORD serial;
++    ___SCMOBJ thunk; /* scanned by worker zero even outside active membership */
++  } ___resize_request_root;
++
+ typedef struct ___virtual_machine_state_struct
+   {
+     ___aligned_processor_state_struct aligned_pstate[___MAX_PROCESSORS]; /* VM's processors */
+@@ -12233,6 +12250,7 @@
+     ___collector_worker collector_workers[___MAX_PROCESSORS];
+     ___gc_round gc_round;
+     ___vm_resize_ledger resize;
++    ___resize_request_root resize_requests[___MAX_PROCESSORS];
+ 
+     ___VOLATILE int processor_count; /* number of processors in this VM */
+ 

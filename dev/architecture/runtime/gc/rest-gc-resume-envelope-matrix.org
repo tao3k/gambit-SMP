@@ -1,0 +1,69 @@
+#+TITLE: Rest construction, GC resume and peak matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Current producer and consumer matrix
+:PROPERTIES:
+:CUSTOM_ID: rest-caller-matrix
+:END:
+#+NAME: rest-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| rest-entry | _kernel.c:23950-23956;gambit.h.in:8176-8179 | structure one required plus rest -> p2 handler; na=-1 bypass on resume | Calling GET_REST again with nonnegative count would rebuild list | PointId binds actual/formal shape and negative ready-arguments sentinel |
+| completion | _kernel.scm:506-596;gambit.h.in:3150-3167 | one pair then hp check -> heap_limit may continue -> remaining pairs and vector before GC | B3 alone cannot pay C=3m+p+1; hp/global reserve not a contiguous grant | Noncollecting completion grant issued before exposing unframed arguments |
+| framed-gc | _kernel.scm:1992-2000,2034-2049;mem.c:6938-7087 | proc and carrier as Scheme args -> saved RA/registers -> GC -> restored binding | overflow handler can return/retry, capture or nonlocal exit | Durable FrameSpec/root receipt and failure delivery reserve |
+| first-resume | _kernel.scm:2006-2032;_kernel.c:23950-23957 | POP_ARGS2, push vector2, pop regs, na=-1, FIX1, POLL1 | heap0 is not stack0; poll slow path may move stack/heap | Temporary stack allowance2 plus current caller frame; fresh assurance after slow path |
+| later-body | _kernel.c:23958-23986;_kernel.scm:43-112,4984-4994 | 8-word recursive frame per field -> POLL -> make-structure n=a | 8r logical stack growth can GC/copy; a+1>255 selects still allocator | Separate FrameSpec growth, small-object B=a+1 or rooted still/failure plan |
+| release | mem.c:989,1065-1083,1556-1708,4406-4448;_kernel.scm:1992-2032 | cursor bump, copying/semispace reuse, msection shrink/free; still cleanup | Rest list remains language value; carrier root detach not physical free | Last alias/root/readers plus known region accounting before reuse or free |
+
+* Work and whole-round peak matrix
+:PROPERTIES:
+:CUSTOM_ID: rest-benefit-matrix
+:END:
+#+NAME: rest-costs-native
+| Capability | Removed work | Quantified condition | Added cost | Boundary and falsifier |
+|---+---+---+---+---|
+| completion envelope | Replace unqualified worst-case requests with caller-bound exact suffix | p2: C=3m+3, Bcross<=3; Bcross+C<=3a<=24576 words (196608 bytes at WS8) | Preissued contiguous completion space, argument count/layout identity, checked arithmetic | No shrinking current global204808-word policy by subtracting bounds; multi-context physical/source obligations open |
+| general ordinary rest | Avoid independent-max double counting | k+m=r=a-p+1; total=3r+p+1=3a-2p+4<=24578 words, no handles | Generic p<=1024 a<=8192 admission and representation variants | Bound is carrier construction only, not transitive GC live graph, stack, emergency or root metadata |
+| first resumed interval | No heap allocation between restore helper and structure POLL1 | Heap R0=0; temporary push<=2 slots; next recursive interval adds8 frame words | Existing caller/frame stack grant and fresh assurance on slow poll | Do not grant zero heap globally: current post-GC fudge still exists and later dynamic allocation needs its own plan |
+| recursive continuation | Make hidden stack growth explicit and preserve repeated/multi-shot capture | 8r<=65528 logical stack words (524224 bytes at WS8), excluding base/control and copied heap frames | Root descriptors, possible frame-to-heap copy, every POLL rebind and alias retention | Logical stack growth not a contiguous native grant or all-round peak bound |
+| next structure allocation | Separate small bump demand from still allocation | n=a; small object a+1<=255 words if a<=254; a>=255 uses still allocation | Still header/alignment/allocator, rooted type, possible GC and failure cleanup | Not included in first interval; allocator refcount_dec is not immediate object free |
+| guaranteed tail Qg | Omit an actually separate future resume acquisition before overlap | 0<=Qg<=min(usable compatible tail,Ractual); phase c<=b-Qg+extra | Copy fence, real backing provenance, transfer ledger, roots and reader pins | Strict whole gain iff every phase below matched baseline peak; existing PSTATE reuse already credited; zero first-span demand gives no credit itself |
+| late carrier death/refund | Only reduce occupancy after actual region reuse/free | Late Qo cannot decrease max already observed; carrier3 words no immediate3-word refund | Complete continuation/FFI alias and reader closure, delayed failure roots | Rest pairs remain arguments; lowering a counter or detaching POP_ARGS2 is not releasing an allocation |
+| failure and unknown | Avoid unsafe GC at incomplete frames and duplicated grant spending | Before published/copy state only known private reservations refundable; after forwarding retain both spaces | Bounded pending/completion/failure grants and backpressure | No retry/newID/refund while outcome unknown; no OOM, liveness, RSS or native performance claim |
+
+* Exact model scopes and dependencies
+#+NAME: rest-needs-native
+| Need | Kind | Subject | Exact scope | Premise |
+|---+---+---+---+---|
+| RG-H | interleaving | models/gambit/rest_gc_resume_envelope.qnt | rest_gc_resume_envelope:16-named-histories;safe;seed=17;100x80 | One p2 a5 history: completion before framed GC, known resume, carrier lifetime and ghost historical peak; abstract destination, no source simulation |
+| RG-I | induction | models/gambit/lean/RestGcResumeEnvelope.lean | GambitSMP.RestGcResumeEnvelope:suffixBound;noDoubleCount;crossingAndCompletion;structureCarrier;boundedStructureCarrier;genericJointBound;completionFits;zeroFirstHeapSpan;stackPrefix;countedOnce;phaseCredit;unchangedPeak;retainedPeak | Conditional Nat extent and phase inequalities; no pointer provenance, generated-code identity or whole-step induction |
+| RG-COMPLETE | source-refinement | models/gambit/lean/RestGcResumeEnvelope.lean | RG-COMPLETE:actual-source-refinement | Exact p/a/k/m and no-handle layout, entry guard plus post-crossing completion, no collecting before carrier/root publication; physical contiguity and all admitted callers |
+| RG-RESUME | source-refinement | models/gambit/lean/RestGcResumeEnvelope.lean | RG-RESUME:actual-source-refinement | GC/current binding -> POP_ARGS2 -> push p -> na=-1 -> actual structure entry first POLL; heap0 stack2 local envelope, slow poll invalidates; following frame8 and dynamic structure allocation separately admitted |
+| RG-LIFETIME | source-refinement | models/gambit/lean/RestGcResumeEnvelope.lean | RG-LIFETIME:actual-source-refinement | Last root/alias/continuation and reader drain precede actual region reuse/release; live rest pairs and detached carrier are not immediately free; overflow retry and unknown hold roots |
+| RG-PEAK | source-refinement | models/gambit/lean/RestGcResumeEnvelope.lean | RG-PEAK:actual-source-refinement | Actual completion/copy/restore/frame-growth/still/failure phase maxima and matched existing reuse baseline; Qg omits real fresh backing, no aggregate reserve or late refund credit |
+
+#+NAME: rest-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| RG-COMPLETE | RG-H |
+| RG-COMPLETE | RG-I |
+| RG-COMPLETE | GW-S |
+| RG-RESUME | RG-H |
+| RG-RESUME | RG-I |
+| RG-RESUME | RG-COMPLETE |
+| RG-RESUME | HR-BIND |
+| RG-RESUME | CO-S |
+| RG-LIFETIME | RG-H |
+| RG-LIFETIME | RG-I |
+| RG-LIFETIME | RG-COMPLETE |
+| RG-LIFETIME | IH-READERS |
+| RG-LIFETIME | HR-BIND |
+| RG-PEAK | RG-H |
+| RG-PEAK | RG-I |
+| RG-PEAK | RG-COMPLETE |
+| RG-PEAK | RG-RESUME |
+| RG-PEAK | RG-LIFETIME |
+| RG-PEAK | IH-MEMORY |
+| GT-CHECK | RG-COMPLETE |
+| GT-RESTORE | RG-RESUME |
+| GT-PEAK | RG-PEAK |

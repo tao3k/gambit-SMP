@@ -1,0 +1,148 @@
+#+TITLE: Concurrent resize source-root custody
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+
+* Architecture authority and process
+:PROPERTIES:
+:CUSTOM_ID: modern-c-resize-source-custody
+:AUTHORITY: GambitCopyCustody::resizeSources
+:PROCESS: source-replacement; independent native and formal qualification
+:STATUS: COMMIT-BLOCKED
+:END:
+The [[file:models/sysml/copy-custody.sysml][SysML authority]] owns component, handoff, evidence scope and benefit
+records. [[file:../../modeling/ascent/copy-custody.rules.scm][ASCENT]] joins exact source/profile/artifact/declaration identities;
+file association alone is insufficient. [[file:models/quint/resize_sources.qnt][Quint]] studies two origins and bounded
+serials. [[file:models/lean/ResizeSources.lean][Lean]] supplies conditional laws, without C implementation refinement.
+Models remain outside vendor. No commit is authorized while five gates remain open.
+
+* Real producer, transport and consumer chain
+:PROPERTIES:
+:CUSTOM_ID: resize-source-chain
+:END:
+Both =lib/_thread.scm ##cvmr= callers use the managed service emitted through
+=lib/_kernel.scm=. =setup.c current_vm_resize_request= publishes a request;
+=on_all_processors= raises the sync interrupt; =execute_sync_op_loop= copies and
+selects operations through =barrier_sync_op=. Resize is non-combining. A winning
+resize can collect in =___vm_resize_pstate= before physical reservation.
+The old loser kept its thunk in a C =arg[0]= copy; relocating the Scheme frame
+or winning ledger does not update that copy. =start_processor_execution=
+already reloads the destination root after its entry sync loop. This change
+replaces the distinct source side of that chain.
+
+#+NAME: resize-source-responsibilities
+| Boundary | Retired responsibility | New responsibility | Remaining premise |
+|----------+------------------------+--------------------+-------------------|
+| Registration | pointer in copied sync args | VM origin root and serial token | complete root view before collective |
+| Selection | use captured pointer | validate token and reload cell | no unregistered safe point |
+| Before resize GC | transient caller owns root | ledger takes rooted copy before GC | old-set barrier freezes cells |
+| Startup | infer Scheme completion from membership | context root and generation READY | qualified managed callback |
+| Source ACK | return/exception implicitly ends custody | CONSUMED plus transport drain | consistent collective branches |
+| Shrink | delete pending caller with C frame | reject and preserve source | caller handles busy failure |
+| Unknown exit | drop source or infer completion | retain VM cell and reject reuse | arbitrary OS owner death unresolved |
+
+* Publication and exceptional ownership
+:PROPERTIES:
+:CUSTOM_ID: resize-source-publication
+:END:
+IDLE -> WRITING -> QUEUED -> SELECTED -> CONSUMED -> WRITING -> IDLE.
+WRITING reserves the bounded slot. Root and serial are prepared without
+allocation or callback, then CAS publishes QUEUED. The tree carries
+=serial * MAX_PROCESSORS + origin= rather than a Scheme value. Only processor
+zero performs SELECTED/CONSUMED transitions. The next sync barrier and final
+NOOP drain precede source ACK. Same-origin reentry rejects without changing
+the outer cell. Serials survive processor cleanup/reuse; exhaustion refuses
+admission. Fresh VM setup initializes cells under exclusive lifecycle authority.
+
+Worker zero scans every fixed source cell in =mem.c mark_vm_scmobj=, including
+retained cells. Participant count does not define their storage lifetime.
+Registration from a frozen GC participant is rejected: cleanup callbacks cannot
+create roots behind the closed census. Old-set barriers exclude root mutation
+during relocation. CAS and collective barriers need a C memory-order refinement;
+finite QNT safety does not establish that refinement.
+
+A Gambit catcher covers the sync loop and qualification hook. Normally the loop
+defers processor-zero errors until requests drain. CONSUMED permits ACK before
+rethrow. An earlier or unknown escape retains the cell. POSIX cancellation is
+disabled over published custody and restored after its root decision. Raw native
+longjmp, asynchronous owner death and lost collectives remain unresolved. Such
+uncertainty can still block GC: retaining a root is not a stopped-owner receipt.
+
+* Whole-round capacity handoff
+:PROPERTIES:
+:CUSTOM_ID: resize-source-capacity
+:END:
+The fixed registry exists before GC, without allocation inside this transaction.
+All registered payload graphs join the closed root inventory. Aliased roots do
+not multiply the unique-source copying bound; Tail and frame duties remain
+separate. The [[file:round-capacity.org][pre-flip physical planner]] is still unimplemented in C.
+Its conditional target uses closed source U, reserved sections Q, stacks S,
+workers W, packing guarantee G and restore reserve R:
+H <= W + floor(U/G), P >= Q + S + H + R. Source ACK supplies neither G nor
+contiguous P. CAS-loss refund cannot refund an earlier section close or release
+an unknown retained interval. Registry freeze must precede inventory issuance.
+
+#+NAME: resize-source-benefit-and-peak
+| Mechanism | Eliminated work or risk | Added bound | Positive condition | Refutation or gap |
+|-----------+-------------------------+-------------+--------------------+-------------------|
+| VM source cells | repair of arbitrary copied C pointers | measured 1536 bytes at 64 x 8-byte ABI | every movable transport pointer replaced | unregistered caller breaks coverage |
+| Full-slot scan | loss of roots with membership | at most 64 root-cell visits/GC | stable lifetime worth scanning cost | no throughput claim |
+| Token and reload | stale thunk after competing GC | bounded checks and CAS | exact VM/serial lookup | C refinement open |
+| Completion guard | silent root loss on escape | catcher and retained cell | known completion closes after drain | retained graph can dominate peak |
+| Retirement gate | abandoned source activation | explicit busy failure | caller handles rejection | self-removal no longer guaranteed |
+| Capacity integration | pending root omitted from census | reachable payload counted once in U | unique copy plus physical receipt | no peak reduction by itself |
+
+No person-day estimate, heap multiplier, native speedup or measured RSS reduction
+is claimed. Two origins are an abstraction, not acceptance for every count.
+Production-profile and instrumented scheduling evidence remain distinct.
+
+* Counterexamples and qualification
+:PROPERTIES:
+:CUSTOM_ID: resize-source-counterexamples
+:END:
+- Two queued thunks, winner collects, loser uses old C copy: stale address.
+- ACK before drain: late token resolves a reused origin.
+- Shrink deletes pending caller: no return path releases its root.
+- Throw before transport admission: error code is no transfer receipt; retain.
+- Root retention without owner stop: reachability cannot authorize GC.
+- Serial wrap/reset during PSTATE reuse: old token acquires a new root.
+
+The checker retains positive and deliberately bad histories. Native qualification
+schedules real competing requests, forces actual collective GC before reload,
+checks both cells moved, rejects same-origin reentry, verifies payload entry and
+retires after ACK. Another scenario rejects pending-origin shrink. A controlled
+Gambit throw before transport must retain its root across GC; explicit process
+exit is safety evidence rather than clean shutdown. Results are recorded
+separately; this design alone establishes none of those native outcomes.
+
+* Learning and amplification
+:PROPERTIES:
+:CUSTOM_ID: resize-source-paper-learning
+:END:
+[[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][Retrofitting Parallelism onto OCaml]], section 3.4, uses Feeley's polling
+algorithm to bound safe-point distance and explains deadlock from non-allocating
+wait loops. Our inference is to design root ownership, participation and control
+flow together. A root container cannot replace participation. The managed
+readiness waiter services synchronous GC without holding a native lock.
+
+[[https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf][Retrofitting Effect Handlers onto OCaml]], section 3.1 and cleanup discussion,
+separates native-frame crossing from resumption and adopts one-shot restrictions.
+Gambit's multi-shot continuations remain. This slot is a native service activation;
+resumption requires fresh request admission and cannot revive consumed tokens.
+General reentry through native frames needs the separate FFI activation contract.
+
+* Remaining admission boundaries
+:PROPERTIES:
+:CUSTOM_ID: resize-source-admission-boundaries
+:END:
+This fixed registry avoids introducing an additional unbounded identity map;
+the original sync-tree path did not own such a map. Its actual retired role is
+transporting movable Scheme pointers in copied C arguments. Configured VM bytes
+are now 98216 rather than 96680. No existing runtime GC or allocator is retired.
+
+The candidate requires coherently rebuilt native consumers. The configured
+header layout changed; existing cross-layout binary plugins are not admitted
+by these tests. A shared module/layout identity and old native field writers
+remain part of the broader ModuleSpec/FFI migration. Machine serial exhaustion
+refuses further request admission, including shutdown through that service;
+it does not silently reset the namespace. A separate terminal lifecycle receipt
+would be needed to recover that exhausted service safely.

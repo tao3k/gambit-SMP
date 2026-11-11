@@ -1,0 +1,92 @@
+#+TITLE: RC / Marker Caller and Source Evidence
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN RC / Marker Caller and Source Evidence :ffi:
+:PROPERTIES:
+:ID: 97177a1c-47ef-58ab-852f-0f36871fb1e3
+:CUSTOM_ID: rc-marker-caller-and-source-evidence
+:SOURCE_PATH: docs/experimental/zig/rc-marker-caller-evidence.md
+:SOURCE_SHA256: d18507e71caed681712914d52387bf6526273b3589bbe307eeb363d745f714c8
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Research HEAD b67da6262a973a0ae898002d5c7f5be2d8b5a90d;
+Gambit HEAD 7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882. Exact working-copy
+sources, prior notes, fixture source and candidate patch are separate references
+in the research view; no runtime/native/model test or implementation occurs.
+
+*** 1. Direct Evidence
+:PROPERTIES:
+:ID: 97f52c34-f918-5257-9b44-f424edd1432c
+:CUSTOM_ID: 1-direct-evidence
+:END:
+
+| ID | Source anchor | Finding / limit |
+|-
+| RC01 | [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:278-306,674-827; [[file:../../../../../vendor/gambit/include/gambit.h.in][header]]:11309-11315 | Per-ps RC head; native header has prev/next/refcount/data, with data explicitly for C closures. Register/init/store/release operations are distinct and non-atomic in these bodies. Refcount does not prevent forced cleanup_rc. |
+| RC02 | [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:3969-3986,6813-6867,6938-7040 | Baseline mark_rc traces/update-writes data only, invoked in P0 block; processor-local root phases and outer barriers exist. Current candidate changes are a separate layer. |
+| RC03 | [[file:../../../../../vendor/gambit/include/gambit.h.in][header]]:8059-8086,11616-11625; [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:6526-6538; [[file:../../../../../vendor/gambit/lib/setup.c][setup.c]]:4716-4725 | saved[3] is already root storage, scanned for each processor; SAVE1/RESTORE1 overwrites/loads/clears slot 0, with no nested reservation stack. Slot use must be owned, not inferred from a VOID value. |
+| RC04 | [[file:../../../../../vendor/gambit/lib/_kernel.scm][_kernel.scm]]:2420-2445,2626-2830,3063-3078,3568-3583,4950-4970 | Eleven selected GC_SAVE1 allocation-window pairs in Scheme source already protect primitive fill/code/return/type values. Generated _kernel.c repeats those, not additional semantic clients. No SAVE2/3 call sites found in this bounded lib/gsc census; that does not reserve their slots privately. |
+| RC05 | [[file:../../../../../vendor/gambit/lib/c_intf.c][c_intf.c]]:6511-6562; [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:1563-1650,1712-1727,1778-1817,7045-7082; [[file:../../../../../vendor/gambit/lib/setup.c][setup.c]]:1012-1150,1183-1201 | Marker still allocation may request collective GC. Operation loop can execute other operations or throw; GC completion raises a pending interrupt. No direct user callback in marker body is established, nor a complete transitive no-clobber proof. |
+| RC06 | [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch][candidate patch]]:524-546,714-768,2010-2029 | Existing candidate adds target GC_SAVE1/RESTORE1, pre-marker SFUN admission/unwind cleanup, and post-marker TRY/marker/frame leave. Helper clears saved0 on allocation throw; direct ___run is not this lease helper. These are source premises, not newly implemented changes. |
+| RC07 | [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch][candidate patch]]:3160-3234,3439-3460,4390-4501 | Existing candidate per-processor RC mark and root-phase barrier; successful join -> RC/still splice -> donor cleanup. Transfer uses MISC_MEM_LOCK and states borrower-drain precondition. No proof all writers acquire that lock or every caller supplies drain. |
+| RC08 | [[file:../../../../../vendor/gambit/lib/setup.c][setup.c]]:770-840,3276-3424,6418-6430; [[file:../../../../../vendor/gambit/include/gambit.h.in][header]]:9979-10002,10043-10067; [[file:../../../../../vendor/gambit/lib/_kernel.scm][_kernel.scm]]:1019-1071 | Actual run callers include worker startup thunk and main module thunk, not just generated SFUN. Marker match/processor/repeated return and catcher restoration differ from lifetime lease and root ownership. |
+| RC09 | [[file:../../../../../vendor/gambit/lib/c_intf.c][c_intf.c]]:1630-1669,1731-1810,2887-2940,3233-3456,3579; [[file:../../../../../vendor/gambit/lib/os_dyn.c][os_dyn.c]]:637-675,744-791,1045-1059 | Native-byte RC, function RC data and architecture-guarded C closures differ. Raw helpers export no concurrent VM-lifetime contract. Global closure self must not be mistaken for per-invocation target identity. |
+| RC10 | [[file:../../../../../vendor/gambit/lib/os_io.c][os_io.c]]:3929-3969,4143-4160,7109-7142; [[file:../../../../../vendor/gambit/lib/os_files.c][os_files.c]]:1174-1202 | TLS context fields are native strings/options/SSL_CTX, initialized RC data stays FAL in reviewed body. Event MSG and Windows path are conditional native payloads; not new Darwin managed-root workloads. |
+| RC11 | [[file:../../../../../vendor/gambit/examples/tcltk/tcltk.scm][Tcl/Tk example]]:125-195,217-227,294-342 | ClientData retains a still vector through RC data; callback reads it into static c-define tcltk_call; deletion releases vector then RC. alloc_rc(0) is legacy erased-argument spelling. Setup input and callback/delete/event ownership remain profile/last-use premises. |
+| RC12 | [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:1487-1502,1680-1685,1730-1738,4210-4252,6775-6810 | Positive still refcount enqueues object for tracing and scans its fields; still address stability alone is weaker. Tcl still vector therefore has another real trace path for its movable child while that owner/refcount remains valid. |
+| RC13 | [[file:../../../../../models/gambit/native/retired_rc_root_survival.scm][existing fixture]]:1-81; [[file:../../../../../docs/experimental/root-registry-retirement.md][prior caller audit]]:94-147 | Fixture retains movable values on nonzero processors, requires successful shrink, checks movement/contents and releases from P0. Source only read, not run; prior native observations remain historical. It does not cover failed joins or all host interleavings. |
+| RC14 | [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch][candidate patch]]:4352-4395,4473-4501,4670-4734,5030-5103; [[file:../../../../../docs/saved-stack-root-closure-recipe.md][prior root closure]]:17-36 | Candidate has pending join retention/recovery/resize-cleanup guards and frame admission. Reduced active count plus retained donor storage does not itself prove next GC enumerates pending RC/still roots. No current native failure inferred; retained PERM processor storage is not an automatic recursive scan edge. |
+| RC15 | [[file:../../../../../vendor/gambit/lib/os_base.c][os_base.c]]:188-260; [[file:../../../../../vendor/gambit/include/gambit.h.in][header]]:15015-15023; [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:703-756 | RC bootstrap uses native allocation/header/list, distinct from still-vector allocation. Selected malloc path has no direct Scheme GC call; custom/debug/platform effects still need qualification. Native-allocation failure and extra headers are real MP3 costs. |
+| RC16 | [[file:../../../../../docs/experimental/root-registry-retirement.md][root-registry study]]:94-147; [[file:../../../../../docs/host-root-publication-recipe.md][host-root handoff]]:Bind To Existing Gambit Mechanisms First | Existing per-processor RC scan/transfer and movable-root fixture must be credited rather than reinvented. Their prior patch/hash/receipts are their own source identities. No new registry/model/native runner introduced. |
+| RC17 | [[file:../../../../../vendor/gambit/lib/setup.c][setup.c]]:805-836,984-995; [[file:../../../../../vendor/gambit/lib/_kernel.scm][_kernel.scm]]:2353-2360; [[file:../../../../../vendor/gambit/lib/_thread.scm][_thread.scm]]:3157-3159,6892-6894 | Worker copies thread data_scmobj before joining the initiating collective and only later calls run. Selected Scheme resize callers pass startup-processor procedure. Before extending to movable thunks, establish stable-label representation or protect/reload before that earlier collective; a later marker guard cannot repair an already stale argument. No new native defect or complete worker-thunk scan route is asserted. |
+
+The current cumulative patch read has SHA-256
+~8e6d68b028264cc9ae8225008af1ad3f09a6dfebe6d35268296c85e53fd0d23d~.
+The older root-registry document names a different mutex-return snapshot and
+hash; it is historical context, not an equality assertion. Existing fixture
+SHA-256 is ~faf3f9ac6cd2814b7e08adc27f6f847f077ad90226c43c5f3d3cfcbf0e8da945~.
+No native observation is issued from either hash or inspection.
+
+Searches covered named RC registration/data/refcount APIs in vendor lib/gsc,
+RC data users in vendor examples, saved-root users in lib/gsc, and named run/
+marker/retirement helpers in current baseline/candidate. The selected root
+fixture is inspected as existing source; no new fixture or duplicate control
+is created. Third-party clients, configured macro expansions and general
+supported concurrent native-handle APIs are not established by this census.
+
+*** 2. Primary Comparison and Language Rules
+:PROPERTIES:
+:ID: e29d2c89-0105-510a-af3c-5b55d4d5c96f
+:CUSTOM_ID: 2-primary-comparison-and-language-rules
+:END:
+
+| ID | Evidence | Use / limit |
+|-
+| RL01 | [[file:../../../../../vendor/ocaml/runtime/caml/memory.h][OCaml memory.h]]:240-307,317-400,439-455; [[file:../../../../../vendor/ocaml/runtime/callback.c][callback.c]]:387-431 | Local-root blocks form a linked extent and restore prior head on specified exits; callback example roots before effects/reloads heap addresses. Mature C supports these mechanics; do not import macros or assume CAMLdrop automatically handles Gambit's longjmp. |
+| RL02 | [[file:../../../../../vendor/ocaml/runtime/globroots.c][globroots.c]]:28-100,116-178; [[https://ocaml.org/manual/5.3/intfc.html][OCaml 5.3 C interface]], sections 5,7,12 | Root storage/update, execution lock and thread registration have separate rules; local values must be protected across possible GC. Gambit retains its own collector/continuation/member protocol. |
+| RL03 | [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][Retrofitting Parallelism onto OCaml, ICFP 2020]], sections 1.2-1.4,4.4 | Existing C-access assumptions constrain collector choices; serial semantics/cost/pause and parallel goals must be considered separately. Design deduction is to price the whole boundary, not borrow paper benchmarks or attribute GC correctness to Zig. |
+| RL04 | [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570 C11 draft]], section 7.13.2.1 paragraphs 2-3 | Nonlocal return requires a live same-thread saved environment; changed nonvolatile automatic locals of the setjmp function can become indeterminate. Cleanup state must have a valid representation/extent across the jump. This targeted read succeeded; earlier failed fetch notes remain unchanged. |
+| RL05 | [[https://ziglang.org/documentation/0.15.1/][Zig 0.15.1 reference]], tagged unions, error union, defer, lifetime/ownership; [[file:../../../../refactoring/zig/studies/zig-vs-modern-c-evidence.org][paired C evidence]]:P01-P04 | Zig can express private native variants/ordinary-return cleanup. Native pointer lifetime, Scheme GC, pstate scratch ownership and C nonlocal transfer remain obligations. Generated/opaque C support and strict compiler diagnostics are credited. |
+
+Local OCaml HEAD is 46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91, VERSION file
+5.5.1; published manual is 5.3. Web/PDF readings are external reading identities,
+not pinned downloaded bytes or a jointly qualified binary. Open Group longjmp
+pages failed twice (internal error, then 403); no claim relies on those failed
+fetches. N1570 supplies the targeted rule above. The proposed design, countermodels
+and costs are deductions, not claims made by those papers or API documents.
+
+RQ01-RQ06 remain open architecture obligations. Static declaration checks and
+D2 rendering establish document integrity only. Future runtime admission has no
+new witness and no implementation/native/model test authorization.

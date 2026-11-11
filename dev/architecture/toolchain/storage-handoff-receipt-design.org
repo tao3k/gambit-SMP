@@ -1,0 +1,285 @@
+#+TITLE: Storage Handoff Receipt, Still Capacity and Foreign Release Authority
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Decision and scope :modern_c:gambit:gerbil:gc:smp:
+:PROPERTIES:
+:CUSTOM_ID: storage-handoff-receipt
+:AUTHORITY: StorageHandoff
+:STATUS: conditional-local-models-source-platform-open
+:EVIDENCE_CLASS: source-and-local-formal-research
+:END:
+
+Modern C is the runtime foundation. Gambit owns Scheme object representation,
+roots, continuation and collection; Gerbil's incremental compiler owns semantic
+results, sessions and scheduling. This study closes a design boundary left open
+by [[file:vm-root-registry-design.org][VM RootRegistry]]: a root slot surviving processor exit does not preserve the
+allocation that contains its payload, nor an RC trampoline used to reach it.
+StorageHandoffReceipt is a proposed same-VM storage authority transfer, not an
+existing function, a join result, or a claim that the current source is safe to
+shrink while arbitrary native callbacks remain active.
+
+[[file:models/sysml/storage-handoff-receipt.sysml][Native SysML]] is canonical for five caller families, five protocol cuts, five
+source/action/lemma routes, four refinement duties, three benefit rows and seven
+open gates. [[file:../../modeling/tools/storage-handoff-receipt-study.py][Python orchestration]] evaluates that model with sysml, then projects
+[[file:storage-handoff-receipt-matrix.org][the matrix]], [[file:diagrams/storage-handoff-receipt.d2][D2]] / [[file:diagrams/storage-handoff-receipt.svg][rendering]] and [[file:../../../models/build/storage_handoff_parameters.qnt][QNT parameters]]. It evaluates [[file:../../modeling/ascent/storage-handoff-receipt.rules.scm][actual ASCENT DSL]]
+against source/action/lemma bindings and exact subject hashes, not file proximity.
+[[file:../../../models/build/storage_handoff_receipt.qnt][QNT]], [[file:../../../models/build/StorageHandoffReceipt.lean][Lean]] and [[file:../../../evidence/research/storage-handoff-receipt/checks.json][local receipts]] remain separate from source/native qualification.
+No runtime implementation, compiler generation, native test or performance test.
+
+* RESEARCH Real allocations and users :source:
+:PROPERTIES:
+:CUSTOM_ID: storage-real-users
+:COMPLETENESS: concrete-caller-families-not-whole-program-closure
+:END:
+
+| Source path | What actually survives | Required responsibility |
+|---+---+---|
+| [[file:../../../vendor/gambit/lib/os_dyn.c::748][make_c_closure]] at 764-769 | RC native code allocation stores Scheme proc in data; supported C_CLOSURE_CODE_SIZE required | Preserve RC executable allocation and mutable root location; proc need not be still |
+| [[file:../../../vendor/gambit/lib/os_dyn.c::1047][c_closure_release]]; [[file:../../../vendor/gambit/lib/c_intf.c::1731][release_function]] | Both reach release_rc for supported C closure | Admission, in-flight callback pin and final RC release need one authority; current c_closure_self is global with thread-local TODO at os_dyn.c:744 |
+| [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::297][Tcl command creation]] | RC cd plus still vector containing Scheme proc; make_vector failure releases cd | Both allocation domains must transfer, not just data_rc slot |
+| [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::136][scheme_call_cmd]] | Reads data_rc, calls tcltk_call; result string passed to Tcl with release_string | In-flight callback roots/pins and result-string release are distinct obligations |
+| [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::188][scheme_delete_cmd]] | release_scmobj(data_rc(cd)), then release_rc(cd) | Preserve ordering and exactly one logical deletion; deleting command is not proof in-flight callback roots retired |
+| [[file:../../../vendor/gambit/lib/c_intf.c::5156][POINTER_to_SCMOBJ]] | Still foreign wrapper initialized with tags, release_fn, ptr at 5180-5189 | Payload initialized/rooted before publication; native resource ownership follows actual release function contract |
+| [[file:../../../vendor/gambit/lib/c_intf.c::1683][release_foreign]] | Clears release_fn and ptr before invoking release_fn(ptr); returns callback error | Sequential once-attempt behavior, not atomic concurrent exactly-once release or proof of external resource destruction |
+| [[file:../../../vendor/gambit/lib/mem.c::4387][free_unmarked_still_objs]] and [[file:../../../vendor/gambit/lib/mem.c::4432][free_still_objs]] | Both call release_foreign then free Scheme allocation without handling its return | Existing synchronous sweep semantics differs from proposed deferred destructor custody |
+
+The Tcl example is not asserted to wrap its cd as a foreign object; the C closure
+is not asserted to put its proc in still storage. These are distinct real consumers
+of a common storage authority. FUNCTION_to_SCMOBJ at c_intf.c:5228-5252 explicitly
+rejects arbitrary nonnull C function conversion; it cannot supply a fabricated
+foreign-wrapper-to-closure chain. Concrete conversion and release contracts must
+be classified individually.
+
+Tcl_CreateCommand's NULL result at lines 332-338 is translated to false without an
+explicit cleanup branch in this example. Whether a given Tcl implementation invokes
+the deletion callback on each failure path requires independently matched Tcl source
+and configuration. It remains unresolved here. Do not free cd on a guessed failure
+rule, which could double-release it. A future constructor must return a committed
+ownership outcome or preserve a pending creation obligation through unknown results.
+
+* RESEARCH Three ledgers, not one copied counter :capacity:
+:PROPERTIES:
+:CUSTOM_ID: storage-capacity-ledgers
+:END:
+
+[[file:../../../vendor/gambit/lib/mem.c::1556][alloc_scmobj_still]] computes full words including STILL_BODY. Small allocations
+increase words_still_objs_deferred (1605); the threshold path charges VM
+occupied_words_still by words plus deferred (1624), then clears deferred (1633).
+The physical list insertion follows at 1681-1690. Native allocation failure after
+charging subtracts only the attempted words at 1668: prior allocated objects remain
+charged. GC can reserve requested_words_still as if live at [[file:../../../vendor/gambit/lib/mem.c::6367][6367-6368]], with its own
+retry/refund paths; that reservation is not a linked initialized object.
+
+[[file:../../../vendor/gambit/lib/mem.c::6800][GC setup]] prepares still scan lists and folds deferred words into a local counter.
+[[file:../../../vendor/gambit/lib/mem.c::4410][Sweep]] recomputes words_still_objs from surviving STILL_LENGTH fields, then resets
+deferred. [[file:../../../vendor/gambit/lib/mem.c::6268][The VM census]] sums only current processor counters. In particular,
+words_still_objs is not maintained as a complete current chain-length census on
+every allocation. Adding its value to deferred and treating this as an exact
+handoff inventory between collections is unjustified.
+
+| Ledger | Proposed meaning and invariant | Source refinement still required |
+|---+---+---|
+| Physical | L(A)=sum(STILL_LENGTH) over exact distinct linked blocks of arena A, including header/alignment convention | Acyclic links, exact membership, initialized bodies, active construction excluded |
+| Capacity | At a qualified quiescent cut: VM charged C + deferred D = sum L(active arenas) + unmaterialized reserves Q | Reconcile actual historical counters and threshold charges; Q must settle before transfer; over/under-reservation policy explicit |
+| Native RC | Exact native allocation identities and links, independent of still word budget | RC bytes/code permissions and allocator origin preserved; no claim RC bytes were part of occupied_words_still |
+| Statistics | Historical allocated bytes and per-processor differential snapshots | [[file:../../../vendor/gambit/lib/mem.c::367][bytes_occupied]], [[file:../../../vendor/gambit/lib/mem.c::7000][pre-GC addition]], [[file:../../../vendor/gambit/lib/mem.c::7049][post-GC subtraction]] and [[file:../../../vendor/gambit/lib/mem.c::7521][reported bytes]] need baseline rebasing; transfer is not new allocation |
+
+The QNT charged field is a proposed reconciled capacity share, NOT an alias for
+the existing words_still_objs. Its lengths 5 and 7 and reserve 3 are symbolic
+units chosen to expose double charge/refund; they are not measured object sizes,
+runtime cost estimates or claimed field values. The model excludes statistics
+and allocator metadata; both remain source obligations.
+
+At a no-reservation cut, transfer charged share c and deferred d from source S
+to target T: remove (c,d) from S, add c+d to T, increase VM charged by d, clear
+transferred deferred. Physical total does not change. If a preceding GC already
+folded d, it is zero at this cut and must not be added again. A fresh exact
+inventory or a maintained per-arena ledger is necessary; old local counters alone
+do not prove the equality. A failed allocation settles its own reserve first.
+Moving storage never increments historical allocation totals.
+
+* RESEARCH Receipt schema and issuance cut :contract:
+:PROPERTIES:
+:CUSTOM_ID: storage-issuance
+:END:
+
+#+begin_src text :eval never
+StorageHandoffReceipt = {
+  VM identity + incarnation, TransferId, source arena identity + generation,
+  target VM arena identity, exact still and RC membership identities,
+  root-domain receipt and admitted transitive outgoing-edge coverage,
+  GC epoch + admission/quiescence cut + scanner/census authority,
+  physical length certificate, charged/deferred/reserve settlement delta,
+  statistics rebase obligation, release-duty identities + qualified owner lane,
+  transferred leases/native holders + unresolved outcome custody,
+  durable commit identity binding all above and exact receipt lookup
+}
+#+end_src
+
+This design transfers a whole retired arena, preserving addresses and object
+identity. It does not copy the reachable Scheme graph. Outgoing references from
+still objects and RC data must remain covered by the owning VM's moving collector;
+preserving a still address does not preserve a stale movable referent. Partial
+partition transfer requires an additional proved partition and edge contract; it
+is not admitted by this receipt. Same-VM transfer grants no cross-VM graph sharing.
+
+| Cut | Admission condition | Failure or unknown custody |
+|---+---+---|
+| Close | Stop new allocation, data/refcount/list writers, new raw borrows and creator-bound callback entry; accepted work can complete/cancel | Creator retains chain and all pending native-construction ownership |
+| Drain | No raw pointer quantum, accepted writer, constructor, temporary requested reserve or source-only scanner ticket remains | Keep processor/arena participation alive; do not wait holding allocator/registry/GC locks |
+| Seal | Exact arena inventory, root coverage, GC epoch and generation; destination scanner/census/foreign owner qualified; no creator-only affinity debt | Candidate is not a receipt; failure retains unchanged source authority |
+| Commit | Recheck seal epoch/generation; destination accepts full storage, RC, accounting, roots, release duty and durable receipt in one serialized authority transition | Before commit source; after commit target; unknown response requires TransferId lookup, never a second unlink/charge |
+| Depart | No source-only work/root/borrow remains; target owns all retained allocations and release duties; empty/excluded source cleanup domain | Durable commit may authorize exit without caller ack; join error never substitutes for commit |
+| Reclaim | All native/continuation leases, raw permits, GC tickets and unresolved deliveries settled; foreign duties completed or independently settled | Retired VM arena retains storage/tasks; timeout is not a release receipt |
+
+The commit linearization point is an authoritative state publication, not a claim
+that arbitrarily many linked-list writes are hardware atomic. Under one lifecycle
+authority, reserve destination metadata before the cut, exclude source and target
+scanners/cleanup, install list/census/duty changes, then publish committed descriptor
+with C release ordering. Readers acquire that authority before using its plain
+fields. All fallible allocation/registration precedes commit. No Tcl call, arbitrary
+destructor, Scheme callback or GC-triggering allocation occurs inside that commit
+critical section. If a target can fail after partial externally visible installation,
+it needs a separate recoverable installation protocol; it cannot issue this receipt.
+
+Acquire/release on the descriptor does not legalize concurrent plain SCMOBJ writes,
+list mutations or RC refcount operations. Per-domain exclusivity plus root-update
+phase participation must establish those happens-before edges. The QNT model is
+sequentially consistent and assumes that single authority; a C memory-model
+refinement is still open, not proved by its histories.
+
+* RESEARCH GC, processor departure and release owner order :lifecycle:
+:PROPERTIES:
+:CUSTOM_ID: storage-gc-exit-order
+:END:
+
+The proposed order is close admission -> settle accepted work and allocation
+reserves -> reach an inter-epoch cut -> seal -> commit authority -> permit source
+cleanup -> update participant membership/depart/join. If GC wins before commit,
+source retains its scan responsibility, GC completes, old seal is invalid, and
+inventory/accounting are revalidated at the new epoch. If commit wins, the next
+GC discovers the VM arena independently of processor_count. Existing resize
+[[file:../../../vendor/gambit/lib/setup.c::918][barrier/count/depart]] must be integrated with this order, not merely wrapped after
+cleanup. A processor waiting to transfer cannot withhold a GC participation that
+the transfer itself requires; it remains participant or makes a proved cooperative
+handoff. No progress theorem for this scheduler is claimed.
+
+The target scanner must cover setup_still_objs_to_scan, scan_still_objs_to_scan,
+marking of every still body and outgoing movable references, weak/finalization and
+sweep classification, plus live capacity census. Existing [[file:../../../vendor/gambit/lib/mem.c::4210][still setup]] roots positive
+refcount objects by pushing them onto to_scan; merely keeping their storage without
+this traversal loses outgoing Scheme roots. An independent worker cannot inherit
+an arbitrary destructor's thread affinity. Preserve a qualified release lane, queue
+a separately rooted immutable release task, or reject transfer while it needs the
+departing thread. A pinned native callback must finish or transfer a complete safe
+continuation/VM participation contract; an address-stable arena is insufficient.
+
+Existing lifetime leases may remain when storage moves if they resolve through
+VM-owned authority and their release lane remains valid. Raw dereferences must
+drain before handoff/GC; nonmoving still addresses do not exempt pointers into
+movable payloads. Unknown commit acknowledgement retains target custody and exact
+receipt; it need not keep the creator processor alive. Unknown native creation,
+callback retirement or destructor result is a different unresolved duty and must
+remain explicitly owned. A final VM shutdown cannot claim all memory reclaimed
+while any of these duties remain unknown.
+
+* RESEARCH Foreign errors and counterexamples :failure:
+:PROPERTIES:
+:CUSTOM_ID: storage-counterexamples
+:END:
+
+| History | Failure | Required rule |
+|---+---+---|
+| Root transferred, PSTATE still/RC chain unchanged, processor cleanup | Live root points into freed storage or executable RC code | Transfer/exclude both physical domains before legacy cleanup |
+| Target list transferred, processor_count shrinks, old census only | Target live words disappear from capacity computation | VM arena registry participates in scan AND capacity enumeration |
+| Deferred charge folded by GC, stale pre-GC receipt adds it again | Double capacity charge | Epoch invalidates seal; reconcile fresh ledger before commit |
+| Allocation reserved words but not linked; seal counts reserve as object | Phantom allocation or wrong refund owner | Construction settles success/failure before issuing seal |
+| Transfer accepted, response lost, caller retries unlink/charge | Duplicate detach, lost object or duplicate charge | Exact TransferId receipt lookup, no side effects on delivery retry |
+| Native callback still running, Tcl delete drops final logical references | Live raw frame/data use outlasts allocation | Admission closure plus in-flight callback pin/root retirement |
+| release_fn returns error after releasing some external resource | Wrapper fields already cleared; blind retry may double release | Separate task outcome and resource-specific settlement; no generic retry |
+| Whole arena includes one unbounded lease | All unrelated blocks remain retained | Account retention amplification; finer partition requires new proof |
+
+New deferred-release architecture is an explicit behavior change relative to old
+synchronous collector release. It needs an adapter preserving required ordering,
+error visibility and thread/VM affinity, with resource-specific admission. The
+model's error state retains custody, and settleRelease assumes external evidence;
+it does not prove that such evidence or recovery exists for every release_fn.
+Old code clears fields before invoking a callback but supplies no concurrent
+serialization or asynchronous completion receipt. Do not silently reinterpret it.
+
+* RESEARCH Actual formal chain and remaining gaps :sysml:ascent:qnt:lean:
+:PROPERTIES:
+:CUSTOM_ID: storage-formal-chain
+:END:
+
+| Need | Local subject and check | Unclosed refinement |
+|---+---+---|
+| SH-H | 26 QNT histories, twelve deliberate controls; 200 bounded sampled runs across two initial lease choices, max 80 steps | Two still blocks/two RC holders/one foreign duty; no slot reuse, full heap, C weak memory or liveness proof |
+| SH-I | Twelve Lean boundary lemmas: raw/reserve seal exclusion, epoch invalidation, accounting identity, exact chain/RC detach, exit guard, lease/unknown/error reclaim exclusion, work threshold | Local conditional lemmas; no general step induction or complete refinement proof |
+| SH-S | Five canonical source/action/lemma routes checked by actual local ASCENT; dependency on VR-S | Exact source writer/borrower closure, scanner/sweep/census, actual release/creation and statistics rebase |
+| SH-E | Independent environment need and seven false qualification gates | Configured trampoline/Tcl/GC ABI, native memory order, repository host attestation, native correctness and measured benefit |
+
+QNT commit is atomic by assumption, carrying the complete chain/RC/capacity/receipt
+transition. Rollback-before-commit means unchanged source custody; arbitrary partial
+native writes are not modeled as safely recoverable. GC enumerates whole retained
+arenas and does not perform actual mark/sweep or movement. Roots in the model are
+qualified handles; actual moving root writeback comes from the unresolved parent
+contract. The release lane is assumed available; owner affinity failure rejects
+admission in the source contract, rather than being proved away by a Boolean.
+
+The first sampled model run exposed a genuine model defect: repeating reclamation
+after a later GC overwrote the freed-identity set with an empty target set. The
+retained counterexample is [[file:../../../evidence/research/storage-handoff-receipt/sample-counterexample.json][recorded independently]]. Reclamation history now grows
+monotonically, with a repeat-after-GC regression and a deliberate forget-history
+control. This is a model correction, not evidence of a native source failure.
+
+Controls deliberately expose exit without handoff, double charge, partial detach,
+omitted scan, free under lease, unknown-ack free, RC left behind, duplicate release,
+legacy cleanup after transfer, omitted target capacity, forgotten reclamation history
+and a raw borrower admitted during frozen GC. They are expected
+counterexamples, not repaired runtime failures. Eight ASCENT cases include missing,
+stale and wrong-scope receipts, an artificial all-qualified case, false real gate,
+missing anchor and missing model step. Only the artificial case can derive
+candidate. Source and native gates stay open; inherited host attestation failure
+is retained without retrying the unchanged route. Source census is syntactic
+evidence of real seams, not proof of complete indirect or reflective callers.
+
+* RESEARCH Retirement, leverage and net benefit :benefit:migration:
+:PROPERTIES:
+:CUSTOM_ID: storage-benefit
+:END:
+
+Retire per-PSTATE storage destruction authority only for migrated arenas. First
+inventory writers/users and pin/affinity requirements; introduce VM arena scan and
+ledger authority; qualify root/RC adapters and shutdown; then integrate shrink and
+exact commit receipts. Only after all accepted users migrate can their old
+free_still_objs/cleanup_rc ownership, processor-only census membership and duplicate
+root authorities retire. Legacy unmanaged allocations keep their old path until
+classified. Keeping both as independent owners of the same allocation is forbidden.
+
+This refactor enables long-lived compiler results and native support to outlive
+the processor running a particular session. It can avoid copying graphs merely
+to escape processor affinity, and avoid repeated root re-registration per borrower.
+It does not remove Scheme GC, replace dynamic semantics, establish macro purity,
+or by itself make two compilation sessions independent. Whole-arena handoff is
+an architectural simplification with retention cost, not a universal optimum.
+
+| Metric | Avoidable work | Added cost / positive boundary |
+|---+---+---|
+| Work | Graph copy X and redundant root rebinding B solely caused by creator lifetime | Inventory I + commit H + lease/receipt V + release coordination D; require X+B > I+H+V+D |
+| Span | Creator-affinity serialization A on actual compiler critical path | Quiescence/GC wait Q plus release lane span J; require removed A > added critical-path Q+J |
+| GC | Duplicate or uncertain discovery can be removed | Scanning N still blocks and outgoing edges remains; no asymptotic speedup claim |
+| Capacity | Wrong double charging or dropped census responsibility eliminated structurally | Stable arena metadata, capacity reconciliation and statistics rebase remain mandatory |
+| Retention | Graph copy duplication may fall | Whole arena retains bytes P while actual leased live subset L may be small; amplification P/L can be unbounded |
+| Language choice | One modern C lifecycle authority shared by necessary components | Zig has no demonstrated unique saving for these semantics; adding Zig does not discharge any GC/FFI/affinity duty |
+
+These are symbolic thresholds and accounting obligations, not invented speedup
+numbers. When no graph copying/rebinding was required, X=B=0 and this component
+has no positive work saving from that mechanism; its value can still be necessary
+correctness and enabling independent sessions. Long-lived leases, frequent epoch
+invalidation or resource-specific release lanes can defeat span/memory benefit.
+The [[file:storage-handoff-receipt-matrix.org][canonical matrix]] records these costs alongside unresolved admission, rather than
+declaring modernization profitable before the source and workload conditions hold.

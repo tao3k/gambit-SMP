@@ -1,0 +1,93 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "modern-c-bazel-source-core",
+  "scope": "Exact modern-c source and existing Darwin Bazel profile; pre-generated seed then source regeneration; no patch-result inheritance; complete two-pass and semantic acceptance remain separate",
+  "budgetSeconds": 600,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/research/modern-c-bootstrap/source.lock.json",
+    "evidence/research/modern-c-bootstrap/source-overlay.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/research/modern-c-bootstrap/source.lock.json",
+        "buildWorkspace": "gambit-core"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "source-core",
+      "capability": "gambit.source-core",
+      "dependsOn": [
+        "seed"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "source-core"
+      ],
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

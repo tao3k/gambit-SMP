@@ -1,0 +1,116 @@
+{
+  "schema": "retirement-progress.patch-plan.v1",
+  "status": "proposed-not-applied",
+  "architectureDelta": {
+    "prior": "one serial blocking native reaper per VM",
+    "candidate": "one fixed persistent native join lane per admitted donor slot",
+    "requiresContractReview": true
+  },
+  "functions": [
+    {
+      "actual": "setup.c:execute_sync_op / OP_GARBAGE_COLLECT",
+      "proposed": "___retirement_service_pstate",
+      "order": [
+        "save GC outcome",
+        "return fully from ___garbage_collect_pstate",
+        "common service entry fence",
+        "P0 rotating independent mailbox selection",
+        "all-member preflight AND",
+        "P0 infallible GC-excluded transfer",
+        "common result and end fence",
+        "restore outer operation result"
+      ],
+      "forbidden": [
+        "Scheme callbacks",
+        "OS join",
+        "recursive on_all_processors",
+        "local early return"
+      ]
+    },
+    {
+      "actual": "setup.c:execute_sync_op_loop / on_all_processors",
+      "proposed": "standalone retirement service request",
+      "opcodes": {
+        "OP_VM_RETIRE_SERVICE": "OP_MAKE(7,0)=28",
+        "OP_VM_RETIRE_GUARD": "OP_MAKE(8,COMBINING_AND)=33"
+      },
+      "reviewState": "unused in bound table; proposed only",
+      "requirements": [
+        "preserve losing outer requests",
+        "independent quiet-time polling",
+        "common epoch/phase checked result",
+        "no count change inside service"
+      ]
+    },
+    {
+      "actual": "lib/os_thread.c:493,548",
+      "proposed": "___retirement_reserve_lanes / ___retirement_join_lane_main",
+      "order": [
+        "reserve distinct lane and VM pin before commit",
+        "single native key claim",
+        "one real ___thread_join",
+        "publish exact result as final donor access",
+        "wait on separate persistent lane control"
+      ],
+      "capacityFailure": "precommit refusal; no accepted donor without lane"
+    },
+    {
+      "actual": "mem.c:5257 ___transfer_mem_pstate",
+      "proposed": "prevalidated splice or frozen-tail variant",
+      "requirements": [
+        "per-donor join0",
+        "per-donor borrower/scan grace",
+        "destination install and domain removal atomic to GC",
+        "no recoverable error after first splice write",
+        "no global all-donors-done gate"
+      ]
+    }
+  ],
+  "newFields": [
+    "retirement_lanes",
+    "lane_capacity",
+    "vm_helper_pins",
+    "lane_id",
+    "lane_generation",
+    "service_seq",
+    "service_cursor",
+    "service_phase",
+    "frozen_still_tail if O(1) window required",
+    "retirement_service_debt"
+  ],
+  "progressPremises": [
+    "own donor exits and join returns0",
+    "own lane and collective get scheduled",
+    "own borrowers drain",
+    "entered GC and service transcript complete",
+    "no unbounded VM-fatal interruption"
+  ],
+  "notRequiredForDonorB": [
+    "donorA exits",
+    "donorA borrowers drain",
+    "GC becomes silent"
+  ],
+  "notProven": [
+    "all C entry contexts",
+    "C11/refinement and generated frame maps",
+    "lane startup/STOP failure protocol",
+    "frozen-tail validity",
+    "whole-VM success with permanent blocked worker",
+    "first-eight preservation",
+    "native latency and throughput",
+    "direct resize-GC stable-cohort service-debt handoff"
+  ],
+  "runtimeModified": false,
+  "nativeAdmitted": false,
+  "directResizeGcException": {
+    "actual": "setup.c:1086 ___vm_resize_pstate -> ___garbage_collect_pstate",
+    "forbidden": "unconditional transfer during membership/heap transaction",
+    "required": [
+      "latch retirement_service_debt",
+      "handoff to stable surviving cohort after full resize agreement",
+      "normal service collective, no guessed common return barrier",
+      "lifecycle admission must not indefinitely overtake debt"
+    ],
+    "modelCovered": false
+  }
+}

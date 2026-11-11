@@ -4,6 +4,7 @@ import unittest
 
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.protocol_evidence import relative
+from gambit_smp.output_observations import recorded
 
 
 class InductionObservationTests(unittest.TestCase):
@@ -90,12 +91,12 @@ class InductionObservationTests(unittest.TestCase):
                     if "results" in saved and saved.get("schema") == "gambit-induction-matrix-result.v1":
                         failures = [item for item in saved["results"] if item["counterexample"]]
                         self.assertTrue(failures)
-                        log = relative(path.parent, failures[0]["log"]).read_text()
+                        output = recorded(ROOT, relative(path.parent, failures[0]['log']))
                     else:
                         self.assertTrue(saved["closureCounterexample"])
-                        log = relative(path.parent, saved["log"]).read_text()
-                    self.assertIn("[State 0]", log)
-                    self.assertIn("[State 1]", log)
+                        output = recorded(ROOT, relative(path.parent, saved['log']))
+                    self.assertIn(0, output['traceStateIndices'])
+                    self.assertIn(1, output['traceStateIndices'])
 
     def test_preservation_is_only_the_named_original_transition(self):
         catalog = json.loads((ROOT / "evidence/induction-observations.json").read_text())

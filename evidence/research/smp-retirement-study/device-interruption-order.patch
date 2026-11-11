@@ -1,0 +1,96 @@
+--- a/lib/os_io.c
++++ b/lib/os_io.c
+@@ -185,6 +185,14 @@
+   return ___FIX(___NO_ERR);
+ }
+ 
++
++/* POSIX close EINTR does not authorize another close of the same number.
++   Device ownership retains the first error rather than retrying a reused fd. */
++#ifdef USE_POSIX
++#define DEVICE_CLOSE_SOCKET_ONCE(s) close(s)
++#else
++#define DEVICE_CLOSE_SOCKET_ONCE(s) CLOSE_SOCKET(s)
++#endif
+ 
+ ___SCMOBJ ___device_group_cleanup_checked
+    ___P((___device_group *dgroup),(dgroup)
+@@ -1787,6 +1795,7 @@
+ 
+       devs[0] = self;
+       e = ___device_select (devs, 1, 0, 0, ___time_mod.time_pos_infinity);
++      if (e == ___FIX(___ERRNO_ERR(EINTR))) continue;
+       if (e != ___FIX(___NO_ERR))
+         { self->cleanup_error = e; return e; }
+     }
+@@ -1801,6 +1810,7 @@
+ 
+       devs[0] = self;
+       e = ___device_select (devs, 0, 1, 0, ___time_mod.time_pos_infinity);
++      if (e == ___FIX(___ERRNO_ERR(EINTR))) continue;
+       if (e != ___FIX(___NO_ERR))
+         { self->cleanup_error = e; return e; }
+     }
+@@ -3120,7 +3130,7 @@
+ #ifdef USE_POSIX
+           if (d->fd_rd >= 0 &&
+               d->fd_rd != d->fd_wr &&
+-              ___close_no_EINTR (d->fd_rd) < 0)
++              close (d->fd_rd) < 0)
+             return err_code_from_errno ();
+ #endif
+ 
+@@ -3143,7 +3153,7 @@
+         {
+ #ifdef USE_POSIX
+           if (d->fd_wr >= 0 &&
+-              ___close_no_EINTR (d->fd_wr) < 0)
++              close (d->fd_wr) < 0)
+             return err_code_from_errno ();
+ #endif
+ 
+@@ -5067,7 +5077,7 @@
+       if ((d->base.base.close_direction & (___DIRECTION_RD|___DIRECTION_WR))
+           == (___DIRECTION_RD|___DIRECTION_WR))
+         {
+-          if (CLOSE_SOCKET(d->s) != 0)
++          if (DEVICE_CLOSE_SOCKET_ONCE(d->s) != 0)
+             return ERR_CODE_FROM_SOCKET_CALL;
+         }
+     }
+@@ -6004,7 +6014,7 @@
+       if ((d->base.close_direction & ___DIRECTION_RD)
+           == ___DIRECTION_RD)
+         {
+-          if (CLOSE_SOCKET(d->s) != 0)
++          if (DEVICE_CLOSE_SOCKET_ONCE(d->s) != 0)
+             return ERR_CODE_FROM_SOCKET_CALL;
+         }
+     }
+@@ -6355,7 +6365,7 @@
+       if ((d->base.close_direction & (___DIRECTION_RD|___DIRECTION_WR))
+           == (___DIRECTION_RD|___DIRECTION_WR))
+         {
+-          if (CLOSE_SOCKET(d->s) != 0)
++          if (DEVICE_CLOSE_SOCKET_ONCE(d->s) != 0)
+             return ERR_CODE_FROM_SOCKET_CALL;
+         }
+     }
+@@ -7402,7 +7412,7 @@
+ #endif
+ 
+ #ifdef USE_POSIX
+-          if (___close_no_EINTR (d->fd) < 0)
++          if (close (d->fd) < 0)
+             return err_code_from_errno ();
+ #endif
+ 
+@@ -10294,7 +10304,7 @@
+       d->base.write_stage = ___STAGE_CLOSED;
+ 
+ #ifdef USE_POSIX
+-      if (___close_no_EINTR (d->fd) < 0)
++      if (close (d->fd) < 0)
+         return err_code_from_errno ();
+ #endif
+ 

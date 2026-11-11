@@ -1,0 +1,124 @@
+{
+  "formalBoundaries": [
+    {
+      "id": "CS-SCHEDULE",
+      "owner": "quint",
+      "artifact": "dev/architecture/runtime/control/models/quint/continuation_segments.qnt",
+      "declaration": "safe",
+      "scope": "Existing continuation GC/root/wind/reentry schedules only; no mailbox queue theorem"
+    },
+    {
+      "id": "CS-COHERENCE",
+      "owner": "lean",
+      "artifact": "dev/architecture/runtime/control/models/lean/ContinuationSegments.lean",
+      "declaration": "issuedViewRemainsCoherent",
+      "scope": "Authentic issued root-view relocation only; no scheduler/queue theorem"
+    }
+  ],
+  "responsibilities": [
+    {
+      "id": "identity",
+      "source": "vendor/gambit/lib/_thread.scm",
+      "anchor": "##thread-mailbox-get!",
+      "invariant": "Allocate candidate outside the target thread lock; recheck and publish one mailbox identity under that lock; no nested mailbox permit",
+      "retires": "Unsynchronized first lookup and double-check publication",
+      "added": "One thread lock/unlock for existing identity; two on cold lookup, losing candidates remain GC owned"
+    },
+    {
+      "id": "cell",
+      "source": "vendor/gambit/lib/_thread.scm",
+      "anchor": "##thread-send",
+      "invariant": "Detached initialized cons and payload remain caller/frame roots before publication, across heap checks and mutex wait; successful link transfers reachability to mailbox",
+      "retires": "Queue node allocation inside mutation permit",
+      "added": "Same one cons per message, live across wait; no extra per-message node or identity table"
+    },
+    {
+      "id": "queue",
+      "source": "vendor/gambit/lib/_fifo#.scm",
+      "anchor": "macro-fifo-link-tail-cell!",
+      "invariant": "Mailbox permit serializes head, tail and cursor; initialized cell link has two pointer stores, no allocation or explicit safe point between stores; failed wait has not modified queue",
+      "retires": "Unlocked nonempty extraction and unguarded selective cursor mutation",
+      "added": "One mailbox acquire/release per nonempty receive, peek, extract or rewind; existing send already paid this permit"
+    },
+    {
+      "id": "roots",
+      "source": "vendor/gambit/lib/memory/root-origins.inc",
+      "anchor": "mark_execution_roots",
+      "invariant": "Detached cell is traced through the blocked sender frame; mailbox graph through target thread root; returned payload through receiver frame. Whole physical writer stop remains a prerequisite",
+      "retires": "No GC scanner path retired by fixing mutator publication",
+      "added": "Native blocked-cell GC witness and generated-frame root refinement; no additional collector lock"
+    },
+    {
+      "id": "scan",
+      "source": "vendor/gambit/lib/memory/object-scanning.inc",
+      "anchor": "scan",
+      "invariant": "Unique object scan ownership is independent of mailbox mutation ownership; scanner never acquires mailbox permit, preventing stopped-owner wait cycles",
+      "retires": "No old scanner retired; duplicate mutation and duplicate scan are separate causal hypotheses",
+      "added": "Existing Tail/forwarding/scan protocol unchanged; broader independent-worker obligations remain open"
+    },
+    {
+      "id": "timeout",
+      "source": "vendor/gambit/lib/_thread.scm",
+      "anchor": "##thread-mailbox-next-or-receive",
+      "invariant": "First empty observation releases permit before timeout conversion; one absolute timeout reused across wake/relock; recheck prevents lost wakeup; timeout exception occurs after wait releases permit",
+      "retires": "Duplicated unlocked and locked receive implementations",
+      "added": "Empty initial path unlocks/relocks once for lazy conversion; no deadline reset"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "source-interleave",
+      "method": "source-projection",
+      "program": "dev/modeling/tools/project-mailbox-witness.scm",
+      "criterion": "Read actual SMP receive AST; replace binding and insert exactly one handoff after next3 read. Old observes33, candidate excludes writer and drains64; GC delta zero in both"
+    },
+    {
+      "id": "ordered",
+      "method": "native-scheme",
+      "program": "vendor/gambit/tests/smp/scheduler/mailbox-publication.scm",
+      "criterion": "Real built-in receive/send,64 messages, sender and receiver GC; exact candidate runtime source hashes"
+    },
+    {
+      "id": "blocked-cell",
+      "method": "native-scheme",
+      "program": "vendor/gambit/tests/smp/scheduler/mailbox-permit-roots.scm",
+      "criterion": "Observe sender waiting for exact mailbox mutex, complete GC while permit held, validate returned payload; selective cursor and timeout exception cleanup"
+    },
+    {
+      "id": "first-publishers",
+      "method": "native-scheme",
+      "program": "vendor/gambit/tests/smp/scheduler/mailbox-identity.scm",
+      "criterion": "Eight simultaneous first publishers,64 messages, per-origin ordering and original shared payload identity across completed collections"
+    },
+    {
+      "id": "bounded-controls",
+      "method": "native-scheme-history",
+      "program": "vendor/gambit/tests/smp/scheduler/publication-evidence.scm",
+      "criterion": "Keep all72 historical trials, including original immutable executable and single-processor/no-GC/sender/receiver/both controls; green controls cannot establish historical cause"
+    }
+  ],
+  "transfers": [
+    {
+      "origin_id": "cell",
+      "destination_id": "queue",
+      "condition": "Cell initialized and rooted before permit; two nonallocating stores publish it; no mailbox read/mutation outside permit"
+    },
+    {
+      "origin_id": "queue",
+      "destination_id": "roots",
+      "condition": "GC physically stops writers; graph complete at poll/check; roots include blocked sender and target. No mailbox lock acquisition by collector"
+    },
+    {
+      "origin_id": "roots",
+      "destination_id": "scan",
+      "condition": "RootTask claims root repair, object scan claims payload; sharing does not grant a second mutator or duplicate scan authority"
+    }
+  ],
+  "sourceLock": "evidence/research/mailbox-publication/source.lock.json",
+  "profile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+  "purpose": "Modern C mutator publication ownership and shared GC reachability; preserve Scheme shared values, selective receive and multi-shot roots",
+  "formalOwnership": "Existing CS-SCHEDULE QNT covers continuation safe-point/permit schedules, not mailbox FIFO linearizability. Existing CS-COHERENCE Lean covers authentic issued-view relocation, not queue mutation. Apply these only to their root/continuation preconditions; mailbox source/native obligations remain separate. No additional formal model or transferred theorem claim",
+  "historicalBoundary": "Original binary failed expecting32 without recording the received value; source-projected old procedure deterministically observes33 with zero GC; this proves a reachable source defect, not the unrecorded historical schedule",
+  "budgets": "64 messages, receive5 seconds, executable30 seconds, existing profile and heap policy; bootstrap600 seconds; no extensions",
+  "commitAllowed": false
+}

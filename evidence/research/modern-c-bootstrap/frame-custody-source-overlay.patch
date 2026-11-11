@@ -1,0 +1,3174 @@
+diff --git a/gsc/igsc.scm b/gsc/igsc.scm
+index 34133901..1a9be1c5 100755
+--- a/gsc/igsc.scm
++++ b/gsc/igsc.scm
+@@ -1,5 +1,5 @@
+ #! /bin/sh
+-":";THISDIR="`dirname $0`";GSI="$THISDIR/../gsi/gsi";if test "`basename $0`" == "igsc.scm" ; then exec $GSI -:dar,=$THISDIR/.. -f $0 $*; else exec $GSI -:dar,=$THISDIR -f $0 $*; fi
++":";THISDIR="`dirname $0`";GSI="${GAMBIT_BOOT_GSI:-$THISDIR/../gsi/gsi}";if test "`basename $0`" = "igsc.scm" ; then exec "$GSI" -:dar,=$THISDIR/.. -f "$0" "$@"; else GSI="${GAMBIT_BOOT_GSI:-$THISDIR/gsi/gsi}";exec "$GSI" -:dar,=$THISDIR -f "$0" "$@"; fi
+ 
+ ;;;============================================================================
+ 
+@@ -29,15 +29,23 @@
+ 
+ (at-expansion-time (define ##compilation-options '()))
+ 
+-;; remove runtime options if any
++;; Canonicalize the effective script invocation once.  SRFI-193 script argv
++;; can differ from the host executable's processed argv; normalizing only the
++;; latter leaves Make's -: directory aliases in the compiler option stream.
+ 
+-(let* ((cl ##processed-command-line)
++(let* ((cl (command-line))
+        (args (cdr cl)))
+-  (if (and (pair? args)
+-           (string? (car args))
+-           (>= (string-length (car args)) 2)
+-           (string=? (substring (car args) 0 2) "-:"))
+-      (set! ##processed-command-line (cons (car cl) (cdr args)))))
++  (set! ##processed-command-line
++        (cons (car cl)
++              (if (and (pair? args)
++                       (string? (car args))
++                       (>= (string-length (car args)) 2)
++                       (string=? (substring (car args) 0 2) "-:"))
++                  (cdr args)
++                  args))))
++
++;; command-name and command-args must consume this same canonical invocation.
++(##script-command-line-set! #f)
+ 
+ ;; normalize program name
+ 
+diff --git a/include/gambit.h.in b/include/gambit.h.in
+index 3a845ffd..5e6ed9e7 100644
+--- a/include/gambit.h.in
++++ b/include/gambit.h.in
+@@ -6059,6 +6059,9 @@ ___FIELD(FOREIGN,foreign,___FOREIGN_PTR)
+ #define ___GCHASHTABLE_FLAG_MEM_ALLOC_KEYS 16
+ #define ___GCHASHTABLE_FLAG_NEED_REHASH    32
+ #define ___GCHASHTABLE_FLAG_UNION_FIND     64
++/* Index algorithm ownership is independent of weak/movable key state.
++ * Scheme hash functions execute at table access, never inside the collector. */
++#define ___GCHASHTABLE_FLAG_SCHEME_INDEX   128
+ 
+ #define ___GCHASHTABLE_NEXT_FIELD(gcht) \
+ ___FIELD(WEAK,gcht,___GCHASHTABLE_NEXT)
+@@ -8058,31 +8061,33 @@ switch (na) \
+ 
+ /*---------------------------------------------------------------------------*/
+ 
++/* These temporary roots belong to the execution context scanned by
++ * mark_execution_roots, not to the carrier executing the allocation. */
+ #define ___GC_SAVE1(ps,a) \
+-((ps)->saved[0] = (a))
++((ps)->context->saved[0] = (a))
+ 
+ #define ___GC_RESTORE1(ps,a) \
+-(a = (ps)->saved[0], \
++(a = (ps)->context->saved[0], \
+  ___GC_SAVE1(ps,___VOID))
+ 
+ #define ___GC_SAVE2(ps,a,b) \
+-((ps)->saved[0] = (a), \
+- (ps)->saved[1] = (b))
++((ps)->context->saved[0] = (a), \
++ (ps)->context->saved[1] = (b))
+ 
+ #define ___GC_RESTORE2(ps,a,b) \
+-(a = (ps)->saved[0], \
+- b = (ps)->saved[1], \
++(a = (ps)->context->saved[0], \
++ b = (ps)->context->saved[1], \
+  ___GC_SAVE2(ps,___VOID,___VOID))
+ 
+ #define ___GC_SAVE3(ps,a,b,c) \
+-((ps)->saved[0] = (a), \
+- (ps)->saved[1] = (b), \
+- (ps)->saved[2] = (c))
++((ps)->context->saved[0] = (a), \
++ (ps)->context->saved[1] = (b), \
++ (ps)->context->saved[2] = (c))
+ 
+ #define ___GC_RESTORE3(ps,a,b,c) \
+-(a = (ps)->saved[0], \
+- b = (ps)->saved[1], \
+- c = (ps)->saved[2], \
++(a = (ps)->context->saved[0], \
++ b = (ps)->context->saved[1], \
++ c = (ps)->context->saved[2], \
+  ___GC_SAVE3(ps,___VOID,___VOID,___VOID))
+ 
+ /*---------------------------------------------------------------------------*/
+@@ -9350,6 +9355,7 @@ typedef struct ___frame_root_cursor_struct
+     const ___WORD *next;
+     int slot;
+     int fs;
++    int excluded_slot; /* structural link has a separate traversal contract */
+   } ___frame_root_cursor;
+ 
+ ___FRAME_INLINE ___frame_root_cursor ___frame_root_begin
+@@ -9362,6 +9368,16 @@ const ___frame_descriptor *frame;)
+   cursor.next = frame->nextgcmap;
+   cursor.slot = 1;
+   cursor.fs = frame->fs;
++  cursor.excluded_slot = 0;
++  return cursor;
++}
++
++___FRAME_INLINE ___frame_root_cursor ___frame_ordinary_root_begin
++   ___P((const ___frame_descriptor *frame), (frame)
++const ___frame_descriptor *frame;)
++{
++  ___frame_root_cursor cursor = ___frame_root_begin(frame);
++  cursor.excluded_slot = frame->link+1;
+   return cursor;
+ }
+ 
+@@ -9384,14 +9400,16 @@ ___frame_root_cursor *cursor;
+ int *first;
+ int *past;)
+ {
+-  while (cursor->slot <= cursor->fs && !(cursor->bits & 1))
++  while (cursor->slot <= cursor->fs &&
++         (!(cursor->bits & 1) || cursor->slot == cursor->excluded_slot))
+     ___frame_root_advance (cursor);
+   if (cursor->slot > cursor->fs)
+     return 0;
+   *first = cursor->slot;
+   do
+     ___frame_root_advance (cursor);
+-  while (cursor->slot <= cursor->fs && (cursor->bits & 1));
++  while (cursor->slot <= cursor->fs && (cursor->bits & 1) &&
++         cursor->slot != cursor->excluded_slot);
+   *past = cursor->slot;
+   return 1;
+ }
+@@ -11024,6 +11042,7 @@ typedef struct ___full_duplex_pipe
+ #define ___CONDVAR_DESTROY(cv) (pthread_cond_destroy (&cv) == 0)
+ #define ___CONDVAR_WAIT(cv,mut) (pthread_cond_wait (&cv, &mut) == 0)
+ #define ___CONDVAR_SIGNAL(cv) (pthread_cond_signal (&cv) == 0)
++#define ___CONDVAR_BROADCAST(cv) (pthread_cond_broadcast (&cv) == 0)
+ 
+ #define ___THREAD_ID (pthread_self())
+ 
+@@ -11400,7 +11419,13 @@ typedef struct ___msect
+     ___WORD base[1];       /* content of section */
+   } ___msection;
+ 
+-#define ___sizeof_msection(n) (sizeof (___msection) + ((n)-1) * ___WS)
++/* A collector scan-state trailer follows the unchanged payload. Two bits per
++ * destination word encode unpublished/ready/owned/done. No Scheme header or
++ * frame coordinate changes; allocation failure is the same section result. */
++#define ___msection_scan_words(n) \
++((((n)/2) + (___WORD_WIDTH/2)-1) / (___WORD_WIDTH/2))
++#define ___sizeof_msection(n) \
++(sizeof (___msection) + ((n)-1 + ___msection_scan_words(n)) * ___WS)
+ 
+ typedef struct
+   {
+@@ -11584,9 +11609,6 @@ ___SIZE_TS target_heap_space_hist_[___TARGET_HEAP_SPACE_HIST_LENGTH];
+ int target_heap_space_hist_last_;
+ #endif
+ 
+-/* Used for resizing VM (number of processors after the resize operation) */
+-___VOLATILE int target_processor_count_;
+-
+ #ifndef ___SINGLE_THREADED_VMS
+ 
+ /* spinlock for miscellaneous memory operations at the VM level */
+@@ -11701,6 +11723,9 @@ typedef struct ___execution_context_struct
+ #define ___CHAR_INPUT_PORT_TYPE_CACHE  0
+ #define ___CHAR_OUTPUT_PORT_TYPE_CACHE 1
+ 
++    ___SCMOBJ startup_thunk; /* published entry root; reloaded after sync/GC */
++    ___SCMOBJ entry_marker;  /* startup activation, invalidated before retirement */
++
+     ___WORD processor_scmobj[___SUBTYPED_BODY+___PROCESSOR_SIZE+___PADDING_SIZE]; /* Scheme processor object */
+     ___context_mem mem;
+   } ___execution_context;
+@@ -11709,6 +11734,29 @@ typedef struct ___collector_worker_struct
+   {
+     struct ___processor_state_struct *carrier; /* allocator/actlog adapter */
+     ___execution_context *context; /* current stopped allocation region */
++    ___SIZE_TS copied_words; /* forwarding wins and captured frames */
++    ___SIZE_TS duplicate_scans; /* tasks discharged by another scan owner */
++    /* Private, unpublished allocation and first-field repair are separate
++     * debts. Neither chunk completion nor a forwarding loss pays them. */
++    ___WORD *copy_begin_;
++    ___WORD *copy_past_;
++    ___WORD *tail_cell_;
++    ___SIZE_TS copy_reserved_words_;
++    ___SIZE_TS copy_cancelled_words_;
++    ___SIZE_TS copy_padding_words_;
++    ___SIZE_TS tail_started_;
++    ___SIZE_TS tail_completed_;
++    ___SIZE_TS frame_accesses_;
++    ___SIZE_TS frame_links_;
++    /* Transport authority is distinct from object/Tail authority. These
++     * cursors are worker-owned, never reconstructed from the allocation tip. */
++    ___WORD *local_scan_chunk_;
++    ___WORD *active_scan_chunk_;
++    ___WORD *active_scan_object_;
++    int scan_origin_; /* 1 local frontier, 2 own FIFO, 3 stolen FIFO */
++    ___SIZE_TS chunks_published_;
++    ___SIZE_TS chunks_claimed_;
++    ___SIZE_TS chunks_completed_;
+ /* start of current group of movable objects being copied by mark_array */
+ ___WORD *alloc_heap_chunk_start_;
+ 
+@@ -11717,17 +11765,18 @@ ___WORD *alloc_heap_chunk_limit_;
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+ 
+-/* spinlock for accessing the movable object chunks remaining to scan */
+-___SPINLOCK_DECL(heap_chunks_to_scan_lock_)
++/* Collector transport gate: successful CAS acquires the published queue.
++ * No unlocked head/tail observations or generic ticket-lock grant polling. */
++___VOLATILE ___WORD chunk_gate_;
+ 
+ #endif
+ 
+ /* list of complete movable object chunks to scan */
+-___VOLATILE ___WORD heap_chunks_to_scan_;
++___WORD heap_chunks_to_scan_;
+ 
+ /* fifo of complete movable object chunks remaining to scan */
+-___VOLATILE ___WORD * ___VOLATILE heap_chunks_to_scan_head_;
+-___VOLATILE ___WORD * ___VOLATILE heap_chunks_to_scan_tail_;
++___WORD *heap_chunks_to_scan_head_;
++___WORD *heap_chunks_to_scan_tail_;
+ 
+ /* scan pointer in currently scanned (possibly incomplete) chunk */
+ ___WORD *scan_ptr_;
+@@ -11767,6 +11816,12 @@ typedef struct ___gc_round_struct
+   {
+     int participant_count; /* closed by the existing collective before scan */
+     ___BOOL overflow;     /* one VM result, consumed by every participant */
++    ___SIZE_TS source_words; /* frozen allocation census, not a live oracle */
++    int source_sections;
++    ___WORD *invalid_copy_cell;
++    ___WORD *invalid_copy_body;
++    int invalid_copy_worker;
++    ___VOLATILE ___WORD frame_gate; /* GC stack/link writers and readers */
+   } ___gc_round;
+ 
+ typedef struct ___processor_state_struct
+@@ -11865,6 +11920,7 @@ typedef struct ___processor_state_struct
+     ___sync_op_struct sync_op2;
+     ___MUTEX_DECL(sync_mut)
+     ___CONDVAR_DECL(sync_cv)
++    int sync_initialized;
+ 
+ #endif
+ 
+@@ -12107,6 +12163,53 @@ typedef struct ___native_scope_struct
+ 
+ /* Virtual machine state structure */
+ 
++typedef enum ___vm_resize_phase_enum
++  {
++    ___RESIZE_IDLE, ___RESIZE_REQUESTED, ___RESIZE_RESERVED,
++    ___RESIZE_INITIALIZING, ___RESIZE_READY, ___RESIZE_COMMITTED,
++    ___RESIZE_ABORTING, ___RESIZE_RETAINED
++  } ___vm_resize_phase;
++
++typedef enum ___vm_resize_slot_phase_enum
++  {
++    ___RESIZE_SLOT_EMPTY, ___RESIZE_SLOT_RESERVED, ___RESIZE_SLOT_INITIALIZED,
++    ___RESIZE_SLOT_CREATING, ___RESIZE_SLOT_CREATED, ___RESIZE_SLOT_PUBLISHED,
++    ___RESIZE_SLOT_JOINING, ___RESIZE_SLOT_RETAINED
++  } ___vm_resize_slot_phase;
++
++typedef struct ___vm_resize_slot_struct
++  {
++    ___msection *stack;
++    ___msection *heap;
++    ___vm_resize_slot_phase phase;
++    int entry; /* guarded by resize.gate: 0 parked, 1 run, -1 abort */
++  } ___vm_resize_slot;
++
++typedef struct ___vm_resize_ledger_struct
++  {
++    ___vm_resize_phase phase; /* coordinator writes; existing collective reads */
++    ___WORD generation; /* never wraps; no identity allocation */
++    int initial;
++    int target;
++    int initialized;
++    int created;
++    int base_assigned;
++    int base_stacks;
++    int base_capacity;
++    int resume_sections; /* VM-unassigned budget for prepare_mem_pstate */
++    ___BOOL abort_isolated; /* immutable abort gate excludes Scheme writers;
++                            * native handles/PSTATE/gate still quarantined */
++    ___msection *base_alloc;
++    ___SCMOBJ thunk; /* VM root before any possible collection */
++    ___SCMOBJ result;
++    ___vm_resize_slot slots[___MAX_PROCESSORS];
++#ifndef ___SINGLE_THREADED_VMS
++    ___MUTEX_DECL(gate)
++    ___CONDVAR_DECL(changed)
++#endif
++    int gate_initialized;
++  } ___vm_resize_ledger;
++
+ typedef struct ___virtual_machine_state_struct
+   {
+     ___aligned_processor_state_struct aligned_pstate[___MAX_PROCESSORS]; /* VM's processors */
+@@ -12115,6 +12218,7 @@ typedef struct ___virtual_machine_state_struct
+     ___gc_participant gc_participants[___MAX_PROCESSORS];
+     ___collector_worker collector_workers[___MAX_PROCESSORS];
+     ___gc_round gc_round;
++    ___vm_resize_ledger resize;
+ 
+     ___VOLATILE int processor_count; /* number of processors in this VM */
+ 
+diff --git a/lib/_gambit#.scm b/lib/_gambit#.scm
+index 44e12c26..5000c545 100644
+--- a/lib/_gambit#.scm
++++ b/lib/_gambit#.scm
+@@ -685,6 +685,7 @@
+ (##define-macro (macro-gc-hash-table-flag-mem-alloc-keys) 16)
+ (##define-macro (macro-gc-hash-table-flag-need-rehash)    32)
+ (##define-macro (macro-gc-hash-table-flag-union-find)     64)
++(##define-macro (macro-gc-hash-table-flag-scheme-index)  128)
+ 
+ ;;- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ 
+diff --git a/lib/_system.scm b/lib/_system.scm
+index 3bcfe1c9..f13a8175 100644
+--- a/lib/_system.scm
++++ b/lib/_system.scm
+@@ -1959,13 +1959,12 @@ end-of-code
+                  arg-num))
+ 
+   (define (checks-done siz flags test-fn hash-fn loads arg-num)
+-    (macro-make-table (if (and #f ;; don't make a special case for eq? tables
+-                               (##not test-fn)
+-                               (##eq? weak-keys (macro-absent-obj)))
+-                          (##fxior
+-                           flags
+-                           (macro-gc-hash-table-flag-weak-keys))
+-                          flags)
++    ;; The collector may move keys but cannot replace this table's Scheme
++    ;; hash function with the C identity-index algorithm. A true test-fn uses
++    ;; table-access; #f selects the native identity-table operations.
++    (macro-make-table (if test-fn
++                         (##fxior flags (macro-gc-hash-table-flag-scheme-index))
++                         flags)
+                       test-fn
+                       hash-fn
+                       loads
+diff --git a/lib/c_intf.c b/lib/c_intf.c
+index 7a4ac702..817b62c1 100644
+--- a/lib/c_intf.c
++++ b/lib/c_intf.c
+@@ -6508,18 +6508,19 @@ int char_encoding;)
+ 
+ /* Create a stack marker for a C to Scheme function call. */
+ 
+-___EXP_FUNC(___SCMOBJ,___make_sfun_stack_marker)
++___SCMOBJ ___make_sfun_stack_marker_from_root
+    ___P((___processor_state ___ps,
+          ___SCMOBJ *marker,
+-         ___SCMOBJ proc_or_false),
++         ___SCMOBJ *proc_root),
+         (___ps,
+          marker,
+-         proc_or_false)
++         proc_root)
+ ___processor_state ___ps;
+ ___SCMOBJ *marker;
+-___SCMOBJ proc_or_false;)
++___SCMOBJ *proc_root;)
+ {
+   ___SCMOBJ stack_marker;
++  ___SCMOBJ proc_or_false;
+ 
+ #ifdef ___SINGLE_THREADED_VMS
+   stack_marker = ___make_vector (___ps, 1, ___FAL);
+@@ -6527,11 +6528,11 @@ ___SCMOBJ proc_or_false;)
+   stack_marker = ___make_vector (___ps, 2, ___FAL);
+ #endif
+ 
+-  /*TODO: proc_or_false may have been GC'd at this point! protect it some way*/
+-
+   if (___FIXNUMP(stack_marker))
+     return ___FIX(___SFUN_HEAP_OVERFLOW_ERR);
+ 
++  proc_or_false = *proc_root; /* reload after allocating the marker */
++
+   if (proc_or_false == ___FAL)
+     ___VECTORELEM(stack_marker, 0) = ___data_rc (___c_closure_self ());
+   else
+@@ -6547,6 +6548,19 @@ ___SCMOBJ proc_or_false;)
+ }
+ 
+ 
++___EXP_FUNC(___SCMOBJ,___make_sfun_stack_marker)
++   ___P((___processor_state ___ps, ___SCMOBJ *marker, ___SCMOBJ proc_or_false),
++        (___ps, marker, proc_or_false)
++___processor_state ___ps;
++___SCMOBJ *marker;
++___SCMOBJ proc_or_false;)
++{
++  /* Legacy raw SFUN entry is not made a registered-root interface by this
++   * wrapper. Managed startup uses the explicit rooted endpoint above. */
++  return ___make_sfun_stack_marker_from_root(___ps, marker, &proc_or_false);
++}
++
++
+ /*
+  * Invalidate a stack marker.  This happens when a C to Scheme
+  * function call returns.
+diff --git a/lib/c_intf.h b/lib/c_intf.h
+index 6acf552f..215b4b69 100755
+--- a/lib/c_intf.h
++++ b/lib/c_intf.h
+@@ -5,6 +5,10 @@
+ #ifndef ___C_INTF_H
+ #define ___C_INTF_H
+ 
++/* proc_root must denote an already registered, stable root cell. */
++extern ___SCMOBJ ___make_sfun_stack_marker_from_root
++   ___P((___processor_state ps, ___SCMOBJ *marker, ___SCMOBJ *proc_root), ());
++
+ 
+ /*---------------------------------------------------------------------------*/
+ 
+diff --git a/lib/mem.c b/lib/mem.c
+index ba25ef38..954945a0 100644
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -19,6 +19,7 @@
+ 
+ #include <stdlib.h>
+ #include <string.h>
++#include <limits.h>
+ 
+ 
+ /*---------------------------------------------------------------------------*/
+@@ -291,7 +292,7 @@
+ #define alloc_heap_chunk_limit  work->alloc_heap_chunk_limit_
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+-#define heap_chunks_to_scan_lock work->heap_chunks_to_scan_lock_
++#define chunk_gate              work->chunk_gate_
+ #endif
+ 
+ #define heap_chunks_to_scan     work->heap_chunks_to_scan_
+@@ -329,7 +330,6 @@
+ #define nb_msections_stacks     ___VMSTATE_MEM(nb_msections_stacks_)
+ #define target_heap_space_hist  ___VMSTATE_MEM(target_heap_space_hist_)
+ #define target_heap_space_hist_last ___VMSTATE_MEM(target_heap_space_hist_last_)
+-#define target_processor_count  ___VMSTATE_MEM(target_processor_count_)
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+ #define misc_mem_lock           ___VMSTATE_MEM(misc_mem_lock_)
+@@ -508,6 +508,13 @@
+ #define compute_nb_msections_min(processor_count) \
+ (___MIN_NB_MSECTIONS_PER_PROCESSOR * processor_count)
+ 
++/* prepare_mem_pstate divides the unassigned budget by two, then divides its
++ * stack share by two again. Four fudge areas plus the overflow reserve give
++ * every restored context a nonzero bounded first-entry allowance. These are
++ * VM-free sections, not startup grant intervals charged as assigned. */
++#define compute_resume_msections(reserve) \
++(___CEILING_DIV((reserve) + 4*___MSECTION_FUDGE, ___MSECTION_SIZE))
++
+ /*---------------------------------------------------------------------------*/
+ 
+ /* Constants related to representation of permanent and still objects: */
+@@ -3251,6 +3258,80 @@ ___collector_worker *work;)
+ 
+ #define NULL_CHUNK_LINK ___TAG(0, ___FORW)
+ 
++/* Chunk links occupy non-object word positions in the existing scan map.
++ * 0 private, 1 queued, 2 exclusively held, 3 drained. A local frontier owns
++ * its chunk before any copying can close it. Allocation position is never
++ * evidence of that ownership. */
++___HIDDEN int change_object_scan_state
++   ___P((___collector_worker *work, ___WORD *header, int from, int to),
++        (work, header, from, to)
++___collector_worker *work;
++___WORD *header;
++int from;
++int to;);
++
++___HIDDEN void require_chunk_transition
++   ___P((___collector_worker *work, ___WORD *start, int from, int to),
++        (work, start, from, to)
++___collector_worker *work;
++___WORD *start;
++int from;
++int to;)
++{
++  if (change_object_scan_state(work,start-1,from,to) != from)
++    {
++      static char *msgs[] = { "GC chunk authority lost", NULL };
++      ___fatal_error (msgs);
++    }
++}
++
++/* Full-barrier atomic adapters are already provided by Gambit's portable
++ * native layer. In contrast to a grant polled with a volatile load, the
++ * successful CAS itself acquires preceding queue writes. Every head/tail
++ * access is inside this gate. A failed steal has no queue observation. */
++___HIDDEN void lock_chunk_fifo
++   ___P((___collector_worker *owner), (owner)
++___collector_worker *owner;)
++{
++#ifndef ___SINGLE_THREADED_VMS
++  while (___COMPARE_AND_SWAP_WORD(&owner->chunk_gate_,0,1) != 0)
++    ___CPU_RELAX();
++#endif
++}
++
++___HIDDEN void unlock_chunk_fifo
++   ___P((___collector_worker *owner), (owner)
++___collector_worker *owner;)
++{
++#ifndef ___SINGLE_THREADED_VMS
++  ___FETCH_AND_CLEAR_WORD(&owner->chunk_gate_);
++#endif
++}
++
++___HIDDEN ___WORD *take_heap_chunk
++   ___P((___collector_worker *work, ___collector_worker *owner),
++        (work, owner)
++___collector_worker *work;
++___collector_worker *owner;)
++{
++  ___WORD *node;
++#ifndef ___SINGLE_THREADED_VMS
++  if (___COMPARE_AND_SWAP_WORD(&owner->chunk_gate_,0,1) != 0)
++    return 0;
++#endif
++  if (owner->heap_chunks_to_scan_head_ == owner->heap_chunks_to_scan_tail_)
++    {
++      unlock_chunk_fifo(owner);
++      return 0;
++    }
++  node = ___UNTAG_AS(*owner->heap_chunks_to_scan_head_, ___FORW);
++  require_chunk_transition(work,node+1,1,2);
++  owner->heap_chunks_to_scan_head_ = node;
++  work->chunks_claimed_++;
++  unlock_chunk_fifo(owner);
++  return node+1;
++}
++
+ 
+ ___HIDDEN void end_heap_chunk
+    ___P((___collector_worker *work),
+@@ -3267,8 +3348,7 @@ ___collector_worker *work;)
+ 
+   *work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; /* leave space for next chunk's link */
+ 
+-  if (work->context->mem.alloc_heap_ptr_ != alloc_heap_chunk_start &&
+-      !(scan_ptr >= alloc_heap_chunk_start && scan_ptr < work->context->mem.alloc_heap_ptr_))
++  if (alloc_heap_chunk_start != work->local_scan_chunk_)
+     {
+       /*
+        * The chunk being ended is not empty and it isn't currently
+@@ -3278,9 +3358,10 @@ ___collector_worker *work;)
+ 
+       ___WORD *new_tail = alloc_heap_chunk_start-1;
+ 
+-#ifndef ___SINGLE_THREADED_VMS
+-      ___SPINLOCK_LOCK(heap_chunks_to_scan_lock);
+-#endif
++      require_chunk_transition(work,alloc_heap_chunk_start,0,1);
++      work->chunks_published_++;
++
++      lock_chunk_fifo(work);
+ 
+       *heap_chunks_to_scan_tail = ___TAG(new_tail, ___FORW);
+ 
+@@ -3305,8 +3386,8 @@ ___collector_worker *work;)
+ 
+       ___SHARED_MEMORY_BARRIER();
+ 
++      unlock_chunk_fifo(work);
+ #ifndef ___SINGLE_THREADED_VMS
+-      ___SPINLOCK_UNLOCK(heap_chunks_to_scan_lock);
+       ___CONDVAR_SIGNAL(scan_termination_condvar);
+ #endif
+     }
+@@ -3425,11 +3506,55 @@ ___virtual_machine_state ___vms;)
+   int np = ___vms->gc_round.participant_count;
+   int i;
+ 
++  /* Closed participants have frozen all allocators. Capture the census
++   * before changing parity/endpoints. It is not a proof of unique scanning
++   * or of contiguous worker capacity. No heap multiplier is applied. */
++  ___vms->gc_round.source_words = 0;
++  ___vms->gc_round.source_sections = the_msections->nb_sections;
++  ___vms->gc_round.invalid_copy_cell = 0;
++  ___vms->gc_round.invalid_copy_body = 0;
++  ___vms->gc_round.invalid_copy_worker = -1;
++  ___vms->gc_round.frame_gate = 0; /* all old-round users have crossed barrier */
++  for (i=0; i<np; i++)
++    ___vms->gc_round.source_words +=
++      words_movable_objs (___PSTATE_FROM_PROCESSOR_ID(i,___vms));
++  if (np > the_msections->nb_sections/2)
++    fatal_heap_overflow (); /* no partially flipped member set */
++
++  {
++    ___msection *ms = the_msections->head;
++    while (ms != 0)
++      {
++        memset (ms->base + ___MSECTION_SIZE, 0,
++                ___msection_scan_words(___MSECTION_SIZE) * ___WS);
++        ms = ms->next;
++      }
++  }
++
+   for (i=0; i<np; i++)
+     {
+       ___processor_state ___ps = ___PSTATE_FROM_PROCESSOR_ID(i,___vms);
+       ___collector_worker *work = &___vms->collector_workers[i];
+ 
++      work->copied_words = 0;
++      work->duplicate_scans = 0;
++      work->copy_begin_ = 0;
++      work->copy_past_ = 0;
++      work->tail_cell_ = 0;
++      work->copy_reserved_words_ = 0;
++      work->copy_cancelled_words_ = 0;
++      work->copy_padding_words_ = 0;
++      work->tail_started_ = 0;
++      work->tail_completed_ = 0;
++      work->frame_accesses_ = 0;
++      work->frame_links_ = 0;
++      work->local_scan_chunk_ = 0;
++      work->active_scan_chunk_ = 0;
++      work->active_scan_object_ = 0;
++      work->scan_origin_ = 0;
++      work->chunks_published_ = 0;
++      work->chunks_claimed_ = 0;
++      work->chunks_completed_ = 0;
+       tospace_offset = fromspace_offset;  /* Flip fromspace and tospace */
+ 
+       msection_free_list = 0;
+@@ -3449,6 +3574,8 @@ ___virtual_machine_state ___vms;)
+ 
+       prepare_heap_msection (work);
+       scan_ptr = alloc_heap_chunk_start;
++      require_chunk_transition(work,alloc_heap_chunk_start,0,2);
++      work->local_scan_chunk_ = alloc_heap_chunk_start;
+ 
+       heap_chunks_to_scan = NULL_CHUNK_LINK;
+       heap_chunks_to_scan_head = &heap_chunks_to_scan;
+@@ -3474,6 +3601,247 @@ ___virtual_machine_state ___vms;)
+ 
+ /*---------------------------------------------------------------------------*/
+ 
++/* State transitions belong to an object identity, not to the worker/chunk
++ * currently carrying it. A duplicate queue/frontier task transfers no new
++ * authority to mutate fields. Its first scanner remains active until DONE.
++ * READY excludes payload-initialization debt; first-field Tail remains owned
++ * by the copying worker and is never executed by scan. */
++#define GC_SCAN_UNPUBLISHED 0
++#define GC_SCAN_READY       1
++#define GC_SCAN_OWNED       2
++#define GC_SCAN_DONE        3
++
++___HIDDEN int change_object_scan_state
++   ___P((___collector_worker *work, ___WORD *header, int from, int to),
++        (work, header, from, to)
++___collector_worker *work;
++___WORD *header;
++int from;
++int to;)
++{
++  ___processor_state ___ps = work->carrier;
++  int i = find_msection (the_msections, header);
++  if (i >= 0 && i < the_msections->nb_sections)
++    {
++      ___PTRDIFF_T pos = header-the_msections->sections[i]->base-tospace_offset;
++      if (pos >= 0 && pos < (___MSECTION_SIZE>>1))
++        {
++          int shift = 2*(pos % (___WORD_WIDTH/2));
++          ___WORD mask = ___CAST(___WORD,___CAST(___UWORD,3) << shift);
++          ___WORD *cell = the_msections->sections[i]->base + ___MSECTION_SIZE +
++                         pos / (___WORD_WIDTH/2);
++          ___WORD old = ___COMPARE_AND_SWAP_WORD(cell,0,0);
++          for (;;)
++            {
++              int state = (___CAST(___UWORD,old) >> shift) & 3;
++              ___WORD found;
++              if (state != from)
++                return state;
++              found = ___COMPARE_AND_SWAP_WORD
++                (cell,old,(old & ~mask) |
++                 ___CAST(___WORD,___CAST(___UWORD,to) << shift));
++              if (found == old)
++                return from;
++              old = found;
++            }
++        }
++    }
++  {
++    static char *msgs[] = { "GC scan identity outside destination", NULL };
++    ___fatal_error (msgs);
++  }
++  return -1;
++}
++
++
++___HIDDEN void publish_object_scan
++   ___P((___collector_worker *work, ___WORD *header), (work, header)
++___collector_worker *work;
++___WORD *header;)
++{
++  if (change_object_scan_state(work,header,GC_SCAN_UNPUBLISHED,GC_SCAN_READY)
++      != GC_SCAN_UNPUBLISHED)
++    {
++      static char *msgs[] = { "GC object initialized more than once", NULL };
++      ___fatal_error (msgs);
++    }
++}
++
++
++___HIDDEN void require_fromspace_copy_source
++   ___P((___collector_worker *work, ___WORD *cell, ___WORD *body),
++        (work, cell, body)
++___collector_worker *work;
++___WORD *cell;
++___WORD *body;)
++{
++  ___processor_state ___ps = work->carrier;
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
++  ___WORD *header = body-1;
++  int i = find_msection (the_msections, header);
++  if (i >= 0 && i < the_msections->nb_sections)
++    {
++      ___PTRDIFF_T pos = header-the_msections->sections[i]->base;
++      if (pos >= fromspace_offset &&
++          pos < fromspace_offset + (___MSECTION_SIZE>>1))
++        return;
++    }
++  /* Recopying tospace invalidates any source-size capacity bound. Do not
++   * silently skip a repeated cell or enlarge the heap. Retain coordinates
++   * at the ordinary fatal boundary. This per-attempt lookup is a deliberate
++   * qualification cost, not a claimed fast-path optimization. */
++  MISC_MEM_LOCK();
++  if (vms->gc_round.invalid_copy_worker < 0)
++    {
++      vms->gc_round.invalid_copy_cell = cell;
++      vms->gc_round.invalid_copy_body = body;
++      vms->gc_round.invalid_copy_worker = ___PROCESSOR_ID(___ps,vms);
++    }
++  MISC_MEM_UNLOCK();
++  {
++    static char *msgs[] = { "GC copy source is not in frozen fromspace", NULL };
++    ___fatal_error (msgs);
++  }
++}
++
++
++/* Frame roots, stack-to-heap construction and structural links share one
++ * access domain. The queue gate is never held while entering this domain.
++ * READY publishes raw payload, not permission to race a link constructor. */
++___HIDDEN void acquire_frame_access
++   ___P((___collector_worker *work), (work)
++___collector_worker *work;)
++{
++#ifndef ___SINGLE_THREADED_VMS
++  ___processor_state ___ps = work->carrier;
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
++  while (___COMPARE_AND_SWAP_WORD(&vms->gc_round.frame_gate,0,1) != 0)
++    ___CPU_RELAX();
++#endif
++  work->frame_accesses_++;
++}
++
++___HIDDEN void release_frame_access
++   ___P((___collector_worker *work), (work)
++___collector_worker *work;)
++{
++#ifndef ___SINGLE_THREADED_VMS
++  ___processor_state ___ps = work->carrier;
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
++  ___FETCH_AND_CLEAR_WORD(&vms->gc_round.frame_gate);
++#endif
++}
++
++typedef struct ___copy_reservation_struct
++  {
++    ___WORD *begin;
++    ___WORD *header;
++    ___WORD *past;
++    ___SIZE_TS words;
++  } ___copy_reservation;
++
++/* Obtain an actual contiguous destination interval before writing a header
++ * or attempting forwarding. The interval is private until commit. A failed
++ * CAS may cancel the whole interval, including unpublished alignment slack;
++ * this is not an operation permitted on a shared bump allocator. */
++___HIDDEN ___copy_reservation reserve_copy
++   ___P((___collector_worker *work, ___WORD *alloc, ___SIZE_TS words, int align8),
++        (work, alloc, words, align8)
++___collector_worker *work;
++___WORD *alloc;
++___SIZE_TS words;
++int align8;)
++{
++  ___processor_state ___ps = work->carrier;
++  ___copy_reservation grant;
++  ___SIZE_TS required;
++  if (work->copy_begin_ != 0 || words > (___MSECTION_SIZE>>1)-4)
++    {
++      static char *msgs[] = { "GC invalid contiguous copy reservation", NULL };
++      ___fatal_error(msgs);
++    }
++  required = words+1;
++#if ___WS == 4
++  if (align8) required++;
++#else
++  (void)align8;
++#endif
++  if (required > (___MSECTION_SIZE>>1)-3)
++    fatal_heap_overflow(); /* no section can satisfy this request */
++  while (alloc > work->context->mem.alloc_heap_limit_ ||
++         work->context->mem.alloc_heap_limit_-alloc < required)
++    {
++      work->context->mem.alloc_heap_ptr_ = alloc;
++      end_heap_chunk(work);
++      next_heap_msection(___ps);
++      prepare_heap_msection(work);
++      alloc = work->context->mem.alloc_heap_ptr_;
++    }
++  grant.begin = alloc;
++  grant.header = alloc;
++  grant.past = alloc+required;
++  grant.words = words;
++#if ___WS == 4
++  if (align8 && (___CAST(___WORD,alloc) & 7) == 0)
++    grant.header++;
++#endif
++  work->copy_begin_ = grant.begin;
++  work->copy_past_ = grant.past;
++  work->copy_reserved_words_ += required;
++  return grant;
++}
++
++___HIDDEN ___WORD *cancel_copy
++   ___P((___collector_worker *work, const ___copy_reservation *grant),
++        (work, grant)
++___collector_worker *work;
++const ___copy_reservation *grant;)
++{
++  ___WORD *begin = grant->begin;
++  if (work->copy_begin_ != begin || work->copy_past_ != grant->past)
++    {
++      static char *msgs[] = { "GC cancellation lost private reservation", NULL };
++      ___fatal_error(msgs);
++    }
++  work->copy_cancelled_words_ += grant->past-begin;
++  work->copy_begin_ = 0;
++  work->copy_past_ = 0;
++  return begin;
++}
++
++___HIDDEN void commit_copy
++   ___P((___collector_worker *work, const ___copy_reservation *grant),
++        (work, grant)
++___collector_worker *work;
++const ___copy_reservation *grant;)
++{
++  if (work->copy_begin_ != grant->begin || work->copy_past_ != grant->past)
++    {
++      static char *msgs[] = { "GC commit lost private reservation", NULL };
++      ___fatal_error(msgs);
++    }
++  /* Alignment objects become visible only after forwarding succeeds. */
++  if (grant->header != grant->begin)
++    {
++      *grant->begin = ___MAKE_HD_WORDS(0,___sVECTOR);
++      publish_object_scan(work,grant->begin);
++    }
++  work->copy_padding_words_ += (grant->past-grant->begin)-(grant->words+1);
++  work->copy_begin_ = 0;
++  work->copy_past_ = 0;
++}
++
++___HIDDEN void finish_tail
++   ___P((___collector_worker *work), (work)
++___collector_worker *work;)
++{
++  if (work->tail_cell_ != 0)
++    {
++      work->tail_completed_++;
++      work->tail_cell_ = 0;
++    }
++}
++
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+ 
+ #define mark_array(work,start,n) mark_array_debug (work,start,n,__LINE__)
+@@ -3509,7 +3877,6 @@ ___WORD n;)
+ {
+   ___processor_state ___ps = work->carrier;
+   ___WORD *alloc = work->context->mem.alloc_heap_ptr_;
+-  ___WORD *limit = work->context->mem.alloc_heap_limit_;
+ 
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+   mark_array_call_line = line;
+@@ -3543,37 +3910,15 @@ ___WORD n;)
+             if (head_typ == ___MOVABLE0)
+               {
+                 ___SIZE_TS words = ___HD_WORDS(head);
++                ___WORD *copy_header;
++                ___copy_reservation grant;
++                require_fromspace_copy_source (work, cell, body);
+ 
+-                /*TODO: add allocation of handle if using handles*/
+-#if ___WS == 4
+-                ___BOOL pad = 0;
+-                while (alloc + words + (subtype >= ___sS64VECTOR ? 2 : 1) >
+-                       limit)
+-#else
+-                while (alloc + words + 1 > limit)
+-#endif
+-                  {
+-                    work->context->mem.alloc_heap_ptr_ = alloc;
+-                    end_heap_chunk (work);
+-                    next_heap_msection (___ps);
+-                    prepare_heap_msection (work);
+-                    alloc = work->context->mem.alloc_heap_ptr_;
+-                    limit = work->context->mem.alloc_heap_limit_;
+-                  }
+-#if ___WS != 8
+-                /*
+-                 * ___sS64VECTOR, ___sU64VECTOR, ___sF64VECTOR,
+-                 * ___sFLONUM and ___sBIGNUM need to be aligned on a
+-                 * multiple of 8.
+-                 */
+-                if (subtype >= ___sS64VECTOR)
+-                  {
+-                    if ((___CAST(___WORD,alloc) & (8-1)) == 0)
+-                      *alloc++ = ___MAKE_HD_WORDS(0, ___sVECTOR);
+-                    else
+-                      pad = 1;
+-                  }
+-#endif
++                grant = reserve_copy
++                  (work,alloc,words,subtype >= ___sS64VECTOR);
++                alloc = grant.header;
++
++                copy_header = alloc;
+                 *alloc++ = head;
+ 
+ #ifdef ___SINGLE_THREADED_VMS
+@@ -3590,24 +3935,36 @@ ___WORD n;)
+ 
+                   if (head_now != head)
+                     {
++                      if (!___TESTTYPE(head_now,___FORW))
++                        {
++                          static char *msgs[] = { "GC unknown forwarding result retains reservation", NULL };
++                          ___fatal_error(msgs);
++                        }
+                       /*
+                        * Other processor forwarded the object first so
+                        * the allocation must be undone and head_now is
+                        * the correct forwarding pointer.
+                        */
+ 
+-                      alloc--;
++                      alloc = cancel_copy(work,&grant);
+                       *cell = ___TAG(___UNTAG_AS(head_now, ___FORW), ___TYP(obj));
++                      finish_tail(work);
+                       continue;
+                     }
+                 }
+ 
+ #endif
+ 
++                work->copied_words += words+1;
+                 *cell = ___TAG(alloc - ___REFERENCE_TO_BODY, ___TYP(obj));
++                finish_tail(work);
+ 
+                 if (words > 0 && subtype <= ___sBOXVALUES)
+-                  cell = alloc;
++                  {
++                    cell = alloc;
++                    work->tail_cell_ = cell;
++                    work->tail_started_++;
++                  }
+                 else
+                   cell = 0;
+ 
+@@ -3616,10 +3973,13 @@ ___WORD n;)
+                     *alloc++ = *body++;
+                     words--;
+                   }
+-#if ___WS == 4
+-                if (pad)
+-                  *alloc++ = ___MAKE_HD_WORDS(0, ___sVECTOR);
+-#endif
++                publish_object_scan (work, copy_header);
++                if (alloc != grant.past)
++                  {
++                    *alloc = ___MAKE_HD_WORDS(0,___sVECTOR);
++                    publish_object_scan(work,alloc++);
++                  }
++                commit_copy(work,&grant);
+                 if (alloc >= alloc_heap_chunk_limit)
+                   {
+                     work->context->mem.alloc_heap_ptr_ = alloc;
+@@ -3665,13 +4025,17 @@ ___WORD n;)
+ #endif
+           }
+       }
++      finish_tail(work);
+     }
+ 
+   work->context->mem.alloc_heap_ptr_ = alloc;
+ }
+ 
+ 
+-___HIDDEN void mark_captured_continuation
++/* Caller owns frame access across the initial read, source-frame forwarding,
++ * root repairs and every destination-link update. No collector waits for
++ * frame access while still holding a FIFO gate. */
++___HIDDEN void mark_captured_continuation_locked
+    ___P((___collector_worker *work,
+          ___WORD *orig_ptr),
+         (work,
+@@ -3698,9 +4062,6 @@ ___WORD *orig_ptr;)
+       /* continuation frame is in the stack */
+ 
+       ___WORD *alloc = work->context->mem.alloc_heap_ptr_;
+-      ___WORD *limit = work->context->mem.alloc_heap_limit_;
+-
+-      MISC_MEM_LOCK();
+ 
+       next_frame:
+ 
+@@ -3724,6 +4085,12 @@ ___WORD *orig_ptr;)
+           ___COVER_MARK_CAPTURED_CONTINUATION_RETN;
+         }
+ 
++      if (fs <= 0 || link < 0 || link >= fs)
++        {
++          static char *msgs[] = { "GC invalid captured frame coordinates", NULL };
++          ___fatal_error(msgs);
++        }
++
+ #ifdef SHOW_FRAMES
+         ___printf ("fs=%d link=%d fp=%p ra=", fs, link, fp);
+         print_value (ra1);
+@@ -3738,28 +4105,25 @@ ___WORD *orig_ptr;)
+         {
+           ___COVER_MARK_CAPTURED_CONTINUATION_ALREADY_COPIED;
+           *ptr = ra2; /* already copied, replace by forwarding pointer */
++          work->frame_links_++;
+         }
+       else
+         {
+           ___WORD forw;
++          ___WORD *copy_header;
+           ___SIZE_TS words;
++          ___copy_reservation grant;
+ 
+           ___COVER_MARK_CAPTURED_CONTINUATION_COPY;
+ 
+           words = fs + ___FRAME_EXTRA_SLOTS;
+ 
+-          while (alloc + words + ___SUBTYPED_BODY > limit)
+-            {
+-              work->context->mem.alloc_heap_ptr_ = alloc;
+-              end_heap_chunk (work);
+-              next_heap_msection (___ps);
+-              prepare_heap_msection (work);
+-              alloc = work->context->mem.alloc_heap_ptr_;
+-              limit = work->context->mem.alloc_heap_limit_;
+-            }
++          grant = reserve_copy(work,alloc,words,0);
++          alloc = grant.header;
+ 
+           /*TODO: add allocation of handle if using handles*/
+ 
++          copy_header = alloc;
+           *alloc++ = ___MAKE_HD_WORDS(words, ___sFRAME);
+ #if ___SUBTYPED_BODY != 1
+           #error "___SUBTYPED_BODY != 1"
+@@ -3795,10 +4159,15 @@ ___WORD *orig_ptr;)
+           ___FP_SET_STK(fp,link+1,forw) /* leave a forwarding pointer */
+ 
+           *ptr = forw;
++          work->frame_links_++;
++
++          publish_object_scan (work, copy_header);
++          work->copied_words += words+___SUBTYPED_BODY;
++          commit_copy(work,&grant);
+ 
+           ptr = &___FP_STK(alloc,link+1);
+ 
+-          if (work->context->mem.alloc_heap_ptr_ >= alloc_heap_chunk_limit)
++          if (alloc >= alloc_heap_chunk_limit)
+             {
+               work->context->mem.alloc_heap_ptr_ = alloc;
+               end_heap_chunk (work);
+@@ -3814,12 +4183,21 @@ ___WORD *orig_ptr;)
+ 
+       work->context->mem.alloc_heap_ptr_ = alloc;
+ 
+-      MISC_MEM_UNLOCK();
+     }
+   else
+     mark_array (work, orig_ptr, 1);
+ }
+ 
++___HIDDEN void mark_captured_continuation
++   ___P((___collector_worker *work, ___WORD *orig_ptr), (work, orig_ptr)
++___collector_worker *work;
++___WORD *orig_ptr;)
++{
++  acquire_frame_access(work);
++  mark_captured_continuation_locked(work,orig_ptr);
++  release_frame_access(work);
++}
++
+ 
+ ___HIDDEN void mark_frame
+    ___P((___collector_worker *work,
+@@ -3832,7 +4210,7 @@ ___collector_worker *work;
+ ___WORD *fp;
+ const ___frame_descriptor *frame;)
+ {
+-  ___frame_root_cursor cursor = ___frame_root_begin (frame);
++  ___frame_root_cursor cursor = ___frame_ordinary_root_begin (frame);
+   int first, past;
+ 
+   while (___frame_root_next_run (&cursor, &first, &past))
+@@ -3865,6 +4243,7 @@ ___execution_context *context;)
+   ___WORD ra1;
+   ___WORD ra2;
+ 
++  acquire_frame_access(work);
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+   reference_location = IN_CONTINUATION;
+ #endif
+@@ -3919,7 +4298,8 @@ ___execution_context *context;)
+         ___FP_SET_STK(fp,-___FRAME_STACK_RA,ra2)
+       }
+ 
+-  mark_captured_continuation (work, &___FP_STK(fp,-___BREAK_FRAME_NEXT));
++  mark_captured_continuation_locked (work, &___FP_STK(fp,-___BREAK_FRAME_NEXT));
++  release_frame_access(work);
+ }
+ 
+ 
+@@ -3970,6 +4350,23 @@ ___WORD head;)
+   ___processor_state ___ps = work->carrier;
+   ___SIZE_TS words = ___HD_WORDS(head);
+   int subtype = ___HD_SUBTYPE(head);
++  ___BOOL movable = ___HD_TYP(head) == ___MOVABLE0;
++
++  if (movable)
++    {
++      int state = change_object_scan_state
++        (work,body-1,GC_SCAN_READY,GC_SCAN_OWNED);
++      if (state == GC_SCAN_OWNED || state == GC_SCAN_DONE)
++        {
++          work->duplicate_scans++;
++          return words; /* no field mutation; the first owner carries debt */
++        }
++      if (state != GC_SCAN_READY)
++        {
++          static char *msgs[] = { "GC scan before object initialization", NULL };
++          ___fatal_error (msgs);
++        }
++    }
+ 
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+   reference_location = IN_OBJECT;
+@@ -4063,6 +4460,8 @@ ___WORD head;)
+         ___WORD ra = body[0];
+         ___WORD frame;
+ 
++        acquire_frame_access(work);
++
+ #ifdef SHOW_FRAMES
+         ___printf ("___sFRAME object\n");
+         ___printf ("  frame [ra=0x%" ___PRIxWORD "] ", ra);
+@@ -4086,19 +4485,27 @@ ___WORD head;)
+         ___printf ("\n");
+ #endif
+ 
++        if (descriptor.fs <= 0 || descriptor.link < 0 ||
++            descriptor.link >= descriptor.fs ||
++            words != descriptor.fs+___FRAME_EXTRA_SLOTS)
++          {
++            static char *msgs[] = { "GC frame payload/descriptor mismatch", NULL };
++            ___fatal_error(msgs);
++          }
++
+         fp += descriptor.fs;
+ 
+         frame = ___FP_STK(fp,descriptor.link+1);
+ 
+-        if (___FIXNUMP(frame) && frame != ___END_OF_CONT_MARKER)
+-          ___FP_SET_STK(fp,descriptor.link+1,___FAL)
+-
+         mark_frame (work, fp, &descriptor);
+ 
+         if (___FIXNUMP(frame) && frame != ___END_OF_CONT_MARKER)
+           ___FP_SET_STK(fp,descriptor.link+1,___TAG(___UNTAG_AS(frame, ___tFIXNUM), ___tSUBTYPED))
++        else
++          mark_array(work,&___FP_STK(fp,descriptor.link+1),1);
+ 
+         mark_array (work, &body[0], 1);
++        release_frame_access(work);
+       }
+       break;
+ 
+@@ -4133,35 +4540,29 @@ ___WORD head;)
+       break;
+     }
+ 
++  if (movable &&
++      change_object_scan_state(work,body-1,GC_SCAN_OWNED,GC_SCAN_DONE)
++      != GC_SCAN_OWNED)
++    {
++      static char *msgs[] = { "GC scan owner lost before completion", NULL };
++      ___fatal_error (msgs);
++    }
+   return words;
+ }
+ 
+ 
+ #define scan_no_fast_path(ptr, head) \
+ do { \
++  work->active_scan_object_ = (ptr)+1; \
+   ptr += scan (work, (ptr)+1, head) + 1; \
++  work->active_scan_object_ = 0; \
+ } while (0)
+ 
+ 
+-#ifdef ___USE_SCAN_NO_FAST_PATH
+-
++/* Pair and general scanning consume the same object authority. The previous
++ * pair macro mutated a field without going through the scan owner. */
+ #define scan_and_advance(ptr, head) scan_no_fast_path(ptr, head)
+ 
+-#else
+-
+-#define scan_and_advance(ptr, head) \
+-do { \
+-  if ((head) == ___MAKE_HD_WORDS(___PAIR_SIZE,___sPAIR)) \
+-    { \
+-      mark_array (work, (ptr)+2, ___PAIR_SIZE-1); \
+-      ptr += ___PAIR_SIZE+1; \
+-    } \
+-  else \
+-    scan_no_fast_path(ptr, head); \
+-} while (0)
+-
+-#endif
+-
+ 
+ ___HIDDEN void setup_still_objs_to_scan
+    ___P((___collector_worker *work),
+@@ -4207,16 +4608,22 @@ ___collector_worker *work;)
+ 
+ ___HIDDEN void scan_complete_heap_chunk
+    ___P((___collector_worker *work,
+-         ___WORD *start),
++         ___WORD *start,
++         int origin),
+         (work,
+-         start)
++         start,
++         origin)
+ ___collector_worker *work;
+-___WORD *start;)
++___WORD *start;
++int origin;)
+ {
+   ___processor_state ___ps = work->carrier;
+   ___WORD *ptr = start;
+   ___WORD head;
+ 
++  work->active_scan_chunk_ = start;
++  work->scan_origin_ = origin;
++
+ #ifdef ENABLE_GC_ACTLOG_SCAN_COMPLETE_HEAP_CHUNK
+   ___ACTLOG_BEGIN_PS(scan_complete_heap_chunk,_);
+ #endif
+@@ -4226,6 +4633,11 @@ ___WORD *start;)
+       scan_and_advance(ptr, head); /* note: this advances ptr */
+     }
+ 
++  require_chunk_transition(work,start,2,3);
++  work->chunks_completed_++;
++  work->active_scan_chunk_ = 0;
++  work->scan_origin_ = 0;
++
+ #ifdef ENABLE_GC_ACTLOG_SCAN_COMPLETE_HEAP_CHUNK
+   ___ACTLOG_END_PS();
+ #endif
+@@ -4275,11 +4687,12 @@ ___collector_worker *work;)
+    */
+ 
+   ___WORD *ptr = scan_ptr;
+-  ___VOLATILE ___WORD *hcsh;
+ 
+   while (ptr != work->context->mem.alloc_heap_ptr_) /* SITUATION #1 or #2 ? */
+     {
+       ___WORD head;
++      work->active_scan_chunk_ = work->local_scan_chunk_;
++      work->scan_origin_ = 1;
+       while (!___TESTTYPE(head = *ptr, ___FORW)) /* not end of complete chunk? */
+         {
+           scan_and_advance(ptr, head); /* note: this advances ptr */
+@@ -4287,54 +4700,42 @@ ___collector_worker *work;)
+             {
+               /* SITUATION #3, done scanning all movable objects */
+               scan_ptr = ptr;
++              work->active_scan_chunk_ = 0;
++              work->scan_origin_ = 0;
+               return;
+             }
+         }
+ 
+       scan_ptr = ptr; /* remember where scan ended */
++      require_chunk_transition(work,work->local_scan_chunk_,2,3);
++      work->chunks_completed_++;
++      work->local_scan_chunk_ = 0;
++      work->active_scan_chunk_ = 0;
++      work->scan_origin_ = 0;
+ 
+       /*
+        * SITUATION #1, at end of complete chunk.
+        */
+ 
+-#ifndef ___SINGLE_THREADED_VMS
+-      ___SPINLOCK_LOCK(heap_chunks_to_scan_lock);
+-#endif
+-
+-      while ((hcsh=heap_chunks_to_scan_head) != heap_chunks_to_scan_tail)
++      while ((ptr=take_heap_chunk(work,work)) != 0)
+         {
+           /*
+            * Get the next complete heap chunk from heap chunk FIFO and
+            * scan it.
+            */
+ 
+-          ptr = ___UNTAG_AS(*hcsh, ___FORW);
+-
+-          heap_chunks_to_scan_head = ptr;
+-
+-          ___SHARED_MEMORY_BARRIER(); /* share heap_chunks_to_scan_head */
+-
+-#ifndef ___SINGLE_THREADED_VMS
+-          ___SPINLOCK_UNLOCK(heap_chunks_to_scan_lock);
+-#endif
+-
+-          scan_complete_heap_chunk (work, ptr+1);
+-
+-#ifndef ___SINGLE_THREADED_VMS
+-          ___SPINLOCK_LOCK(heap_chunks_to_scan_lock);
+-#endif
++          scan_complete_heap_chunk (work, ptr, 2);
+         }
+ 
+-#ifndef ___SINGLE_THREADED_VMS
+-      ___SPINLOCK_UNLOCK(heap_chunks_to_scan_lock);
+-#endif
+-
+       /*
+        * Scan the incomplete heap chunk currently being created.
+        */
+ 
+       ptr = alloc_heap_chunk_start;
+ 
++      require_chunk_transition(work,ptr,0,2);
++      work->local_scan_chunk_ = ptr;
++
+       scan_ptr = ptr;
+     }
+ }
+@@ -4577,7 +4978,7 @@ ___processor_state ___ps;)
+   tospace_offset = ___PSTATE_FROM_PROCESSOR_ID(0,___vms)->context->mem.tospace_offset_;
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+-  ___SPINLOCK_INIT(heap_chunks_to_scan_lock);
++  chunk_gate = 0;
+ #endif
+ 
+   /*
+@@ -4596,8 +4997,24 @@ ___processor_state ___ps;)
+   alloc_heap_start = 0;
+   alloc_heap_ptr = 0;
+ 
+-  next_stack_msection (___ps); /* allocate one msection for stack */
+-  next_heap_msection (___ps);  /* allocate one msection for local heap */
++  if (___PROCESSOR_ID(___ps,___vms) > 0 &&
++      ___vms->resize.phase == ___RESIZE_INITIALIZING)
++    {
++      ___vm_resize_slot *slot =
++        &___vms->resize.slots[___PROCESSOR_ID(___ps,___vms)];
++      if (slot->phase != ___RESIZE_SLOT_RESERVED ||
++          slot->stack == 0 || slot->heap == 0 || slot->stack == slot->heap)
++        return ___FIX(___UNKNOWN_ERR);
++      /* Physical ownership was charged once by reserve_vm_resize. This
++       * endpoint binds those exact intervals; it cannot allocate or collect. */
++      set_stack_msection (___ps, slot->stack);
++      set_heap_msection (___ps, slot->heap);
++    }
++  else
++    {
++      next_stack_msection (___ps); /* initial processor only */
++      next_heap_msection (___ps);
++    }
+ 
+   /* Setup list of still objects. */
+ 
+@@ -5675,6 +6092,15 @@ ___collector_worker *work;)
+             flags |= ___GCHASHTABLE_FLAG_KEY_MOVED; /* assume worst case */
+         }
+ 
++      /* Reference repair does not transfer index-algorithm ownership.
++       * Native identity hashes depend on addresses; a Scheme hash must stay
++       * stable for an unchanged key across GC. Preserve that index instead
++       * of replacing it with an address hash or adding a lazy write on the
++       * next shared read. Existing NEED_REHASH debt (e.g. deserialization)
++       * remains owned by Scheme table-access. No Scheme callback runs here. */
++      if (flags & ___GCHASHTABLE_FLAG_SCHEME_INDEX)
++        flags &= ~___GCHASHTABLE_FLAG_KEY_MOVED;
++
+       body[___GCHASHTABLE_FLAGS] = ___FIX(flags);
+ 
+ #ifndef ___GC_HASH_TABLE_REHASH_LAZILY
+@@ -6275,6 +6701,7 @@ ___SIZE_TS requested_words_still;)
+   int recent_history;
+   int lower_bound_nb_sections;
+   int upper_bound_nb_sections;
++  int p;
+   ___SIZE_TS live;
+   ___SIZE_TS free_space;
+ 
+@@ -6291,7 +6718,20 @@ ___SIZE_TS requested_words_still;)
+    * case the GC was called as part of the resizing of the VM.
+    */
+ 
+-  lower_bound_nb_sections = compute_nb_msections_min(target_processor_count);
++  lower_bound_nb_sections = nb_msections_assigned;
++  SET_MAX(lower_bound_nb_sections,
++          compute_nb_msections_min(___vms->gc_round.participant_count));
++
++  /* Each stopped context can take at most one section at the actual
++   * post-GC fudge restoration endpoint below. Reserve that physical demand
++   * before contraction; live-word estimates do not describe these intervals. */
++  for (p=0; p<___vms->gc_round.participant_count; p++)
++    {
++      ___context_mem *m = &___vms->execution_contexts[p].mem;
++      if (m->alloc_heap_ptr_ > m->alloc_heap_limit_ - ___MSECTION_FUDGE)
++        lower_bound_nb_sections++;
++    }
++  lower_bound_nb_sections += compute_resume_msections(normal_overflow_reserve);
+ 
+   SET_MAX(lower_bound_nb_sections,
+           (compute_nb_msections_needed(occupied_words_movable) +
+@@ -6349,15 +6789,23 @@ ___SIZE_TS requested_words_still;)
+       target_nb_sections = compute_nb_msections_needed(target_movable_space) +
+                            nb_msections_stacks;
+ 
++      SET_MAX(target_nb_sections, lower_bound_nb_sections);
+       upper_bound_nb_sections = target_nb_sections;
+ 
+       if (___GSTATE->setup_params.max_heap > 0)
+         {
+-          upper_bound_nb_sections =
+-            ((___GSTATE->setup_params.max_heap >> ___LWS) -
+-             occupied_words_still) / ___MSECTION_SIZE;
+-
+-          SET_MAX(target_nb_sections, lower_bound_nb_sections);
++          ___SIZE_TS budget = ___GSTATE->setup_params.max_heap >> ___LWS;
++          upper_bound_nb_sections = budget < occupied_words_still ? 0 :
++            (budget - occupied_words_still) / ___MSECTION_SIZE;
++          if (upper_bound_nb_sections < lower_bound_nb_sections)
++            {
++              /* A policy cap cannot authorize freeing assigned/live regions.
++               * Reject the request while retaining enough space to resume. */
++              occupied_words_still -= requested_words_still;
++              requested_words_still = 0;
++              overflow = 1;
++              break;
++            }
+           SET_MIN(target_nb_sections, upper_bound_nb_sections);
+         }
+ 
+@@ -6467,6 +6915,206 @@ ___SIZE_TS requested_words_still;)
+ }
+ 
+ 
++___SCMOBJ ___reserve_vm_resize
++   ___P((___processor_state ___ps), (___ps)
++___processor_state ___ps;)
++{
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
++  ___vm_resize_ledger *r = &vms->resize;
++  ___vmstate_mem *m = &vms->mem;
++  ___msection *cursor;
++  ___SIZE_TS still = 0;
++  int required;
++  int i;
++  int count = r->target - r->initial;
++  int resume = compute_resume_msections(m->normal_overflow_reserve_);
++
++  if (r->phase != ___RESIZE_REQUESTED || count <= 0 ||
++      count > ___MAX_PROCESSORS ||
++      m->nb_msections_assigned_ > INT_MAX/2-resume-2*count)
++    return ___FIX(___UNKNOWN_ERR);
++
++  r->base_assigned = m->nb_msections_assigned_;
++  r->base_stacks = m->nb_msections_stacks_;
++  r->base_alloc = m->alloc_msection_;
++  r->base_capacity = m->the_msections_->nb_sections;
++  r->resume_sections = resume;
++  required = r->base_assigned + 2*count + resume;
++
++  for (i=0; i<r->initial; i++)
++    still += vms->execution_contexts[i].mem.words_still_objs_ +
++             vms->execution_contexts[i].mem.words_still_objs_deferred_;
++
++  if (___GSTATE->setup_params.max_heap > 0)
++    {
++      ___SIZE_TS budget = ___GSTATE->setup_params.max_heap >> ___LWS;
++      if (budget < still ||
++          ___CAST(___SIZE_TS,required) > (budget-still)/___MSECTION_SIZE)
++        return ___FIX(___HEAP_OVERFLOW_ERR);
++    }
++
++  if (required > m->the_msections_->nb_sections)
++    adjust_msections (&m->the_msections_, required);
++
++  /* adjust_msections reports a partial allocation through the actual table.
++   * No context/member is initialized until the entire grant exists. */
++  if (m->the_msections_->nb_sections < required)
++    {
++      adjust_msections (&m->the_msections_, r->base_capacity);
++      m->heap_size_ = compute_msection_size(m->the_msections_->nb_sections) +
++                      m->occupied_words_still_;
++      return ___FIX(___HEAP_OVERFLOW_ERR);
++    }
++
++  cursor = r->base_assigned == 0 ? m->the_msections_->head : r->base_alloc->next;
++  for (i=r->initial; i<r->target; i++)
++    {
++      ___vm_resize_slot *slot = &r->slots[i];
++      slot->stack = cursor;
++      slot->heap = cursor->next;
++      cursor = slot->heap->next;
++      slot->entry = 0;
++      slot->phase = ___RESIZE_SLOT_RESERVED;
++    }
++  m->alloc_msection_ = r->slots[r->target-1].heap;
++  m->nb_msections_assigned_ = r->base_assigned + 2*count;
++  m->nb_msections_stacks_ += count;
++  m->heap_size_ = compute_msection_size(m->the_msections_->nb_sections) +
++                  m->occupied_words_still_;
++  r->phase = ___RESIZE_RESERVED;
++  return ___FIX(___NO_ERR);
++}
++
++
++void ___rollback_vm_resize
++   ___P((___processor_state ___ps), (___ps)
++___processor_state ___ps;)
++{
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
++  ___vm_resize_ledger *r = &vms->resize;
++  ___vmstate_mem *m = &vms->mem;
++  int i;
++
++  /* The caller must first establish that every created thread was joined.
++   * Unknown join results retain the entire grant and cannot reach here. */
++  m->alloc_msection_ = r->base_alloc;
++  m->nb_msections_assigned_ = r->base_assigned;
++  m->nb_msections_stacks_ = r->base_stacks;
++  adjust_msections (&m->the_msections_, r->base_capacity);
++  m->heap_size_ = compute_msection_size(m->the_msections_->nb_sections) +
++                  m->occupied_words_still_;
++  for (i=r->initial; i<r->target; i++)
++    {
++      r->slots[i].stack = 0;
++      r->slots[i].heap = 0;
++      r->slots[i].phase = ___RESIZE_SLOT_EMPTY;
++    }
++}
++
++
++___BOOL ___isolate_aborted_resize
++   ___P((___processor_state ___ps), (___ps)
++___processor_state ___ps;)
++{
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
++  ___vm_resize_ledger *r = &vms->resize;
++  int i;
++
++  /* Join failure proves nothing about termination. The separate proof here
++   * is an irrevocable ABORT entry permit: start_processor_execution accesses
++   * only the stable PSTATE/native record and gate before returning. It has
++   * not bound TLS, run Scheme, or acquired any execution-context borrow.
++   * Do not reuse those native records or destroy the VM gate after isolation.
++   * Published/unknown-create contexts deliberately cannot take this path. */
++  if (r->phase != ___RESIZE_ABORTING || r->initialized != r->target-r->initial)
++    return 0;
++  for (i=r->initial; i<r->target; i++)
++    {
++      ___execution_context *c = &vms->execution_contexts[i];
++      ___vm_resize_slot *slot = &r->slots[i];
++      if ((i < r->initial+r->created && slot->entry != -1) ||
++          slot->phase == ___RESIZE_SLOT_CREATING ||
++          slot->phase == ___RESIZE_SLOT_PUBLISHED ||
++          c->fp != c->stack_break || c->hp != c->mem.alloc_heap_start_ ||
++          c->mem.still_objs_ != 0 || c->mem.words_still_objs_ != 0 ||
++          c->mem.words_still_objs_deferred_ != 0 ||
++          c->mem.rc_head_.next != &c->mem.rc_head_ ||
++          c->entry_marker != ___FAL)
++        return 0;
++    }
++
++  /* These empty intervals have no Scheme/native readers. Retain native
++   * identity, descriptors and OS resources, but detach their heap claims.
++   * The request thunk remains a VM root scanned by worker 0. No orphan root
++   * cell is later reloaded: membership/slot reuse stays refused. This is not
++   * rollback_vm_resize: it refunds no physical capacity and cleans no PSTATE. */
++  for (i=r->initial; i<r->target; i++)
++    {
++      vms->execution_contexts[i].startup_thunk = ___FAL;
++      r->slots[i].stack = 0;
++      r->slots[i].heap = 0;
++    }
++  vms->mem.alloc_msection_ = r->base_alloc;
++  vms->mem.nb_msections_assigned_ = r->base_assigned;
++  vms->mem.nb_msections_stacks_ = r->base_stacks;
++  r->abort_isolated = 1; /* old-member finish barrier publishes the receipt */
++  return 1;
++}
++
++
++___BOOL ___can_retire_pstate
++   ___P((___processor_state ___ps), (___ps)
++___processor_state ___ps;)
++{
++  ___rc_header *head = &___ps->context->mem.rc_head_;
++  ___WORD *base = ___CAST(___WORD*,___ps->context->mem.still_objs_);
++  if (head->next != head)
++    return 0; /* no freeze receipt for external RC/native borrowers */
++  while (base != 0)
++    {
++      /* Vectors can have a specialized tag distinct from ___tSUBTYPED.
++       * Still ownership is an identity of bodies, not of a reconstructed tag. */
++      ___BOOL entry_marker = ___ps->context->entry_marker != ___FAL &&
++        ___BODY0(___ps->context->entry_marker) == base+___STILL_BODY;
++      if (___HD_SUBTYPE(base[___STILL_BODY-1]) == ___sFOREIGN ||
++          (base[___STILL_REFCOUNT] > 0 && !entry_marker))
++        return 0; /* effects/borrow ownership is not inferred from join */
++      base = ___CAST(___WORD*,base[___STILL_LINK]);
++    }
++  return 1;
++}
++
++
++void ___transfer_retired_still
++   ___P((___processor_state from, ___processor_state to), (from, to)
++___processor_state from;
++___processor_state to;)
++{
++  ___context_mem *src = &from->context->mem;
++  ___context_mem *dst = &to->context->mem;
++  ___WORD *tail = ___CAST(___WORD*,src->still_objs_);
++  /* Successful join and the old closed collective exclude writers. Keep
++   * still objects reachable by other contexts; retirement is not object death.
++   * RC/native-borrow/effectful domains fail admission before membership changes. */
++  if (tail != 0)
++    {
++      while (tail[___STILL_LINK] != 0)
++        tail = ___CAST(___WORD*,tail[___STILL_LINK]);
++      tail[___STILL_LINK] = dst->still_objs_;
++      dst->still_objs_ = src->still_objs_;
++    }
++  dst->words_still_objs_ += src->words_still_objs_;
++  dst->words_still_objs_deferred_ += src->words_still_objs_deferred_;
++  dst->bytes_allocated_minus_occupied_ +=
++    src->bytes_allocated_minus_occupied_ +
++    ___CAST(___F64,words_movable_objs(from)) * ___WS;
++  src->bytes_allocated_minus_occupied_ = 0.0;
++  src->still_objs_ = 0;
++  src->words_still_objs_ = 0;
++  src->words_still_objs_deferred_ = 0;
++}
++
++
+ ___HIDDEN void mark_processor_scmobj
+    ___P((___collector_worker *work, ___execution_context *context),
+         (work, context)
+@@ -6498,6 +7146,7 @@ ___collector_worker *work;)
+ 
+   mark_array (work, ___BODY0_AS(___VM_SCMOBJ(___vms),___tSUBTYPED),
+               ___VM_SIZE);
++  mark_array (work, &___vms->resize.thunk, 1);
+ }
+ 
+ 
+@@ -6608,6 +7257,8 @@ ___gc_participant *participant;)
+   mark_array (work, context->saved, sizeof(context->saved)/sizeof(*context->saved));
+   mark_array (work, context->type_cache,
+               sizeof(context->type_cache)/sizeof(*context->type_cache));
++  mark_array (work, &context->startup_thunk, 1);
++  mark_array (work, &context->entry_marker, 1);
+   mark_processor_scmobj (work, context);
+   mark_rc (work, context);
+ }
+@@ -6649,36 +7300,12 @@ ___collector_worker *work;)
+       for (i = (np-1) * ___GC_SCAN_STEAL_WORK_CYCLES - 1; i>=0; i--)
+         {
+           ___collector_worker *victim = &___vms->collector_workers[(id + 1 + i%(np-1)) % np];
+-          ___VOLATILE ___WORD *hcsh;
++          ___WORD *ptr = take_heap_chunk(work,victim);
+ 
+-          if (victim->heap_chunks_to_scan_head_ !=
+-              victim->heap_chunks_to_scan_tail_)
++          if (ptr != 0)
+             {
+-              /* only try stealing when chunk FIFO is non-empty */
+-
+-              ___SPINLOCK_LOCK(victim->heap_chunks_to_scan_lock_);
+-
+-              if ((hcsh=victim->heap_chunks_to_scan_head_) !=
+-                  victim->heap_chunks_to_scan_tail_)
+-                {
+-                  /* chunk FIFO is really non-empty */
+-
+-                  ___WORD *ptr = ___UNTAG_AS(*hcsh, ___FORW);
+-
+-                  victim->heap_chunks_to_scan_head_ = ptr;
+-
+-                  ___SHARED_MEMORY_BARRIER(); /* share heap_chunks_to_scan_head */
+-
+-                  ___SPINLOCK_UNLOCK(victim->heap_chunks_to_scan_lock_);
+-
+-                  scan_complete_heap_chunk (work, ptr+1);
+-
+-                  goto continue_local_scan;
+-                }
+-              else
+-                {
+-                  ___SPINLOCK_UNLOCK(victim->heap_chunks_to_scan_lock_);
+-                }
++              scan_complete_heap_chunk (work, ptr, 3);
++              goto continue_local_scan;
+             }
+         }
+ 
+@@ -6844,6 +7471,15 @@ ___collector_worker *work;)
+ 
+   mark_reachable_from_marked (work);
+ 
++  if (work->copy_begin_ != 0 || work->tail_cell_ != 0 ||
++      work->tail_started_ != work->tail_completed_ ||
++      work->copy_reserved_words_-work->copy_cancelled_words_ !=
++        work->copied_words+work->copy_padding_words_)
++    {
++      static char *msgs[] = { "GC unfinished copy or Tail custody", NULL };
++      ___fatal_error(msgs);
++    }
++
+   move_continuation (work);
+   ___vms->gc_participants[___PROCESSOR_ID(___ps,___vms)].phase = ___GC_WEAK_COMPLETE;
+ 
+@@ -6902,6 +7538,14 @@ ___SIZE_TS requested_words_still;)
+   ___F64 user_time_end, sys_time_end, real_time_end;
+   ___F64 user_time, sys_time, real_time;
+ 
++  /* A failed/unknown native join cannot justify moving or reclaiming the
++   * quarantined contexts, their roots, or their physical grant. */
++  if (___vms->resize.phase != ___RESIZE_IDLE &&
++      ___vms->resize.phase != ___RESIZE_REQUESTED &&
++      !(___vms->resize.phase == ___RESIZE_RETAINED &&
++        ___vms->resize.abort_isolated))
++    return 1;
++
+   require_gc_phase (participant, ___GC_RUNNING);
+   if (work->context != ___ps->context || work->carrier != ___ps)
+     {
+diff --git a/lib/mem.h b/lib/mem.h
+index 3ccbe16a..9c34808b 100755
+--- a/lib/mem.h
++++ b/lib/mem.h
+@@ -97,6 +97,19 @@ extern ___SCMOBJ ___setup_mem_vmstate
+ 
+ extern ___SCMOBJ ___setup_mem ___PVOID;
+ 
++/* Called by the coordinator while the old member set is stopped. These
++ * operations never collect, invoke Scheme, or publish execution members. */
++extern ___SCMOBJ ___reserve_vm_resize
++   ___P((___processor_state ___ps), ());
++extern void ___rollback_vm_resize
++   ___P((___processor_state ___ps), ());
++extern ___BOOL ___isolate_aborted_resize
++   ___P((___processor_state ___ps), ());
++extern ___BOOL ___can_retire_pstate
++   ___P((___processor_state ___ps), ());
++extern void ___transfer_retired_still
++   ___P((___processor_state from, ___processor_state to), ());
++
+ extern void ___cleanup_mem_pstate
+    ___P((___processor_state ___ps),
+         ());
+diff --git a/lib/os_setup.c b/lib/os_setup.c
+index 84dea8a2..9de34086 100644
+--- a/lib/os_setup.c
++++ b/lib/os_setup.c
+@@ -1356,7 +1356,7 @@ ___SCMOBJ host;)
+ 
+   ___SCMOBJ ___temp; /* needed by the ___U8VECTORP and ___U16VECTORP macros */
+ 
+-  ___ps->saved[0] = hi;
++  ___ps->context->saved[0] = hi;
+ 
+   errno = 0; /* in case the h_errno ends up being NETDB_SUCCESS
+               * incorrectly which will be treated as NETDB_INTERNAL
+@@ -1456,7 +1456,7 @@ ___SCMOBJ host;)
+       != ___FIX(___NO_ERR))
+     goto done;
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___HOST_INFO_NAME) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___HOST_INFO_NAME) =
+     ___release_scmobj (x);
+ 
+   /* convert h_aliases to strings */
+@@ -1492,7 +1492,7 @@ ___SCMOBJ host;)
+       lst = result;
+     }
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___HOST_INFO_ALIASES) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___HOST_INFO_ALIASES) =
+     ___release_scmobj (lst);
+ 
+   /* convert h_addr_list to u8/u16vectors */
+@@ -1550,7 +1550,7 @@ ___SCMOBJ host;)
+       lst = result;
+     }
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___HOST_INFO_ADDRESSES) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___HOST_INFO_ADDRESSES) =
+     ___release_scmobj (lst);
+ 
+   /* guarantee that at least one address is returned */
+@@ -1558,10 +1558,10 @@ ___SCMOBJ host;)
+   if (lst == ___NUL)
+     result = ___FIX(___H_ERRNO_ERR(NO_ADDRESS));
+   else
+-    result = ___ps->saved[0];
++    result = ___ps->context->saved[0];
+ 
+  done:
+-  ___ps->saved[0] = ___VOID; /* prevent space leak */
++  ___ps->context->saved[0] = ___VOID; /* prevent space leak */
+ 
+   return result;
+ 
+@@ -1640,7 +1640,7 @@ ___SCMOBJ protocol;)
+ 
+   ___SCMOBJ ___temp; /* needed by the ___U8VECTORP and ___U16VECTORP macros */
+ 
+-  ___ps->saved[0] = si;
++  ___ps->context->saved[0] = si;
+ 
+   /*
+    * Convert the Scheme string to a C "char*" string.  If an invalid
+@@ -1713,7 +1713,7 @@ ___SCMOBJ protocol;)
+       != ___FIX(___NO_ERR))
+     goto done;
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___SERVICE_INFO_NAME) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___SERVICE_INFO_NAME) =
+     ___release_scmobj (x);
+ 
+   /* convert s_aliases to strings */
+@@ -1749,12 +1749,12 @@ ___SCMOBJ protocol;)
+       lst = result;
+     }
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___SERVICE_INFO_ALIASES) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___SERVICE_INFO_ALIASES) =
+     ___release_scmobj (lst);
+ 
+   /* convert s_port to integer */
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___SERVICE_INFO_PORT_NUMBER) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___SERVICE_INFO_PORT_NUMBER) =
+     ___FIX(ntohs (se->s_port));
+ 
+   /* convert s_name to string */
+@@ -1766,13 +1766,13 @@ ___SCMOBJ protocol;)
+       != ___FIX(___NO_ERR))
+     goto done;
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___SERVICE_INFO_PROTOCOL) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___SERVICE_INFO_PROTOCOL) =
+     ___release_scmobj (x);
+ 
+-  result = ___ps->saved[0];
++  result = ___ps->context->saved[0];
+ 
+  done:
+-  ___ps->saved[0] = ___VOID; /* prevent space leak */
++  ___ps->context->saved[0] = ___VOID; /* prevent space leak */
+ 
+   return result;
+ 
+@@ -1812,7 +1812,7 @@ ___SCMOBJ protocol;)
+   struct protoent *pe;
+   char *cprotocol;
+ 
+-  ___ps->saved[0] = pi;
++  ___ps->context->saved[0] = pi;
+ 
+   /*
+    * Convert the Scheme string to a C "char*" string.  If an invalid
+@@ -1871,7 +1871,7 @@ ___SCMOBJ protocol;)
+       != ___FIX(___NO_ERR))
+     goto done;
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___PROTOCOL_INFO_NAME) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___PROTOCOL_INFO_NAME) =
+     ___release_scmobj (x);
+ 
+   /* convert p_aliases to strings */
+@@ -1907,18 +1907,18 @@ ___SCMOBJ protocol;)
+       lst = result;
+     }
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___PROTOCOL_INFO_ALIASES) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___PROTOCOL_INFO_ALIASES) =
+     ___release_scmobj (lst);
+ 
+   /* convert p_proto to integer */
+ 
+-  ___FIELD(STRUCTURE,___ps->saved[0],___PROTOCOL_INFO_NUMBER) =
++  ___FIELD(STRUCTURE,___ps->context->saved[0],___PROTOCOL_INFO_NUMBER) =
+     ___FIX(pe->p_proto);
+ 
+-  result = ___ps->saved[0];
++  result = ___ps->context->saved[0];
+ 
+  done:
+-  ___ps->saved[0] = ___VOID; /* prevent space leak */
++  ___ps->context->saved[0] = ___VOID; /* prevent space leak */
+ 
+   return result;
+ 
+@@ -2094,7 +2094,7 @@ ___SCMOBJ chase;)
+   ___SCMOBJ result;
+   void *cpath;
+ 
+-  ___ps->saved[0] = fi;
++  ___ps->context->saved[0] = fi;
+ 
+ #ifndef USE_stat
+ #ifndef USE_GetFileAttributesEx
+@@ -2120,7 +2120,7 @@ ___SCMOBJ chase;)
+ 
+       ___release_string (cpath);
+ 
+-      result = ___ps->saved[0];
++      result = ___ps->context->saved[0];
+     }
+ 
+ #endif
+@@ -2168,7 +2168,7 @@ ___SCMOBJ chase;)
+       else
+         x = ___FIX(0);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_TYPE) = x;
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_TYPE) = x;
+ 
+       if ((result = ___ULONGLONG_to_SCMOBJ (___ps,
+                                             ___CAST(___ULONGLONG,s.st_dev),
+@@ -2177,7 +2177,7 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_DEVICE) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_DEVICE) =
+         ___release_scmobj (x);
+ 
+       if ((result = ___LONGLONG_to_SCMOBJ (___ps,
+@@ -2187,10 +2187,10 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_INODE) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_INODE) =
+         ___release_scmobj (x);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_MODE) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_MODE) =
+         ___FIX(s.st_mode & (S_ISUID|S_ISGID|S_ISVTX|S_IRWXU|S_IRWXG|S_IRWXO));
+ 
+       if ((result = ___ULONGLONG_to_SCMOBJ (___ps,
+@@ -2200,13 +2200,13 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_NUMBER_OF_LINKS) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_NUMBER_OF_LINKS) =
+         ___release_scmobj (x);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_OWNER) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_OWNER) =
+         ___FIX(s.st_uid);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_GROUP) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_GROUP) =
+         ___FIX(s.st_gid);
+ 
+       if ((result = ___LONGLONG_to_SCMOBJ (___ps,
+@@ -2216,7 +2216,7 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_SIZE) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_SIZE) =
+         ___release_scmobj (x);
+ 
+       if ((result = ___F64_to_SCMOBJ (___ps,
+@@ -2226,7 +2226,7 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_LAST_ACCESS_TIME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_LAST_ACCESS_TIME) =
+         ___release_scmobj (x);
+ 
+       if ((result = ___F64_to_SCMOBJ (___ps,
+@@ -2236,7 +2236,7 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_LAST_MODIFICATION_TIME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_LAST_MODIFICATION_TIME) =
+         ___release_scmobj (x);
+ 
+       if ((result = ___F64_to_SCMOBJ (___ps,
+@@ -2246,7 +2246,7 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_LAST_CHANGE_TIME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_LAST_CHANGE_TIME) =
+         ___release_scmobj (x);
+ 
+ #ifndef FILE_ATTRIBUTE_READ_ONLY
+@@ -2261,7 +2261,7 @@ ___SCMOBJ chase;)
+ #define FILE_ATTRIBUTE_NORMAL 128
+ #endif
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_ATTRIBUTES) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_ATTRIBUTES) =
+         ___FIX(S_ISDIR(s.st_mode)
+                ? FILE_ATTRIBUTE_DIRECTORY
+                : FILE_ATTRIBUTE_NORMAL);
+@@ -2273,10 +2273,10 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_CREATION_TIME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_CREATION_TIME) =
+         ___release_scmobj (x);
+ 
+-      result = ___ps->saved[0];
++      result = ___ps->context->saved[0];
+     }
+ 
+ #endif
+@@ -2314,25 +2314,25 @@ ___SCMOBJ chase;)
+       else
+         x = ___FIX(1);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_TYPE) = x;
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_TYPE) = x;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_DEVICE) = ___FIX(0);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_DEVICE) = ___FIX(0);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_INODE) = ___FIX(0);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_INODE) = ___FIX(0);
+ 
+       if (fad.dwFileAttributes & FILE_ATTRIBUTE_READONLY)
+         x = ___FIX(0333);
+       else
+         x = ___FIX(0777);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_MODE) = x;
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_MODE) = x;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_NUMBER_OF_LINKS) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_NUMBER_OF_LINKS) =
+         ___FIX(1);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_OWNER) = ___FIX(0);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_OWNER) = ___FIX(0);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_GROUP) = ___FIX(0);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_GROUP) = ___FIX(0);
+ 
+       if ((result = ___U64_to_SCMOBJ (___ps,
+                                       ___U64_from_UM32_UM32(fad.nFileSizeHigh,fad.nFileSizeLow),
+@@ -2341,7 +2341,7 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_SIZE) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_SIZE) =
+         ___release_scmobj (x);
+ 
+       ___time_from_FILETIME (&atime, fad.ftLastAccessTime);
+@@ -2353,7 +2353,7 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_LAST_ACCESS_TIME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_LAST_ACCESS_TIME) =
+         ___release_scmobj (x);
+ 
+       ___time_from_FILETIME (&wtime, fad.ftLastWriteTime);
+@@ -2365,12 +2365,12 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_LAST_MODIFICATION_TIME) = x;
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_LAST_MODIFICATION_TIME) = x;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_LAST_CHANGE_TIME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_LAST_CHANGE_TIME) =
+         ___release_scmobj (x);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_ATTRIBUTES) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_ATTRIBUTES) =
+         ___FIX(fad.dwFileAttributes);
+ 
+       ___time_from_FILETIME (&ctime, fad.ftCreationTime);
+@@ -2382,16 +2382,16 @@ ___SCMOBJ chase;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___FILE_INFO_CREATION_TIME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___FILE_INFO_CREATION_TIME) =
+         ___release_scmobj (x);
+ 
+-      result = ___ps->saved[0];
++      result = ___ps->context->saved[0];
+     }
+ 
+ #endif
+ 
+  done:
+-  ___ps->saved[0] = ___VOID; /* prevent space leak */
++  ___ps->context->saved[0] = ___VOID; /* prevent space leak */
+ 
+   return result;
+ }
+@@ -2432,7 +2432,7 @@ ___SCMOBJ user;)
+   WCHAR *chome = empty;
+   WCHAR *cshell = empty;
+ 
+-  ___ps->saved[0] = ui;
++  ___ps->context->saved[0] = ui;
+ 
+ #define ___USER_CE_SELECT(latin1,utf8,ucs2,ucs4,wchar,native) ucs2
+ 
+@@ -2474,11 +2474,11 @@ ___SCMOBJ user;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_NAME) = ___release_scmobj (x);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_NAME) = ___release_scmobj (x);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_UID) = ___FIX(0);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_UID) = ___FIX(0);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_GID) = ___FIX(0);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_GID) = ___FIX(0);
+ 
+       if (pui->usri3_profile && pui->usri3_profile[0] != 0)
+         chome = pui->usri3_profile;
+@@ -2492,7 +2492,7 @@ ___SCMOBJ user;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_HOME) = ___release_scmobj (x);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_HOME) = ___release_scmobj (x);
+ 
+       cshell = L"cmd.exe";
+ 
+@@ -2503,13 +2503,13 @@ ___SCMOBJ user;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_SHELL) = ___release_scmobj (x);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_SHELL) = ___release_scmobj (x);
+ 
+-      result = ___ps->saved[0];
++      result = ___ps->context->saved[0];
+     }
+ 
+  done:
+-  ___ps->saved[0] = ___VOID; /* prevent space leak */
++  ___ps->context->saved[0] = ___VOID; /* prevent space leak */
+ 
+   if (pui != NULL)
+     NetApiBufferFree (pui);
+@@ -2531,7 +2531,7 @@ ___SCMOBJ user;)
+   void *cuser = 0;
+   struct passwd *p;
+ 
+-  ___ps->saved[0] = ui;
++  ___ps->context->saved[0] = ui;
+ 
+ #define ___USER_CE_SELECT(latin1,utf8,ucs2,ucs4,wchar,native) native
+ 
+@@ -2575,13 +2575,13 @@ ___SCMOBJ user;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_NAME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_NAME) =
+         ___release_scmobj (x);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_UID) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_UID) =
+         ___FIX(p->pw_uid);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_GID) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_GID) =
+         ___FIX(p->pw_gid);
+ 
+       if ((result = ___NONNULLCHARSTRING_to_SCMOBJ (___ps,
+@@ -2591,7 +2591,7 @@ ___SCMOBJ user;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_HOME) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_HOME) =
+         ___release_scmobj (x);
+ 
+       if ((result = ___NONNULLCHARSTRING_to_SCMOBJ (___ps,
+@@ -2601,14 +2601,14 @@ ___SCMOBJ user;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___USER_INFO_SHELL) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___USER_INFO_SHELL) =
+         ___release_scmobj (x);
+ 
+-      result = ___ps->saved[0];
++      result = ___ps->context->saved[0];
+     }
+ 
+  done:
+-  ___ps->saved[0] = ___VOID; /* prevent space leak */
++  ___ps->context->saved[0] = ___VOID; /* prevent space leak */
+ 
+   return result;
+ 
+@@ -2693,7 +2693,7 @@ ___SCMOBJ group;)
+   ___SCMOBJ lst = ___NUL;
+   DWORD i;
+ 
+-  ___ps->saved[0] = gi;
++  ___ps->context->saved[0] = gi;
+ 
+ #define ___GROUP_CE_SELECT(latin1,utf8,ucs2,ucs4,wchar,native) ucs2
+ 
+@@ -2735,9 +2735,9 @@ ___SCMOBJ group;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___GROUP_INFO_NAME) = ___release_scmobj (x);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___GROUP_INFO_NAME) = ___release_scmobj (x);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___GROUP_INFO_GID) = ___FIX(0);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___GROUP_INFO_GID) = ___FIX(0);
+ 
+       do
+         {
+@@ -2793,14 +2793,14 @@ ___SCMOBJ group;)
+ 
+         } while (nerr == ERROR_MORE_DATA);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],___GROUP_INFO_MEMBERS) =
++      ___FIELD(STRUCTURE,___ps->context->saved[0],___GROUP_INFO_MEMBERS) =
+         ___release_scmobj (lst);
+     }
+ 
+-  result = ___ps->saved[0];
++  result = ___ps->context->saved[0];
+ 
+  done:
+-  ___ps->saved[0] = ___VOID; /* prevent space leak */
++  ___ps->context->saved[0] = ___VOID; /* prevent space leak */
+ 
+   if (pgi != NULL)
+     NetApiBufferFree (pgi);
+@@ -2823,7 +2823,7 @@ ___SCMOBJ group;)
+   void *cgroup = 0;
+   struct group *g;
+ 
+-  ___ps->saved[0] = gi;
++  ___ps->context->saved[0] = gi;
+ 
+ #define ___GROUP_CE_SELECT(latin1,utf8,ucs2,ucs4,wchar,native) native
+ 
+@@ -2865,9 +2865,9 @@ ___SCMOBJ group;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],1) = ___release_scmobj (x);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],1) = ___release_scmobj (x);
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],2) = ___FIX(g->gr_gid);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],2) = ___FIX(g->gr_gid);
+ 
+       if ((result = ___NONNULLCHARSTRINGLIST_to_SCMOBJ
+                       (___ps,
+@@ -2877,13 +2877,13 @@ ___SCMOBJ group;)
+           != ___FIX(___NO_ERR))
+         goto done;
+ 
+-      ___FIELD(STRUCTURE,___ps->saved[0],3) = ___release_scmobj (x);
++      ___FIELD(STRUCTURE,___ps->context->saved[0],3) = ___release_scmobj (x);
+ 
+-      result = ___ps->saved[0];
++      result = ___ps->context->saved[0];
+     }
+ 
+  done:
+-  ___ps->saved[0] = ___VOID; /* prevent space leak */
++  ___ps->context->saved[0] = ___VOID; /* prevent space leak */
+ 
+   return result;
+ 
+diff --git a/lib/os_thread.c b/lib/os_thread.c
+index 4cbfd707..5a62fc5f 100644
+--- a/lib/os_thread.c
++++ b/lib/os_thread.c
+@@ -495,19 +495,24 @@ ___SCMOBJ ___thread_create
+         (thread)
+ ___thread *thread;)
+ {
++  ___SCMOBJ init_error = thread_init_common (thread);
++  if (init_error != ___FIX(___NO_ERR))
++    return init_error;
++
+ #ifdef ___USE_POSIX_THREAD_SYSTEM
+ 
+   pthread_t thread_id;
++  int error;
+ 
+-  if (pthread_create (&thread_id,
++  if ((error = pthread_create (&thread_id,
+                       NULL,
+                       start_pthread_thread,
+-                      ___CAST(void*,thread)) != 0)
+-    return err_code_from_errno ();
++                      ___CAST(void*,thread))) != 0)
++    return ___FIX(___ERRNO_ERR(error));
+ 
+   thread->thread_id = thread_id;
+ 
+-  return thread_init_common (thread);
++  return ___FIX(___NO_ERR);
+ 
+ #endif
+ 
+@@ -529,7 +534,7 @@ ___thread *thread;)
+   thread->thread_handle = thread_handle;
+   thread->thread_id = thread_id;
+ 
+-  return thread_init_common (thread);
++  return ___FIX(___NO_ERR);
+ 
+ #endif
+ 
+@@ -550,8 +555,9 @@ ___thread *thread;)
+ {
+ #ifdef ___USE_POSIX_THREAD_SYSTEM
+ 
+-  if (pthread_join (thread->thread_id, NULL) != 0)
+-    return err_code_from_errno ();
++  int error = pthread_join (thread->thread_id, NULL);
++  if (error != 0)
++    return ___FIX(___ERRNO_ERR(error));
+ 
+   return ___FIX(___NO_ERR);
+ 
+diff --git a/lib/setup.c b/lib/setup.c
+index 3d32be28..69bf2c73 100644
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -809,9 +809,22 @@ ___HIDDEN void start_processor_execution
+ ___thread *self;)
+ {
+   ___processor_state ___ps = ___CAST(___processor_state,self->data_ptr);
+-  ___SCMOBJ thunk = self->data_scmobj;
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
++  ___vm_resize_slot *slot = &vms->resize.slots[___PROCESSOR_ID(___ps,vms)];
++  int entry;
+   ___sync_op_struct sop;
+ 
++  /* A created thread is not a collective participant. Its entry permission
++   * is published only after every setup/create has succeeded and the old
++   * collective has committed the new member count. */
++  ___MUTEX_LOCK(vms->resize.gate);
++  while (slot->entry == 0)
++    ___CONDVAR_WAIT(vms->resize.changed, vms->resize.gate);
++  entry = slot->entry;
++  ___MUTEX_UNLOCK(vms->resize.gate);
++  if (entry < 0)
++    return;
++
+   /*
+    * Setup current OS thread so that it can find the processor state
+    * it is running.
+@@ -819,6 +832,8 @@ ___thread *self;)
+ 
+   ___thread_set_pstate (___ps);
+ 
++  BARRIER(); /* resize completion/receipt consumption, with the new set */
++
+   /*
+    * Participate in the synchronous operation that initiated the
+    * resizing of the VM.
+@@ -833,7 +848,9 @@ ___thread *self;)
+    * call ___throw_error with this code, normally terminating the VM.
+    */
+ 
+-  ___run_and_throw_error_on_processor_0 (___PSP thunk);
++  /* The synchronous loop can collect. Reload the VM-owned root afterwards;
++   * neither thread.data_scmobj nor a pre-loop C local is a root. */
++  ___run_and_throw_error_on_processor_0 (___PSP ___ps->context->startup_thunk);
+ }
+ 
+ 
+@@ -872,140 +889,221 @@ ___SCMOBJ ___vm_resize_pstate
+    ___P((___processor_state ___ps,
+          ___SCMOBJ thunk,
+          ___WORD target_processor_count),
+-        (___ps,
+-         thunk,
+-         target_processor_count)
++        (___ps, thunk, target_processor_count)
+ ___processor_state ___ps;
+ ___SCMOBJ thunk;
+ ___WORD target_processor_count;)
+ {
+   ___SCMOBJ err = ___FIX(___NO_ERR);
+-
+ #ifndef ___SINGLE_THREADED_VMS
+-
+-  ___virtual_machine_state ___vms = ___VMSTATE_FROM_PSTATE(___ps);
+-  int id = ___PROCESSOR_ID(___ps, ___vms); /* id of this processor */
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
++  ___vm_resize_ledger *r = &vms->resize;
++  int id = ___PROCESSOR_ID(___ps,vms);
++  int initial = vms->processor_count;
++  int target = target_processor_count;
+   ___sync_op_struct sop;
+-  int initial = ___vms->processor_count;
++  int i;
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  int cancel_state = PTHREAD_CANCEL_ENABLE;
++  int cancel_disabled = 0;
++#endif
+ 
+   if (id == 0)
+     {
+-      ___vms->mem.target_processor_count_ = target_processor_count;
+-
+-#ifdef ___ACTIVITY_LOG
+-      if (target_processor_count > ___vms->actlog.max_processor_count)
+-        ___vms->actlog.max_processor_count = target_processor_count;
++      if (r->phase != ___RESIZE_IDLE || r->generation == ___MAX_FIX ||
++          target < 1 || target > ___MAX_PROCESSORS)
++        {
++          if (r->phase != ___RESIZE_IDLE)
++            r->phase = ___RESIZE_RETAINED;
++          r->result = ___FIX(___UNKNOWN_ERR);
++        }
++      else
++        {
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++          cancel_disabled = pthread_setcancelstate(PTHREAD_CANCEL_DISABLE,
++                                                    &cancel_state) == 0;
++          if (!cancel_disabled)
++            r->result = ___FIX(___UNKNOWN_ERR);
++          else
+ #endif
++            {
++              r->generation++;
++              r->initial = initial;
++              r->target = target;
++              r->initialized = 0;
++              r->created = 0;
++              r->abort_isolated = 0;
++              r->thunk = thunk;
++              r->result = ___FIX(___NO_ERR);
++              r->phase = ___RESIZE_REQUESTED;
++            }
++        }
+     }
+ 
+-  if (___vms->mem.the_msections_->nb_sections - ___vms->mem.nb_msections_assigned_ <
+-      ___MIN_NB_MSECTIONS_PER_PROCESSOR * (target_processor_count - initial))
++  BARRIER(); /* publish request/root, while only the old set can allocate */
++
++  if (r->result == ___FIX(___NO_ERR) && target > initial)
+     {
+-      if (___garbage_collect_pstate (___ps, 0))
++      if (vms->mem.the_msections_->nb_sections - vms->mem.nb_msections_assigned_ <
++          2*(target-initial))
+         {
+-          /*
+-           * A heap overflow occurred, indicating the VM has
+-           * insufficient space to accomodate the target number of
+-           * processors.
+-           */
+-
+-          if (id == 0)
+-            ___vms->mem.target_processor_count_ = initial;
+-
+-          return ___FIX(___HEAP_OVERFLOW_ERR);
++          ___BOOL overflow = ___garbage_collect_pstate (___ps, 0);
++          if (id == 0 && overflow)
++            r->result = ___FIX(___HEAP_OVERFLOW_ERR);
+         }
+     }
+ 
+-  if (id != 0)
+-    {
+-      /*
+-       * Wait for processor 0 to set ___vms->processor_count.
+-       */
+-
+-      BARRIER();
++  BARRIER(); /* all participants consume the same GC/capacity result */
+ 
+-      /*
+-       * Terminate current processor if it is no longer needed.
+-       */
+-
+-      if (id >= target_processor_count)
++  if (id == 0 && r->result == ___FIX(___NO_ERR) && target < initial)
++    for (i=target; i<initial; i++)
++      if (!___can_retire_pstate(___PSTATE_FROM_PROCESSOR_ID(i,vms)))
+         {
+-          ___cleanup_pstate (___ps);
+-          ___thread_exit (); /* this call does not return */
++          r->result = ___FIX(___UNKNOWN_ERR);
++          break;
+         }
+-    }
+-  else
+-    {
+-      int i;
+-
+-      /* Setup processor state of each additional processor */
+ 
+-      for (i=initial; i<target_processor_count; i++)
++  if (id == 0 && r->result == ___FIX(___NO_ERR) && target > initial)
++    {
++      r->result = ___reserve_vm_resize (___ps);
++      if (r->result == ___FIX(___NO_ERR))
+         {
+-          ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(i,___vms);
+-
+-          if ((err = ___setup_pstate (ps, ___vms))
+-              != ___FIX(___NO_ERR))
++          r->phase = ___RESIZE_INITIALIZING;
++          for (i=initial; i<target; i++)
+             {
+-              while (--i >= initial)
+-                ___cleanup_pstate (ps);
+-
+-              BARRIER();
+-
+-              return err;
++              ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(i,vms);
++              if ((r->result = ___setup_pstate (ps,vms)) != ___FIX(___NO_ERR))
++                break;
++              r->initialized++;
++              r->slots[i].phase = ___RESIZE_SLOT_INITIALIZED;
++              ps->context->startup_thunk = r->thunk;
++            }
++          if (r->result == ___FIX(___NO_ERR))
++            {
++              for (i=initial; i<target; i++)
++                {
++                  ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(i,vms);
++                  ___thread *t = &ps->os_thread;
++                  t->start_fn = start_processor_execution;
++                  t->data_ptr = ___CAST(void*,ps);
++                  t->data_scmobj = ___FAL; /* no unregistered Scheme payload */
++                  r->slots[i].phase = ___RESIZE_SLOT_CREATING;
++                  if ((r->result = ___thread_create (t)) != ___FIX(___NO_ERR))
++                    {
++                      /* Existing native adapters return failure only before
++                       * creating a thread. An interrupted call has no receipt
++                       * and cannot use this known-failure rollback. */
++                      r->slots[i].phase = ___RESIZE_SLOT_INITIALIZED;
++                      break;
++                    }
++                  r->created++;
++                  r->slots[i].phase = ___RESIZE_SLOT_CREATED;
++                }
+             }
++          if (r->result != ___FIX(___NO_ERR))
++            {
++              int joined = 1;
++              r->phase = ___RESIZE_ABORTING;
++              ___MUTEX_LOCK(r->gate);
++              for (i=initial; i<initial+r->created; i++)
++                r->slots[i].entry = -1;
++              ___CONDVAR_BROADCAST(r->changed);
++              ___MUTEX_UNLOCK(r->gate);
++              for (i=initial; i<initial+r->created; i++)
++                {
++                  r->slots[i].phase = ___RESIZE_SLOT_JOINING;
++                  if (___thread_join (&___PSTATE_FROM_PROCESSOR_ID(i,vms)->os_thread)
++                      != ___FIX(___NO_ERR))
++                    {
++                      r->slots[i].phase = ___RESIZE_SLOT_RETAINED;
++                      joined = 0;
++                    }
++                }
++              if (joined)
++                {
++                  for (i=initial+r->initialized-1; i>=initial; i--)
++                    ___cleanup_pstate (___PSTATE_FROM_PROCESSOR_ID(i,vms));
++                  ___rollback_vm_resize (___ps);
++                }
++              else
++                {
++                  ___isolate_aborted_resize (___ps);
++                  r->phase = ___RESIZE_RETAINED;
++                }
++            }
++          else
++            r->phase = ___RESIZE_READY;
+         }
++    }
+ 
+-      /*
+-       * Set processor_count synchronously.
+-       */
+-
++  /* A failed growth still publishes the unchanged set through exactly the
++   * same barrier. There is no member whose OS thread has not been created. */
++  if (id == 0)
++    {
+       sop.op = OP_SET_PROCESSOR_COUNT;
+-      sop.arg[0] = target_processor_count;
++      sop.arg[0] = r->result == ___FIX(___NO_ERR) ? target : initial;
+       barrier_sync_op (___PSP &sop);
+-
+-      if (target_processor_count < initial)
++      if (r->result == ___FIX(___NO_ERR) && target > initial)
+         {
+-          /*
+-           * Join processors that are reclaimed when number of
+-           * processors shrinks.
+-           */
+-
+-          for (i=initial-1; i>=target_processor_count; i--)
++          ___MUTEX_LOCK(r->gate);
++          r->phase = ___RESIZE_COMMITTED;
++          for (i=initial; i<target; i++)
+             {
+-              ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(i,___vms);
+-              ___thread *t = &ps->os_thread;
+-
+-              ___thread_join (t); /* ignore error */
++              r->slots[i].phase = ___RESIZE_SLOT_PUBLISHED;
++              r->slots[i].entry = 1;
+             }
++          ___CONDVAR_BROADCAST(r->changed);
++          ___MUTEX_UNLOCK(r->gate);
+         }
+-      else
++      else if (r->result == ___FIX(___NO_ERR) && target < initial)
+         {
+-          /*
+-           * Create new processors when number of processors grows.
+-           */
+-
+-          for (i=initial; i<target_processor_count; i++)
++          for (i=initial-1; i>=target; i--)
+             {
+-              ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(i,___vms);
+-              ___thread *t = &ps->os_thread;
+-
+-              t->start_fn = start_processor_execution;
+-              t->data_ptr = ___CAST(void*,ps);
+-              t->data_scmobj = thunk;
+-
+-              if ((err = ___thread_create (t)) != ___FIX(___NO_ERR))
++              ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(i,vms);
++              r->slots[i].phase = ___RESIZE_SLOT_JOINING;
++              err = ___thread_join (&ps->os_thread);
++              if (err == ___FIX(___NO_ERR))
+                 {
+-                  /* TODO: improve error handling */
+-                  static char *msgs[] = { "Could not create OS thread", NULL };
+-                  ___fatal_error (msgs);
++                  ___transfer_retired_still (ps, ___ps);
++                  ___cleanup_pstate (ps);
++                  r->slots[i].phase = ___RESIZE_SLOT_EMPTY;
+                 }
++              else
++                {
++                  r->slots[i].phase = ___RESIZE_SLOT_RETAINED;
++                  r->result = err;
++                  r->phase = ___RESIZE_RETAINED;
++                }
++            }
++        }
++      if (r->phase != ___RESIZE_RETAINED)
++        {
++          r->thunk = ___FAL;
++          r->phase = ___RESIZE_IDLE;
++        }
++    }
++  else
++    {
++      BARRIER(); /* old-set commit, matching OP_SET_PROCESSOR_COUNT */
++      if (id >= vms->processor_count)
++        {
++          if (___ps->context->entry_marker != ___FAL)
++            {
++              ___kill_sfun_stack_marker (___ps->context->entry_marker);
++              ___ps->context->entry_marker = ___FAL;
+             }
++          ___ps->context->startup_thunk = ___FAL;
++          ___thread_exit (); /* coordinator owns cleanup after successful join */
+         }
+     }
+ 
++  BARRIER(); /* new-set finish: result cannot be overwritten before consumers */
++  err = r->result;
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  if (id == 0 && cancel_disabled)
++    pthread_setcancelstate(cancel_state, NULL);
++#endif
+ #endif
+-
+   return err;
+ }
+ 
+@@ -3404,21 +3502,40 @@ ___SCMOBJ thunk;)
+ {
+   ___PSGET
+   ___SCMOBJ ___err;
+-  ___SCMOBJ marker;
++  ___VOLATILE ___SCMOBJ marker = ___FAL;
++  ___BOOL startup = ___ps->context->startup_thunk != ___FAL &&
++                   ___ps->context->entry_marker == ___FAL &&
++                   thunk == ___ps->context->startup_thunk;
+ 
+   ___ps->context->r[0] = ___GSTATE->handler_break;
+ 
+   ___BEGIN_TRY
+ 
+-  if ((___err = ___make_sfun_stack_marker (___ps, &marker, thunk))
++  if ((___err = startup ?
++         ___make_sfun_stack_marker_from_root
++           (___ps, ___CAST(___SCMOBJ*,&marker), &___ps->context->startup_thunk) :
++         ___make_sfun_stack_marker (___ps, ___CAST(___SCMOBJ*,&marker), thunk))
+       == ___FIX(___NO_ERR))
+     {
++      if (startup)
++        ___ps->context->entry_marker = marker;
+       ___err = ___call (___PSP 0, ___VECTORELEM(marker, 0), marker);
+-      ___kill_sfun_stack_marker (marker);
+     }
+ 
+   ___END_TRY
+ 
++  if (___err != ___FIX(___NO_ERR) &&
++      ___VMSTATE_FROM_PSTATE(___ps)->resize.phase != ___RESIZE_IDLE)
++    ___VMSTATE_FROM_PSTATE(___ps)->resize.phase = ___RESIZE_RETAINED;
++
++  if (marker != ___FAL)
++    ___kill_sfun_stack_marker (marker);
++  if (startup)
++    {
++      ___ps->context->entry_marker = ___FAL;
++      ___ps->context->startup_thunk = ___FAL;
++    }
++
+   return ___err;
+ }
+ 
+@@ -4649,7 +4766,7 @@ ___HIDDEN ___SCMOBJ setup_os_and_mem ___PVOID
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+ 
+-___HIDDEN void setup_sync_op_pstate
++___HIDDEN ___SCMOBJ setup_sync_op_pstate
+    ___P((___processor_state ___ps),
+         (___ps)
+ ___processor_state ___ps;)
+@@ -4658,8 +4775,20 @@ ___processor_state ___ps;)
+   SYNC_INIT_MSG(___ps->sync_id1);
+   SYNC_INIT_MSG(___ps->sync_id2);
+ 
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  if (!___MUTEX_INIT(___ps->sync_mut))
++    return ___FIX(___UNKNOWN_ERR);
++  if (!___CONDVAR_INIT(___ps->sync_cv))
++    {
++      ___MUTEX_DESTROY(___ps->sync_mut);
++      return ___FIX(___UNKNOWN_ERR);
++    }
++#else
+   ___MUTEX_INIT(___ps->sync_mut);
+   ___CONDVAR_INIT(___ps->sync_cv);
++#endif
++  ___ps->sync_initialized = 1;
++  return ___FIX(___NO_ERR);
+ }
+ 
+ #endif
+@@ -4672,6 +4801,14 @@ ___processor_state ___ps;)
+ {
+   cleanup_interrupts_pstate (___ps);
+   cleanup_os_and_mem_pstate (___ps);
++#ifndef ___SINGLE_THREADED_VMS
++  if (___ps->sync_initialized)
++    {
++      ___CONDVAR_DESTROY(___ps->sync_cv);
++      ___MUTEX_DESTROY(___ps->sync_mut);
++      ___ps->sync_initialized = 0;
++    }
++#endif
+ }
+ 
+ 
+@@ -4686,6 +4823,9 @@ ___virtual_machine_state ___vms;)
+   ___SCMOBJ err;
+   int i;
+ 
++#ifndef ___SINGLE_THREADED_VMS
++  ___ps->sync_initialized = 0;
++#endif
+   i = ___PROCESSOR_ID(___ps,___vms);
+   ___ps->context = &___vms->execution_contexts[i];
+   ___ps->collector = &___vms->collector_workers[i];
+@@ -4737,6 +4877,9 @@ ___virtual_machine_state ___vms;)
+   for (i=0; i<sizeof(___ps->context->type_cache)/sizeof(*___ps->context->type_cache); i++)
+     ___ps->context->type_cache[i] = ___VOID;
+ 
++  ___ps->context->startup_thunk = ___FAL;
++  ___ps->context->entry_marker = ___FAL;
++
+   /*
+    * Copy handlers from global state to processor state.
+    */
+@@ -4773,7 +4916,11 @@ ___virtual_machine_state ___vms;)
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+ 
+-  setup_sync_op_pstate (___ps);
++  if ((err = setup_sync_op_pstate (___ps)) != ___FIX(___NO_ERR))
++    {
++      ___cleanup_pstate (___ps);
++      return err;
++    }
+ 
+ #endif
+ 
+@@ -4786,8 +4933,18 @@ ___EXP_FUNC(void,___cleanup_vmstate)
+         (___vms)
+ ___virtual_machine_state ___vms;)
+ {
++  if (___vms->resize.phase != ___RESIZE_IDLE)
++    return; /* no reclamation receipt for retained/unknown native borrowers */
+   cleanup_os_and_mem_vmstate (___vms);
+   ___cleanup_actlog_vmstate (___vms);
++#ifndef ___SINGLE_THREADED_VMS
++  if (___vms->resize.gate_initialized)
++    {
++      ___CONDVAR_DESTROY(___vms->resize.changed);
++      ___MUTEX_DESTROY(___vms->resize.gate);
++      ___vms->resize.gate_initialized = 0;
++    }
++#endif
+ }
+ 
+ 
+@@ -4800,13 +4957,35 @@ ___virtual_machine_state ___vms;)
+ 
+   /* Exclusive setup, before any processor/thread can borrow these records. */
+   ___native_scope_init_vmstate (___vms);
++  ___vms->processor_count = 0;
++
++  ___vms->resize.phase = ___RESIZE_IDLE;
++  ___vms->resize.generation = 0;
++  ___vms->resize.abort_isolated = 0;
++  ___vms->resize.thunk = ___FAL;
++  ___vms->resize.result = ___FIX(___NO_ERR);
++  ___vms->resize.gate_initialized = 0;
++#ifndef ___SINGLE_THREADED_VMS
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  if (!___MUTEX_INIT(___vms->resize.gate))
++    return ___FIX(___UNKNOWN_ERR);
++  if (!___CONDVAR_INIT(___vms->resize.changed))
++    {
++      ___MUTEX_DESTROY(___vms->resize.gate);
++      return ___FIX(___UNKNOWN_ERR);
++    }
++#else
++  ___MUTEX_INIT(___vms->resize.gate);
++  ___CONDVAR_INIT(___vms->resize.changed);
++#endif
++  ___vms->resize.gate_initialized = 1;
++#endif
+ 
+   /*
+    * Virtual machine starts off with a single processor.
+    */
+ 
+   ___vms->processor_count = 1;
+-  ___vms->mem.target_processor_count_ = 1;
+ 
+   /*
+    * Setup ticket lock debugging.
+@@ -4835,7 +5014,16 @@ ___virtual_machine_state ___vms;)
+    * Setup virtual machine's OS specific structures and memory management.
+    */
+ 
+-  setup_os_and_mem_vmstate (___vms);
++  if ((err = setup_os_and_mem_vmstate (___vms)) != ___FIX(___NO_ERR))
++    {
++#ifndef ___SINGLE_THREADED_VMS
++      ___CONDVAR_DESTROY(___vms->resize.changed);
++      ___MUTEX_DESTROY(___vms->resize.gate);
++      ___vms->resize.gate_initialized = 0;
++#endif
++      ___vms->processor_count = 0;
++      return err;
++    }
+ 
+   /*
+    * Setup the main processor of the virtual machine.
+@@ -4870,7 +5058,14 @@ ___EXP_FUNC(void,___cleanup) ___PVOID
+    * Shutdown processors of this VM except for processor 0.
+    */
+ 
+-  ___current_vm_resize (___PSP ___FAL, 1);
++  if (___current_vm_resize (___PSP ___FAL, 1) != ___FIX(___NO_ERR) ||
++      ___vms->resize.phase != ___RESIZE_IDLE)
++    {
++      static char *msgs[] = { "VM cleanup retained resize resources", NULL };
++      ___GSTATE->setup_state = 3; /* retained resources, not clean shutdown */
++      ___display_error (msgs);
++      return;
++    }
+ 
+ #endif
+ 
+@@ -6271,6 +6466,11 @@ ___setup_params_struct *setup_params;)
+       setup_params->version != ___VERSION)
+     return ___FIX(___UNKNOWN_ERR);
+ 
++  /* A failed/unknown join leaves a VM-owned grant and roots in quarantine.
++   * A new setup must not erase that ownership or reinitialize its gate. */
++  if (___GSTATE->setup_state == 3)
++    return ___FIX(___UNKNOWN_ERR);
++
+   /*
+    * Remember setup parameters.
+    */
+diff --git a/makefile.in b/makefile.in
+index 4ad0d928..e3eaac6c 100644
+--- a/makefile.in
++++ b/makefile.in
+@@ -120,7 +120,7 @@ core-post:
+ phases:
+ 	@for phase in phase1 phase2 phase3 phase4; do \
+ 	  echo "*** making $$phase"; \
+-	  $(MAKE) $$phase; \
++	  $(MAKE) $$phase || exit 1; \
+ 	done
+ 
+ phase1: include-phase1 bin-phase1 lib-phase1 gsi-phase1 gsc-phase1
+diff --git a/tests/frame-continuation-roots.scm b/tests/frame-continuation-roots.scm
+index 6eeb529a..971770f8 100644
+--- a/tests/frame-continuation-roots.scm
++++ b/tests/frame-continuation-roots.scm
+@@ -6,6 +6,12 @@
+ (define wide-visits '())
+ (define wide-winds '())
+ (define wide-native-calls 0)
++(define forced-collections 0)
++(define (collect-and-record)
++  ;; Count only completed forced collections, including collections after a
++  ;; captured frame has been materialized and after each resumed call returns.
++  (##gc)
++  (set! forced-collections (+ forced-collections 1)))
+ (define audited-frames 0)
+ (define audited-wide-slots 0)
+ (define (audit-roots cont)
+@@ -35,7 +41,7 @@
+   (call/cc (lambda (exit) (set! wide-exit exit) (start))))
+ (define (with-wide-roots thunk r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 r13 r14 r15 r16 r17 r18 r19 r20 r21 r22 r23 r24 r25 r26 r27 r28 r29 r30 r31 r32 r33 r34 r35 r36 r37 r38 r39 r40 r41 r42 r43 r44 r45 r46 r47 r48 r49 r50 r51 r52 r53 r54 r55 r56 r57 r58 r59 r60 r61 r62 r63 r64 r65 r66 r67 r68 r69 r70 r71 r72 r73 r74 r75 r76 r77 r78 r79 r80)
+   (let ((answer (thunk)))
+-    (##gc)
++    (collect-and-record)
+     (cons answer (list (vector-ref r1 0) (vector-ref r2 0) (vector-ref r3 0) (vector-ref r4 0) (vector-ref r5 0) (vector-ref r6 0) (vector-ref r7 0) (vector-ref r8 0) (vector-ref r9 0) (vector-ref r10 0) (vector-ref r11 0) (vector-ref r12 0) (vector-ref r13 0) (vector-ref r14 0) (vector-ref r15 0) (vector-ref r16 0) (vector-ref r17 0) (vector-ref r18 0) (vector-ref r19 0) (vector-ref r20 0) (vector-ref r21 0) (vector-ref r22 0) (vector-ref r23 0) (vector-ref r24 0) (vector-ref r25 0) (vector-ref r26 0) (vector-ref r27 0) (vector-ref r28 0) (vector-ref r29 0) (vector-ref r30 0) (vector-ref r31 0) (vector-ref r32 0) (vector-ref r33 0) (vector-ref r34 0) (vector-ref r35 0) (vector-ref r36 0) (vector-ref r37 0) (vector-ref r38 0) (vector-ref r39 0) (vector-ref r40 0) (vector-ref r41 0) (vector-ref r42 0) (vector-ref r43 0) (vector-ref r44 0) (vector-ref r45 0) (vector-ref r46 0) (vector-ref r47 0) (vector-ref r48 0) (vector-ref r49 0) (vector-ref r50 0) (vector-ref r51 0) (vector-ref r52 0) (vector-ref r53 0) (vector-ref r54 0) (vector-ref r55 0) (vector-ref r56 0) (vector-ref r57 0) (vector-ref r58 0) (vector-ref r59 0) (vector-ref r60 0) (vector-ref r61 0) (vector-ref r62 0) (vector-ref r63 0) (vector-ref r64 0) (vector-ref r65 0) (vector-ref r66 0) (vector-ref r67 0) (vector-ref r68 0) (vector-ref r69 0) (vector-ref r70 0) (vector-ref r71 0) (vector-ref r72 0) (vector-ref r73 0) (vector-ref r74 0) (vector-ref r75 0) (vector-ref r76 0) (vector-ref r77 0) (vector-ref r78 0) (vector-ref r79 0) (vector-ref r80 0)))))
+ (define root-ids (let loop ((i 80) (xs '()))
+                   (if (= i 0) xs (loop (- i 1) (cons i xs)))))
+@@ -53,12 +59,12 @@
+                                     (lambda (k)
+                                       (set! wide-saved k)
+                                       (audit-roots k)
+-                                      (##gc)
++                                      (collect-and-record)
+                                       (audit-roots k)
+                                       2)))
+                                   ((= x 3)
+                                    (set! wide-native-calls (+ wide-native-calls 1))
+-                                   (##gc)
++                                   (collect-and-record)
+                                    (native-thirty))
+                                   (else 1)))
+                           (map (lambda (i) (vector i)) root-ids))))
+@@ -75,8 +81,14 @@
+               (equal? wide-visits '(3 3 3 2 1))
+               (equal? wide-winds '(after before after before after before))
+               (= wide-native-calls 3)
++              (= forced-collections 11)
+               (> audited-frames 0) (> audited-wide-slots 0)))
+     (error "wide frame continuation mismatch" b0 b1 b2 wide-visits
+            wide-winds wide-native-calls audited-frames audited-wide-slots))
+-(display "FRAME-CONTINUATION-ROOTS-PASS frames=") (write audited-frames)
+-(display " wide-live-slots=") (write audited-wide-slots) (newline)
++(let ((expected (getenv "GAMBIT_SMP_EXPECTED_PROCESSORS" #f)))
++  (if (and expected
++           (not (= (string->number expected) (##current-vm-processor-count))))
++      (error "unexpected processor population" expected)))
++;; Counts and wide-root coverage are asserted above. Keep the acceptance
++;; transcript deterministic across valid frame-chain lengths and populations.
++(display "FRAME-CONTINUATION-ROOTS-PASS\nFORCED-GC-COMPLETE count=11\n")
+diff --git a/tests/frame-continuation.scm b/tests/frame-continuation.scm
+index 87e9b435..aa56d3b3 100644
+--- a/tests/frame-continuation.scm
++++ b/tests/frame-continuation.scm
+@@ -35,3 +35,32 @@
+               (= native-calls 3)))
+     (error "frame continuation mismatch" a0 a1 a2 visits winds native-calls))
+ (display "FRAME-CONTINUATION-PASS\n")
++
++;; Collector reference repair must retain the table's index-algorithm owner.
++;; Keep keys alive independently; this is not a weak-key-retention test.
++(define index-keys
++  (let loop ((i 80) (xs '()))
++    (if (= i 0) xs (loop (- i 1) (cons (vector i) xs)))))
++(define hash-calls 0)
++(define scheme-index
++  (make-table test: eq?
++              hash: (lambda (key)
++                      (set! hash-calls (+ hash-calls 1))
++                      (vector-ref key 0))))
++(define native-index (make-table test: eq?))
++(for-each (lambda (key)
++            (table-set! scheme-index key (vector-ref key 0))
++            (table-set! native-index key (vector-ref key 0)))
++          index-keys)
++(define calls-before-gc hash-calls)
++(##gc)
++(if (not (= calls-before-gc hash-calls))
++    (error "collector invoked Scheme hash callback"))
++(for-each (lambda (key)
++            (if (not (and (= (table-ref scheme-index key -1) (vector-ref key 0))
++                          (= (table-ref native-index key -1) (vector-ref key 0))))
++                (error "GC changed hash-index lookup")))
++          index-keys)
++(if (not (> hash-calls calls-before-gc))
++    (error "Scheme lookup did not own its hash callbacks"))
++(display "HASH-INDEX-OWNER-PASS\n")
+diff --git a/tests/frame-contract.c b/tests/frame-contract.c
+index c4f9c0f3..8f691d98 100644
+--- a/tests/frame-contract.c
++++ b/tests/frame-contract.c
+@@ -96,6 +96,19 @@ int main (void)
+               (c->pattern == 1 && (j == 1 || j == actual));
+             CHECK(covered[j] == expected);
+           }
++        /* Ordinary roots and the structural link form a disjoint partition,
++         * including live sign-bit and out-of-line map positions. */
++        cursor = ___frame_ordinary_root_begin(&frame);
++        for (j=0; j<256; j++) covered[j]=0;
++        while (___frame_root_next_run(&cursor,&first,&past))
++          for (j=first; j<past; j++) covered[j]++;
++        for (j=1; j<=actual; j++)
++          {
++            int expected = (c->pattern == 2 ||
++              (c->pattern == 1 && (j == 1 || j == actual))) &&
++              j != c->link+1;
++            CHECK(covered[j] == expected);
++          }
+       }
+       /* Size-only consumers use the same decoded contract. */
+       frame = ___decode_frame_descriptor(encoded,0);
+diff --git a/tests/runtime-roles.c b/tests/runtime-roles.c
+index 94a5d921..01cf1c18 100644
+--- a/tests/runtime-roles.c
++++ b/tests/runtime-roles.c
+@@ -15,6 +15,7 @@ int main(void)
+   ___gc_participant participants[2];
+   ___processor_state ___ps = &a;
+   ___WORD sentinel[2];
++  ___SCMOBJ x, y, z;
+   memset(&a,0,sizeof a);
+   memset(&b,0,sizeof b);
+   memset(contexts,0,sizeof contexts);
+@@ -37,6 +38,28 @@ int main(void)
+   CHECK(contexts[1].r[0] == 0);
+   CHECK(___PROCESSOR_SCMOBJ(&a) == ___CONTEXT_PROCESSOR_SCMOBJ(&contexts[0]));
+   CHECK(___PROCESSOR_SCMOBJ(&a) != ___PROCESSOR_SCMOBJ(&b));
++  /* A collector updates context roots in place; reload those values rather
++   * than the pre-collection C locals, then clear every occupied root slot. */
++  ___GC_SAVE1(&a, ___FIX(1));
++  contexts[0].saved[0] = ___FIX(11);
++  ___GC_RESTORE1(&a, x);
++  CHECK(x == ___FIX(11) && contexts[0].saved[0] == ___VOID);
++  ___GC_SAVE2(&a, ___FIX(2), ___FIX(3));
++  contexts[0].saved[0] = ___FIX(12);
++  contexts[0].saved[1] = ___FIX(13);
++  ___GC_RESTORE2(&a, x, y);
++  CHECK(x == ___FIX(12) && y == ___FIX(13));
++  CHECK(contexts[0].saved[0] == ___VOID && contexts[0].saved[1] == ___VOID);
++  ___GC_SAVE3(&a, ___FIX(4), ___FIX(5), ___FIX(6));
++  contexts[0].saved[0] = ___FIX(14);
++  contexts[0].saved[1] = ___FIX(15);
++  contexts[0].saved[2] = ___FIX(16);
++  ___GC_RESTORE3(&a, x, y, z);
++  CHECK(x == ___FIX(14) && y == ___FIX(15) && z == ___FIX(16));
++  CHECK(contexts[0].saved[0] == ___VOID && contexts[0].saved[1] == ___VOID
++        && contexts[0].saved[2] == ___VOID);
++  CHECK(contexts[1].saved[0] == 0 && contexts[1].saved[1] == 0
++        && contexts[1].saved[2] == 0);
+   workers[0].scan_ptr_ = sentinel;
+   workers[0].heap_chunks_to_scan_ = ___FIX(29);
+   /* Storage cannot disappear merely because the carrier storage is cleared. */

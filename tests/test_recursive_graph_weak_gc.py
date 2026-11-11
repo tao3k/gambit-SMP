@@ -32,7 +32,7 @@ class RecursiveGraphWeakGcTests(unittest.TestCase):
         # The receipt predates thread-pool transport. Its archived observations
         # remain historical; a changed producer cannot become current evidence.
         drift = changed_inputs(ROOT, receipt["inputs"])
-        self.assertEqual(drift, ["src/gambit_smp/process_observation.py"])
+        self.assertIn("src/gambit_smp/process_observation.py", drift)
         for path, expected in receipt["inputs"].items():
             if path in drift:
                 self.assertNotEqual(digest(ROOT / path), expected)

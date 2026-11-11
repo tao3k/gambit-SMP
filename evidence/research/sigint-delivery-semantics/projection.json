@@ -1,0 +1,231 @@
+{
+  "contract": [
+    {
+      "key": "derived-credit",
+      "anchor": "setup.c:206-228",
+      "actionName": "claim",
+      "lemmaName": "claimReopensPending",
+      "duty": "The source claim clears pending before vector fetch; a later publication belongs to a new claim epoch",
+      "status": "serial source cut; C race proof open"
+    },
+    {
+      "key": "native-target",
+      "anchor": "os_setup.c:3044-3049; os_tty.c:8700-8714",
+      "actionName": "publish",
+      "lemmaName": "targetIdentity",
+      "duty": "Select VM0 processor0 at native callback acceptance under lifecycle lease; no kernel-origin generation inference",
+      "status": "selection-time refinement open"
+    },
+    {
+      "key": "vector-fetch",
+      "anchor": "_kernel.scm:1448-1476",
+      "actionName": "fetchVector",
+      "lemmaName": "frozenSelectedHandler",
+      "duty": "Fetch vector after claim; root selected procedure; later replacement does not rewrite that reference",
+      "status": "cross-processor writer serialization open"
+    },
+    {
+      "key": "storage-commit",
+      "anchor": "setup.c:4834-4878; _thread.scm:1320-1394",
+      "actionName": "retireVm",
+      "lemmaName": "boundWorkBlocksRetirement",
+      "duty": "Pending and active target-bound work retain old VM; root lease and native retirement receipts required",
+      "status": "prior retirement guards inherited"
+    },
+    {
+      "key": "mailbox",
+      "anchor": "setup.c:86,226; signal-gate-mailbox design",
+      "actionName": "takeWake",
+      "lemmaName": "sameEpochMerge",
+      "duty": "Mailbox is wake hint; authoritative target/claim-epoch pending state survives drain; never merge across claim",
+      "status": "new typed transport"
+    },
+    {
+      "key": "thread-route",
+      "anchor": "_thread.scm:3245-3251,1398-1429,2715-2745",
+      "actionName": "chooseThread",
+      "lemmaName": "currentOrPrimordial",
+      "duty": "Current thread invokes directly; absent current thread queues primordial thunk; preserve terminated-target exceptions",
+      "status": "scheduler refinement open"
+    },
+    {
+      "key": "dynamic-handler",
+      "anchor": "_thread.scm:5303-5353",
+      "actionName": "execute",
+      "lemmaName": "lateParameterLookup",
+      "duty": "Read dynamic user handler when thunk executes; custom vector procedures and exceptions require separate semantic refinement",
+      "status": "abstract identity observation only"
+    },
+    {
+      "key": "deferred-user",
+      "anchor": "_thread.scm:5305-5328",
+      "actionName": "installHandler",
+      "lemmaName": "deferredReplay",
+      "duty": "Deferred-user pending bit and setter-filter replay are separate from native pending; clear before calling supplied procedure",
+      "status": "filter store and nonlocal exit obligations open"
+    }
+  ],
+  "gain": [
+    {
+      "key": "coalescing",
+      "avoided": "For n raises inside one unchanged target/claim epoch: n-1 extra pending records relative to per-event queue",
+      "added": "n target admissions/publications plus one claim; per-target pending and epoch metadata",
+      "condition": "Compared with current flag path no callback-count saving is established; merging across claim is forbidden"
+    },
+    {
+      "key": "wake",
+      "avoided": "For n wake publications and b exchanges: at most n-b redundant wake batches can merge when b<=n",
+      "added": "n atomic OR operations and b exchanges; wake failure fallback and custodian",
+      "condition": "Only wake hints merge; no SIGINT delivery or user callback may be inferred completed from exchange"
+    },
+    {
+      "key": "retirement",
+      "avoided": "Avoid stale target access and automatic migration of accepted old-VM requests",
+      "added": "One target lease per accepted pending/active unit; retirement checks and unknown-outcome custody",
+      "condition": "Old VM must remain serviceable until accepted work and roots settle; no bounded shutdown guarantee"
+    },
+    {
+      "key": "language",
+      "avoided": "One modern C generated contract can replace divergent native target/flag interfaces",
+      "added": "Atomic protocol, root maps, vector writer discipline, scheduler and exception refinement",
+      "condition": "Zig does not remove these semantic obligations; additional language benefit remains unproved"
+    }
+  ],
+  "gate": [
+    {
+      "key": "c-atomic",
+      "qualified": false,
+      "duty": "ISO C race-free pending claim/publication and lock-free signal-safe ABI; SC first; no volatile-only proof"
+    },
+    {
+      "key": "rooting",
+      "qualified": false,
+      "duty": "Selected vector closure, queued thunk, dynamic environment and continuation roots through GC and exceptions"
+    },
+    {
+      "key": "vector-writers",
+      "qualified": false,
+      "duty": "All vector and dynamic binding writers serialized or owner scoped; not-interrupts-enabled is not cross-processor exclusion"
+    },
+    {
+      "key": "target-cut",
+      "qualified": false,
+      "duty": "Native callback acceptance must preserve source target-choice histories; ingress pin versus acceptance displacement requires proof"
+    },
+    {
+      "key": "gap-policy",
+      "qualified": false,
+      "duty": "Signals without accepted target remain unresolved custody or explicitly rejected; new-VM reassignment is not compatibility"
+    },
+    {
+      "key": "source-simulation",
+      "qualified": false,
+      "duty": "Simulation includes custom vector effects, thread termination, priority, exceptions, continuation and fairness"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "duty": "Root/native/roster/OS join and inherited host attestation remain unresolved; formal model checks are not native admission"
+    }
+  ],
+  "edge": {
+    "0": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "native-target",
+      "reason": "Target binding precedes flag ownership"
+    },
+    "1": {
+      "dependent.key": "mailbox",
+      "prerequisite.key": "derived-credit",
+      "reason": "Wake batch must not extend claim epoch"
+    },
+    "2": {
+      "dependent.key": "vector-fetch",
+      "prerequisite.key": "derived-credit",
+      "reason": "Claim precedes vector fetch"
+    },
+    "3": {
+      "dependent.key": "thread-route",
+      "prerequisite.key": "vector-fetch",
+      "reason": "Selected vector determines bridge path"
+    },
+    "4": {
+      "dependent.key": "dynamic-handler",
+      "prerequisite.key": "thread-route",
+      "reason": "Dynamic lookup occurs in actual executing thread"
+    },
+    "5": {
+      "dependent.key": "deferred-user",
+      "prerequisite.key": "dynamic-handler",
+      "reason": "Deferred behavior depends on execution-time handler"
+    },
+    "6": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "native-target",
+      "reason": "Accepted target owns lifecycle lease"
+    },
+    "7": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "mailbox",
+      "reason": "Wake drain cannot discharge semantic work"
+    },
+    "8": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "thread-route",
+      "reason": "Queued target thunk remains live"
+    },
+    "9": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "deferred-user",
+      "reason": "Pending replay cannot be silently discarded"
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "IDS-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/sigint_delivery_semantics.qnt",
+      "subjectScope": "safe: serial pending bit versus target claim key; ordered vector and dynamic handler selection",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "IDS-I",
+      "kind": "induction",
+      "subjectPath": "models/build/SigintDeliverySemantics.lean",
+      "subjectScope": "arbitrary raise claim history refinement plus selection and retirement lemmas",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "IDS-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/sigint-delivery-semantics-design.org",
+      "subjectScope": "SMP SIGINT callback to VM0, flag clear, vector fetch, current or primordial thunk and dynamic lookup",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "IDS-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/sigint-delivery-semantics-design.org",
+      "subjectScope": "Darwin signal ABI, atomic safety, roots and VM retirement acceptance cut",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "IDS-S",
+      "prerequisite.obligationId": "IDS-H"
+    },
+    "1": {
+      "dependent.obligationId": "IDS-S",
+      "prerequisite.obligationId": "IDS-I"
+    },
+    "2": {
+      "dependent.obligationId": "IDS-S",
+      "prerequisite.obligationId": "IDS-E"
+    },
+    "3": {
+      "dependent.obligationId": "IDS-S",
+      "prerequisite.obligationId": "SGM-S"
+    }
+  }
+}

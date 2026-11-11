@@ -1,0 +1,158 @@
+#+TITLE: Writer Closure and Repeated Helper Handoff Matrix
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+
+* Native-evaluated cuts
+These are local predicates with external stop/root witnesses, not C/OS receipts.
+| Case | Can hand off | Can scan frozen source |
+|---+---+---|
+| ownerExit | false | true |
+| dataOnly | false | true |
+| bothStopped | true | true |
+| staleOwnerSeal | false | true |
+| helperStorePending | false | true |
+| helperStopped | true | true |
+| unknownRoot | false | false |
+
+* Actual source and changes
+| Family | Source | Current behavior | Required change | Admission boundary |
+|---+---+---+---+---|
+| GENERATOR | gsc/_ptree2.scm:2902-2925,2940-3017,3238-3251 | cleanup? depends on conversion types, not native write/escape effects | Emit NativeActivationScope/ExitSpec for selected managed CFUN/SFUN regardless of cleanup? | Unknown user C return/goto/longjmp stays unqualified |
+| SFUN | include/gambit.h.in:10043-10065;lib/c_intf.c:6511-6564 | Marker allocation precedes arguments; kill and propagate on normal macro fallthrough | Register/freeze procedure root before allocation; stable marker ownership and common close funnel | Rethrow can bypass macro fallthrough; raw marker read/write must be inventoried |
+| CALL-RUN | lib/setup.c:3276-3423;include/gambit.h.in:9979-9988 | call catches trampoline then may rethrow; run kill lies inside TRY | Resident journal accessible after catcher restore; local call scope transfers on rethrow | Do not infer completion from observing catcher or changed nonvolatile automatic locals |
+| WORKER | lib/setup.c:763-835,930-1001;lib/os_thread.c:546-590 | Shrinking member cleans PSTATE then exits; processor0 ignores join error | VM owns scopes before cleanup; supervisor verifies unique join and all producers | Failed/unknown join or foreign destructor/helper retains custody |
+| TWO-RUN-CALLERS | lib/setup.c:763-810,6395-6440 | Worker run followed by error delivery/sync loop; main run followed by process cleanup | Wrap both root entry and post-run sync lifetime; reload rooted thunk after GC | run return alone closes neither worker lifetime nor nested external callbacks |
+| ROOT-CONSUMER | lib/mem.c:3969-3988,4928-4964,6845-6858 | RC scanner call only on processor0; cleanup releases per-PSTATE state | Canonical VM root adapter and scan pin outlive failed owner/helper | No managed nonzero processor admission until root-scan path is covered |
+
+* Exit paths and custody
+| Path | Source behavior | Issuance contract | Unknown boundary | Custodian |
+|---+---+---+---+---|
+| COOPERATIVE | Generated SFUN/CFUN exit after all nested calls return | Close admissions, return/drain exact borrows, settle callback-created debt, restore catcher, publish data/control seals | Any unenumerated native escape or borrowed pointer prevents seal | VM source/journal remains until canonical root/result ACK |
+| CATCHER | call rethrow to run or generated outer catch | Post-catch noescape funnel uses resident scope, preserves original error and transfers unfinished cleanup | If cleanup can itself throw, make debt before calling it; no seal on nonreturn | VM journal with original error/result and marker reference |
+| THREAD | cleanup_pstate then pthread_exit; unique supervisor join | Detach all PSTATE borrowing before cleanup; actual termination plus producer census closes data/control authority | Join error/unknown or foreign helper/destructor unknown cannot be repaired by dead flag | Resident VM scope and pinned source/slot; may block reclaim or GC if root not frozen |
+| HELPER | Stopped owner then helper acquires exact generation | New helper is a new writer, including late acquisition response; repeat close/drain before successor | Original owner seal cannot close helper; failed helper has its own pending-store debt | Single canonical lease/progress record, checked generation, no retry map |
+| GC | Already registered frozen source across unknown metadata state | Collector scans old source independently of owner callback, then reload accepted current root | Unregistered/raw source or unknown data writer refuses independent scan | Root domain holds scan pin; helper never rewrites relocated payload |
+
+* Transition refinement
+| Need | From | To | QNT steps | Guard | Lean conditional law | Source |
+|---+---+---+---+---+---+---|
+| WS-CFUN | Open | Closing | closeEntry | No new borrow after close wins; existing permit retains responsibility | openGateNeeded | _ptree2.scm:2902-2925 |
+| WS-RUN | Closing | FunnelDrained | finishFunnel / settleCleanup | Catcher restored, exact frame unwound, callback debt accounted before seal | cleanupDebtBlocksSeal | setup.c:3276-3423 |
+| WS-THREAD | Closing | ThreadStopped | joinSuccess / closeCensus | Successful unique join and complete producer/helper census; external stop witness | exitObservationInsufficient | os_thread.c:546-590;setup.c:930-971 |
+| WS-HELP | StoppedGeneration | SuccessorOwns | handoff | Both seals bind exact generation, no in-flight writes/readers; finite generation not exhausted | oldSealCannotAuthorizeNewHelper | proposed scope service |
+| WS-HELP | HelperInterrupted | ClosingAgain | observeExit / closeEntry | Helper is a full new producer; preserve progress and same canonical source | unknownStopRetainsCustody | proposed scope service |
+| WS-HELP | PrivateStorePending | ProgressSettled | store / logStore / drainWrite | Unlogged physical write repaired only exclusively and idempotently | repairPreservesRoot | gambit.h.in:10325-10404 |
+| WS-RUN | CommittedOrAborted | Reclaimable | ack / release | Exact result settlement, both seals, scanner/readers drained, source no longer needed | unknownResultBlocksRelease | c_intf.c:6550-6564;mem.c:4928-4964 |
+
+* C memory duties
+| Edge | Required order | Counterexample |
+|---+---+---|
+| ENTRY-CLOSE | Acquire writer gate/borrow atomically with close exclusion; close prevents future acquisitions and waits for existing permits | Separate open check then increment permits a writer after zero was observed |
+| STORE-LOG | Finish physical write before release-publishing its progress; interruption between them permits only exclusive idempotent private repair | A missing progress bit is not proof that a write did not occur |
+| SEAL | Publish generation-bound data/control seal only after no future authority and no in-flight stores/CAS/borrowers/debt | Catcher restoration, exit flag, counter increment or release fence alone is not a seal |
+| HELPER | Acquire prior exact-generation seals and no old metadata readers before checked generation transition | Old helper cannot write after successor publication; wrap/exhaustion refuses new authority |
+| ROOT | Separate GC root publication/update protocol from control repair; preserve source and scan pins through unresolved handoff | No reinitialization of GC-updated root from immutable but stale SCMOBJ intent |
+
+* Benefits and peak support
+| Capability | Eliminated work if admitted | Quantified boundary | Added work or memory | Positive condition or falsifier |
+|---+---+---+---+---|
+| Generated effect/exit scope | Replace type-cleanup heuristic as safety criterion | One finite ExitSpec per admitted entry; zero runtime paths retired today | Entry/exit gate, stable journal, explicit borrow census | Benefit is complete nonlocal-exit coverage only if all admitted exits generated or refused |
+| Repeated helper recovery | Avoid one permanent log per retry/helper | One live canonical lease per activation; g checked generation changes; O(1) resident history per activation | Each succession needs two exact seals plus reader drain; O(g) total handshake work | No progress guarantee when stop is unknown or generation space exhausted |
+| GC decoupling | Zero owner callbacks needed for already frozen root view by contract | Root bytes shared with prior source lease, not counted twice | O(C) simple root-port/tag scan; overlap source/canonical root until ACK | Unknown raw writer can still block GC; no whole-heap speedup proven |
+| Peak support | Avoid retry-count-scaled metadata retention | DeltaH = A*newScopeBytes + L*newLeaseBytes + R*newReceiptBytes + pinnedBacking; embedded prior fields subtracted | Pinned frames, marker/still backing, raw resources can dominate and remain unbounded by this protocol | Peak falls only when eliminated history/backing exceeds added support plus overlap; no measured byte figure |
+| Marker settlement | At most one physical clear/refcount decrement per exact activation | One tracked marker disposition; clear and decrement are separate effect obligations | Partial clear/decrement outcome cannot be replayed speculatively | Needs separate idempotent/receipt adapter; helper must not rerun native destructor or Scheme code |
+| Language choice | One modern C contract shared by generator/runtime/formal projection | No second Zig runtime required for this cut | C atomics/layout/source and platform stop evidence remain necessary | Zig optional only after incremental benefits beat toolchain/ABI/duplicate support cost; no such net gain proved |
+
+* Closure
+| Component | Need | Method class | Scope | Status |
+|---+---+---+---+---|
+| host-roots | WS-H | interleaving | writer_stop_handoff:owner-two-successive-helpers-split-writes-and-cleanup;seed17 | Conditional local model checked |
+| host-roots | WS-I | induction | GambitSMP.WriterStopHandoff:conditional-stop-generation-and-custody-laws | Conditional local model checked |
+| host-roots | WS-SFUN | source-refinement | WS-SFUN:generated-conversion-and-marker-exit-funnel | OPEN: source/C refinement |
+| host-roots | WS-CFUN | source-refinement | WS-CFUN:cleanup-independent-generated-write-effects | OPEN: source/C refinement |
+| host-roots | WS-RUN | source-refinement | WS-RUN:post-catcher-resident-journal-and-nested-unwind | OPEN: source/C refinement |
+| host-roots | WS-THREAD | source-refinement | WS-THREAD:actual-termination-and-complete-producer-census | OPEN: source/C refinement |
+| host-roots | WS-HELP | source-refinement | WS-HELP:repeated-helper-stop-and-bounded-lease-reuse | OPEN: source/C refinement |
+| host-roots | WS-ORDER | native-memory-order | WS-ORDER:close-entry-drain-publish-and-acquire | OPEN: source/C refinement |
+| host-roots | OB-STOP | source-refinement | OB-STOP:control-and-data-close-with-real-owner-exit-producers | OPEN: source/C refinement |
+| host-roots | OB-ROOT | source-refinement | OB-ROOT:root-admission-close-cut-and-final-commit | OPEN: source/C refinement |
+| gc-work | OB-ORDER | native-memory-order | OB-ORDER:atomic-owner-header-progress-ready-and-GC-C-order | OPEN: source/C refinement |
+
+* Obligation dependencies
+| Dependent | Prerequisite |
+|---+---|
+| WS-SFUN | WS-H |
+| WS-SFUN | WS-I |
+| WS-CFUN | WS-H |
+| WS-CFUN | WS-I |
+| WS-RUN | WS-H |
+| WS-RUN | WS-I |
+| WS-THREAD | WS-H |
+| WS-THREAD | WS-I |
+| WS-HELP | WS-H |
+| WS-HELP | WS-I |
+| WS-ORDER | WS-H |
+| WS-ORDER | WS-I |
+| WS-SFUN | OB-ROOT |
+| WS-RUN | WS-SFUN |
+| WS-RUN | WS-CFUN |
+| WS-THREAD | WS-RUN |
+| WS-HELP | OB-STOP |
+| WS-HELP | OB-ROOT |
+| WS-HELP | WS-ORDER |
+| WS-ORDER | OB-ORDER |
+
+* Implementation proof gates
+| Step | Required need |
+|---+---|
+| MC-SCOPE | WS-H |
+| MC-SCOPE | WS-I |
+| MC-SCOPE | OB-ROOT |
+| MC-GENERATE | WS-CFUN |
+| MC-GENERATE | WS-SFUN |
+| MC-ROOT | WS-SFUN |
+| MC-ROOT | OB-ROOT |
+| MC-CATCH | WS-RUN |
+| MC-CATCH | WS-SFUN |
+| MC-CATCH | WS-CFUN |
+| MC-HELP | WS-HELP |
+| MC-HELP | WS-ORDER |
+| MC-HELP | OB-STOP |
+| MC-THREAD | WS-THREAD |
+| MC-THREAD | OB-ROOT |
+| MC-SELECT | WS-RUN |
+| MC-SELECT | WS-THREAD |
+| MC-SELECT | WS-HELP |
+| MC-SELECT | WS-ORDER |
+| MC-SELECT | OB-ROOT |
+| MC-RETIRE | WS-SFUN |
+| MC-RETIRE | WS-CFUN |
+| MC-RETIRE | WS-RUN |
+| MC-RETIRE | WS-THREAD |
+| MC-RETIRE | WS-HELP |
+| MC-RETIRE | WS-ORDER |
+
+* Research gates
+| Gate | Required need |
+|---+---|
+| generated-exit | WS-SFUN |
+| generated-exit | WS-CFUN |
+| generated-exit | WS-RUN |
+| generated-exit | OB-ROOT |
+| repeat-helper | WS-HELP |
+| repeat-helper | WS-ORDER |
+| repeat-helper | OB-STOP |
+| repeat-helper | OB-ORDER |
+| first-source-cut | WS-SFUN |
+| first-source-cut | WS-CFUN |
+| first-source-cut | WS-RUN |
+| first-source-cut | WS-THREAD |
+| first-source-cut | WS-HELP |
+| first-source-cut | WS-ORDER |
+| first-source-cut | OB-STOP |
+| first-source-cut | OB-ROOT |
+| first-source-cut | OB-ORDER |
+
+* Evidence boundary
+Only WS-H/WS-I may receive local checked receipts. Source stop issuance, C-memory protocol, root adapter and native acceptance remain open. Synthetic all-scoped controls test routing only. Runtime paths retired: zero.

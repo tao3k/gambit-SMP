@@ -18,8 +18,10 @@ class ForeignOriginBootstrapBindingTests(unittest.TestCase):
         self.assertEqual(3, len(intent["failures"]))
         for failure in intent["failures"]:
             baseline_ref = failure["baselineIdentity"]
-            self.assertEqual(baseline_ref["sha256"], digest(ROOT / baseline_ref["path"]))
-            baseline = json.loads((ROOT / baseline_ref["path"]).read_text())
+            archive = baseline_ref["path"].split("/thread-completion-contract/", 1)[1]
+            baseline_path = ROOT / "tests/fixtures/historical-bootstrap" / archive
+            self.assertEqual(baseline_ref["sha256"], digest(baseline_path))
+            baseline = json.loads(baseline_path.read_text())
             self.assertEqual({"lib/setup.c", "include/gambit.h.in"},
                              {c["path"] for c in failure["changes"]})
             for change in failure["changes"]:

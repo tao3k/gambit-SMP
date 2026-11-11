@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "ebnf-cursor-handoff:8f969c9a46825dfee1a2bac391cfc2e1f4a58225b0f736b7cada10302d4cef1b" "ebnf-cursor-handoff:8f969c9a46825dfee1a2bac391cfc2e1f4a58225b0f736b7cada10302d4cef1b" "support" "dev/architecture/toolchain/models/sysml/ebnf-cursor-handoff.sysml"))
+ (fact (factor "ebnf-cursor-handoff:8f969c9a46825dfee1a2bac391cfc2e1f4a58225b0f736b7cada10302d4cef1b" "target-model-bundle-sha256" "8f969c9a46825dfee1a2bac391cfc2e1f4a58225b0f736b7cada10302d4cef1b"))
+ (fact (factor "ebnf-cursor-handoff:8f969c9a46825dfee1a2bac391cfc2e1f4a58225b0f736b7cada10302d4cef1b" "native-output-sha256" "13d3f229b097fd811d8b7ccbb5e371e441c019f9910202408e5d466d1d204825"))
+ (fact (factor "ebnf-cursor-handoff:8f969c9a46825dfee1a2bac391cfc2e1f4a58225b0f736b7cada10302d4cef1b" "planner-dsl-sha256" "2df360ae4ecc6e1ce2fd407d75f3522a750466e054b53aa434573c54c00e235c"))
+)

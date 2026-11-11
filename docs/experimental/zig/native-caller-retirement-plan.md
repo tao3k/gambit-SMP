@@ -1,0 +1,122 @@
+# Actual Native Callers, Replacement Order and Retirement Dependencies
+
+Date: 2026-10-20. Static source inventory and proposed sequence only.
+No caller is replaced or retired. See the [independent evidence plan](independent-equivalence-evidence-plan.md),
+[E01-E32 matrix](native-argv-equivalence-matrix.md) and
+[source/digest ledger](equivalence-observation-evidence.md).
+
+## 1. Inventory Scope
+
+G is materialized Gerbil `src/gerbil/compiler/driver.ss`; B is its `base.ss`.
+V is research vendor Gambit. These are **different source trees**, not a claim
+that an installed binary combines these exact bytes. Lines identify static
+sites, not measured execution counts. Conditional branches, lexical closures
+and computed/dynamic callers require later source-bound coverage. Searches were
+bounded to Gerbil compiler sources and the named Gambit producer, command/module,
+shell/configuration and make consumers. This is not an ecosystem-wide proof
+that no external user invokes `gambuild-C` or public compile APIs.
+
+## 2. Gerbil Callers of M2-M4
+
+| ID | Actual caller -> callee / source | Old native behavior and branch | Replacement / preserved responsibility |
+| --- | --- | --- | --- |
+| G1 | compile-module:100-137 -> compile-top-module:739, compile-runtime-code:765 and compile-meta-code:844 -> compile-scm-file:924 | Runtime branch calls at 811-815; phi calls at 879. compile-scm-file emits Scheme, may copy static Scheme and dispatches gsc-compile-file:945 | M2/M3/M4 ingress after semantic generation; retain runtime/loader/phi distinction, context and output publication |
+| G2 | compile-scm-file:924-950 -> gsc-compile-file:1054-1113 | Runtime/static case registers runtime-C output job; other cases generic job or direct call | Replace native work inside thunk, not dependency/output registration. -c semantic source generation remains GSC-owned |
+| G3 | gsc-compile-file:1055-1057 -> gsc-link-options, gsc-cc-options, gsc-ld-options | Only direct gsc-ld-options call found in bounded compiler search; phi/debug/static policy applies before choosing Darwin branch | M2 typed native options; gsc-link-options semantic options retained. Ordinary/phi fallback remains explicit until migrated |
+| G4 | Darwin special branch G:1080-1106 | GSC -c runtime C, copy to static C; GSC -obj static C + dynamic/PIC; env BUILD_DYN_* -> gambuild-C dyn with runtime-C metadata and static-object input | M3 object plus M4 bundle intents; retain module/linker names, source copy, encoded alias tail and output existence error at 1107-1108 |
+| G5 | gsc-compile-file G:1109-1113 else paths | Non-special Darwin and non-Darwin invoke GSC with CC/LD/link options and Scheme path | Default dynamic compilation is a separate migration caller, not covered by G4 success; non-Darwin remains legacy in initial profile |
+| G6 | compile-exe:140-169 -> compile-executable-module:171-174 -> separate:176 -> lexical compile-stub:242 | Selects separate versus full-program-optimization by user option; both lexical helpers happen to be named compile-stub | Caller ID includes lexical owner; do not collapse both compile-stub functions into one recipe |
+| G7 | separate/compile-stub G:282,284 -> gsc-cc-options(static #t), gcc-ld-options; compile-obj G:317 -> gsc-cc-options(static #f) | Outer static-true CC binding exists; actual lexical compile-obj recomputes static-false CC and invokes -obj:318-322; freshness/lock/unwind logic surrounds it | M2 preserve actual selected inner value; M3 replace invocation, retain lock/freshness/unlock and job result. Do not infer all executable objects used static-true policy |
+| G8 | separate/prepare-link G:334-369 -> GSC -link; object-jobs:385-394 -> compile-obj; link-executable:371-382 -> gerbil-gcc | Direct link ordered deps/bin/stub/link/libgerbil objects and LD/rpath/runtime libraries | Retain semantic -link and generated link C; M3 native object and separate-exe recipe only. Do not inject generic Gambit executable flags |
+| G9 | separate/compile-it:395-398; schedule-darwin-objects-and-link:401-444; parallel dispatch:445-457 | Sequential prepare -> objects -> link, or Darwin dependent prepare then all object jobs and successful-object barrier before link | Keep current scheduler/condition-variable barrier and failure propagation. One failed object prohibits link; Zig does not become semantic scheduler |
+| G10 | full-program-optimization:463 -> lexical compile-stub:533; gsc-cc-options(static #t):550; gcc-ld-options:552 | GSC -link:572-573, then one GSC invocation -obj with output-c and output-c_:574-576, direct gerbil-gcc:577-582 | M2/M3 replace native pieces; emit two object requests with aggregate error barrier, preserve full-program Scheme declarations/tree shaking and direct stub-exe order |
+| G11 | patched Darwin alias request G:1104 -> gcc-ld-options plus alias | Third gcc-ld-options call site, after the two lexical executable helpers at 284/552 | M2 preserve literal-space split provenance and repeated LD occurrences; M4 keeps alias after requested tail |
+| G12 | invoke G:1190-1206 -> open-process/process-status | Shared GSC/GCC/env process helper, raises compile error on nonzero status | Observe B2/B5; retain public error/process semantics. Replacing native call sites does not delete shared invoke used by semantic GSC calls |
+
+G1's loader generation explicitly parameterizes current-compile-gsc-options to
+#f at 814; runtime options cannot be copied indiscriminately into loader requests.
+G7 also prevents a misleading blanket “static object implies static-true helper”
+rule. These are concrete caller differences that the E31/E32 controls must cover.
+
+O5 B:455-481 owns generic jobs, output registration, error publication and
+output-dependent callbacks. Its records/callbacks remain Gerbil-owned. Retiring
+M3/M4 must preserve the meaning of produced/error state, not merely return a
+native object filename. G9 already submits the complete object closure before
+its barrier; this design does not claim to invent that parallelism.
+
+## 3. Gambit, Shell and Configure Consumers of M5-M8
+
+| ID | Actual caller / source | Dependency / migration decision |
+| --- | --- | --- |
+| V1 | Public compile-file V:gsc/_gsclib.scm:164-264 -> ##compile-file:265-393 -> ##gambuild and ##gambuild-params:370/375 | M5 ordinary object/dynamic seam; preserve c#cf language generation, module/linker defaults, output naming/relative cwd, temporary cleanup and failure exception |
+| V2 | ##build-executable V:_gsclib.scm:451-495 -> ##gambuild/params:472/477 | Separate generic-exe caller; M5 structured request after semantic link products, not Gerbil direct-exe recipe |
+| V3 | ##build-module V:_gsclib.scm:395-449 -> compile-file-to-target:436 then ##compile-file:438 | Module build-subdirectory and target-C generation remain; migrate inner native seam, not delete entire build-module |
+| V4 | V:gsi/main.scm:501-525 do-compile-file; :544-559 do-build-executable; :561-592 do-build-module-or-file | Command-line helpers reach V1/V2/V3; public option/abnormal-exit behavior needs independent caller coverage |
+| V5 | V:lib/_module.scm:626 -> ##build-module-subprocess:640-680 -> gsc-script -e expression calling ##build-module:665 | Automatic ._must-build_ path is a separate process caller; retain module search/install directories/options and loading fallback policy; migrating only command-line entry does not close it |
+| V6 | ##gambuild V:_gsclib.scm:544-593 -> target-derived gambuild-* path and ##run-subprocess | M5 transport for target-specific drivers. Initial managed C branch does not eliminate non-C target dispatch or portable legacy API |
+| V7 | V:bin/gambuild-C.unix.in obj:333-351, dyn:353-373, exe:391-411 -> extract_cc_ld_options and substitute/eval | M6 resolver and M7 substitution per supported mode. All three resolve package metadata, including obj; do not retire only the link branch |
+| V8 | Same shell helpers:155-283 -> get_meta_info/list/eval_sexpr/process_pkg_config/path/accumulators | Nested M6 call chain; sole resolver replacement must cover query errors, source/field order, search precedence, diagnostics and conditional selection |
+| V9 | Same shell lib:375-389, info/dump:412 onward; materialized Darwin adds portable/literal substitution variants | Lib is unsupported placeholder; query/dump interface and legacy branches remain installed as needed. M7 “no eval for managed callers” is not deletion of every shell branch |
+| V10 | V:configure.ac:2978-3045,3246-3332 -> 3485-3608 encoders -> AC_SUBST/AC_CONFIG_FILES:3854 onward | M8 single native rule graph before encoding; preserve configure probes/header authority, legacy MF/BAT and targets outside selected managed scope |
+| V11 | V:bin/makefile.in:132-140 copies .unix to installed-name gambuild-C; :586-590 regenerates .unix via config.status with CONFIG_FILES restricted to that file | M8 must cover generation AND install/activation; old one-file regeneration cannot silently leave an active typed manifest pointing at stale counterparts |
+| V12 | V:lib/makefile.in:321-366 @BUILD_OBJ@ and @BUILD_OBJ_RTS@; V:gsc/makefile.in:293-305 and gsi/makefile.in:207-219 @BUILD_EXE@/@BUILD_OBJ@ | Native make/bootstrap consumers remain. Runtime recipe mapped-only; managed post-generation object support cannot retire bootstrap templates or all configure outputs |
+
+The V1/V2 calls are the two direct ##gambuild/##gambuild-params pairs found in
+the bounded vendor GSC source search. V4/V5 are verified upstream entry chains,
+not a claim that all dynamic Scheme calls are statically enumerable. External
+script/package users and other backends remain a residual caller class until
+separately inventoried. A zero text-match count after renaming is insufficient
+proof that computed/dynamic dispatch cannot reach a legacy route.
+
+## 4. Replacement Order: Capability Slices, Not Number Order
+
+These are proposed stages with **no implementation currently started**.
+There is no mixed managed resolver that sends an already-resolved request back
+to the old native driver. Legacy profile selection precedes effects and remains
+explicit for unmigrated caller/mode/input slices.
+
+| Stage | Proposed change boundary | Prerequisites / acceptance | What is still legacy |
+| --- | --- | --- | --- |
+| P0 evidence closure | Bind coherent baseline, actual caller IDs, observer capability and independent expected invariants | L0 identities and L1/L2 calibration plan; acquisition gaps marked unresolved | Every execution route; no retirement claim |
+| P1 shared configuration M8 | One graph, two outputs, header/model manifest and install/regeneration coherence | E01-E08/E12-E13/E26-E28/E30 for selected fields and modes; V10/V11 addressed | All native callers until emitter/resolver/executor qualification; V12 bootstrap remains |
+| P2 native leaf infrastructure M6/M7 | Typed recipe evaluation, metadata/package actions, direct execution and failure transport | Independent fixtures and native witnesses; E14-E23/E26-E29 plus mode fields; empty package-tool constraint explicit | Existing producers until migrated. Building internal capability is not retirement of caller paths |
+| P3 C object slice M2/M5/M3 | V1 structured object seam, Gerbil G7/G10 object callers and semantic-filter emitter; one request per C object | P1/P2; E02-E05/E13-E17/E25/E29-E32 plus needed metadata rows; native artifact/status/barrier evidence | V1 dynamic fallback, bundle, generic and direct exe links, V4/V5 uncovered APIs |
+| P4 Darwin bundle slice M2/M4/M5/M7 | G4 paired object/bundle and V1 dynamic callers, distinct metadata/input/name roles | P3 object prerequisite; E07/E18-E25/E29-E32; alias/source/copy/error and module acceptance | Non-special/phi/loader branches without coverage remain explicit legacy; no automatic promotion from G4 |
+| P5 executable slices M2/M3/M5 | Qualify V2 generic exe, G8 separate direct exe and G10 full-program stub exe separately | P3 objects; E08-E10/E13/E17/E25/E29-E32, G9 barrier/output-publication qualification | Each other executable recipe until its own receipt; runtime bootstrap/mapped-only modes remain |
+| P6 upstream caller closure | V3/V4/V5 and all G1/G2 phase/loader/static/parallel combinations exercised against qualified slices | P3-P5 applicable mode receipts plus source/API/search/error outcomes; no runtime loading bypass | Portable/non-C/external/unsupported inputs explicitly legacy |
+| P7 retire managed caller paths M2-M8 | Source call-path audit plus independent evidence bundle for every enumerated migrated slice | All required E rows by obligation kind; no missing L2 field treated as pass; retained native gates | Whole-file/script/helper deletion remains forbidden while residual callers depend on it |
+
+P4 and P5 are independent consumers of P3 where their recipe dependencies allow;
+the sequence does not force bundle qualification before direct executable links.
+P1 and P2 design work can overlap, but every admitted execution requires a bound
+profile plus complete selected-mode resolution. A request cannot combine an old
+native resolver with a new resolver and still claim the one-authority end state.
+
+## 5. M2-M8 Retirement Dependency Closure
+
+| Item | Actual sites to close | Depends on / closure evidence | Why a local success is insufficient |
+| --- | --- | --- | --- |
+| M2 | G3/G7/G10/G11 plus loader/phi G1/G2 | M8 policy, producer-native emitter, E14-E19/E31-E32 and caller-specific controls | One option helper test misses phase/loader/static-false inner object and direct-LD routes |
+| M3 | G4/G5/G7/G8/G10 native operations | M2 semantics, M5 where entering Gambit C, M6/M7 execution, G9/B output barrier | Direct GCC links do not exercise shell object/dynamic dispatch; two-input -obj must retain aggregate failure behavior |
+| M4 | G4 and G11 alias composition | M2/M3 object slice, M6 metadata, M7 bundle execution; runtime module acceptance | Correct object bytes do not prove metadata source/alias/load identity or bundle error |
+| M5 | V1/V2 pairs and V3-V6 upstream contexts | M8 profiles, M6/M7, explicit target-C selection; all mode/API statuses bound | Non-C targets, automatic module subprocess and public compile APIs still need explicit legacy policy |
+| M6 | V7/V8 obj/dyn/exe resolver chains | M8 features/tools, source-bound producer records, independent query/tty/error observations | Final CC argv can match while --libs failure or metadata warning disappeared |
+| M7 | V7 substitutions/eval and G4 direct env route | M8 single recipes, M5 direct data, M6 behavior; no nested gsc/gambuild/eval for migrated caller | 0015 literal-substitution helper still evals; managed/native and legacy/info branches have different reachability |
+| M8 | V10/V11; Gerbil-owned direct recipe extension; V12 explicit residuals | Coherent generation manifest, field/decoder/extension identity and activation evidence | New profile file does not eliminate duplicated rules, partial config.status updates or bootstrap consumers |
+
+This is a dependency of **capabilities**, not a deadlocked requirement that all
+functions be deleted before any replacement can run. Implementing a new M6/M7
+capability can precede retiring its legacy callers; retirement follows the
+last migrated slice's qualification. The whole subsystem may retain explicit
+legacy routes indefinitely without claiming those routes modernized.
+
+For each caller record: source digest/location + lexical owner + branch guard +
+mode/input subset + semantic predecessors + native successors + failure/barrier
+behavior + remaining legacy reachability + E receipts. Retirement requires both
+positive evidence and negative controls that hidden fallback, extra native calls
+and failed-object linking would be detected. Scheduler, runtime and public
+semantic APIs remain with their existing owners throughout.
+
+[Caller dependency D2](native-caller-retirement-dependencies.d2) /
+[rendered SVG](native-caller-retirement-dependencies.svg) summarizes the proposed
+capability order and retained caller classes.

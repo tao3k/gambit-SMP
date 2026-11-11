@@ -1,0 +1,94 @@
+#+TITLE: Tcl Cancel-Unwind: Evidence and Qualification Boundaries
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Tcl Cancel-Unwind: Evidence and Qualification Boundaries :ffi:
+:PROPERTIES:
+:ID: 364536f5-69ed-5470-a9de-2efbaf9a7202
+:CUSTOM_ID: tcl-cancel-unwind-evidence-and-qualification-boundaries
+:SOURCE_PATH: docs/experimental/zig/tcl-cancel-propagation-evidence.md
+:SOURCE_SHA256: cd82b1202957d2e93a04eb9392e376073f6050e114e34cb060934626b06a0615
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Read 2026-10-21. Research HEAD ~1a2d8612f2065387c62858e10baf63ce369cc48c~;
+Gambit HEAD ~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~.
+Local working bytes are separately hashed in the [[file:../../../../../docs/experimental/zig/tcl-cancel-propagation-traceability.json][trace]].
+Remote branch readings are not downloaded byte hashes, a coherent immutable Tcl
+checkout, or correspondence to an installed Tcl/Tk. Browser source ordinals below
+are navigation aids. The [[file:../../../../../docs/experimental/zig/tcl-cancel-external-readings.json][reading ledger]]
+preserves successful readings and the unavailable compiler source.
+
+*** Local Source
+:PROPERTIES:
+:ID: ad61ad9f-ccfe-5dd8-a42b-feaf2b781088
+:CUSTOM_ID: local-source
+:END:
+
+| ID | Source | Bounded observation |
+|-
+| PE01 | [[file:../../../../../vendor/gambit/examples/tcltk/tcltk.scm::50][Tcl bridge]], 50–122, 124–195, 217–228, 245–345, 347–425; [[file:../../../../../vendor/gambit/examples/tcltk/fig16-10.scm::24][event callback]], 24–28 | Actual interpreter setup/delete, Tcl_Eval/error entry, callback result/string release, exported commands/removal and active DoOneEvent loop. No cancellation adapter is established in these selected callers. |
+| PE02 | [[file:../../../../../vendor/gambit/lib/_thread.scm::4794][Wind/continuation]], 4794–4819, 4908–5080; [[file:../../../../../vendor/gambit/lib/_thread.scm::4529][handlers]], 4529–4620; [[file:../../../../../vendor/gambit/doc/gambit.txi::11135][manual]], 11135–11153 | Scheme control and dynamic context remain Gambit responsibilities; Tcl unwind is not Scheme continuation invocation. |
+| PE03 | [[file:../../../../../vendor/gambit/lib/_kernel.scm::1019][C return]], 1019–1071; [[file:../../../../../vendor/gambit/lib/setup.c::3275][call/run]], 3275–3422; [[file:../../../../../vendor/gambit/lib/c_intf.c::6511][marker]], 6511–6562 | Native activation/processor validity, matching catch/rethrow and marker/root obligations remain separate from Tcl cancellation. |
+
+*** Primary External Readings
+:PROPERTIES:
+:ID: 65e74360-245b-57de-983f-e02a08697a8b
+:CUSTOM_ID: primary-external-readings
+:END:
+
+| ID | Primary source and locator | Source observation |
+|-
+| PX01 | [[https://www.tcl-lang.org/man/tcl8.6.17/TclLib/Cancel.htm][Cancel API]], DESCRIPTION/FLAG BITS | CancelEval is cross-thread; Canceled is interpreter-thread only. Unwind is stronger than ordinary error. A non-NULL message object is consumed according to the API contract; clientData is reserved. |
+| PX02 | [[https://core.tcl-lang.org/tips/doc/trunk/tip/285.md][TIP 285]], rationale/semantics/notes | Cooperative interpreter cancellation, catch bypass intent, extension checks, idle/next-script and reset behavior. Design intent does not prove every current entry route. |
+| PX03 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclBasic.c][tclBasic.c]], CancelInfo 80–87; creation 670–683; CancelEvalProc 3255–3324; Canceled/CancelEval 3825–3981 | One request record stores flags/message; async callback sets self/child flags and returns its input code. Canceled consumes the one-shot bit; unwind persists. |
+| PX04 | Same tclBasic.c: TclInterpReady 3716–3749; reset 3784–3797; Objv/NRE 4026–4100, 4298–4342; TEOV handlers 4360–4441; direct eval 5124–5237, Tcl_Eval 5682–5697; object evaluation 5880–5990 | Entry checks, NRCommand recheck, reset-before-decrement, object-return reset and direct cleanup are distinct routes. Direct eval uses NOERR; no identical reset is visible in its cleanup tail. |
+| PX05 | Same tclBasic.c: DeleteInterpProc 1347–1412; coroutine rewind 8290–8299 | Deletion removes CancelInfo/async state on the owner path. Coroutine rewind is distinct from cancel flags. |
+| PX06 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclInt.h][tclInt.h]], 2004–2019 | TclCanceled tests one-shot or unwind; setting flags preserves an already installed unwind bit; unsetting clears both. |
+| PX07 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclExecute.c][tclExecute.c]], 38–40, 2234–2262, 6785–6831, 7586–7743 | Polling reaches gotError; checkForCatch bypasses catch ranges while cancellation remains; abnormalReturn releases operand/auxiliary state, restores frame and frees stack. Default poll mask is 63. |
+| PX08 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclCompCmds.c][tclCompCmds.c]], TclCompileCatchCmd, browser ordinals 32–43; tclBasic.c builtInCmds 227/269 | Catch can compile an exception range or fall back. Try has both compiler and NRE registrations. Exact Try compiler lowering was not retrieved. |
+| PX09 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclCmdAH.c][tclCmdAH.c]], 277–357 | NRE catch callback checks rewind/limit, then can assign result/options and return OK; no direct persistent-cancel test there. |
+| PX10 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclCmdMZ.c][tclCmdMZ.c]], 4856–5042, 5056–5178 | Try callbacks check rewind/limits; normal processing binds handler variables and schedules handler/finally evaluation. TryPostFinal arbitrates results/options, including -during. |
+| PX11 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclEvent.c][tclEvent.c]], 1322–1393, 1413–1458; 139–167, 186–224, 548–564 | vwait/update poll after events; vwait untraces on ordinary exit. Background result/options queue, idle dispatch and deletion disposal are separate. |
+| PX12 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclAsync.c][tclAsync.c]], 107–130, 152–164, 184–232, 259–301; [[https://www.tcl-lang.org/man/tcl8.6/TclLib/Async.htm][Async manual]] | Mark sets ready and may alert origin thread; Invoke runs owner handlers and can repeat; Delete removes even a ready handler. Readiness concerns the thread, not a specific host request. |
+| PX13 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclInterp.c][tclInterp.c]], 2006–2048, 2661–2701 | Child flag propagation is recursive; ChildEval resets descendants where permitted and transfers result. Parent success does not certify every child's idle state. |
+| PX14 | [[https://www.tcl-lang.org/man/tcl8.6/TclCmd/try.htm][try manual]] | Ordinary finally/handler rules and -during. These ordinary rules alone are not a cancellation cleanup guarantee. |
+| PL01 | [[https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf][Retrofitting Effect Handlers onto OCaml, PLDI 2021]], §§2.3, 3.1–3.2 | Distinguishes managed stack/root machinery, foreign-frame boundaries and resource cleanup. Learn the explicit boundary method; do not import OCaml's restrictions or performance numbers into Gambit. |
+| PL02 | [[https://small.r7rs.org/attachment/r7rs.pdf][R7RS report]], §§6.10–6.11 | Dynamic-wind and exception semantics inform the preservation obligation. Gambit's stronger hook behavior still needs its own source/manual contract. |
+
+PD01. Prior designs credited: [[file:tcl-control-boundary-design.org][control boundary]],
+[[file:tcl-control-boundary-arguments.org][conditional semantics]],
+[[file:tcl-command-custody-design.org][command custody]],
+[[file:native-callback-custody-contract.org][root/marker custody]],
+[[file:tcl-control-boundary-benefit-matrix.org][paired C/Zig comparison]].
+No old mechanism or claimed saving is counted again.
+
+The unavailable ~tclCompCmdsSZ.c~ branch/tag/raw/blob retrievals are gaps, not
+proof that Try lacks a compiler. Generic manuals identify 8.6.18, Cancel identifies
+8.6.17. The successful branch pages may have different crawl times. Pinning a
+coherent revision, completing compiler/control routes, and installed binary
+qualification remain unresolved. This study executes only document/hash/link/D2
+checks, no native, compiler, Scheme, model, solver, prover or analyzer workload.
+
+*** Subsequent Source Identity Refinement
+:PROPERTIES:
+:ID: 40d9a320-c3d4-5562-9add-7dd906263599
+:CUSTOM_ID: subsequent-source-identity-refinement
+:END:
+
+The [[file:tcl-interpreter-reuse-evidence.org][reuse source ledger]] now records successful
+GitHub connector retrieval of the previously unavailable Try compiler and related
+files at one immutable commit, with reproduced blob hashes. The unavailable
+retrievals and unpinned browser ordinals above describe this earlier study's
+evidence boundary; they are not the latest source-availability conclusion.
+Installed Tcl/Tk and private-stub qualification remain unresolved.

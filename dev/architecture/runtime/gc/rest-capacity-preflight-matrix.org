@@ -1,0 +1,162 @@
+#+TITLE: Rest Capacity Preflight, Caller Cuts and Peak-Memory Matrix
+#+PROPERTY: header-args :eval never
+
+* Execution scope
+Repository Evidence/ASCENT queries completed for the exact selected source bundle; source and C-memory obligations remain open. No runtime admission.
+
+* Inherited native layout arithmetic
+These are aligned-wrapper requests, not backend pages, usable size or RSS.
+| Word bytes | Candidate subtype | SCMOBJ slots | Raw key bytes | Body bytes | Object bytes | Wrapper request | Delta from SMP |
+|---+---+---+---+---+---+---+---|
+| 4 | 16 | 2 | 24 | 32 | 56 | 67 | 24 |
+| 8 | 16 | 2 | 24 | 40 | 88 | 103 | 24 |
+
+* Inherited post-CONS repair examples
+Arithmetic only; actual physical reservation and current-host generated frame/ABI admission remain open.
+| Profile | Actual args | Formal count | Remaining after first CONS | Pair words | Vector words | Repair words | Repair bytes |
+|---+---+---+---+---+---+---+---|
+| w4r0b1 | 4 | 1 | 3 | 3 | 2 | 11 | 44 |
+| w4r0b2 | 4 | 1 | 3 | 4 | 3 | 15 | 60 |
+| w4r1b1 | 4 | 2 | 2 | 3 | 3 | 9 | 36 |
+| w4r1b2 | 4 | 2 | 2 | 4 | 4 | 12 | 48 |
+| w8r0b1 | 4 | 1 | 3 | 3 | 2 | 11 | 88 |
+| w8r0b2 | 4 | 1 | 3 | 4 | 3 | 15 | 120 |
+| w8r1b1 | 4 | 2 | 2 | 3 | 3 | 9 | 72 |
+| w8r1b2 | 4 | 2 | 2 | 4 | 4 | 12 | 96 |
+
+* Native-evaluated caller preflight budget
+This covers the first CONS; it is not native allocator/FrameSpec admission.
+| Profile | Actual | Formal | Rest pairs | Caller words | Caller bytes | Extra versus post-CONS |
+|---+---+---+---+---+---+---|
+| w4r0b1 | 4 | 1 | 4 | 14 | 56 | 3 |
+| w4r0b2 | 4 | 1 | 4 | 19 | 76 | 4 |
+| w4r1b1 | 4 | 2 | 3 | 12 | 48 | 3 |
+| w4r1b2 | 4 | 2 | 3 | 16 | 64 | 4 |
+| w8r0b1 | 4 | 1 | 4 | 14 | 112 | 3 |
+| w8r0b2 | 4 | 1 | 4 | 19 | 152 | 4 |
+| w8r1b1 | 4 | 2 | 3 | 12 | 96 | 3 |
+| w8r1b2 | 4 | 2 | 3 | 16 | 128 | 4 |
+
+* Fresh separate heap-section geometry
+Payload arithmetic only; excludes allocator headers, existing objects, stack demand and actual allocation success/RSS.
+| Profile | Full section words | Half words | Data words | Max rest no handles | Max rest handles | Section payload bytes |
+|---+---+---+---+---+---+---|
+| w32 | 131072 | 65536 | 65533 | 24578 | 32771 | 524288 |
+| w64 | 131072 | 65536 | 65533 | 24578 | 32771 | 1048576 |
+
+* Source caller matrix
+#+NAME: root-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| dynamic-apply-wrapper | lib/_kernel.scm:2989-3060 | apply wrapper may splice own rest list before app; app immediately POP_ARGS2 then PUSH each car while walking cdr, finally jump target | Collecting reserve inserted inside raw PUSH loop would expose partial incoming argument frame; retrying wrapper can repeat mutation | New CallInputView cut at Scheme app boundary before inline C pops/expansion, after original evaluation/splice; logical inputs preserved |
+| apply-count-and-stability | lib/_kernel.scm:3004-3024;lib/mem.h:63-65 | Current app counts na while pushing, detects >MAX_NB_ARGS, removes pushed args then tail raises limit exception | No existing count-before-expand descriptor or stable snapshot; two-pass count can change mutable input observations | Stable input profile or scan-safe single-read CallArgPacket staging; retain target and spine/prefix roots; preserve invalid-input/error read order |
+| direct-gvm-jump | gsc/_gvm.scm:466-473;gsc/_t-c-2.scm:1316-1390 | Jump carries opnd/ret/nargs/poll/frame; emitter may overwrite R0 or spare destination, emit block checks, adjust stack then jump | Late-bound global target lookup also cannot be hoisted across collecting callbacks; reserve at final jump may already follow destructive operand moves | Scheme semantic completion emits pre-shuffle CallInputView and final grant/consume region; source producer placement proof remains open |
+| block-checks-and-specialization | gsc/_t-c-2.scm:1120-1143,1331-1390,2490-2499;tests/test5.ok:15750-15800 | Compile-time reserved counters drive checks; jump inline/direct dispatch may bypass generic rest entry | Compiler reserved count and passing POLL do not reserve an exclusive physical interval; late poll can invalidate grant | Run required collecting checks with complete view first, then final noncollecting grant; specialize exact body/argument contract instead of blanket rest charge |
+| native-conversion-producer | gsc/_ptree2.scm:2902-2930,3145-3187;include/gambit.h.in:10043-10071 | c-make-function converts parameters, generated make-body emits SFUN_ARG stores then SFUN_CALL; BEGIN allocates marker earlier | Converted SCMOBJ locals and raw outgoing stores are not automatically a complete GC view before ___call | Typed NativeCallInputView/root frame before raw stores; preserve conversion order, error/result ABI and same invocation leases |
+| native-call-frame | lib/setup.c:3276-3360 | ___call assumes C caller already placed args above fp, builds return marker frame, pops regs and sets target | Collecting capacity request inside ___call before reconstructing rooted outgoing inputs is not automatically safe | Preflight at staged native caller; keep return-to-C frame construction noncollecting under exact stack lease |
+| marker-input-root-gap | lib/c_intf.c:6509-6564;include/gambit.h.in:10043-10064 | Marker allocator uses make_vector before copying proc, source TODO for protecting input; SFUN conversion errors may call Scheme | Native staging cannot claim safe preflight if marker/proc roots already unprotected | Root target before marker allocation, all-domain handles and complete ancestor native root/exit plan; inherited gap stays open |
+| heap-msection-data-range | lib/mem.c:3315-3325,3395-3407;lib/mem.h:63-71 | set_heap_msection selects tospace half; prepare leaves two end marker words, writes first link word and starts data chunk | Raw half-section size overcounts client data; allocating a logical window must not skip uninitialized prefix | Grant current hp-to-dataHi offsets after metadata; fresh separate half has 65533 candidate data words by source arithmetic only |
+| shared-stack-heap-layout | lib/mem.c:3140-3174,3330-3356 | Shared msection changes both limits with fudge and 1/4-versus-3/4 split | Independent heap/stack scalar capacity can double-promise intersecting bytes | Grant actual disjoint intervals and guard budget under one layout incarnation, or use separately owned sections |
+| chunk-lifecycle | lib/mem.c:3238-3270,3395-3407,3540-3623,3740-3800 | Current scanner/allocation tracks chunk start, markers and initialized allocation prefix | Publishing an uninitialized gap as a scannable copying chunk is unqualified; collector-copy chunk limits and mutator data bounds are different roles | Cursor-window lease leaves hp unchanged; write complete objects and advance only initialized prefix; chunk transitions must join plan or be excluded |
+| heap-limit-can-reassign | lib/mem.c:7428-7505,4525-4567;lib/_kernel.scm:536-590 | heap_limit can take free msection or get next section, prepare new hp/limits, or signal GC need | A ticket for prior hp/layout does not remain valid across this helper even without GC | Replace admitted repair path with lease-local noncollecting budget/need-GC check, close lease at full frame before normal collector |
+| stack-limit-migration | lib/mem.c:7115-7208,7380-7388 | stack_limit may allocate/reuse msection and migrate frames/stack break; old section can join free list | Same GC epoch does not imply unchanged stack interval/cursor or live pointer locations | Layout generation changes invalidate unused grants; qualify stack-demand FrameSpec and prohibit migration inside leased shuffle |
+| gc-flip-and-reset | lib/mem.c:2194-2198,3413-3450 | setup_stack_heap_vmstate flips tospace offset, resets per-PSTATE free list/section/cursors/chunk queues | Old capacity receipt cannot survive semispace flip/reset; addresses can later repeat | Cancel unused grants and settle active constructors before GC, use epoch+layout+serial and reissue against new actual intervals |
+| round-context-reload | lib/mem.c:7003-7085,4525-4567;lib/os_thread.c:697-710 | GC phases/resize/fudge then prepare context, with notification before preparation; TLS binding is separate | GC interrupt/result alone does not authorize new raw cursor use or stale root access | Whole-round result, exact owner/context binding and relocated CallInputView handle reload before new grant or completed packet resume |
+| actual-rest-consumers | tests/mix.scm:703-706,775-782;examples/tcltk/test.scm:9-33;examples/tcltk/tcltk.scm:221-228,673-674 | f3 generic rest source and real Tcl setter -> variadic tcl caller provide zero/one-required four-arg shapes | Direct specialization/generic slow execution and physical pressure are conditional; no native run receipt | Front-load all four/three pair costs plus fallback packet; retain existing single native invocation and nargs=-1 completed-packet resume |
+| locks-ownership-and-cleanup | lib/mem.c:376-383,4928-4964;lib/setup.c:924-980;lib/os_thread.c:546-592 | alloc_mem_lock protects selected section operations; PSTATE cleanup frees resources before later join result handling | Allocation lock is not a complete per-call ticket/GC exclusion protocol; unknown stop cannot retire active writer | VM canonical reservation records, no GC-critical lock held while waiting, known stop/final-effect evidence before range reclamation |
+
+* Benefit and peak-memory matrix
+#+NAME: root-costs-native
+| Capability | Removed work | Quantified bound | Added cost | Condition or falsifier |
+|---+---+---+---+---|
+| Caller versus post-CONS budget | Budget from before first destructive allocation | Hcaller=(na-np+1)*(2+PAIR_BODY)+np+VECTOR_BODY; four args no handles:14/12 words | Stack-demand FrameSpec, metadata/root budget and physical data interval | Prior 11/9-word repair examples start after checked CONS; difference is one pair, not new total allocation |
+| Fresh-section geometry | Demonstrate a feasible heap-only envelope | Half65536 minus first-link1 and end-markers2 =65533 words; max legal rest envelope24578/32771 for no-handles/handles | Exclusive data ownership, actual layout and separate/nonoverlapping stack reserve | Arithmetic does not prove allocation success, arbitrary current section slack, C ABI or caller stack bound |
+| Reservation representation | Avoid uninitialized holes in current prefix scanner | Grant adds0 hp advancement; consuming each initialized pair adds its actual words | Canonical cursor-window lease and no intervening allocating/reentrant helper | Cannot keep old heap_limit/msection migration inside admitted leased region without explicit continuation of layout contract |
+| Dynamic apply work | Preserve evaluated target/input across failed preflight and GC | Stable two-pass input adds an O(n) count pass; typed staging uses O(n) slots and O(n) read/copy work | Version/stability proof or scan-safe staged-prefix root descriptor | Neither route proves a baseline CPU saving; raw shared mutable input needs separate read-order refinement |
+| Direct calls | Keep precise per-call or specialized demand | Known na/target bound is O(1); late-bound target uses conservative arity envelope without early global read; specialized body paths differ | Pre-shuffle root materialization and collecting checks before grant | No blanket charge to calls that bypass rest construction; current exact emission placement proof remains open |
+| Native ingress | Make conversion failure and retry root-safe | One native invocation remains1; preflight query/retry adds0 native invocation | Rooted conversion staging, marker/code/input/result leases and native stack bound | Late ___call insertion is insufficient; marker-root TODO and loaded native origins remain open |
+| GC and ticket expiry | Prevent stale same-address permission after collection or layout reset | Unused ticket cancel before GC; new epoch/layout/serial on retry; no operand reevaluation | Canonical cancel/enter race, context/root reload and protected result lookup | Active partial work must reach full frame; completed rest packet needs reentry authority, not rest reconstruction |
+| Failure and unknown outcomes | Known denial keeps full root view and original cursor | No allocation cursor write on deny; missing ACK query invokes no native operation | Pending arena transaction and root/native metadata retained until known outcome | Unknown native effect/entry/stop cannot be converted to failure or refund by timeout; may block GC |
+| Lease-local check work | Replace admitted per-CONS limit checks with whole-window validation | Current checked prefix j in [1,k] does j comparisons; candidate validates once then honors pending GC at full-frame boundary | Reservation, root materialization, completion pressure poll and used+unused budget ledger | Logical comparison reduction only; staging/atomic/retention costs may exceed savings, so no CPU speedup is proved |
+| Peak memory | Count real backing and staging overlap | Peak=max_t(H+P+N+Q); a new full msection payload=131072*wordBytes, 1MiB at8-byte words | Potential staged inputs, retained roots/native frames and separately required stack sections | Fresh assignment from existing pool is not new payload/RSS; allocator may batch-grow; no whole-round peak reduction proved |
+| Retirement | Replace implicit current-limit and raw-call root responsibilities | 0 production paths retired; no duplicated expression evaluation or rest construction due to retry | Scheme-generated CallInputSpec/FrameSpec plus modern C capacity/root/ticket service | Retire admitted lease-internal raw heap_limit/POLL and unrooted native stores only after caller/effect/source/order qualification |
+| Modern C mainline | Share allocator, root and caller plans across Scheme/native entry | No Zig-only removal of necessary correctness work demonstrated | Both require same physical interval, GC epoch, native-root, staging and exception contracts | Positive CPU/peak net benefit needs actual removed baseline work/overlap to exceed new checks/retention; not established by this design alone |
+
+* Obligations and imported open premises
+#+NAME: root-needs-native
+| Need | Kind | Exact scope | Premise |
+|---+---+---+---|
+| CP-H | interleaving | rest_capacity_preflight:33-named-histories;admitted;dynamic+native;direct-named;four-rest-args;epochs0and1;seed=17;each100x100 | One logical call after operand evaluation, stable complete CallInputView premise, actual four-arg no-handles heap budget14; finite arena offsets/stack budget12 are geometry examples, not actual caller FrameSpec; one reservation request, two ticket serials, old client reply, input/layout generations, one GC, initialized-prefix consumption and body-entry terminal; source/ABI/physical allocator and arbitrary callback/liveness proof remain open |
+| CP-I | induction | GambitSMP.RestCapacityPreflight:heapEnough;stackEnough;overlapRejected;shortHeapRejected;fourRestNoHandles;oneRequiredNoHandles;fourRestHandles;oneRequiredHandles;staleEpochRejected;staleArenaRejected;staleSerialRejected;changedInputRejected;grantPreserves;grantDoesNotAdvanceCursor;beginPreserves;writePreserves;finishPreserves;cancelPreserves;collectPreserves;liveTicketCannotCrossGc;partialFrameCannotCollect;cancelDoesNotRewindHp;collectDoesNotReevaluate;regrantUsesNewEpoch;regrantUsesNewArena;budgetPartition;completedBudgetHasNoUnused;knownDenyPreservesFullView;stepPreserves;tracePreserves | 30 conditional interval-fit/disjointness, caller-word arithmetic, stamp equality exclusions, initialized-prefix cursor and ticket/root lifecycle Step/Trace declarations; caller full-view and physical mapping are premises; no complete QNT/C allocator/generator/ABI simulation |
+| CP-SAFE | source-refinement | CP-SAFE:actual-source-refinement | Create rooted CallInputView after operand evaluation; stage an already resolved target only at its allowed resolution point, or use target-independent arity envelope for late-bound global calls, without hoisting observable global reads; establish the view and before destructive expansion/argument relocation, R0 overwrite or native SFUN_ARG stores; dynamic apply cut before POP_ARGS2 and PUSH loop in app after wrapper splice, direct GVM cut before earliest destructive move and with all collecting block checks before final grant, native typed staging before raw outgoing stores and ___call; existing helper entry or late ___call is not a complete caller-view issuer |
+| CP-ROOT | source-refinement | CP-ROOT:actual-source-refinement | Preflight failure or cancellation retains exact logical target, ordered evaluated arguments/input spine, original continuation and native marker/code/result backing in collector-updateable roots; immutable/version-stable apply input can count then expand, general mutable input requires qualified single-read scan-safe staging, not rereading expressions/list after GC; no GC from existing unframed raw outgoing area; unknown source/input-root closure rejects managed profile |
+| CP-EXCLUDE | source-refinement | CP-EXCLUDE:actual-source-refinement | Physical grant names one actual msection incarnation/semispace/layout and contiguous cursor window plus stack interval; exclude chunk link and end markers, require word alignment/checked offset arithmetic, heapHi<=stackLo when sharing, and no conflicting allocator/writer capability; logical global free space, fudge and compile-time reserved counters are not this proof; grant leaves hp unchanged so this profile needs no new sparse/uninitialized-gap scan contract; account initialized prefix plus unused reserved words once, and close/refund only unused capacity, never committed objects |
+| CP-RECEIPT | source-refinement | CP-RECEIPT:actual-source-refinement | Canonical noncollecting tryReserve on complete rooted input view is final allocator-layout effect before a no-GC/no-reentry shuffle/repair interval; reserve includes all rest pairs from first CONS plus fallback packet, frame/argument stack and metadata budgets; unused grant cancellation and construction entry share one arbitration; no intervening allocating helper/POLL or legacy heap_limit cursor migration while lease live; initialize objects then advance actual prefix hp, close lease at complete FrameReady before GC |
+| CP-RESUME | source-refinement | CP-RESUME:actual-source-refinement | Unused grants must be canonically canceled before GC or allocator layout reassignment, active partial writer must finish full FrameReady and close lease first; flip/reset/reuse invalidates old epoch/layout/serial even at same address; after round/context/binding and root reload, rederive bounds from same stable logical call input and issue new ticket without reevaluating expressions; already completed rest packet needs fresh execution authority, not another rest construction grant |
+| CP-SEMANTICS | source-refinement | CP-SEMANTICS:actual-source-refinement | Known deny keeps complete root view and unchanged allocation cursor; lost grant ACK retains canonical unused grant and query rights, not a second reservation; unknown native allocator/assignment result retains arena transaction debt and cannot become deny/refund by timeout; failed/unknown cancel or entry outcome retains canonical responsibility; caller-input stability, ABI and origin profiles must be qualified, and original arity/error/tail/native return semantics are not replaced by invented pending success |
+| CP-ORDER | native-memory-order | CP-ORDER:actual-C-memory-and-adapter-refinement | Release-publish complete rooted call view before reservation; same atomic registry serializes grant/cancel/enter and GC/layout close; allocation owner and disjoint actual intervals validated before canonical grant, acquire consumer validates server status/epoch/layout/serial/input plus current cursor; last constructor store/initialized prefix and full frame precede lease close and GC admission; collector relocation precedes acquire root reload and new grant; old replies cannot mutate claimed writer permit, stale refund cannot retire new grant; actual C pointer arithmetic/atomics/lock order and helper effects remain open |
+| RF-SAFE | source-refinement | RF-SAFE:actual-source-refinement | Source chain GET_REST -> handler7 -> finish remaining CONS -> fully initialize packed vector -> two-argument Scheme helper -> save R0/proc/args and install return frame -> FRAME_STORE_RA/W_ALL -> actual GC; first W_ALL calls noncollecting heap_limit before repair and is ineligible for park; generated RestConstructionPlan binds exact progress, complete-frame PointId/FrameSpec and scan map, not arbitrary partial C stack locals |
+| RF-ROOT | source-refinement | RF-ROOT:actual-source-refinement | Reserve a construction lease before destructive argument pops; no collecting/reentrant call while partial argument stack/vector lacks complete scan layout; keep partial rest, remaining/required arguments, proc/temp1 and original continuation under exclusive source custody; transfer proc/packed-vector to generated register/frame roots before local scope ends; collector-updateable cells and fresh post-GC handle reload, plus marker/native ancestor roots; all-domain RC/raw alias integration remains open |
+| RF-EXCLUDE | source-refinement | RF-EXCLUDE:actual-source-refinement | Close new native root borrowers and writers under same registry cut; pre-close writer remains counted through its actual final effect, then materialize matching root generation; relevant borrowed moving values must drain or use admitted stable handles, native-only argv/code/result backing can remain leased; a queued/issued store cannot be revoked by entry closure; late write after receipt invalidates protocol and requires exclusion proof, unknown result retains source duty and blocks receipt |
+| RF-RECEIPT | source-refinement | RF-RECEIPT:actual-source-refinement | FrameReady after full vector initialization, full mapped Scheme call frame, RA/GVM spill, exact root generation and native-frame/capacity lease precedes release-published offer; source pins until canonical VM accept, lost ACK does not restore old authority; one park attempt owns scan/resume/exit arbitration; offer is not scanner permission; no side-effecting rollback or duplicate constructor from unknown acceptance |
+| RF-RESUME | source-refinement | RF-RESUME:actual-source-refinement | After scan/root readers drain, whole-round/capacity result, context preparation, same live owner binding and relocated-root reload, claim exactly one normal or exit authority in next epoch; normal branch reloads the same packed vector and proc, restores np arguments, sets nargs=-1 and jumps target, so GET_REST cannot rebuild the rest list; same original native invocation/catcher continues, no replay or helper-thread longjmp |
+| RF-ORDER | native-memory-order | RF-ORDER:actual-C-memory-and-adapter-refinement | Preflight physically reserves repair words, stack/frame and root/control metadata before pops; close new native writer/borrow admission, settle actual old final effects, complete vector and FrameSpec/GVM writes, release-publish offer, canonical accept/acquire scan; scanner writes release before whole-round/context/binding/acquire reload; exclusive fresh normal/exit claim prevents late scan and duplicate nargs resume; all raw aliases share the cut; no locks held across owner/GC wait; actual C atomic layout, helper visibility and native ABI refinement remain open |
+
+#+NAME: root-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| CP-SAFE | CP-H |
+| CP-SAFE | CP-I |
+| CP-SAFE | CP-ORDER |
+| CP-ROOT | CP-H |
+| CP-ROOT | CP-I |
+| CP-ROOT | CP-ORDER |
+| CP-EXCLUDE | CP-H |
+| CP-EXCLUDE | CP-I |
+| CP-EXCLUDE | CP-ORDER |
+| CP-RECEIPT | CP-H |
+| CP-RECEIPT | CP-I |
+| CP-RECEIPT | CP-ORDER |
+| CP-RESUME | CP-H |
+| CP-RESUME | CP-I |
+| CP-RESUME | CP-ORDER |
+| CP-SEMANTICS | CP-H |
+| CP-SEMANTICS | CP-I |
+| CP-SEMANTICS | CP-ORDER |
+| CP-ORDER | CP-H |
+| CP-ORDER | CP-I |
+| CP-ORDER | RF-ORDER |
+| CP-SAFE | RF-SAFE |
+| CP-SAFE | CP-ROOT |
+| CP-ROOT | RF-ROOT |
+| CP-EXCLUDE | RF-EXCLUDE |
+| CP-RECEIPT | RF-RECEIPT |
+| CP-RECEIPT | CP-ROOT |
+| CP-RECEIPT | CP-EXCLUDE |
+| CP-RESUME | RF-RESUME |
+| CP-RESUME | CP-RECEIPT |
+| CP-SEMANTICS | CP-SAFE |
+| CP-SEMANTICS | CP-EXCLUDE |
+| CP-RESUME | CP-SEMANTICS |
+| CP-ROOT | RF-EXCLUDE |
+| CP-SAFE | CP-EXCLUDE |
+
+* Scoped closure observations
+#+NAME: root-closure-observed
+| Need | Current evidence | Source/runtime boundary |
+|---+---+---|
+| CP-H | Checked task-local formal slice | Conditional model only; no C simulation |
+| CP-I | Checked task-local formal slice | Conditional model only; no C simulation |
+| CP-SAFE | Unresolved source or native-order obligation | No source-simulation root |
+| CP-ROOT | Unresolved source or native-order obligation | No source-simulation root |
+| CP-EXCLUDE | Unresolved source or native-order obligation | No source-simulation root |
+| CP-RECEIPT | Unresolved source or native-order obligation | No source-simulation root |
+| CP-RESUME | Unresolved source or native-order obligation | No source-simulation root |
+| CP-SEMANTICS | Unresolved source or native-order obligation | No source-simulation root |
+| CP-ORDER | Unresolved source or native-order obligation | No C-memory/platform refinement root |
+| RF-SAFE | Unresolved source or native-order obligation | No source-simulation root |
+| RF-ROOT | Unresolved source or native-order obligation | No source-simulation root |
+| RF-EXCLUDE | Unresolved source or native-order obligation | No source-simulation root |
+| RF-RECEIPT | Unresolved source or native-order obligation | No source-simulation root |
+| RF-RESUME | Unresolved source or native-order obligation | No source-simulation root |
+| RF-ORDER | Unresolved source or native-order obligation | No source-simulation root |

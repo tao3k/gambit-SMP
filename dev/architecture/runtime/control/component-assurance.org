@@ -1,0 +1,66 @@
+#+TITLE: Modern C Component Assurance: Continuation
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: architecture
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %32ITEM %24STATUS %24OBLIGATION
+
+* RESEARCH Continuation
+:PROPERTIES:
+:CUSTOM_ID: continuation
+:COMPONENT: continuation
+:AUTHORITY: GambitRuntimeAssurance
+:STATUS: local-model-slices-checked-source-refinement-open
+:EVIDENCE_CLASS: target-protocol-and-source-study
+:END:
+
+THREAD_SAVE stores a frame into the current thread continuation; THREAD_RESTORE installs the resumed break link and clears that resumed slot. Captured continuation traversal is separate: mem.c scans its raw frame before the remaining fields. Clearing the resumed slot does not consume all previously captured origins.
+
+** State, transitions and necessary invariant
+Current break links and separately captured origins -> FrameSpec slot/root coordinates and backing leases.
+
+save/restore/current-root copy/queue saved continuation/traverse; graft is not destructive consumption.
+
+Required: Current-root coverage cannot discard untraversed saved origins; no backing reuse before complete last-user closure.
+
+Abstraction boundary: Selected origin IDs do not model every frame, denv mutation, serialization, dynamic-wind, FFI writer or generated descriptor.
+
+** Actual source and checked model scope
+[[file:../../../../vendor/gambit/include/gambit.h.in][Primary producer/consumer source]]. Source anchors: =gambit.h.in:6314-6405; mem.c:3898-3966,4096-4105; continuation frame writer census=.
+
+[[file:../../../../models/gambit/continuation_saved_stack_origin.qnt][Existing baseline model]] remains in models/.
+[[file:../../../../models/gambit/continuation_contract.qnt][The component QNT]] has 3 deterministic positive/omission histories;
+its exact check scope is =continuation_contract:Test$=. It supplies no exhaustive or native reachability proof.
+
+[[file:../../../../models/gambit/lean/SavedStackRetirementWindow.lean][The independent Lean companion]] is checked with the exact declared symbol set:
+#+BEGIN_EXAMPLE
+GambitSMP.SavedStackRetirementWindow:nonConsumingUsePreservesRawOrigin;completeOriginsBoundLastRawAccess
+#+END_EXAMPLE
+These are conditional mathematical slices, not a new C/GSC transition simulation.
+The qualified namespace names are independently checked against the compiled formal module.
+
+** Obligations and dependency handoff
+#+NAME: continuation-needs
+| Need | Method class | Completion premise |
+|---+---+---|
+| CO-H | interleaving | Positive and omission histories for Current-root coverage cannot discard untraversed saved origins; no backing reuse before complete last-user closure |
+| CO-I | induction | Checked conditional lemmas only; Selected origin IDs do not model every frame, denv mutation, serialization, dynamic-wind, FFI writer or generated descriptor |
+| CO-S | source-refinement | Initial relation, every real source action/stutter, concrete observation reflection and progress; save/restore/current-root copy/queue saved continuation/traverse; graft is not destructive consumption |
+| CO-M | native-memory-order | Concrete atomics, root writes, lock order, callbacks/escapes, profile and physical last use |
+
+CO-S depends on HR-S. FrameSpec coverage, denv/frame/deserialize/FFI writer closure, backing leases and continuation cleanup must refine the saved-origin model before resource reuse.
+
+Failure remains with the sending custodian until a same-scope receiver accepts
+complete responsibility. A requested cancellation, produced pathname, local
+queue-empty observation or passed companion lemma is not that acceptance.
+
+** Elimination and added work
+Retire implicit C macro frame-layout ownership only when Scheme semantic completion and generated modern-C descriptors preserve every root/coordinate/continuation use. Added cost is descriptor validation and lifetime tracking; mature-continuation minor-GC savings remain conditional.
+
+Modern C owns this baseline redesign. The protocol and formal reuse are language
+independent; none proves an additional net gain from maintaining Zig.
+
+[[file:../../../modeling/component-assurance.org][The composed closure matrix and typed shared contracts]] retain cross-component
+prerequisites and counterexample controls. No runtime implementation or native test
+is authorized or performed by these research checks.
+
+

@@ -1,0 +1,259 @@
+diff --git a/lib/mem.c b/lib/mem.c
+index ba25ef38..4c5d7735 100644
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -18,6 +18,7 @@
+ /* The following includes are needed for debugging. */
+ 
+ #include <stdlib.h>
++#include <errno.h>
+ #include <string.h>
+ 
+ 
+@@ -4884,6 +4885,186 @@ ___SCMOBJ ___setup_mem ___PVOID
+ }
+ 
+ 
++static int retired_sum_fits
++   ___P((___SIZE_TS dst,
++         ___SIZE_TS src),
++        (dst,
++         src)
++___SIZE_TS dst;
++___SIZE_TS src;)
++{
++  ___SIZE_TS limit = ___CAST(___SIZE_TS,(((unsigned long long)~0ull)>>1));
++
++  if (src > 0)
++    return dst <= limit - src;
++  if (src < 0)
++    return dst >= ___CAST(___SIZE_TS,~(((unsigned long long)~0ull)>>1)) - src;
++  return 1;
++}
++
++static int retired_still_bounded
++   ___P((___WORD *base),
++        (base)
++___WORD *base;)
++{
++  int hops = 0;
++
++  while (base != 0)
++    {
++      if (++hops > 1000000)
++        return 0;
++      base = ___CAST(___WORD*,base[___STILL_LINK]);
++    }
++  return 1;
++}
++
++static int retired_rc_bounded
++   ___P((___rc_header *sentinel),
++        (sentinel)
++___rc_header *sentinel;)
++{
++  ___rc_header *cursor;
++  int hops = 0;
++
++  if (sentinel->next == 0 || sentinel->prev == 0)
++    return 0;
++  if (sentinel->next == sentinel)
++    return sentinel->prev == sentinel;
++  cursor = sentinel->next;
++  while (cursor != sentinel)
++    {
++      if (cursor == 0 || cursor->next == 0 || ++hops > 1000000)
++        return 0;
++      cursor = cursor->next;
++    }
++  return 1;
++}
++
++int ___donor_mem_borrowers_clear
++   ___P((___processor_state donor),
++        (donor)
++___processor_state donor;)
++{
++  ___collector_worker *work;
++
++  if (donor == 0 || donor->context == 0 || donor->collector == 0)
++    return 0;
++  work = donor->collector;
++#ifndef ___SINGLE_THREADED_VMS
++  if (donor->vmstate != 0 &&
++      (__atomic_load_n (&donor->vmstate->mem.scan_workers_count_[0],
++                        __ATOMIC_ACQUIRE) != 0 ||
++       __atomic_load_n (&donor->vmstate->mem.scan_workers_count_[1],
++                        __ATOMIC_ACQUIRE) != 0))
++    return 0;
++#endif
++  if (work->still_objs_to_scan_ != 0)
++    return 0;
++  if (work->heap_chunks_to_scan_head_ != work->heap_chunks_to_scan_tail_)
++    return 0;
++  return 1;
++}
++
++/* Splice still objects and the RC ring onto the receiver.
++   Returns 1 only when the donor lists are empty afterward.
++   Does not call foreign release and does not destroy the scan lock.
++   A busy or refused preflight leaves the donor lists where they are. */
++
++int ___transfer_retired_mem_pstate
++   ___P((___processor_state donor,
++         ___processor_state receiver),
++        (donor,
++         receiver)
++___processor_state donor;
++___processor_state receiver;)
++{
++  ___context_mem *from;
++  ___context_mem *to;
++  ___WORD *base;
++  ___WORD *tail;
++  ___rc_header *sentinel;
++  ___rc_header *target;
++
++  if (donor == 0 || receiver == 0 ||
++      donor->context == 0 || receiver->context == 0 ||
++      donor->context == receiver->context)
++    return 0;
++  from = &donor->context->mem;
++  to = &receiver->context->mem;
++  base = ___CAST(___WORD*,from->still_objs_);
++  sentinel = &from->rc_head_;
++  if (!retired_sum_fits (to->words_still_objs_, from->words_still_objs_) ||
++      !retired_sum_fits (to->words_still_objs_deferred_,
++                         from->words_still_objs_deferred_) ||
++      !retired_still_bounded (base) ||
++      !retired_rc_bounded (sentinel) ||
++      !retired_rc_bounded (&to->rc_head_))
++    return 0;
++#ifndef ___SINGLE_THREADED_VMS
++  if (donor->vmstate == 0 || donor->vmstate != receiver->vmstate)
++    return 0;
++#ifdef ___USE_MUTEX_FOR_SPINLOCK
++  {
++    int rc = pthread_mutex_trylock (&donor->vmstate->mem.misc_mem_lock_);
++
++    if (rc == EBUSY)
++      return 0;
++    if (rc != 0)
++      _Exit (rc);
++  }
++#else
++  {
++    ___WORD ___temp;
++
++    if (!___TICKETLOCK_TRYLOCK2 (donor->vmstate->mem.misc_mem_lock_.next_ticket,
++                                 donor->vmstate->mem.misc_mem_lock_.current_ticket,
++                                 ___temp))
++      return 0;
++  }
++#endif
++#endif
++  if (base != 0)
++    {
++      tail = base;
++      while (tail[___STILL_LINK] != 0)
++        tail = ___CAST(___WORD*,tail[___STILL_LINK]);
++      tail[___STILL_LINK] = to->still_objs_;
++      to->still_objs_ = ___CAST(___WORD,base);
++      from->still_objs_ = 0;
++    }
++  to->words_still_objs_ += from->words_still_objs_;
++  to->words_still_objs_deferred_ += from->words_still_objs_deferred_;
++  from->words_still_objs_ = 0;
++  from->words_still_objs_deferred_ = 0;
++  target = &to->rc_head_;
++  if (sentinel->next != sentinel)
++    {
++      ___rc_header *first = sentinel->next;
++      ___rc_header *last = sentinel->prev;
++
++      first->prev = target;
++      last->next = target->next;
++      target->next->prev = last;
++      target->next = first;
++      sentinel->next = sentinel;
++      sentinel->prev = sentinel;
++    }
++#ifndef ___SINGLE_THREADED_VMS
++#ifdef ___USE_MUTEX_FOR_SPINLOCK
++  if (pthread_mutex_unlock (&donor->vmstate->mem.misc_mem_lock_) != 0)
++    _Exit (1);
++#else
++  ___TICKETLOCK_UNLOCK2 (donor->vmstate->mem.misc_mem_lock_.next_ticket,
++                         donor->vmstate->mem.misc_mem_lock_.current_ticket);
++#endif
++#endif
++  if (from->still_objs_ != 0 ||
++      sentinel->next != sentinel ||
++      sentinel->prev != sentinel)
++    return 0;
++  return 1;
++}
++
+ void ___cleanup_mem_pstate
+    ___P((___processor_state ___ps),
+         (___ps)
+diff --git a/lib/mem.h b/lib/mem.h
+index 3ccbe16a..cc660387 100755
+--- a/lib/mem.h
++++ b/lib/mem.h
+@@ -97,6 +97,15 @@ extern ___SCMOBJ ___setup_mem_vmstate
+ 
+ extern ___SCMOBJ ___setup_mem ___PVOID;
+ 
++extern int ___donor_mem_borrowers_clear
++   ___P((___processor_state donor),
++        ());
++
++extern int ___transfer_retired_mem_pstate
++   ___P((___processor_state donor,
++         ___processor_state receiver),
++        ());
++
+ extern void ___cleanup_mem_pstate
+    ___P((___processor_state ___ps),
+         ());
+diff --git a/lib/setup.c b/lib/setup.c
+index 3d32be28..d3fa9a1e 100644
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -930,7 +930,10 @@ ___WORD target_processor_count;)
+ 
+       if (id >= target_processor_count)
+         {
+-          ___cleanup_pstate (___ps);
++          /* Still objects and RC stay with this processor until P0
++             joins and the borrower check allows the splice. */
++          cleanup_interrupts_pstate (___ps);
++          ___cleanup_os_pstate (___ps);
+           ___thread_exit (); /* this call does not return */
+         }
+     }
+@@ -975,8 +978,22 @@ ___WORD target_processor_count;)
+             {
+               ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(i,___vms);
+               ___thread *t = &ps->os_thread;
++              ___SCMOBJ join_err = ___thread_join (t);
+ 
+-              ___thread_join (t); /* ignore error */
++              if (join_err != ___FIX(___NO_ERR))
++                {
++                  if (err == ___FIX(___NO_ERR))
++                    err = join_err;
++                  continue;
++                }
++              if (!___donor_mem_borrowers_clear (ps) ||
++                  !___transfer_retired_mem_pstate (ps, ___ps))
++                {
++                  /* Join succeeded. Borrowers or a partial splice keep
++                     the donor memory. Do not call foreign release. */
++                  if (err == ___FIX(___NO_ERR))
++                    err = ___FIX(___INVALID_OP_ERR);
++                }
+             }
+         }
+       else

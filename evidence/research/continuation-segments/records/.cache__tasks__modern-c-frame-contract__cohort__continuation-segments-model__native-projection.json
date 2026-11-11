@@ -1,0 +1,283 @@
+{
+  "facets": [
+    {
+      "id": "capture",
+      "contract": "CapturedControl identifies logical frame chain, current image revision, denv/wind identity, PointId and root custodian; stack-backed capture is legal before heap materialization",
+      "anchors": "Gambit _kernel.scm:3153-3171; mem.c:4046-4206; Chez c/schsig.c:56-141 and c/alloc.c:866-882",
+      "replacement": "Register the source slot before any collecting materializer; one descriptor drives stack/heap coordinates and captured-image updates",
+      "retirement": "Independent handwritten frame-coordinate decoding and unregistered materialization inputs after every consumer migrates",
+      "benefit": "Keep full multi-shot semantics while sharing eligible captured storage; avoid unnecessary eager whole-chain materialization",
+      "cost": "Descriptor lifetime, rooted image handle and possible materialization/copy; no immutable-image assumption",
+      "refutation": "Raw frame/continuation setters bypass revision/root discipline or a structural link is mistaken for an ordinary root",
+      "ownerPath": "dev/architecture/runtime/control"
+    },
+    {
+      "id": "replay",
+      "contract": "Per-invocation execution view and rooted transfer outlive collecting hooks; a valid issued view is refreshed after intervening image changes; Scheme heap identity is shared",
+      "anchors": "Gambit _thread.scm:4992-5075; Chez c/schsig.c:86-141; Guile libguile/vm.c:1185-1268",
+      "replacement": "Prepare/root view, run Scheme winding, revalidate image and native origin, then commit restoration under the current execution grant",
+      "retirement": "C activation or old cached pointer as implicit replay authority; full continuation consumption as an optimization",
+      "benefit": "Arbitrary repeated full continuation use; reusable restore path for future delimited segments; one-shot optimization remains optional and separately justified",
+      "cost": "Per-shot restore work and rooted view retention; image changes can force refresh; no guarantee of zero copying",
+      "refutation": "Matching version is accepted without authentic issuance/all-writer history, or replay rolls back shared heap effects",
+      "ownerPath": "dev/architecture/runtime/execution"
+    },
+    {
+      "id": "roots",
+      "contract": "Root view covers captured and active frames, denv/winders, prompt tags, pending transfer/views, values and code metadata; scanner updates authoritative slots before reentry reload",
+      "anchors": "Gambit mem.c:4459-4508; Chez s/mkgc.ss:209-269; Guile libguile/vm.c:713-772",
+      "replacement": "FrameSpec-derived exact movable roots plus managed frame/denv/prompt stores and remembered writes; preserve source custody until destination registration",
+      "retirement": "Repeated private interpretations of live slots and unchecked old-to-young stores only after complete writer inventory and adapters",
+      "benefit": "Enable precise moving/generational collection and conditional mature-image scan skipping; root protocol is shared by backends",
+      "cost": "Root publication/reload, metadata, barriers and remembered scans; retained roots and promotion reserve affect peak",
+      "refutation": "Import Guile conservative BDW stack marking as precise moving-GC evidence or infer copying implies generations",
+      "ownerPath": "dev/architecture/runtime/interfaces"
+    },
+    {
+      "id": "winding",
+      "contract": "Compare dynamic extent identity; exit inner-to-outer, enter outer-to-inner; identical extent runs no hooks; hooks may allocate, throw or capture/reenter",
+      "anchors": "Gambit _thread.scm:4796-4821,4918-5018; Chez s/4.ss:349-397; Guile libguile/dynstack.c:322-442,446-505",
+      "replacement": "Keep wind semantics and successor continuations in Scheme; generated C supplies rooted checkpoint/reentry adapters, not a second C winding algorithm",
+      "retirement": "Ad hoc native cleanup treated as Scheme dynamic-wind; physical permit reuse solely because a logical extent is restored",
+      "benefit": "Amplify existing Scheme nonlocal control without introducing semantic drift across GC, scheduler and FFI",
+      "cost": "Required user hooks/effects remain; rooted transfers and fresh physical grants add work",
+      "refutation": "Compare hook procedure equality instead of extent identity, replay hooks twice after a stale helper return, or refuse a legal Scheme hook continuation",
+      "ownerPath": "dev/architecture/runtime/control"
+    },
+    {
+      "id": "prompt",
+      "contract": "PromptSpec defines tag identity, delimiter cut, handler context, abort/composition and reinstatement policy separately from invocation multiplicity",
+      "anchors": "Guile libguile/vm.c:1310-1345 and module/ice-9/control.scm:59-78; Sitaram PLDI 1993; Flatt/Yu/Findler/Felleisen ICFP 2007",
+      "replacement": "Add prompt/partial-segment operations through the same FrameSpec/control/root ABI after full multi-shot baseline qualification",
+      "retirement": "No existing call/cc or wind path retires merely because a library emulates shift/reset",
+      "benefit": "Capture only an admitted semantic segment; support composable control/effects without downgrading full continuation capability",
+      "cost": "Prompt lookup and handler/wind interaction; copied segment and dynamic metadata; escape-only can omit image only when no replay is exposed",
+      "refutation": "Treat all prompt operators as shift/reset, apply an escape-only object as multi-shot, or silently change full call/cc extent",
+      "ownerPath": "dev/architecture/runtime/control"
+    },
+    {
+      "id": "foreign",
+      "contract": "NativeOrigin identifies a still-live C activation; rooted Scheme frames cannot resurrect it; borrowers end before moving scan and cache reload precedes reentry",
+      "anchors": "Gambit lib/c_intf.c and ___run callers; Guile libguile/continuations.c:186-213,345-376 and vm.c:1316-1325",
+      "replacement": "Managed native activation/root/borrow adapters explicitly admit crossing, parking and return; nested calls obtain their own activation",
+      "retirement": "Marker bit or restored Scheme frame alone as proof of live C origin after complete caller migration",
+      "benefit": "Admitted blocked native calls surrender GC participation safely while roots and results remain owned",
+      "cost": "Handles, origin checks, park/reload and retained resources; unknown native users can prevent selected reclamation",
+      "refutation": "Import Guile thread/barrier restrictions verbatim or promise arbitrary C-stack migration without an origin proof",
+      "ownerPath": "dev/architecture/runtime/ffi"
+    },
+    {
+      "id": "schema",
+      "contract": "Scheme generates one FrameSpec/PointId/ControlSpec root and restore description; modern C realizes target layout, not Scheme policy",
+      "anchors": "Gambit gsc/_t-c-1.scm; include/gambit.h.in:9275-9440; _kernel.scm frame consumers",
+      "replacement": "Migrate emitter, decoder, collector, restorer, frame reflection and module metadata as one vertical slice",
+      "retirement": "Duplicated C macro/primitive frame meaning after exact generated/native consumer equivalence and bootstrap",
+      "benefit": "Gambit semantic information serves GC, native ABI, tooling and future LLVM/MLIR consumers; no second language is required",
+      "cost": "Schema verification, metadata and affected-closure regeneration; LLVM services do not own Scheme semantics",
+      "refutation": "Add another descriptor wrapper while old macro interpretations remain authoritative",
+      "ownerPath": "dev/architecture/compiler"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "CS-SCHEDULE",
+      "semanticKey": "control/transition-order-and-permit-lifetime",
+      "owner": "quint",
+      "artifact": "dev/architecture/runtime/control/models/quint/continuation_segments.qnt",
+      "declaration": "safe",
+      "scope": "finite schedules only: GC/root cuts, wind/reentry, stale permits and repeated availability",
+      "limitation": "No payload coherence algebra, unbounded proof, complete Scheme observations or C memory-order proof"
+    },
+    {
+      "id": "CS-COHERENCE",
+      "semanticKey": "data/issued-view-coherence-under-versioned-history",
+      "owner": "lean",
+      "artifact": "dev/architecture/runtime/control/models/lean/ContinuationSegments.lean",
+      "declaration": "issuedViewRemainsCoherent",
+      "scope": "unbounded slot maps and finite writer histories under authentic issuance and version match",
+      "limitation": "No scheduler, GC interleaving, winding or C proof; version equality alone is insufficient"
+    },
+    {
+      "id": "CS-BRIDGE",
+      "semanticKey": "refinement/ticket-interface-to-issued-view-premises",
+      "owner": "source",
+      "artifact": "dev/architecture/runtime/control/models/sysml/continuation-segments.sysml",
+      "declaration": "ticketPayloadBridge",
+      "scope": "QNT abstracts payload as a ticket; source adapter must issue a real coherent view and map mutation revocation to ImageHistory",
+      "limitation": "OPEN; a shared field name or two successful tools does not establish this correspondence"
+    },
+    {
+      "id": "CS-WRITERS",
+      "semanticKey": "source/all-frame-denv-root-writers",
+      "owner": "source",
+      "artifact": "evidence/research/continuation-segments/source.lock.json",
+      "declaration": "writerInventory",
+      "scope": "Actual frame/continuation/denv setters, GC repair, restoration, serializer and FFI stores obey publication and remembered-root policy",
+      "limitation": "OPEN; selected real setters are identified, not every indirect/native writer closed"
+    },
+    {
+      "id": "CS-HOOKS",
+      "semanticKey": "semantics/arbitrary-hook-capture-and-reinstatement",
+      "owner": "source",
+      "artifact": "vendor/gambit/lib/_thread.scm",
+      "declaration": "##continuation-unwind-wind",
+      "scope": "Preserve arbitrary Scheme hooks, returning/abandoned transfers and fresh physical authorization on reinstatement",
+      "limitation": "OPEN; bounded takeover histories do not prove arbitrary hook-continuation restoration"
+    },
+    {
+      "id": "CS-PROMPTS",
+      "semanticKey": "semantics/delimiter-composition-and-handler-context",
+      "owner": "source",
+      "artifact": "evidence/research/continuation-segments/source.lock.json",
+      "declaration": "PromptSpec",
+      "scope": "Specify actual operator family and its joint call/cc, dynamic-wind, dynamic binding and exception observations",
+      "limitation": "OPEN; QNT only qualifies matching-tag/escape/borrow admission, not production prompt semantics"
+    },
+    {
+      "id": "CS-NATIVE",
+      "semanticKey": "native/full-generated-control-root-ffi-regression",
+      "owner": "native",
+      "artifact": "vendor/gambit/tests/frame-continuation-roots.scm",
+      "declaration": "full modern-C replacement acceptance",
+      "scope": "Complete bootstrap and all affected control/root/FFI caller paths, exact Bazel profile and unchanged limits",
+      "limitation": "OPEN; previous wide-root receipts are baseline evidence, not new prompt/alias/foreign qualification"
+    },
+    {
+      "id": "CS-FRAMES",
+      "semanticKey": "source/generated-frame-coordinate-equivalence",
+      "owner": "source",
+      "artifact": "vendor/gambit/include/gambit.h.in",
+      "declaration": "___decode_frame_descriptor",
+      "scope": "Emitter, stack/heap materializer, scanner, ordinary/link partition, reflector, restorer and module metadata share FrameSpec",
+      "limitation": "OPEN; source-address, layout and lifetime refinement required"
+    }
+  ],
+  "uses": [
+    {
+      "facet": "capture",
+      "obligation": "CS-SCHEDULE"
+    },
+    {
+      "facet": "capture",
+      "obligation": "CS-WRITERS"
+    },
+    {
+      "facet": "capture",
+      "obligation": "CS-FRAMES"
+    },
+    {
+      "facet": "replay",
+      "obligation": "CS-SCHEDULE"
+    },
+    {
+      "facet": "replay",
+      "obligation": "CS-COHERENCE"
+    },
+    {
+      "facet": "replay",
+      "obligation": "CS-BRIDGE"
+    },
+    {
+      "facet": "roots",
+      "obligation": "CS-SCHEDULE"
+    },
+    {
+      "facet": "roots",
+      "obligation": "CS-WRITERS"
+    },
+    {
+      "facet": "winding",
+      "obligation": "CS-SCHEDULE"
+    },
+    {
+      "facet": "winding",
+      "obligation": "CS-HOOKS"
+    },
+    {
+      "facet": "prompt",
+      "obligation": "CS-SCHEDULE"
+    },
+    {
+      "facet": "prompt",
+      "obligation": "CS-PROMPTS"
+    },
+    {
+      "facet": "foreign",
+      "obligation": "CS-SCHEDULE"
+    },
+    {
+      "facet": "foreign",
+      "obligation": "CS-NATIVE"
+    },
+    {
+      "facet": "schema",
+      "obligation": "CS-FRAMES"
+    }
+  ],
+  "edges": [
+    {
+      "producer": "schema",
+      "consumer": "capture",
+      "contract": "FrameSpec / PointId / stack-to-heap map"
+    },
+    {
+      "producer": "capture",
+      "consumer": "roots",
+      "contract": "Registered captured image and denv/wind roots"
+    },
+    {
+      "producer": "roots",
+      "consumer": "replay",
+      "contract": "Relocated authoritative slots and root reload"
+    },
+    {
+      "producer": "replay",
+      "consumer": "winding",
+      "contract": "Rooted Scheme transfer; hooks may collect or reenter"
+    },
+    {
+      "producer": "winding",
+      "consumer": "replay",
+      "contract": "Post-hook image refresh and current grant before commit"
+    },
+    {
+      "producer": "prompt",
+      "consumer": "capture",
+      "contract": "Explicit delimiter / tag / composition policy"
+    },
+    {
+      "producer": "foreign",
+      "consumer": "replay",
+      "contract": "Live-origin admission; no native-stack resurrection"
+    }
+  ],
+  "sourceLock": "evidence/research/continuation-segments/source.lock.json",
+  "runtimeAdmitted": false,
+  "commitAdmitted": false,
+  "responsibilities": [
+    {
+      "id": "quint",
+      "domains": "control",
+      "owns": "Transition ordering, concurrent interleavings and permit/task/root lifetime protocols within declared bounds",
+      "excludes": "Payload algebra, unbounded data-coherence proofs and claims of concrete native correctness"
+    },
+    {
+      "id": "lean",
+      "domains": "data",
+      "owns": "General mathematical/data representation properties under explicit hypotheses",
+      "excludes": "A duplicate scheduler, bounded trace tests, wind interleavings and claims that premises automatically hold in C"
+    },
+    {
+      "id": "source",
+      "domains": "source;semantics;refinement",
+      "owns": "Actual source writers/consumers, semantic correspondence and refinement of imported premises",
+      "excludes": "Declaring an unresolved native/refinement obligation proved by source-token presence or LLM judgment alone"
+    },
+    {
+      "id": "native",
+      "domains": "native",
+      "owns": "Source/profile-bound execution, semantic regression, progress and measured resource/performance acceptance",
+      "excludes": "Promotion of finite models, conditional laws or historical binaries to new native completion"
+    }
+  ]
+}

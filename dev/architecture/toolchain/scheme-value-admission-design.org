@@ -1,0 +1,319 @@
+#+TITLE: Scheme Value Admission, Root Participation and Linker Reflection
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Admit a logical value without inventing a native guarantee
+:PROPERTIES:
+:ID: 628c5ea1-e2ec-4d51-b878-a625c6013f34
+:CUSTOM_ID: gsc-scheme-value-admission-design
+:OWNER: Gambit toolchain architecture
+:AUTHORITY: GambitToolchain; GambitAssuranceRelations
+:STATUS: logical-heap-specified-native-bridge-open
+:EVIDENCE_CLASS: source-and-standalone-kernel
+:DEPENDS_ON: BF-BUILD-CUT; BF-BUILD-BUDGET; ROOT-HANDOFF
+:END:
+
+Modern generated C remains the required direction. Scheme owns metadata
+semantics, evaluation, interning and the reader/writer. The native engineering
+layer owns qualified buffers, handles, failures and reuse issuance. A second
+Scheme heap walker or serializer is not required merely because a mathematical
+observation exists. Zig remains optional; this study establishes no unique Zig
+reduction in semantic, synchronization or root obligations.
+
+[[file:models/sysml/architecture.sysml][Toolchain SysML]] owns nine V-* duties and their prerequisites. The
+[[file:scheme-value-admission-map.org][source/proof/cost matrix]] and [[file:diagrams/scheme-value-admission.svg][focused graph]] are derived. Existing
+D-* duties own the recursive wire and L-* duties own the complete generated
+record and real consumer. [[file:../../modeling/models/sysml/assurance.sysml][Assurance SysML]] binds [[file:../../../models/build/IncrementalBuild.lean][Lean]], [[file:../../../models/build/incremental_build.qnt][QNT]] and ASCENT.
+ROOT-HANDOFF is referenced through [[file:../../modeling/correspondence.org::#root-handoff][the existing runtime contract]];
+this study does not duplicate its execution/GC/FFI state machine.
+
+* RESEARCH The actual producer retains more than a tree of strings
+:PROPERTIES:
+:CUSTOM_ID: gsc-value-producer-cut
+:END:
+
+[[file:../../../vendor/gambit/lib/_nonstd.scm::166][##expand-meta-info]] requires a symbolic key and desourcifies attributes. It
+does not restrict payloads to strings. [[file:../../../vendor/gambit/lib/_eval.scm::312][##desourcify]] uses an eq?-visited table
+for copied pairs, vectors and boxes; it can preserve sharing and return retained
+objects directly. A source2 fast path returns its code. It is neither a deep
+immutable snapshot nor a proof that every returned graph is acyclic.
+
+[[file:../../../vendor/gambit/lib/_eval.scm::1437][Metadata insertion]] reaches [[file:../../../vendor/gambit/lib/_eval.scm::1489][the eq?-keyed table and combination logic]].
+The latest script-line replaces the old singleton; selected option keys form an
+ordered equal?-set; other values append. Tail mutation is explicit. table->list
+still carries a sorting TODO. The current producer therefore does not supply a
+general freeze, canonical order or name-only key identity law.
+
+The admission profile must cover the table, every reachable value actually
+read, and temporary references live across allocations. Refusing a credential
+for an unsupported graph does not reject that graph from Scheme execution.
+In particular, cycles and identity-sensitive values remain valid language
+features outside a finite-tree observation profile.
+
+* RESEARCH Separate logical identity, mutable content and physical location
+:PROPERTIES:
+:CUSTOM_ID: gsc-logical-value-admission
+:END:
+
+The new pure definitions describe a logical heap indexed by Nat identities.
+SchemeNodeView has atom, pair and ordered-vector variants; SchemeAtomView
+records kind, exact units, identity and interned status. These are specification
+values, not declarations of Gambit's physical object layout.
+
+#+NAME: logical-scheme-admission
+#+BEGIN_EXAMPLE
+SchemeValueAdmission(heap, canonical, scalarDomain, rank, id, tree)
+  atom: heap[id] has this kind/units and satisfies AtomAdmitted
+  pair: heap[id] points to x,y; rank(x),rank(y) < rank(id);
+        both referenced values recursively admit the corresponding subtrees
+  vector: heap[id] has this ordered ID sequence; each rank decreases;
+          sequence admission preserves the elements and their order
+
+AtomAdmitted(named atom): interned && canonical(kind,units) == identity
+AtomAdmitted(other atom): scalarDomain(kind,units)
+StableValueCut(reads,before,after): endpoint logical views agree at every read ID
+RootCutCovered(reads,scanned): every read identity is in the coverage projection
+#+END_EXAMPLE
+
+scalarDomain, canonical and rank are explicit external premises. No legal
+character range, integer/string conversion, interner synchronization or actual
+heap acquisition is obtained by giving them these names. Strict rank excludes
+cycles from this profile while permitting acyclic sharing. Unfolding a shared
+graph into a tree can repeat nodes and erase identity; finite rank does not
+justify a linear-size representation or consumer equivalence.
+
+StableValueCut only checks two logical endpoints. The checked finite example
+has endpoints [0,0] and [0,0], but a read [0,1]; equal endpoints cannot prove an
+interval-wide stable borrow. The stronger concrete issuer must establish one
+governed view throughout traversal and both writer passes. Choices include
+exclusive ownership with all reentrant writers excluded, an immutable snapshot,
+or a separately qualified synchronization protocol. Neither disabling local
+interrupts nor checking two content epochs suffices by itself.
+
+The seventh QNT module separates mutation from relocation. Mutation changes a
+mathematical contentEpoch; relocation updates rootAddress. Equality of epochs
+is useful only after proving that every writer participates, that the epoch
+does not suffer ABA, and that actual field reads obey the C memory model.
+Non-atomic C fields read concurrently with writers are not made safe by retrying
+after an epoch check. No native seqlock or new runtime protocol is implemented.
+
+* RESEARCH Interned names admit a scoped identity law
+:PROPERTIES:
+:CUSTOM_ID: gsc-symbol-identity-admission
+:END:
+
+[[file:../../../vendor/gambit/gsc/_host.scm::723][The Gambit host branch]] uses ##symbol-interned?; [[file:../../../vendor/gambit/gsc/_host.scm::664][keywords have their own adapter]].
+[[file:../../../vendor/gambit/lib/gambit/symkey/symkey.scm::17][The actual symkey implementation]] exposes name/hash mutation internally.
+##symbol->string returns a stored name; for a fixnum name it allocates a generated
+name, rechecks the field and installs it lazily. Thus obtaining a name may
+allocate and does not promise a fresh immutable copy. The uninterned constructor
+documents its input string as nonmutable. [[file:../../../vendor/gambit/lib/gambit/symkey/symkey.scm::113][Keywords have analogous name handling]].
+
+[[file:../../../vendor/gambit/lib/mem.c::2070][Symbol lookup]] compares exact name units in the selected table.
+[[file:../../../vendor/gambit/lib/mem.c::2135][The interner]] looks up first and copies the caller's string into permanent
+storage when creating a new entry. [[file:../../../vendor/gambit/lib/_kernel.scm::3738][GSTATE symbol and keyword table access]]
+identifies the real namespace boundary. A canonical map must be qualified for
+that actual interning universe; same spelling across arbitrary universes is not
+an identity theorem. A symbol and a keyword also retain distinct kinds.
+
+[[https://small.r7rs.org/attachment/r7rs.pdf][R7RS]], section 6.5, gives the standard interned-symbol read/write identity
+guarantee and makes mutation of symbol->string's returned string an error.
+Uninterned extensions are outside that guarantee. This supports respecting legal
+name immutability, not alleging that arbitrary name mutation is legal Scheme.
+Private/native bypasses and their writer discipline still need a closed census.
+
+The conditional canonicalNameIdentity theorem requires admitted interned atoms
+in the same canonical map. uninternedNameCollision exhibits two modeled atoms
+with equal units and distinct identities. The initial profile refuses such
+name-only uninterned observation; admitting it later requires an explicit
+identity representation and a corresponding reader/consumer law.
+
+* OPEN Existing roots can be reused only with actual scanner participation
+:PROPERTIES:
+:CUSTOM_ID: gsc-native-root-admission
+:END:
+
+[[file:../../../vendor/gambit/lib/mem.c::703][RC allocation/registration]] inserts into the current PSTATE's chain; data
+starts as FAL. [[file:../../../vendor/gambit/lib/mem.c::806][data_rc/set_data_rc]] access that cell. [[file:../../../vendor/gambit/lib/mem.c::3969][mark_rc]] scans its data
+using mark_array. [[file:../../../vendor/gambit/lib/mem.c::6845][The shown GC entry]] invokes mark_rc in processor 0's
+branch, while other per-processor roots follow separate paths. Registration
+alone therefore does not prove coverage of a nonzero processor's RC chain.
+This study neither closes that gap nor solves it by requiring every observer
+to run on processor 0.
+
+[[file:../../../vendor/gambit/lib/mem.c::3490][mark_array]] reads root cells and [[file:../../../vendor/gambit/lib/mem.c::3580][writes forwarded/copied values back]].
+[[file:../../../vendor/gambit/lib/mem.c::3815][GC-map-selected frame slots]] participate through existing descriptors;
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::1938][the C emitter]] and [[file:../../../vendor/gambit/include/gambit.h.in::9300][header macros]] establish the descriptor path.
+[[file:../../../vendor/gambit/gsc/_host.c::3391][The distributed generated host writer helper]] shows spills and allocation
+polls, with [[file:../../../vendor/gambit/gsc/_host.c::5546][corresponding frame descriptors]]. This distribution artifact is
+source evidence, not a qualified configured build or complete root inventory.
+
+RootCutCovered denotes identities kept reachable through a qualified transitive
+root closure, including live temporaries. It does not require separately
+registering every reachable graph node. QNT owner/scannedOwner equality denotes
+the same logical coverage domain, not that a GC worker has the mutator's thread
+identity. The real VM/context/processor projection is still an obligation.
+
+A rooted object can remain live while its contents change. Conversely, logically
+unchanged objects can move. A raw local or interior pointer copied before a GC
+can become stale even when its registered root was updated. After any operation
+that may allocate, call back or collect, native observation must reload through
+the qualified root and rederive offsets, under a still-valid content lease.
+
+[[https://ocaml.org/manual/5.4/intfc.html][The OCaml C-interface manual]] teaches explicit root lifetimes around allocating
+calls. [[https://people.mpi-sws.org/~spies/assets/papers/melocoton.pdf][Melocoton: A Program Logic for Verified Interoperability Between OCaml and C]]
+separates logical ML values, C addresses, roots and mutable ownership. Its
+relocation/root reasoning motivates keeping these premises distinct here.
+Neither source proves Gambit's RC scanning closure or licenses transplanting
+OCaml's root macros and domain assumptions into Gambit.
+
+* RESEARCH Actual writing and reading must preserve the admitted observation
+:PROPERTIES:
+:CUSTOM_ID: gsc-writer-reader-admission
+:END:
+
+[[file:../../../vendor/gambit/gsc/_host.scm::760][The host port setup]] selects preserved case and enables keywords.
+[[file:../../../vendor/gambit/gsc/_host.scm::787][The host writer]] installs a standard readtable, disables quote-style macros,
+writes to a string port, then displays that string. [[file:../../../vendor/gambit/lib/_io.scm::15769][The readtable constructor]]
+uses preserved case, sharing 'default, eval disabled, maximum write depth/length
+and no custom comment/foreign writer. Exact port encoding, name stamping,
+consumed record extent and reader callbacks remain part of the actual profile.
+
+[[file:../../../vendor/gambit/lib/_io.scm::4224][The writer's mark pass and emit pass]] can allocate mark state. Default
+sharing marks cycles but does not promise all acyclic alias identities will
+survive. Its local no-interrupt region is not a no-GC declaration or a global
+multicore payload freeze. [[file:../../../vendor/gambit/lib/_io.scm::10900][Uninterned symbol stamping]] and [[file:../../../vendor/gambit/lib/_io.scm::11824][opaque handling]]
+also prevent claiming one universal tree/readback law for arbitrary objects.
+
+The required law is not heap eq? before/after. It is: every admitted value has
+the same consumer-relevant structure, scalar interpretation and identity
+relations after the actual qualified writer and reader. A shared mutable string
+may become equal-content separate objects; that is harmless only if every
+admitted consumer observation ignores that distinction. EqualStringTreesCanLoseIdentity
+supplies a finite warning, not a native writer bug report.
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::1358][The metadata emitter]] invokes the host writer separately for the key and
+each attribute. Each invocation gets its own string-output/mark state. A graph
+identity relationship spanning two attributes therefore has no automatic
+round-trip guarantee even when each individual attribute is readable.
+Qualification must cover the entire consumer-relevant record, not just apply
+a single-value round-trip lemma repeatedly and assume cross-value aliasing.
+
+The [[file:../../../vendor/gambit/gsc/_front.scm::228][frontend script-line insertion]] and [[file:../../../vendor/gambit/lib/_module.scm::438][module compiler caller]] provide a
+particularly concrete scalar slice: a truthy script-line enters the metadata
+store, replaces that key's previous singleton, is written as an attribute,
+then read by targ-link-info after the generated-file header check. targ-get-mod
+takes field 11, combine-meta-info performs first-match assq and retains the
+last effective script-line across ordered modules, and [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1426][targ-dump-module-info]]
+converts it with targ-c-string for SCRIPT_LINE. This is a source-derived path,
+not an executed round trip or proof of byte encoding. Its string-content
+projection is narrower than the unrestricted metadata producer; wrong-shaped
+values can still reach later errors and must not become successful credentials.
+
+Preferred semantic reuse is a governed Scheme observation using existing
+managed roots, reader and writer, followed by transfer of fully owned bytes or
+a validated immutable native view. An optional native handle path must prove
+ROOT-HANDOFF participation, relocation reloads and the borrow lease. Both routes
+retain failure custody until either complete acceptance or settled refusal.
+The mathematical integer wire may remain a ghost specification; no new token
+buffer, serializer or Scheme-to-native FFI hop is inherently required.
+
+* OPEN Linker safety reflection needs the real consumer, not only wire injection
+:PROPERTIES:
+:CUSTOM_ID: gsc-value-linker-reflection
+:END:
+
+The actual chain remains generated _host.c record -> [[file:../../../vendor/gambit/gsc/_t-c-1.scm::880][targ-link]] ->
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::934][combine-meta-info]] and [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1086][targ-get-mod]] -> configured GAMBIT_GSC_LIB_C.
+The existing [[file:output-fidelity-design.org][complete-record design]] retains clean origin, sibling/base
+consistency, ordered flags, filenames, effects, diagnostics and full output
+group custody. Five selected metadata keys do not cover all these inputs.
+
+The new schemeReadbackConsumerReflection theorem proves the following
+conditional implication: equal recursive wires imply equal consumer results
+when both actual values project to the modeled trees and the actual consumer
+factors through that tree. Injection supplies tree equality; the actual
+factorization is an explicit hypothesis. It is not a theorem about targ-link's
+effect trace, errors, symbol interning universe or alias-sensitive behavior.
+
+#+NAME: scheme-admission-refinement-chain
+| Boundary | Needed evidence | Current disposition |
+|---+---+---|
+| Actual graph -> governed logical heap | Complete reads, all writers, stable lifetime, scalar interpretation | Source entrances found; concrete acquisition open |
+| Logical heap -> recursive tree | Rank, canonical named atoms, scalarDomain, justified identity/sharing erasure | Relation specified; selected conditional lemmas checked |
+| Tree -> recursive wire | Uniform framing and ordered exact payloads | Prior mathematical inverse/injection retained |
+| Actual write/read -> same admitted tree | Qualified ports, readtable, encoding, names, failure and extent | Source path found; actual law open |
+| Same admitted tree -> actual linker safety | All consumer fields/context/effects factor or remain separately bound | Conditional theorem checked; targ-link instantiation open |
+| Equal observation -> reusable group | Current input closure, clean counterpart, complete outputs, settled custody | Prior obligations retained; issuer absent |
+
+* ESTABLISHED Bounded formal support and retained counterexamples
+:PROPERTIES:
+:CUSTOM_ID: gsc-admission-formal-scope
+:EVIDENCE_CLASS: mathematical-model-only
+:END:
+
+Ten new Lean statements bring the standalone source to 56. Earlier 46 theorem
+bodies remain unchanged. Seven QNT modules typecheck; no state exploration,
+GSC invocation, native adapter, runtime or performance test is performed.
+The first failed Lean attempt is retained alongside the corrected checked
+source in [[file:../../../evidence/research/gsc-scheme-value-admission/checks.json][this study's receipt]]. There are no new axioms, sorry or native_decide.
+
+#+NAME: scheme-admission-proof-and-counterexample-matrix
+| Statement | What was checked | What it does not establish |
+|---+---+---|
+| canonicalNameIdentity | Same admitted canonical named atom kind/units gives equal logical identity | Real interner table closure or concurrency |
+| uninternedNameCollision | Same units can coexist with distinct uninterned identities | Reachability of a specific emitted metadata file |
+| changedReachableValueRejects | A changed read node violates endpoint agreement | Interval stability from equal endpoints |
+| logicalRelocationPreservesAdmission | Equal logical heaps preserve admission | Raw-pointer safety or real GC refinement |
+| rawAddressCopyCanBecomeStale | Copy of old address differs from updated root address | Exhaustive native root census |
+| directSelfPairRefused | Self pair contradicts strict rank | General graph-codec implementation |
+| admissionNeedsRootCoverage | Missing coverage prevents an issuer satisfying its stated obligation | Actual scanner membership |
+| schemeReadbackConsumerReflection | Wire equality plus consumer factorization gives result equality | Actual writer/readback or effect equivalence |
+| equalEndpointsPermitDifferentRead | Equal endpoints allow a different mixed read | Existence of such a race in this configured build |
+| equalStringTreesCanLoseIdentity | Equal-content trees erase distinct string identities | That the selected consumer observes string identity |
+
+The new ASCENT runtime-contract factor exposes the existing ROOT-HANDOFF edge
+for V-ROOTS, V-RELOC and V-ADMIT. It records a dependency, not satisfied runtime
+support. Shared canonical digest and evidence classification facts keep the
+selector inside existing parser limits without widening them. All native
+admission and execution authority remain false.
+
+* RESEARCH Benefit and cost must be charged to the selected route
+:PROPERTIES:
+:CUSTOM_ID: gsc-value-admission-benefit
+:END:
+
+Let n count unique graph nodes read, e pointer edges, u unique scalar units,
+t unfolded tree occurrences, and uT scalar units after unfolding. For shared
+acyclic graphs t can greatly exceed n. A visited graph census can target
+O(n+e+u) under bounded-cost identity lookup; a tree materialization must charge
+t+uT instead. No concrete algorithm/work theorem has been proved. The previous
+wire has 2t+uT mathematical integer tokens, not bytes or a mandatory allocation.
+
+Let A be actual avoided linker/recipe work, V validation and actual parsing,
+S stable-view acquisition/copy, R root/lifetime/reload coordination, and F
+failed attempts or fallback. Positive net work requires A > V+S+R+F. If existing
+Scheme writing/reading already occurs, charge only the incremental admitted
+observation work; do not claim removal of necessary compilation or repeat a
+second serializer merely to produce a credential.
+
+#+NAME: scheme-value-net-benefit-matrix
+| Mechanism | Work potentially removed | Required added work / bound | Modern C / optional Zig / retirement |
+|---+---+---+---|
+| Scheme-owned stable observation | Duplicate native heap traversal, duplicate language reader and root owner | Govern reentrant writers; validate actual domain; transfer owned result | Both can reuse it; no language-specific semantic saving proved |
+| Interned named atoms | Per-occurrence arbitrary identity encoding within a qualified universe | Name units, interned predicate, scoped canonical identity; lazy name allocation rooted | Same obligations; no interner retires |
+| Managed roots and owned bytes | Long-lived native Scheme handles and repeated pointer reloads after handoff | Existing managed lifetime plus one owned-result transfer/copy if required | Reuse current frames; retire a duplicate handle path only after all users migrate |
+| Qualified native borrow | Full payload copy when a valid stable borrow is cheaper | Transitive root/temporary coverage, writer exclusion, reload after every GC-capable call | Same root/owner contract; nonzero RC coverage unresolved |
+| Finite-tree profile | General graph codec when consumer genuinely ignores sharing | Rank/domain validation; possible t+uT expansion; refuse unsupported values | Both need the same proof; reject expansion exceeding budget |
+| Consumer observation equality | Selected library composition after independent full qualification | All real fields, context, effects and clean origin; V+S+R+F charged | A must exceed added work; no composition has retired |
+| Shared SysML associations | Duplicate ownership lists and manual Org/D2/ASCENT edges | One canonical runtime reference; deterministic derived views and drift checks | Already shared documentation support; not native speed evidence |
+
+A payload that changes during writing, an unqualified RC owner, a name-only
+uninterned symbol, an alias-sensitive consumer or a tree-expansion budget
+overflow defeats the proposed fast path. Refusal preserves custody and falls
+back to existing execution; it must not turn into a successful reusable result.
+No speedup percentage, native path retirement or positive Zig-specific net
+benefit is claimed. The next proof gap is concrete readback/consumer refinement
+under an actually qualified stable/rooted observation, not another backend.

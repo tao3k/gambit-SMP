@@ -1,0 +1,68 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    "docs/saved-stack-arena-recipe.md": "2f4eb6f8e6d5d488ccd3f0cbf02acfbb152c07f4a89dd512c06ac876dc9c4fea",
+    "models/gambit/saved_stack_arena_ownership.qnt": "f460922d3e41fd850c39bcbc9f4ee994b69851edb866ca98500e5588c3b8fb74",
+    "models/gambit/resize_saved_stack_retirement_isolated.qnt": "38dbe1b570efda86a261922781c3ee4de0ba9da379fbbd8d0697a177290c989c",
+    "models/gambit/lean/SavedStackArenaLifetime.lean": "49f242f2471dbb698d08b41123a1bf3e0429aad6146b521d0b866bb57a397926",
+    "models/gambit/lean/WorkAccounting.lean": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e",
+    "evidence/research/processor-interrupt-collective-wait/runtime-mutex-return-source.lock.json": "df9277dff351209ad7b33d12589d07821089262f7cdac40b358988aea2fc0466",
+    "patches/fixtures/runtime-mutex-return-cumulative.patch": "49514f1819da3ca6008b07690e732a13625a54811a3e44a7da3615e25fdf0d55",
+    "vendor/gambit/include/gambit.h.in": "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2",
+    "vendor/gambit/lib/mem.c": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+    "vendor/gambit/lib/_kernel.scm": "9afa811a1c15104b953a10d42cd11bddffbfa0b8684b4f8f8191d848fdb6d9ec",
+    "vendor/gambit/lib/_thread.scm": "810f58f679d745826dd18f81f39c84dc3c6e4bb3dd7c6f505a453ca5331e4515",
+    "vendor/chez/c/alloc.c": "0074fc0b839fd34c86070f7d716326ccb9db71341af867e3ef461b188c6ed1a0",
+    "vendor/chez/c/thread.c": "6081cd912e5903e19cba808fbe646a846ad49459bab73e79b4d67d6ff59c1c72",
+    "vendor/chez/s/mkgc.ss": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406",
+    "vendor/ocaml/runtime/domain.c": "6fbcad99870a514925fa0d0d587cd28c5c84e75ac55817cc7efa25075ee6a64c",
+    "vendor/ocaml/runtime/major_gc.c": "d94c5f348eaf6501f7e42622c310521e1900dd7ae94338003e65b55f92623812",
+    "vendor/ocaml/runtime/minor_gc.c": "063c0496293000245ec586c760dcf3f8b6bbc49daa7261417121ee4d790c726e",
+    "vendor/ocaml/runtime/fiber.c": "ac03f7af8976a64b8e78cb16f6b5123751d2008d0ef17595950b7a1ffb62c670"
+  },
+  "cases": [
+    {
+      "id": "saved_stack_arena_ownership",
+      "mode": "characterization",
+      "dependencies": [
+        "resize_saved_stack_retirement_isolated.qnt"
+      ],
+      "composes": [
+        "resize_saved_stack_retirement_isolated"
+      ],
+      "invariants": [
+        "safe"
+      ],
+      "protocolInitializers": {
+        "safe": "initFixed"
+      },
+      "oldInvariants": [
+        "backingCoverage",
+        "lastConsumerSafe",
+        "incarnationSafe",
+        "noRawRetirementWithoutGc",
+        "noRecycledCopiedFrame"
+      ],
+      "oldInitializers": {
+        "backingCoverage": "initSlotOwnsBacking",
+        "lastConsumerSafe": "initClearedSlotAsLastUse",
+        "incarnationSafe": "initReusedAddressAsIdentity",
+        "noRawRetirementWithoutGc": "initFixed",
+        "noRecycledCopiedFrame": "initFixed"
+      },
+      "counterexampleMeaning": {
+        "noRawRetirementWithoutGc": "reachable-safe-raw-frame-consumption-after-slot-reuse-without-GC-not-protocol-failure",
+        "noRecycledCopiedFrame": "reachable-copy-and-old-half-reuse-not-protocol-failure"
+      },
+      "temporal": "completion",
+      "source": [
+        "include/gambit.h.in:THREAD_SAVE,THREAD_RESTORE",
+        "lib/_kernel.scm:break handler",
+        "lib/mem.c:cleanup_mem_pstate,setup_stack_heap_vmstate,mark_captured_continuation"
+      ],
+      "scope": "Research ownership extension of the unchanged isolated stack model, not a refinement of its eager-copy retirement guard. One reachable raw frame and current root location, VM-owned backing distinct from pstate and old-half epoch. No unenumerated aliases; valid maps, allocator exclusion, GC handoff and supported caller are premises. Models break/GC consumers, not a new collector, general attachment, complete root census, C weak-memory or native qualification. Finite phases/roles are not machine CPU configuration."
+    }
+  ]
+}

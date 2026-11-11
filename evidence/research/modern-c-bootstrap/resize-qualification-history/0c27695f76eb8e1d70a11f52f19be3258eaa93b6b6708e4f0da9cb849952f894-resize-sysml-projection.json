@@ -1,0 +1,323 @@
+{
+  "contracts": [
+    {
+      "id": "census",
+      "source": "lib/setup.c ___vm_resize_pstate; lib/mem.c resize_heap",
+      "invariant": "Current GC census is closed independently of requested future members. GC retains actual assigned intervals plus one region for each actual fudge-restoration endpoint.",
+      "retired": "target_processor_count_ scalar and conditional-only nominal floor",
+      "cost": "Closed-census restoration count and explicit physical growth reservation; no measured peak reduction"
+    },
+    {
+      "id": "grant",
+      "source": "lib/mem.c ___reserve_vm_resize; ___setup_mem_pstate; ___rollback_vm_resize",
+      "invariant": "Before any new setup, charge all disjoint stack/heap pairs on the actual list. No fallback sharing for new contexts. Partial allocation returns to pre-grant capacity. Unknown native result never produces a grant.",
+      "retired": "Each new setup independently acquiring sections and falling into fatal sharing fallback",
+      "cost": "Two section pointers and fixed status per slot; peak is actual required intervals minus usable existing capacity"
+    },
+    {
+      "id": "roots",
+      "source": "setup.c start_processor_execution/___run; mem.c mark_vm_scmobj/mark_execution_roots; c_intf.c rooted marker endpoint",
+      "invariant": "VM roots thunk before GC; context roots it before member commit; thread reloads after sync; marker allocation reloads registered cell; entry marker invalidates before retirement. Legacy raw SFUN registration is still unqualified.",
+      "retired": "thread.data_scmobj and pre-sync C local as implicit roots",
+      "cost": "Two root cells per execution context and one VM root; scan those cells, no duplicate heap traversal claim"
+    },
+    {
+      "id": "publication",
+      "source": "setup.c created-thread entry gate; old-set OP_SET_PROCESSOR_COUNT; new-set finish",
+      "invariant": "Threads are created while parked outside Scheme/TLS participation. Publish members only after all setups and creates succeed; then release entry and consume completion with the new set.",
+      "retired": "Publish count before pthread_create; fatal on partially created member population",
+      "cost": "One VM mutex/condition variable, parked entry and completion collective; existing barrier C-memory-model refinement stays open"
+    },
+    {
+      "id": "failure",
+      "source": "setup.c abort/join/cleanup; os_thread.c create/join return-code adapters",
+      "invariant": "Known create failure has no child. Abort releases created threads to return without Scheme; cleanup/refund only after every join succeeds. Interrupted call or failed/unknown join retains slots, roots and grant, blocks GC/reuse/cleanup. No owner-death takeover is inferred.",
+      "retired": "errno-based pthread result decoding; ignored shrink join; reclaim without quiescence",
+      "cost": "Fixed progress records, cancellation exclusion on POSIX; unknown state sacrifices progress rather than custody"
+    },
+    {
+      "id": "retirement",
+      "source": "mem.c ___can_retire_pstate/___transfer_retired_still; setup.c post-join cleanup",
+      "invariant": "Reject RC/native borrowed, foreign-effectful and extra retained-marker domains before shrinking. Admitted entry invalidates on its owner; after join move still ownership to active collector context instead of treating context death as object death. Unmanaged raw writers and nested FFI remain open.",
+      "retired": "Unconditional free_still_objs/cleanup_rc on successful member retirement",
+      "cost": "Admission walk and still-chain splice; stricter refusal for domains without freeze/effect receipts"
+    }
+  ],
+  "proofs": [
+    {
+      "id": "VR-CENSUS",
+      "method": "native-diagnostic",
+      "artifact": "evidence/research/modern-c-bootstrap/startup-census.json",
+      "premise": "Unmodified predecessor p11: six total/two assigned before GC; six total after GC; third new context fails. Read-only process memory, not acceptance or cost measurement.",
+      "component": "census"
+    },
+    {
+      "id": "VR-QNT",
+      "method": "quint",
+      "artifact": "dev/refactoring/modern-c/models/quint/vm_resize_transaction.qnt",
+      "premise": "Concrete ledger phases, parked native threads, no-publication-before-create, failure/unknown custody and two membership sets; finite histories only.",
+      "component": "publication"
+    },
+    {
+      "id": "VR-LEAN",
+      "method": "lean",
+      "artifact": "dev/refactoring/modern-c/models/lean/VMResizeTransaction.lean",
+      "premise": "Conditional physical capacity, initialized/created coverage, refund after quiescence and roots retained on unknown result. Actual allocator/atomic steps require C refinement.",
+      "component": "grant"
+    },
+    {
+      "id": "VR-NATIVE",
+      "method": "native",
+      "artifact": "evidence/research/modern-c-bootstrap/resize-bootstrap.recipe.json",
+      "premise": "Exact new source/profile complete bootstrap, host-budget map/continuation/GC, resize cycles and actual create/join fault controls; never import old pass.",
+      "component": "roots"
+    },
+    {
+      "id": "VR-REFINE",
+      "method": "source-refinement",
+      "artifact": "vendor/gambit/lib/setup.c",
+      "premise": "OPEN: full barrier memory model, nonlocal escape/stop receipts, raw FFI writers, allocator interruption, retired processor identity and destructor affinity; no unconditional recovery claim.",
+      "component": "failure"
+    }
+  ],
+  "edges": [
+    {
+      "from": "census",
+      "to": "grant"
+    },
+    {
+      "from": "roots",
+      "to": "grant"
+    },
+    {
+      "from": "grant",
+      "to": "publication"
+    },
+    {
+      "from": "publication",
+      "to": "failure"
+    },
+    {
+      "from": "failure",
+      "to": "retirement"
+    }
+  ],
+  "runtimeAdmitted": false,
+  "resume": {
+    "id": "vm-resume-reservation",
+    "source": "mem.c prepare_mem_pstate, compute_resume_msections, reserve_vm_resize, resize_heap",
+    "invariant": "Let F=MSECTION_FUDGE, O=normal overflow reserve, W=MSECTION_SIZE. R=ceil((O+4F)/W). Capacity covers assigned+2*new+actual restore endpoints+R. Charge only startup pairs; R remains VM-unassigned. Then global available words are at least 4F and the first stack allowance at least F before its physical limit.",
+    "retirement": "A physical allocation receipt without a nonzero logical resume allowance is insufficient. Remove the zero-headroom grant and policy contraction that recreates it after GC.",
+    "cost": "On the observed 64-bit profile O=204808, F=8194, W=131072, so R=2 sections. These two MiB are derived capacity, not measured RSS or claimed net overhead versus a correct allocator.",
+    "open": "Caller B coverage, arbitrary foreign allocation, bounds on simultaneous allocation, memory ordering, owner death and all C-to-model refinements remain conditional; no commit admission.",
+    "quint": "dev/refactoring/modern-c/models/quint/vm_resize_transaction.qnt",
+    "lean": "dev/refactoring/modern-c/models/lean/VMResizeTransaction.lean",
+    "native": "evidence/research/modern-c-bootstrap/resize-resume-bootstrap.recipe.json",
+    "runtimeAdmitted": false
+  },
+  "refinements": [
+    {
+      "quintAction": "request",
+      "cFunction": "___vm_resize_pstate",
+      "representation": "QNT vmRoot = resize.thunk registered in mark_vm_scmobj; old = processor_count before old-set barrier",
+      "guard": "idle ledger, valid target, nonwrapping generation, POSIX coordinator cancellation excluded",
+      "leanLaw": "parkedRootsCoverEntry",
+      "unresolved": "Whole-root-view and nonlocal escape closure; generation exhaustion native control",
+      "component": "roots"
+    },
+    {
+      "quintAction": "collect",
+      "cFunction": "resize_heap",
+      "representation": "Closed gc_round.participant_count; assigned is physical alloc cursor prefix, not live-word estimate; abstract finite census does not enumerate all eleven contexts",
+      "guard": "all existing participants stopped; no independent worker or raw native publisher",
+      "leanLaw": "freeHeadroomCoversBudget",
+      "unresolved": "Universal concrete interval mapping, C arithmetic and allocation failure at restore",
+      "component": "census"
+    },
+    {
+      "quintAction": "reserve",
+      "cFunction": "___reserve_vm_resize",
+      "representation": "QNT grant/assigned = all slot stack/heap pointers plus one charge; capacity table may relocate, individual sections remain stable; free R excluded from assigned",
+      "guard": "entire allocator result known; count/budget bounds; no observable incomplete grant",
+      "leanLaw": "grantFloor; consumePair; freeHeadroomCoversBudget",
+      "unresolved": "Multi-store linearization relies on exclusive stopped cohort; no helper takeover without stop receipt",
+      "component": "grant"
+    },
+    {
+      "quintAction": "initialize",
+      "cFunction": "___setup_mem_pstate",
+      "representation": "QNT initialized maps to per-slot INITIALIZED after full ___setup_pstate, not to a written context pointer or aggregate created counter",
+      "guard": "reserved distinct pair; no collection/callback while binding; failed setup cleans its own partial resources",
+      "leanLaw": "publishRequiresEveryInitialization",
+      "unresolved": "Every configuration of OS/actlog partial construction; raw nested callbacks",
+      "component": "grant"
+    },
+    {
+      "quintAction": "beginCreate; createSuccess; createFailure; createUnknown",
+      "cFunction": "___thread_create",
+      "representation": "CREATING written before native call; CREATED only after known successful return and stored native handle; QNT created includes existing published slots, not resize.created counter alone",
+      "guard": "returned pthread code used directly, common init before native call; children parked under entry gate",
+      "leanLaw": "publishRequiresEveryCreate",
+      "unresolved": "Unmanaged signal/longjmp/owner death and handle-result loss need stop/custody qualification; no inferred rollback",
+      "component": "failure"
+    },
+    {
+      "quintAction": "commitMembers",
+      "cFunction": "barrier_sync_op",
+      "representation": "OP_SET_PROCESSOR_COUNT changes only at root after old-set gather; C slots cover every required child before request is emitted",
+      "guard": "all setups/creates succeeded, no unknown; old set consumes one result",
+      "leanLaw": "noNewMemberWithoutCreate",
+      "unresolved": "C memory-model proof of existing volatile-message barrier; this is a real native obligation",
+      "component": "publication"
+    },
+    {
+      "quintAction": "releaseEntry; finish",
+      "cFunction": "start_processor_execution",
+      "representation": "Entry under mutex/condition release-acquire; TLS set after RUN permission; new-set finish then sync loop; thunk reloaded and rooted marker endpoint reads stable cell after allocation",
+      "guard": "context startup root registered before membership; logical allowance retained",
+      "leanLaw": "parkedRootsCoverEntry; stackSubdivisionCoversFudge",
+      "unresolved": "Complete generated first-frame B coverage; arbitrary foreign safepoints and legacy SFUN",
+      "component": "roots"
+    },
+    {
+      "quintAction": "joinSuccess; joinUnknown; rollback",
+      "cFunction": "___rollback_vm_resize",
+      "representation": "Known abort children never enter Scheme; cleanup then restore alloc cursor/assigned/stacks/capacity only after every native join; retained state preserves root/grant",
+      "guard": "no in-flight unknown call; all joins have successful receipts; fixed grant not reused",
+      "leanLaw": "refundRequiresQuiescence; unknownPreventsRefund",
+      "unresolved": "Actual byte-free interruption, cancellation restoration and DataWriteClosed beyond managed leaf calls",
+      "component": "failure"
+    },
+    {
+      "quintAction": "shrinkReject; shrinkCommit; retireJoin; retireUnknown; transferAndFinish",
+      "cFunction": "___transfer_retired_still",
+      "representation": "Admitted owner invalidates entry marker before exit; successful join precedes still splice into active context; capacity stays allocated until later GC, not immediate refund",
+      "guard": "RC empty, no foreign effect, no retained non-entry marker; no unregistered external writer",
+      "leanLaw": "refundRequiresQuiescence",
+      "unresolved": "Raw borrow exclusion, retired processor-object identity and full still/statistics ownership refinement",
+      "component": "retirement"
+    }
+  ],
+  "needs": [
+    {
+      "id": "VQ-TRANSITION",
+      "method": "quint",
+      "artifact": "dev/refactoring/modern-c/models/quint/vm_resize_transaction.qnt",
+      "scope": "bounded transaction with three abstract members",
+      "evidenceClass": "finite-model",
+      "check": "four histories; safety samples; five negative controls",
+      "component": "grant"
+    },
+    {
+      "id": "VQ-ARITHMETIC",
+      "method": "lean",
+      "artifact": "dev/refactoring/modern-c/models/lean/VMResizeTransaction.lean",
+      "scope": "conditional natural-number and coverage laws",
+      "evidenceClass": "conditional-proof",
+      "check": "twelve laws; no sorry; kernel axiom audit",
+      "component": "grant"
+    },
+    {
+      "id": "VQ-ROUTING",
+      "method": "ascent",
+      "artifact": "dev/modeling/ascent/vm-resize-qualification.rules.scm",
+      "scope": "exact source, profile, artifact, method, scope, class and check joins",
+      "evidenceClass": "policy-control",
+      "check": "current blocked; stale source; wrong artifact; diagnostic promotion; missing law; failed native; synthetic complete",
+      "component": "publication"
+    },
+    {
+      "id": "VQ-BODY",
+      "method": "native-focused",
+      "artifact": "evidence/research/modern-c-bootstrap/resize-fixture.scm",
+      "scope": "actual movable startup closure, GC, retire, reuse and GC",
+      "evidenceClass": "native-caller",
+      "check": "two successful grow/retire cycles and natural shutdown",
+      "component": "retirement"
+    },
+    {
+      "id": "VQ-FAULT",
+      "method": "native-fault",
+      "artifact": "evidence/research/modern-c-bootstrap/resize-fault-calibration.c",
+      "scope": "independent injection calibration plus allocation/create rollback and unknown join custody",
+      "evidenceClass": "native-fault-control",
+      "check": "calibration exact counts; known failures refund; unknown join retains root/grant and refuses reuse; intentional safety exit is not natural shutdown",
+      "component": "failure"
+    },
+    {
+      "id": "VQ-BOOTSTRAP",
+      "method": "native-bootstrap",
+      "artifact": "evidence/research/modern-c-bootstrap/resize-ownership-bootstrap.recipe.json",
+      "scope": "exact Bazel O1/O3 profile, all generated products, full official two-pass bootstrap",
+      "evidenceClass": "native-bootstrap",
+      "check": "all 51 products and each phase1..4 twice; original budgets; no old runtime linkage",
+      "component": "census"
+    },
+    {
+      "id": "VQ-P11",
+      "method": "native-whole",
+      "artifact": "vendor/gambit/tests/frame-continuation-roots.scm",
+      "scope": "host-budget p11 compiled map multishot, 80 roots, 11 GCs and natural shutdown",
+      "evidenceClass": "native-whole",
+      "check": "default heap; completed real native oracle; no debugger, p1 or larger-heap substitution",
+      "component": "roots"
+    },
+    {
+      "id": "VQ-C-SIMULATION",
+      "method": "source-refinement",
+      "artifact": "dev/refactoring/modern-c/models/sysml/vm-resize-refinement.sysml",
+      "scope": "all nine C transition routes including memory order, raw borrowers and owner-stop premises",
+      "evidenceClass": "source-simulation",
+      "check": "OPEN: structural routes and Nat laws do not establish C implementation refinement",
+      "component": "publication"
+    }
+  ],
+  "benefits": [
+    {
+      "id": "physical-grant",
+      "eliminated": "Per-child opportunistic section acquisition and publication before complete native creation",
+      "added": "Fixed slots, mutex/condition entry gate, precharged disjoint section pairs",
+      "bound": "Profile W=131072 words; growth 1 to 11 needs 20 pair sections; R=2 VM-free resume sections; 24 total in observed initial state. Capacity is not RSS.",
+      "gate": "Native p11 and whole C ownership remain open"
+    },
+    {
+      "id": "rooted-entry",
+      "eliminated": "Raw thunk carried across allocating sync loop and marker creation",
+      "added": "Two Scheme root cells per context, registered cell reload and owner marker identity",
+      "bound": "16 bytes/context on 64-bit; marker itself already existed. Whole raw SFUN closure not qualified.",
+      "gate": "Focused native caller and all raw FFI writers are separate obligations"
+    },
+    {
+      "id": "unknown-custody",
+      "eliminated": "Ignored join result followed by resource/root reclamation; setup erasing retained ownership",
+      "added": "Retained root/grant/slot state and rejection of subsequent setup/reuse",
+      "bound": "Unknown join refunds zero sections. Quarantine retention can last until process termination; no bounded recovery claim.",
+      "gate": "Calibrated injection and owner-stop/source refinement"
+    },
+    {
+      "id": "copy-frontier",
+      "eliminated": "No demonstrated elimination yet; fixed two-section-per-member startup floor is insufficient evidence for parallel copying",
+      "added": "Required future pre-copy capacity/unique-task contract; not implemented or credited",
+      "bound": "Debug observed exhausted 24/25 sections and unequal worker occupancy, plus separate invalid accesses. No speedup or measured peak reduction.",
+      "gate": "copy-once source proof, actual intervals and native p11 acceptance"
+    }
+  ],
+  "questions": [
+    {
+      "id": "copy-once",
+      "source": "mem.c mark_array/mark_captured_continuation/scan_complete_heap_chunk/setup_stack_heap_vmstate",
+      "condition": "Before inferring a copy capacity bound, prove unique cell/chunk ownership, first-field Tail exclusion, complete frames and forwarding publication. Count real semispace intervals, worker terminal fragments and captured frame expansion before flipping.",
+      "counterexample": "A source-word estimate can underestimate duplicate tospace copying; enough total free words need not give the requesting worker a contiguous interval. Later resize_heap cannot repair a failure inside strong copying."
+    },
+    {
+      "id": "marker-body",
+      "source": "mem.c ___can_retire_pstate; c_intf.c ___make_sfun_stack_marker_from_root; gambit.h object tags",
+      "condition": "Identify the one owned entry marker by BODY0 identity. Reject any additional retained native marker, RC borrower or foreign effect before count commit.",
+      "counterexample": "Rebuilding a generic subtyped tag for a specialized-tag vector falsely denies retirement; accepting all positive-refcount vectors would instead admit unrelated native borrowers."
+    }
+  ],
+  "identity": {
+    "sourceLock": "evidence/research/modern-c-bootstrap/resize-ownership-source.lock.json",
+    "profile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+  }
+}

@@ -40,19 +40,21 @@ class GCWaitSourceTests(unittest.TestCase):
             schedule.extract(source.replace("#define scan_ptr example\n", ""))
 
     def test_changed_context_is_rejected_before_compiler_execution(self):
-        with TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
+        from tests.support import task_fixture
+        with task_fixture('gc-wait-context') as (root, cache):
+            from gambit_smp.cli import main as dispatch
             (root / "evidence").mkdir()
             source, header = root / "mem.c", root / "gambit.h"
             source.write_text("changed")
             header.write_text("changed")
             (root / "evidence/gc-wait-notification.json").write_text(json.dumps({"contextInputs": {}}))
             argv = ["gc-wait-schedule", "--source", str(source), "--header", str(header),
-                    "--gcc", "unused-gcc", "--out", str(root / "run")]
+                    "--gcc", "unused-gcc", "--out", str(cache / 'run')]
             with patch.object(schedule, "ROOT", root), patch.object(schedule, "checked_rows"), \
-                    patch.object(schedule, "gnu_compiler") as compiler, patch("sys.argv", argv):
+                    patch.object(schedule, "gnu_compiler") as compiler:
                 with self.assertRaisesRegex(ValueError, "differs from reviewed model context"):
-                    schedule.main()
+                    dispatch(['--historical-reproduction', '--task', 'gc-wait-context',
+                              'gc-wait-schedule', *argv[1:]])
                 compiler.assert_not_called()
 
 

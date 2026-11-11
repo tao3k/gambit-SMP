@@ -1,0 +1,275 @@
+#+TITLE: Compiled Try, Direct Evaluation and Interpreter Reuse
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Compiled Try, Direct Evaluation and Interpreter Reuse :ffi:
+:PROPERTIES:
+:ID: 762ff123-78f7-50c8-bbc5-c6efe0f2ef4b
+:CUSTOM_ID: compiled-try-direct-evaluation-and-interpreter-reuse
+:SOURCE_PATH: docs/experimental/zig/tcl-interpreter-reuse-design.md
+:SOURCE_SHA256: dfff190f919ead72e2fc08db5a8217816366d49a7391b56ec7007b65bb4ae80e
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+A reusable interpreter needs a host-owned epoch barrier around library-owned
+cancellation state. Changing the emitter language or clearing the Tcl result
+cannot provide that barrier. This study completes the selected source paths
+behind [[file:tcl-cancel-propagation-design.org][the cancellation design]], using
+[[file:tcl-interpreter-reuse-evidence.org][coherent pinned evidence]].
+
+UR01. Tcl commit ~cbf86d62348d6b052e1961b4df995960fb21545f~ now supplies coherent captured bytes and Git blob hashes
+for 20 files. This closes the earlier Try source-retrieval gap. It does not prove
+which Tcl/Tk the Gambit example loads, whether private stubs can link, or whether
+all extension/async producers satisfy a managed profile. The older receipts and
+unpinned findings stay historical. No implementation, native test, compiler,
+Scheme expansion, whole-program analyzer or proof engine ran. [US01, UE01]
+
+*** The Real Try Expansion
+:PROPERTIES:
+:ID: c7587063-b1f8-5442-aa7a-2e4c4a021b95
+:CUSTOM_ID: the-real-try-expansion
+:END:
+
+UR02. Try compilation examines handler clauses, completion codes/prefixes,
+variable bindings and literal handler/finally words. Unsupported syntax/dynamic
+structure or missing local capacity returns compiler failure and leaves runtime
+command handling responsible. A nonempty static trap prefix is required by this
+compiler path; runtime Try can handle forms that this path declines. A final
+chained ~-~ handler is rejected for compilation. The BODY macro delegates to
+TclCompileCmdWord: text bodies become inline script instructions; substitutions
+can produce token instructions plus EVAL_STK. These alternatives belong in the
+native plan's route metadata, not a guessed uniform catch wrapper. [US02, US12]
+
+UR03. Four actual selections and their normal completion paths:
+
+| Source selection | Actual emitted structure | Ordinary error / final-result behavior |
+|-
+| Body only | BODY and no additional Try handler/finally range | Underlying body completion passes through |
+| Handlers, no finally | Body catch range; save result/options in anonymous locals; match code and trap prefix; bind locals; handler chain/body; handler error range | Handler completion replaces body; ordinary handler error adds -during; unmatched result is reissued by RETURN_STK |
+| Finally, no handlers | Body catch range; save result/options on operand stack; end body catch; separate finally catch range | Ordinary final success preserves original completion; final failure replaces it with ordinary -during handling; RETURN_STK reissues |
+| Handlers and finally | Body range; on-ok branch; handler/binding catch ranges; saved result/options locals; chained handler fixes; shared finally range | Ordinary binding/handler/finally errors replace stored outcome as required, retaining prior options under -during |
+
+Anonymous-local failure can force handler-bearing forms to runtime; finally-only
+is emitted without needing a local variable table. The actual code contains
+handler/finally catch ranges even where adjacent explanatory comments suggest
+simplification; the emitted operations govern this account. [US02–US05]
+
+UR04. Cancellation is a separate branch, not a synthetic ordinary result.
+When polling or a returning command reports cancellation as TCL_ERROR while
+persistent unwind remains installed, checkForCatch exits through abnormalReturn
+before the Try catch target. For the three range-bearing forms above, this
+bypasses the corresponding body/handler/finally recovery code and may prevent
+finally entry or completion. Operand/auxiliary/frame cleanup still runs in Tcl.
+However BREAK/CONTINUE may reach processCatch directly; normal inline execution
+can proceed before a cancellation poll, and finally may already have performed
+effects. Therefore neither “finally always runs” nor “no finally effects happen”
+is a valid global cancellation guarantee. New user finally cannot be the only
+custodian of required native release. [US03–US06, US12, UD01]
+
+[[file:../diagrams/tcl-reuse-try.svg][Try expansion]]
+[[file:../diagrams/tcl-reuse-try.d2][D2 source]].
+
+*** What Direct Tcl_Eval Actually Resets
+:PROPERTIES:
+:ID: 47af1e06-5ed2-5ea5-9df3-3a6dfd5f02b8
+:CUSTOM_ID: what-direct-tcleval-actually-resets
+:END:
+
+UR05. The selected Gambit caller enters Tcl_Eval, which calls Tcl_EvalEx and the
+direct TclEvalEx parser. Each command is dispatched with TCL_EVAL_NOERR. That
+flag bypasses TEOV_PushExceptionHandlers in EvalObjvCore, so its top-level
+TEOV_Exception reset is not scheduled on this route. NRCommand decrements the
+level, invokes ready async work, and converts OK into cancellation error if
+installed state remains. Direct parser cleanup releases its own objects/frames
+but does not clear cancellation flags; Tcl_Eval then mirrors the result string.
+Tcl_ResetResult clears error/result fields and may run native release/legacy
+variable actions; its flag mask does not include cancellation. Thus an installed
+unwind can survive a direct return and reject the next direct evaluation.
+This is a source-level conditional derivation at the pinned commit, not a native
+observation or a claim about every Tcl release. [UE01, US07–US09]
+
+UR06. Switching to an object API is not a universal fix. A noncanonical object
+bytecode route schedules TEOEx_ByteCodeCallback only after readiness succeeds;
+a stale cancel can make readiness fail before that callback exists. A canonical
+list takes the object-vector route instead. TEOV_Exception can clear flags before
+NRCommand decrements the outer command level, after which NRCommand may invoke
+newly ready async work and install another cancel. A top-level noncompiled catch
+can also return OK before that reset/check pair. API name, object representation,
+flags, NRE/deferred context and actual nesting are distinct evidence dimensions.
+An empty string evaluation or Tcl_ResetResult is not an admitted reset barrier.
+[US07–US08, US12]
+
+UR07. The necessary service is a *TclReuseService*: a narrow owner-thread
+facility with explicit source/ABI identity and a postcondition, consumed by the
+common native plan. Four access choices must be distinguished:
+
+| Provider choice | What exists now | Reuse admission |
+|-
+| Documented public API only | CancelEval/Canceled/AsyncInvoke and evaluation APIs | No documented general reset receipt for the direct route; do not admit cancelled direct-interpreter reuse from return code alone |
+| Source-bound private integration | Existing TclResetCancellation and internal stub slot 237 | Design-feasible through an isolated C integration facade; require matching source/headers, link/load/ABI qualification, owner-idle proof and actual clear-state postcondition |
+| Public empty-Objv composition | Pinned code schedules TEOV_Exception before readiness and permits a zero-word branch | Source-composed candidate only: public docs do not promise reset semantics; deferred/level/result-release side effects and future changes require independent qualification; not the chosen architectural contract |
+| Stable public reuse facility | A future library-supported targeted drain/reset/receipt operation | Requires an actual supported upstream/vendor API; proposed interface is not current Tcl capability |
+
+For the source-bound choice, ~TclResetCancellation(interp, 0)~ returns OK even if
+numLevels is nonzero and it did not clear anything. A facade must establish owner
+idleness and zero nesting before using it and certify clear state afterwards.
+Do not use force=1 to erase live unwind. Do not scatter private flags, stub slot
+numbers or header imports through Scheme-generated C or Zig. A callable private
+slot does not by itself certify supported linkage. [US08, US11–US12]
+
+*** The Old-Epoch / Next-Evaluation Barrier
+:PROPERTIES:
+:ID: 0c2583ae-2cad-53bb-8bd3-b327a37a9085
+:CUSTOM_ID: the-old-epoch-next-evaluation-barrier
+:END:
+
+UR08. A common Scheme-derived plan names interpreter generation, current epoch,
+actual EvalRoute, affected parent/child generations, cancellation mode, API-call
+leases, control-service scopes, pending outcomes and the reset provider capability.
+Each cancel request carries the epoch captured at its producer's acceptance.
+Queued requests must not resolve “current interpreter” again when eventually
+dispatched. Requests accepted for the old epoch finish or are explicitly disposed;
+stale old handles reject before pointer use. A new epoch is not published while
+old cancellation authority remains. Epoch serials identify instances, not
+architecture versions. [UE01, US09–US10, UD01]
+
+UR09. Proposed owner barrier, with a receipt for each completed condition:
+
+1. *Seal:* close ordinary evaluation, child creation and old-epoch cancel
+   dispatch under the lifecycle lock. A sender either published its lease before
+   the seal or rejects without touching the native pointer.
+2. *Return:* keep cooperative cancellation/progress services alive until every
+   accepted evaluation, nested event, native callback and control-service scope
+   returns. Require actual owner idleness and zero nesting; Tcl_InterpActive or
+   an empty event queue alone cannot establish this closure.
+3. *Own results:* root Scheme outcomes at production; own Tcl result/options
+   before a later reset, reentry, barrier service or deletion can mutate/release
+   them. The prior outcome's receiver and every referenced allocator/image remain
+   live. All callback-capable old delivery must settle before publication; passive owned archives may persist only with disjoint custody and no old execution/cancel authority.
+4. *Join senders:* all published CancelEval calls return and their old-epoch
+   leases settle. Include cancellation inherited from every accepted ancestor.
+   Never hold the lifecycle lock while waiting or invoking native callbacks.
+5. *Drain:* outside any active async invocation, owner services all eligible
+   old pending async cancellation. A source-bound implementation may use public
+   Tcl_AsyncInvoke(NULL, TCL_OK) only when every affected thread-wide handler and
+   producer is qualified, finite and governed by the barrier. This is not a
+   target-only service. Its integer return with NULL is not a target cancel ack.
+6. *Close derived work:* charge every async/cleanup/delivery descendant before
+   its parent settles. If service generates reentry or pending work, remain closed
+   and repeat the qualified closure phase. Do not hide unbounded looping as success.
+7. *Reset:* the qualified provider clears installed cancel state for every
+   quiescent retained interpreter after pending old installation is impossible.
+   Result reset, cancel-message bytes and cancelled/caused-by-cancel provenance
+   are separate. Do not restore an old outcome into the mutable next-epoch result
+   as a way of delivering it.
+8. *Publish:* under the lifecycle lock revalidate zero old authority/in-flight
+   writers, owner idleness, closed child frontier and provider postconditions;
+   release-publish the next epoch descriptor. A new evaluation acquires that
+   descriptor and cannot enter using an old receipt. Valid new-epoch cancellation
+   may intentionally cancel it; that is distinct from late old cancellation.
+
+The phase can drain pending marks before all evaluation returns if that is part
+of cooperative service. The final reset/publication still requires steps 1–7.
+Installed flag reset during an earlier return does not substitute for this barrier.
+No user script is executed as a success probe; safety follows from the qualified
+service contract and closed producer set. [UR05–UR08, US08–US12]
+
+UR10. Synchronization contract: one lifecycle mutex protects generation/epoch,
+acceptance, lease publication, seals and the next descriptor. Operations outside
+it retain leases. Writer completion and barrier joins synchronize through that
+mutex or explicitly equivalent release/acquire operations. Tcl's internal locks
+protect its records, not host request identities or publication. Owner-only
+interpreter state needs no second-language GC or speculative atomic flag reads.
+A volatile epoch, plain pointer swap or language-level defer is insufficient.
+Modern C and Zig must preserve this same happens-before graph. [UL01, US09–US10]
+
+UR11. Drain domain is wider than one interpreter. AsyncInvoke scans a thread's
+handlers; another handler can re-mark, allocate, release a string, evaluate a
+stored interpreter or queue descendants. It can run with interp=NULL; cancellation
+uses its own stored target. AsyncReady may be zero while an invocation is active.
+A barrier invoked recursively from such a callback is not idle. Include actual
+owner-control scopes and every ancestor cancellation producer; freeze or exclude
+unmanaged sibling/child/async users. Blocking all essential cleanup can deadlock;
+accepted cleanup retains a charged service capability, without authority to start
+an untracked next epoch. Same-generation late requests stay old-epoch requests.
+[US09–US10, US12, UD01]
+
+[[file:../diagrams/tcl-reuse-barrier.svg][Reuse isolation barrier]]
+[[file:../diagrams/tcl-reuse-barrier.d2][D2 source]].
+
+*** Explicit Admission and Failure Responsibility
+:PROPERTIES:
+:ID: 2a91e0ea-2329-535c-9f28-2a82c4d6d24c
+:CUSTOM_ID: explicit-admission-and-failure-responsibility
+:END:
+
+UR12. Reuse requires every predicate below; source review is not native admission.
+
+| Predicate | Evidence required | Current status |
+|-
+| A01 Source identity | Coherent compiler/evaluator/reset/async bytes | Closed for 20 selected files at US01 |
+| A02 Semantic route | Four Try layouts, dynamic/runtime fallback and exact EvalRoute | Selected source paths derived; whole extension closure open |
+| A03 Owner idleness | Real OS owner, no active native/NRE/event/async control scopes | Proposed host contract; not implemented |
+| A04 Closed old authority | Generation/epoch checks, sender seal and joined leases | Conditional protocol; all producers not yet certified |
+| A05 Affected tree | Ancestor requests, child generations and closed creation frontier | Conditional protocol; complete caller closure open |
+| A06 Pending disposition | Qualified nonrecursive async drain with finite producers | Standard thread-wide mechanism inspected; managed domain unqualified |
+| A07 Reset capability | Owner-only clear-state postcondition, no force on live unwind | Internal facility identified; facade/link/load/private ABI unqualified |
+| A08 Outcome custody | Independent roots/result/options/sink and image lifetime | Common custody design reused; no native adapter |
+| A09 Derived work | Account-before-parent-settle and essential cleanup progress | Conditional closure only |
+| A10 Next publication | Synchronized fresh descriptor; stale handle rejects | Conditional proof only |
+| A11 Progress | Cooperative handlers, finite descendants, fair owner service | No universal bound; reject finite-latency claim without premises |
+| A12 Semantic policy | Finally/wind/control restrictions explicitly declared | General raw cross-Tcl transfer remains outside result profile |
+
+A01 closes one evidence gap. A03–A12 are not passed by this document, a reset
+return code or a compiler-language choice. Public-only direct reuse remains
+unadmitted. A source-bound facade makes theoretical reuse expressible without
+claiming it is installed. [UR01–UR11, UE01, UL02]
+
+UR13. Failure leaves an owner: before API acceptance, the sender owns the request;
+after acceptance, the old epoch retains obligations even if the script already
+finished. Failed snapshot/delivery preserves producer roots/native storage.
+Unqualified async handlers, wrong owner, private ABI mismatch, nonzero-level reset,
+new old-epoch writers or unknown descendants block publication. Keep the epoch
+sealed, preserve its outcomes and retire on the owner when safe if reuse cannot
+be certified. A timeout does not authorize freeing state or opening the next
+job. A barrier failure is separate from the previous script's original outcome;
+it cannot overwrite that result or fabricate successful delivery. [UR07–UR12]
+
+UR14. Migration is substantive native-layer reconstruction: Scheme owns source
+semantics/route and effect policy; one native contract owns epochs, custody and
+reuse decisions; the isolated Tcl integration owns private library facts. Modern
+generated C and optional Zig consume that contract. Per-adapter “returned means
+reset,” borrowed result and pointer-only cancellation recipes can retire only
+when every real caller migrates and the replacement capability is qualified.
+Tcl VM cleanup, GC roots, wind/continuation semantics and C control corridors stay
+necessary. [[file:tcl-interpreter-reuse-arguments.org][Arguments]],
+[[file:../../../../../docs/experimental/zig/tcl-interpreter-reuse-callers.json][caller inventory]] and
+[[file:tcl-interpreter-reuse-benefit-matrix.org][net-benefit matrix]] state the remaining gates.
+
+[[file:../diagrams/tcl-reuse-provider.svg][Provider boundary]]
+[[file:../diagrams/tcl-reuse-provider.d2][D2 source]].
+
+*** Private Binding and Producer Follow-Up
+:PROPERTIES:
+:ID: 381f8939-402a-503e-9151-a0228a2a0e70
+:CUSTOM_ID: private-binding-and-producer-follow-up
+:END:
+
+The [[file:tcl-reuse-service-design.org][TclReuseService study]] traces the actual stub
+bootstrap and a pinned C/H/Objective-C symbol corpus. It adds internal child
+creation, builtin and fixture producers, notifier/timer consumption and token
+substitution's reset caller. The direct-path counterexample above remains
+conditional on no other reset; a universal no-reset inference is not valid.
+Real owner-idle receipts are temporary capabilities spanning reset/publication.
+Existing global async service and a proposed targeted cancellation service have
+different admission/cost boundaries; no private stub implements the latter today.

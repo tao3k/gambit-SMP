@@ -1,0 +1,278 @@
+{
+  "rows": [
+    {
+      "componentId": "execution",
+      "label": "VM-owned execution context",
+      "sourceRoute": "gambit.h.in execution_contexts -> PSR/PSFP accessors -> setup.c and embedded Scheme C",
+      "retirement": "Remove GVM registers, fp/hp, processor Scheme object and execution mem from processor_state",
+      "benefit": "Root and continuation storage no longer occupies carrier state; one owned root origin survives clearing the carrier representation",
+      "addedCost": "Extra root-access indirection; old PSTATE was already VM-embedded; cleanup still follows the carrier; not independent retirement or live migration",
+      "owner": {
+        "moduleId": "execution",
+        "ownerPath": "dev/architecture/runtime/execution"
+      },
+      "target": {
+        "decisionId": "domain",
+        "replacement": "VM owns membership/heap epochs; ExecutionContext owns Scheme state; GCParticipant freezes roots; CollectorWorkContext owns scan work independent of OS/PSTATE lifetime",
+        "retirement": "Retire implicit PSTATE ownership of collector queues, allocation state and cleanup after exact producer/consumer/lifetime replacement",
+        "obligation": "Compose safepoint progress, membership closure, root leases and task termination; exclude collector/owner wait cycles"
+      }
+    },
+    {
+      "componentId": "participant",
+      "label": "Closed root participant",
+      "sourceRoute": "garbage_collect_pstate -> frozen participant -> mark_execution_roots -> prepare/final acknowledgement",
+      "retirement": "Remove carrier-local register/saved/cache visitor trio and master-only RC root selection",
+      "benefit": "Root origin is explicit; every participant scans its own RC chain; incomplete phase transitions fail rather than silently scan",
+      "addedCost": "16 bytes per configured slot; phase checks per collection; foreign writers and whole-source freeze proof remain open",
+      "owner": {
+        "moduleId": "execution",
+        "ownerPath": "dev/architecture/runtime/execution"
+      },
+      "target": {
+        "decisionId": "domain",
+        "replacement": "VM owns membership/heap epochs; ExecutionContext owns Scheme state; GCParticipant freezes roots; CollectorWorkContext owns scan work independent of OS/PSTATE lifetime",
+        "retirement": "Retire implicit PSTATE ownership of collector queues, allocation state and cleanup after exact producer/consumer/lifetime replacement",
+        "obligation": "Compose safepoint progress, membership closure, root leases and task termination; exclude collector/owner wait cycles"
+      }
+    },
+    {
+      "componentId": "worker",
+      "label": "VM-owned collector work",
+      "sourceRoute": "collector_workers -> explicit worker kernels -> chunk publication/dequeue -> strong/weak completion",
+      "retirement": "Remove chunk FIFO, scan cursor, weak-discovery state and copy-chunk bounds from execution/PSTATE mem",
+      "benefit": "Queue/cursor custody belongs to the worker record; stealing indexes the worker census rather than peer PSTATE mem",
+      "addedCost": "Worker allocation region and actlog still borrow a synchronous carrier; no independent GC thread-pool or death recovery claim",
+      "owner": {
+        "moduleId": "collector",
+        "ownerPath": "dev/architecture/runtime/gc"
+      },
+      "target": {
+        "decisionId": "domain",
+        "replacement": "VM owns membership/heap epochs; ExecutionContext owns Scheme state; GCParticipant freezes roots; CollectorWorkContext owns scan work independent of OS/PSTATE lifetime",
+        "retirement": "Retire implicit PSTATE ownership of collector queues, allocation state and cleanup after exact producer/consumer/lifetime replacement",
+        "obligation": "Compose safepoint progress, membership closure, root leases and task termination; exclude collector/owner wait cycles"
+      }
+    },
+    {
+      "componentId": "round",
+      "label": "One GC outcome and final acknowledgement",
+      "sourceRoute": "closed gc_round census -> resize_heap publication -> local outcome copy -> final barrier",
+      "retirement": "Remove processor_count reads for GC work partitioning and processor-local-only overflow outcome",
+      "benefit": "Every caller sees the same capacity outcome; next round cannot overwrite an unconsumed shared result",
+      "addedCost": "One additional final collective barrier; 8-byte round record; original barrier C memory-order refinement remains open",
+      "owner": {
+        "moduleId": "collector",
+        "ownerPath": "dev/architecture/runtime/gc"
+      },
+      "target": {
+        "decisionId": "domain",
+        "replacement": "VM owns membership/heap epochs; ExecutionContext owns Scheme state; GCParticipant freezes roots; CollectorWorkContext owns scan work independent of OS/PSTATE lifetime",
+        "retirement": "Retire implicit PSTATE ownership of collector queues, allocation state and cleanup after exact producer/consumer/lifetime replacement",
+        "obligation": "Compose safepoint progress, membership closure, root leases and task termination; exclude collector/owner wait cycles"
+      }
+    }
+  ],
+  "needs": [
+    {
+      "obligation": "RR-Q",
+      "method": "quint",
+      "artifact": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt",
+      "scope": "roles:two-participant-publication-and-results",
+      "premise": "Two participants; phase/readback ordering, four negative transitions; no forwarding/private-Tail termination proof"
+    },
+    {
+      "obligation": "RR-L",
+      "method": "lean",
+      "artifact": "dev/refactoring/modern-c/models/lean/RuntimeRoles.lean",
+      "scope": "roles:root-origin-and-receipt-laws",
+      "premise": "Six universal guard/origin/receipt laws; stable-storage and collective publication premises explicit"
+    },
+    {
+      "obligation": "RR-C",
+      "method": "native",
+      "artifact": "vendor/gambit/lib/mem.c",
+      "scope": "roles:bazel-configured-C-object-projection",
+      "premise": "Six canonical C units compiled with retained Bazel flags/RTS O3; no generated Scheme cohort or runtime link"
+    },
+    {
+      "obligation": "RR-STORAGE",
+      "method": "native",
+      "artifact": "vendor/gambit/tests/runtime-roles.c",
+      "scope": "roles:64bit-storage-and-accessors",
+      "premise": "Actual public accessor/storage checks, sanitizer, negative old-field compilation and matched sizeof; not live rebinding permission"
+    },
+    {
+      "obligation": "RR-PROFILE",
+      "method": "source",
+      "artifact": "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+      "scope": "roles:configuration-reference-only",
+      "premise": "Read-only exact profile/header projection; patch candidates are problem evidence and are not imported source"
+    },
+    {
+      "obligation": "RR-COHORT",
+      "method": "native",
+      "artifact": "vendor/gambit/lib/_kernel.scm",
+      "scope": "roles:source-generated-cohort-open",
+      "premise": "Regenerate Scheme embedded C and compiler/runtime cohort; execute real map/multi-shot/GC; no old runtime reuse"
+    },
+    {
+      "obligation": "RR-REFINE",
+      "method": "lean",
+      "artifact": "dev/refactoring/modern-c/models/sysml/modernization-target.sysml",
+      "scope": "roles:whole-source-role-simulation-open",
+      "premise": "GC private work, all root writers, barriers, resize and failure paths need source/C/weak-memory composition"
+    },
+    {
+      "obligation": "RR-LIFETIME",
+      "method": "native",
+      "artifact": "evidence/research/processor-interrupt-collective-wait/repair-9-12-native-observation.json",
+      "scope": "roles:carrier-lifecycle-and-native-failures-open",
+      "premise": "Context-resource cleanup still follows PSTATE; independent retirement, joins, old handlers, callbacks and whole SMP scenes remain open; no 8/12 inheritance"
+    }
+  ],
+  "uses": [
+    {
+      "component": "execution",
+      "need": "RR-Q"
+    },
+    {
+      "component": "execution",
+      "need": "RR-L"
+    },
+    {
+      "component": "execution",
+      "need": "RR-C"
+    },
+    {
+      "component": "execution",
+      "need": "RR-STORAGE"
+    },
+    {
+      "component": "execution",
+      "need": "RR-PROFILE"
+    },
+    {
+      "component": "execution",
+      "need": "RR-COHORT"
+    },
+    {
+      "component": "execution",
+      "need": "RR-REFINE"
+    },
+    {
+      "component": "execution",
+      "need": "RR-LIFETIME"
+    },
+    {
+      "component": "participant",
+      "need": "RR-Q"
+    },
+    {
+      "component": "participant",
+      "need": "RR-L"
+    },
+    {
+      "component": "participant",
+      "need": "RR-C"
+    },
+    {
+      "component": "participant",
+      "need": "RR-STORAGE"
+    },
+    {
+      "component": "participant",
+      "need": "RR-PROFILE"
+    },
+    {
+      "component": "participant",
+      "need": "RR-COHORT"
+    },
+    {
+      "component": "participant",
+      "need": "RR-REFINE"
+    },
+    {
+      "component": "participant",
+      "need": "RR-LIFETIME"
+    },
+    {
+      "component": "worker",
+      "need": "RR-Q"
+    },
+    {
+      "component": "worker",
+      "need": "RR-C"
+    },
+    {
+      "component": "worker",
+      "need": "RR-STORAGE"
+    },
+    {
+      "component": "worker",
+      "need": "RR-PROFILE"
+    },
+    {
+      "component": "worker",
+      "need": "RR-COHORT"
+    },
+    {
+      "component": "worker",
+      "need": "RR-REFINE"
+    },
+    {
+      "component": "worker",
+      "need": "RR-LIFETIME"
+    },
+    {
+      "component": "round",
+      "need": "RR-Q"
+    },
+    {
+      "component": "round",
+      "need": "RR-L"
+    },
+    {
+      "component": "round",
+      "need": "RR-C"
+    },
+    {
+      "component": "round",
+      "need": "RR-PROFILE"
+    },
+    {
+      "component": "round",
+      "need": "RR-COHORT"
+    },
+    {
+      "component": "round",
+      "need": "RR-REFINE"
+    },
+    {
+      "component": "round",
+      "need": "RR-LIFETIME"
+    }
+  ],
+  "edges": [
+    {
+      "from": "execution",
+      "to": "participant",
+      "label": "complete root origin published at collective cut"
+    },
+    {
+      "from": "participant",
+      "to": "worker",
+      "label": "frozen participant authorizes root scan"
+    },
+    {
+      "from": "worker",
+      "to": "round",
+      "label": "strong, weak and cleanup completion precede public outcome"
+    },
+    {
+      "from": "round",
+      "to": "execution",
+      "label": "local result consumed and all contexts prepared before resume"
+    }
+  ]
+}

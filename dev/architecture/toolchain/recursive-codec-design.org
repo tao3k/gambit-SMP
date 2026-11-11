@@ -1,0 +1,257 @@
+#+TITLE: Recursive Wire Proof and the Actual Scheme Metadata Domain
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Close the mathematical wire layer without inventing a Scheme domain
+:PROPERTIES:
+:ID: 4bfa8c94-3bc5-40c8-8bb7-955fcbb82fad
+:CUSTOM_ID: gsc-recursive-codec-domain
+:OWNER: Gambit toolchain architecture
+:AUTHORITY: GambitToolchain; GambitAssuranceRelations
+:STATUS: mathematical-wire-inverse-checked-actual-scheme-bridge-open
+:EVIDENCE_CLASS: source-and-standalone-kernel
+:DEPENDS_ON: BF-BUILD-CUT; BF-BUILD-BUDGET; BF-SCHEMA
+:END:
+
+Modern generated C remains the required direction. The purpose here is to
+justify a reusable consumer observation without replacing Gambit's evaluator,
+reader or C backend. The new decoder is a pure mathematical Lean definition;
+there is no native serializer, build service, runtime adapter or extracted
+executable in this study.
+
+[[file:models/sysml/architecture.sysml][Toolchain SysML]] owns D-PRODUCER through D-COST and connects them to
+L-FIELDS and L-REFLECT. [[file:recursive-codec-map.org][The detailed matrix]] and [[file:diagrams/recursive-codec.svg][focused D2 graph]] derive from
+those same parts. [[file:../../modeling/models/sysml/assurance.sysml][Assurance SysML]] binds the maintained [[file:../../../models/build/IncrementalBuild.lean][Lean source]],
+[[file:../../../models/build/incremental_build.qnt][QNT source]] and ASCENT evidence projection. The previous [[file:output-fidelity-design.org][real _host
+consumer-chain design]] still owns clean origin, failure custody and successful
+group issuance; wire injection does not replace those contracts.
+
+* RESEARCH What actually constructs metadata
+:PROPERTIES:
+:CUSTOM_ID: gsc-metadata-value-producers
+:END:
+
+[[file:../../../vendor/gambit/lib/_nonstd.scm::166][##expand-meta-info]] requires a symbolic key, desourcifies each attribute,
+and calls ##compilation-meta-info-add!. It does not impose a string-only
+attribute domain. [[file:../../../vendor/gambit/lib/_eval.scm::1437][The context entry]] obtains the compilation metadata table
+and forwards key/value pairs. [[file:../../../vendor/gambit/gsc/_host.scm::1179][The GSC host wrapper]] delegates to that entry.
+[[file:../../../vendor/gambit/gsc/_front.scm::228][The frontend]] inserts a source script-line, and [[file:../../../vendor/gambit/lib/_module.scm::438][the module compiler]] has a
+corresponding real caller. These are concrete entrances, not an enumeration
+of every expander-generated or private caller.
+
+[[file:../../../vendor/gambit/lib/_eval.scm::1489][The storage and combination source]] establishes three different value policies:
+
+#+NAME: actual-metadata-policy-matrix
+| Key class | Real combination rule | Consequence for observation |
+|---+---+---|
+| script-line | Replace with a singleton containing the latest value | Repeated additions cannot be modeled by ordinary append |
+| cc-options, ld-options, ld-options-prelude, pkg-config, pkg-config-path | Preserve encounter order, skip equal? duplicates | Neither arbitrary sorting nor pointer-identity deduplication is equivalent |
+| Other keys | Append each value | Duplicates and order survive |
+
+[[file:../../../vendor/gambit/lib/_eval.scm::1518][Ordered-set insertion]] explicitly uses equal? and mutates the tail when a
+new value arrives. The metadata table uses eq? keys. This does not justify
+encoding every symbol solely by printed name: uninterned identities require
+additional semantics or refusal. The shown store does not deep-freeze retained
+values. An observation owner must govern both the table and reachable mutable
+payloads, or read an independently stable admitted view.
+
+##meta-info->alist calls table->list with a TODO to sort. This is evidence that
+canonical enumeration is not established here; it is not an experiment proving
+nondeterminism on a selected boot profile. Fresh context creation alone is
+insufficient evidence of byte-for-byte reproducibility. Equal consumer results
+may be possible despite different enumeration, but normalization needs its own
+proof and cannot reorder every option/value list.
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::1358][The emitter]] writes actual key/value lists and protective block comments.
+Do not identify an in-memory value with its eventual read-back value without
+an admitted writer/reader law. The unsupported-value boundary must be explicit:
+unknown scalar encodings, uninterned symbols, opaque objects, cycles or
+consumer-visible sharing refuse this typed credential until specified.
+Ordinary Scheme execution remains available outside this qualification.
+
+* ESTABLISHED A recursive mathematical frame and its inverse
+:PROPERTIES:
+:CUSTOM_ID: gsc-recursive-wire-proof
+:EVIDENCE_CLASS: mathematical-model-only
+:END:
+
+All nodes in this mathematical wire use uniform framing. This supplies one
+unambiguous recursive syntax, refining the earlier informal lexical sketch.
+It is not Gambit's Scheme text format or a deployed binary ABI.
+
+#+NAME: uniform-datum-frame
+#+BEGIN_EXAMPLE
+frame(tag, body) = [tag, length(body)] ++ body
+atom(kind,payload) = frame(kind-tag, exact payload units)
+pair(a,d)         = frame(7, encode(a) ++ encode(d))
+vector(elements)  = frame(8, concat(each encoded element))
+
+Atom tags 0..6: nil, boolean, integer, character, string, symbol, keyword.
+Length counts mathematical integer tokens in this frame's BODY.
+Pair body must decode exactly two values; vector body is a complete sequence.
+#+END_EXAMPLE
+
+The mutual RecursiveDatum / DatumSequence types represent finite trees and
+ordered sequences. They do not represent arbitrary cyclic Scheme object graphs.
+A nil atom is a node; sequence nil is the vector-body terminator, not an extra
+serialized node. A proper list is a pair chain ending in an admitted nil atom;
+a dotted pair retains its distinct tail tree.
+
+readDatumFrame checks nonnegative body length and enough remaining tokens.
+parseRecursiveDatum returns one tree and the exact unconsumed suffix;
+parseDatumSequence decodes a whole vector body. Fuel decreases across calls.
+datumFuel / sequenceFuel provide a sufficient structural bound for encoded
+finite values. decodeWholeDatum additionally requires an empty suffix.
+
+#+NAME: recursive-wire-checked-results
+| Lean theorem | Checked scope |
+|---+---|
+| readDatumFrameAppend | A framed body is recovered exactly while an arbitrary suffix is preserved |
+| recursiveRoundtrip | Sufficient fuel decodes an encoded datum plus suffix, and an encoded sequence |
+| recursiveEncodingInjective | Equal integer streams imply equal modeled datum trees |
+| decodeWholeEncoded | Whole decoding of an encoded tree succeeds with its structural fuel |
+| trailingTokensRejected | A successful prefix parse with nonempty suffix fails whole admission |
+| shortFrameRejected | A declared body longer than the available input is rejected |
+| emptyDatumRejected | Empty input supplies no datum |
+| emptyPairFrameRejected | A pair frame with an empty body is rejected for every fuel |
+
+The mutual round-trip proof uses induction on fuel and both tree/sequence
+invariants. Pair and vector subproblems use strictly smaller structural bounds;
+no assumed parser round-trip axiom is introduced. Injection follows by parsing
+equal streams with enough fuel for both trees. The previous 38 theorem bodies
+remain unchanged, with no sorry, axioms or native_decide added.
+
+A None result is deliberately coarser than a production diagnostic. It also
+includes insufficient fuel, not only malformed syntax. Therefore the model
+must not label an actual file malformed merely because a budgeted parse
+failed. A future adapter needs reason-preserving failure and ownership delivery.
+This study proves rejection witnesses, not completeness of rejection reasons.
+
+* OPEN The actual value and reader bridges
+:PROPERTIES:
+:CUSTOM_ID: gsc-scheme-to-wire-bridge
+:END:
+
+The wire inverse accepts syntactic payload lists. It does not establish that
+an arbitrary payload is a legal nil, boolean, character or interned symbol.
+QNT scalarPayloadShape checks only the immediate structural layer; character
+range, scalar/text encoding, symbol identity and actual reader behavior remain
+separate semantic obligations.
+
+#+NAME: gsc-bridge-proof-obligations
+| Bridge | Required independent evidence | Present status |
+|---+---+---|
+| Actual object -> mathematical tree | Stable reachable object view; admitted scalar/identity semantics; finite tree or justified graph erasure | Open; actual producers allow values beyond strings |
+| Actual writer -> actual read-back | Qualified port/readtable/encoding and consumed typed datum; unreadable/failed output excluded | Open; emitter and reader source anchors retained |
+| Tree -> exact QNT integer sequence | Use the uniform body-length frame recursively and preserve payload units/order | Mathematical inverse and injection checked; concrete adapter absent |
+| Actual consumer -> observed result | Full field/context/effect/diagnostic factorization through the observation | Open for targ-link; no real invocation qualified |
+| Successful result -> current reusable group | Independent clean origin, complete outputs, settled ownership and valid epoch/lease | Earlier conditions retained; no issuer implemented |
+| Concrete resource/failure -> model | Fuel/resource cause, partial-input custody and progress preserved | Open; mathematical None is not a native error code |
+
+The sixth QNT module supplies frameDatum, frameShape, scalarPayloadShape and a
+shallowPairCounterexample. frameShape([7,0]) is true, while the Lean whole
+parser rejects that empty pair body. This is a formal-specification distinction,
+not a native experiment. Shallow frame shape cannot issue fullRecord or
+codecFaithful. Those flags still require the actual domain, recursive encoding
+and origin witnesses named in SysML.
+
+* RESEARCH The selected linker view and the limit of normalization
+:PROPERTIES:
+:CUSTOM_ID: gsc-linker-observation-projection
+:END:
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::934][combine-meta-info]] selects script-line, ld-options-prelude, ld-options,
+pkg-config and pkg-config-path. It uses first-match assq, preserves option
+accumulation and retains the last effective script line across input modules.
+This set differs from the producer's ordered-set key list: cc-options is a
+producer key but is absent from this selected combination projection.
+That difference motivates a per-consumer proof; it does not authorize deleting
+cc-options from all metadata or C compilation inputs.
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::1086][targ-get-mod]] also consumes the other record fields, caller flags and input
+filename-derived resource provenance. [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1426][targ-dump-module-info]] emits SCRIPT_LINE
+from its received metadata. A proof about five metadata keys alone cannot
+replace the full linker observation, nor can it establish diagnostic/effect
+equivalence. Full-record equality remains the conservative policy until actual
+consumer factorization is proved.
+
+An exact comparison may reject otherwise reusable work because enumeration
+or irrelevant metadata differs. This is a missed opportunity, not permission
+to assume equivalence. Conversely, equality of a coarse normalized view can
+be unsound when another consumer observes a dropped field. A clean reference
+must preserve sibling/base consistency; cached results cannot be assembled
+solely from matching terminal-source hashes while intermediate observations
+have changed.
+
+[[https://simon.peytonjones.org/assets/pdfs/build-systems-jfp.pdf][Build Systems a la Carte]], sections 8.3--8.4, distinguishes untracked inputs,
+nondeterminism and volatility, and exhibits inconsistency from mixing cached
+results with changed intermediate outputs. The lesson here is to retain
+producer and dependency consistency alongside any normalization. The paper
+does not prove that Gambit's table enumeration is nondeterministic, or supply
+this consumer's factorization law.
+
+* RESEARCH Quantified format overhead and the algorithm still needed
+:PROPERTIES:
+:CUSTOM_ID: gsc-recursive-codec-cost
+:END:
+
+Let N count modeled datum nodes and U count scalar payload units. By this
+frame construction, the integer stream has 2N + U tokens. This is syntax
+accounting, not a byte-size or machine-word bound: mathematical integers and
+Gambit scalar encodings have additional representation costs. This size
+identity is derived from the constructors; no Lean work-cost theorem is claimed.
+
+The proof definitions use lists, length, take/drop and append. Repeated length
+checks traverse the remaining suffix, and nested frame construction/slicing
+can repeat subtree work. A long vector of small values can already incur
+quadratic work in the pure list algorithm. Kernel acceptance proves none of
+the claimed native throughput, peak-memory or allocation behavior.
+
+A future modern C design would need a measured tree or bottom-up frame lengths,
+a cursor with known remaining capacity, checked range arithmetic, buffer spans
+and a governed lifetime. These mechanisms can target one traversal plus payload
+conversion under explicit unit-cost and allocation assumptions. Their linear
+work bound, scalar conversion cost and failure/cleanup behavior require separate
+proofs and native evidence. No such implementation or test is added here.
+
+#+NAME: recursive-codec-net-benefit-matrix
+| Item | Established / possible benefit | Added cost / admission limit |
+|---+---+---|
+| Recursive mathematical injection | Removes the generic wire round-trip assumption for modeled finite trees | Actual Scheme-domain and reader bridge still required |
+| Frame structure | Exact 2N+U token accounting; explicit pair/vector boundaries | Two length/tag tokens per node; integer/scalar representation costs remain |
+| Proof decoder | Checked inverse, suffix preservation and selected rejections | Pure list algorithm may be quadratic; not a fast native decoder |
+| Consumer-specific equality | May stop the one selected library composition after full qualification | Parse/domain/context validation; flags, other fields and effects still bind |
+| Exact full record | Conservatively preserves all admitted distinctions | Table enumeration can cause missed reuse; normalization needs another proof |
+| Shared modern C support | Existing Scheme reader/emitter retained; one buffer/observation owner is possible | No duplicate legacy owner retires before all callers and failures migrate |
+| Optional Zig | No extra semantic or traversal saving established by this wire proof | Same domain/identity, buffer-lifetime, resource and consumer proofs remain |
+
+Positive net work requires actual avoided consumer/recipe work to exceed input
+validation, observation conversion, framing/comparison, lifetime support and
+retries. Count the prior 74-action source slice, including its 64 omitted actions.
+The format proof adds neither a global multiplier nor an empirical speedup.
+
+* OPEN Receipts and the next actual-source obligation
+:PROPERTIES:
+:CUSTOM_ID: gsc-recursive-codec-evidence
+:END:
+
+The standalone source now has 46 theorems; eight were added in this study.
+Six QNT modules are typechecked only. The first Lean proof attempt and its
+unresolved goals are retained, followed by the corrected checked source.
+No earlier report, runtime formal source or global obligation disposition is
+rewritten to turn this layer into native admission.
+
+ASCENT continues to derive source-bound hypotheses. Shared association digests
+are stored once per canonical source and joined to existing component factor
+names, reducing repeated form items without changing parser limits or meaning.
+The exact current hash/bundle and twenty fidelity duties are checked on read.
+This is document/evidence projection work, not a build implementation.
+
+The next substantive obligation is an actual Scheme-value-to-tree admission
+relation with stable identity and a verified writer/read-back boundary for the
+selected linker consumer. A new runtime language does not remove that work.
+[[file:../../../evidence/research/gsc-recursive-codec-domain/checks.json][The current receipt]] records checked scopes, hashes, preserved failures and
+remaining gaps. No build implementation, native test, performance validation
+or real clean build is performed.

@@ -1,0 +1,268 @@
+#+TITLE: Gambit Target Writer Closure, Stage Sealing and Generated Scheme Fidelity
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Architecture decision and assurance boundary :modern_c:target:sealing:
+:PROPERTIES:
+:CUSTOM_ID: target-stage-sealing
+:AUTHORITY: TargetStageSealing
+:STATUS: conditional-protocol-source-platform-open
+:EVIDENCE_CLASS: source-audit-and-formal-design
+:END:
+
+Gambit remains the compiler/runtime foundation; Gerbil owns the incremental compiler
+service. The current C target is a mutable computation, not a read-only descriptor
+that two compiler contexts can share unchanged. Separating globals alone cannot
+establish reentrancy: selected target vectors, primitive metadata and nested input
+aliases also need explicit owners.
+
+[[file:models/sysml/target-stage-sealing.sysml][SysML]] owns eight writer families, four fidelity dimensions, four delivery/seal
+contracts, four refinement routes, four gain cases and seven open gates. The native
+[[file:../../modeling/tools/target-stage-sealing-study.py][projection driver]] generates the [[file:target-stage-sealing-matrix.org][matrix]], [[file:diagrams/target-stage-sealing.svg][D2]] and QNT parameters. [[file:../../modeling/ascent/target-stage-sealing.rules.scm][ASCENT DSL]]
+checks routes and scoped receipts for [[file:../../../models/build/target_stage_sealing.qnt][QNT]] and [[file:../../../models/build/TargetStageSealing.lean][Lean]]. [[file:../../../evidence/research/target-stage-sealing/checks.json][Current receipts]] distinguish
+conditional models from actual source/native acceptance. No compiler/runtime
+implementation, native tests, generated compiler output or performance tests run.
+
+* RESEARCH Writer census and its exact completeness :source:
+:PROPERTIES:
+:CUSTOM_ID: target-writer-census
+:SOURCE_SCOPE: top-level-vendor-gambit-gsc-scm-corpus-and-listed-gerbil-producers
+:COMPLETENESS: syntactic-inventory-not-alias-reachability-proof
+:END:
+
+The census retains every rg match in the recorded top-level gsc .scm corpus for
+named target/targ/** stores, target/procedure/C-interface setters, and interior
+mutators. The full argv, source line, file and source digests are retained in
+[[file:../../../evidence/research/target-stage-sealing/named-stores.json][named stores]], [[file:../../../evidence/research/target-stage-sealing/setter-sites.json][setter sites]], [[file:../../../evidence/research/target-stage-sealing/interior-mutators.json][interior mutators]] and [[file:../../../evidence/research/target-stage-sealing/source-census.json][scope/identity census]]. The corpus
+also includes alternate backends and test code, so these are candidate sites,
+not the executed C-target call graph. Comments, quoted forms and shadowed local
+names are not automatically excluded. Matches are complete only for the stated
+patterns and corpus, not for macro-generated setters or arbitrary hidden aliases.
+
+The source-level C-target closure is organized as follows:
+
+| Entry/family | Actual writes and referents | Required replacement |
+|---+---+---|
+| [[file:../../../vendor/gambit/gsc/_back.scm::171][make-target, target-add/get]], [[file:../../../vendor/gambit/gsc/_back.scm::388][target-select!]] | Registry-selected target vector, then target and target.* dispatch globals | Shared immutable descriptor template; context-owned configured target instance |
+| [[file:../../../vendor/gambit/gsc/_t-c-1.scm::243][C begin!]] | Rewrites dispatch, frame constraints, register counts, compactness and info sink | Copy/configure per context; closures must reference that instance, not global targ-target |
+| [[file:../../../vendor/gambit/gsc/_prims.scm::6806][setup-prims]], [[file:../../../vendor/gambit/gsc/_t-c-2.scm::2870][targ-apply-force]] | Installs specialization/expansion/simplification and inline behavior on procedure metadata | Prove a profile-specific frozen primitive base; otherwise context-owned overlays |
+| [[file:../../../vendor/gambit/gsc/_t-c-1.scm::337][targ-dump]] | Extracts then clears C-interface decls/procs/inits/objs | Exclusive consumed input or detached snapshot plus private mutable emission copy |
+| [[file:../../../vendor/gambit/gsc/_t-c-1.scm::428][heap begin/end and use routines]] | Tables, ordered tables, queues, resource supplier/demander records, FP/sharing/name caches | EmissionWorkspace owns each reachable mutable referent |
+| [[file:../../../vendor/gambit/gsc/_t-c-2.scm::26][procedure scan]] | Code/label/resource/frame/debug state and label cells; queue payloads patched | ProcedureWorkspace nested in one emission attempt |
+| [[file:../../../vendor/gambit/gsc/_t-c-2.scm::1424][representation machinery]] | Graph/current-block and configuration/FP-cache state | Distinguish active analysis state, fixed configuration and dormant/commented hooks |
+| [[file:../../../vendor/gambit/gsc/_t-c-1.scm::2280][output/source globals]], [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1393][end dump]] | Ports, generated/source line counters and filenames; closes output port normally | Attempt-owned sink/port lease; exceptional cleanup still requires caller closure |
+| [[file:../../../vendor/gambit/gsc/_back.scm::604][link-modules]] and [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1271][C linkfile emission]] | Separate target setup/cleanup and output consumption | Link context must migrate too; compile-only reentrancy is insufficient |
+
+Two especially important findings follow. target-get returns the registered target
+that C begin! mutates: an immutable registry alone is not enough if registry values
+remain writable. C end! is a no-op in the inspected constructor; it does not retire
+info ports, emission state or captured aliases. Normal heap-end and target-unselect
+also cannot certify all exceptional paths or all referent lifetimes.
+
+The closed-world boundary must include frontend GVM producers: [[file:../../../vendor/gambit/gsc/_front.scm::785][compile-parsed-program]]
+sets procedure/block/global environment state and rewrites procedure metadata.
+A normalized or GVM result may reference these objects. This study does not claim
+all procedure objects are mutated by every target call: each shared referent still
+requires a producer/consumer/alias proof. Raw vector/FFI writes and dynamically
+rebound compiler procedures remain unresolved unless forbidden or mediated by the
+service capability contract. The existing compiler is not retroactively declared
+safe because a text census finished.
+
+* RESEARCH Two delivery modes and the sealing protocol :contract:
+:PROPERTIES:
+:CUSTOM_ID: target-delivery-seal
+:END:
+
+A single live input graph cannot both be a reusable cache entry and be consumed by
+the current destructive C emitter. We explicitly separate:
+
+1. Exclusive delivery: transfer one rooted graph/region to one emitter, close old
+   access, permit mutation/consumption, and issue NO reusable shared-stage credential.
+2. Snapshot delivery: close source writer admission, settle in-flight writers and
+   close external mutable aliases, then encode/detach an identity-preserving graph.
+   Each emitter obtains its own mutable workspace and private consumed fields.
+
+A frozen snapshot is not necessarily a byte copy of every object. Stable immutable
+nodes may be shared after their writer proof; mutable tables/queues/primitive
+closures need copying, reconstruction or exclusive ownership. Reference sharing,
+cycles, symbol identity, frame metadata, target semantic profile and origins must
+be preserved by relocation. Copy-on-write is an alternative only if EVERY write
+is mediated; current direct setters do not supply that guarantee.
+
+#+begin_src text :eval never
+SealRequest(context, graph, inputEpoch, semanticProfile, producerGeneration)
+  -> close writer/borrow admission
+  -> settle writers already admitted; unknown writers retain custody
+  -> classify reachable graph + close or relocate external aliases
+  -> preserve sharing/cycles/identity; detach rooted snapshot
+  -> commit snapshot + actual trace + observation projection
+  -> release source context only after its callback/root/borrow debts close
+  -> materialize private emitter(target instance, primitive overlay, C-interface)
+  -> destructive emission -> settle outcome -> atomic result manifest
+#+end_src
+
+Closing admission and observing zero writers is one synchronized protocol; a
+relaxed counter read followed by publication is insufficient. An eventual modern
+C realization needs a lock or qualified CAS protocol covering admission, drain
+and publication. A release/acquire publication can make initialized bytes visible
+but cannot by itself prove that an aliased writer stopped, that a GC root remains
+registered, or that a callback cannot reenter. QNT abstracts these transitions;
+C memory-order, safepoint and callback refinements remain TS-S/TS-E obligations.
+
+Any partial copy is attempt-owned and unpublished. On failure, retain both source
+custody and partial destination roots until their cleanup endpoint settles. During
+unknown completion, neither release nor retry may assume the other side did not
+accept ownership. Exclusive transfer needs one authoritative acceptance record;
+if its outcome is unknown, retain responsibility and deny cache publication.
+The bounded model covers a simplified exclusive flag, not that full distributed
+acknowledgement protocol or all native borrows.
+
+* RESEARCH GeneratedSchemeResult observational fidelity :iter:identity:
+:PROPERTIES:
+:CUSTOM_ID: generated-scheme-fidelity
+:BASELINE: actual-Gerbil-emitter-and-Gambit-reader
+:END:
+
+The real iter chain remains [[file:iter-compiler-service-design.org::iter-real-chain][the preceding source study]]: macros -> API/re-export ->
+string/misc and sync/wg. for1 builds syntax/loc lambdas and dispatches in-range;
+the resulting Gerbil code is lowered into generated Scheme, not directly GVM.
+Both ordinary runtime and positive-phase code use compile-scm-file, with distinct
+phi/section behavior. The new handoff must model that exact path.
+
+** Declarations are an ordered, scoped tree
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::787][compile-scm-file]] emits block, standard-bindings, extended-bindings and, for
+positive-phase sections, inlining-limit 200. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/compile.ss::401][Annotations/declarations]] append to
+current-compile-decls and emit scoped begin/declare structures. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::702][Nested modules]] reset
+module declarations. A flat option map or unordered set loses scope, order and
+possibly shadowing; preserving these records is required before eliminating the
+text handoff. Native C flags are a separate input class.
+
+** Lexical identity is already encoded by compiler logic
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/base.ss::185][Temporary generation]] includes namespace/phi and gensym; [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/base.ss::198][gensym references]] use a
+per-compilation table and a timestamp for quoted symbols. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/compile.ss::832][Quoted data]] recursively
+transforms uninterned symbols; [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/compile.ss::1150][quote-syntax emission]] creates lifts, serializes marks
+and restores defining contexts through current-expander-context/import-module.
+These are semantic reconstruction operations, not redundant JSON serialization.
+
+The new encoding must preserve equality AND distinction of binders/marks/symbols,
+namespace/phi and relevant defining-module instances. Interning every same-spelling
+identifier or discarding timestamps is not equivalent. Reuse must declare its
+producer-stamp policy; a request requiring fresh clock/fresh-instance behavior
+stays nonreusable until the policy and reconstruction relation are established.
+The chosen for/in-range call does not prove every quoted-syntax branch executes;
+those branches nevertheless belong to a general GeneratedSchemeResult contract.
+
+** Source mapping has two different requirements
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::33][The actual writer]] uses UTF-8 and LF; pretty-print creates generated Scheme file
+positions. [[file:../../../vendor/gambit/gsc/_front.scm::215][Gambit]] distinguishes read-source(file) from source input handled via
+sourcify-deep, then wrap/expand/parse, script-line and module metadata. Passing an
+in-memory datum with one source wrapper cannot be assumed to reproduce the old
+reader's node locations, generated filename, path-relative context or errors.
+
+Baseline fidelity requires a generated-view source table matching the old reader
+observation under the same declared writer/reader options. Rich original Scheme
+and macro-origin mapping is a separate enhancement: preserve expansion provenance
+without silently changing baseline diagnostic/debug observations. for1 syntax/loc
+alone does not prove end-to-end original-source preservation through the current
+pretty-print path. No actual serializer/reader roundtrip was executed in this study.
+
+** Exceptions and effects cross an existing process boundary
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/base.ss::97][raise-compile-error]] uses current compilation context to raise syntax diagnostics.
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/base.ss::340][join!]] unwraps a worker's uncaught exception. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::963][invoke]] waits for a subprocess,
+closes its port and converts nonzero status to a particular compile-error surface.
+Replacing this with a raw internal Gambit exception changes the contract.
+
+The service outcome must preserve the admitted observer's phase, diagnostic kind,
+message/detail/source projection, output ordering, exit/status classification and
+cleanup responsibility. Compatibility of existing clients is distinct from adding
+richer diagnostics. Exception object identity, live syntax objects, stack frames
+or continuations cannot be transparently serialized across isolated processes;
+clients requiring those observations must retain a rooted same-owner live object,
+use a separately specified boundary, or be rejected from transferable caching.
+No error result is promoted to reusable success. Unknown completion retains roots
+and borrowed ports/resources until a truthful endpoint settlement.
+
+** Formal relation to the old path
+
+#+begin_src text :eval never
+Old = Observe(parse/normalize(read-source(pretty-print(declarations, code))), profile)
+New = Observe(parse/normalize(reconstruct(GeneratedSchemeResult)), sameProfile)
+Required: Old ~ New for the declared observer (values, bindings, locations,
+          demanded modules, C-interface, diagnostics, ordered effects and outcomes)
+#+end_src
+
+This is an observational relation, not byte equality or pointer equality. Each
+stage must also relate its outgoing graph/roots to its consumer's live view. The
+four fidelity gates stay open: exact writer/reader equivalence, identity codec and
+real error exits are obligations, not results implied by the bounded model.
+
+* RESEARCH Refinement, counterexamples and net benefit :qnt:lean:ascent:
+:PROPERTIES:
+:CUSTOM_ID: target-sealing-refinement
+:END:
+
+| Route | Conditional formal coverage | Actual missing refinement |
+|---+---+---|
+| TS-H | QNT writer-admission/drain/aliases, snapshot versus exclusive input, private consumption, projection/order differences, unknown result custody | Alias reachability, actual pointer graph and native completion truth; no liveness proof |
+| TS-I | Eight Lean boundary lemmas, including copy-isolated snapshot and repeated-use cost inequality | Full transition induction, source observational equivalence and C memory model |
+| TS-S | Four SysML refinement routes projected to actual QNT/Lean names through ASCENT | Scope-complete writer ownership, real codec and target-specific cleanup; depends on IS-S |
+| TS-E | Independent environment/platform obligation | Native ABI/GC/FFI and actual time/space behavior remain unqualified |
+
+Six explicit bad controls retain counterexamples for sealing with an active writer,
+sealing while an external alias remains, mutating a shared snapshot, caching an
+exclusive consumed graph, ignoring origin changes and releasing an unknown result.
+The named scenarios check design transitions; integer identities and alias tokens
+are abstractions, not Scheme objects or actual GC roots. The model's private-copy
+separation is an assumption that must be justified by relocation/source evidence.
+
+The [[file:target-stage-sealing-matrix.org][native SysML matrix]] specifies what may retire: global selected-target/emission
+authority, opaque file-only handoff and repeated lowering for qualified reuse.
+Native C compilation, phase effects, instance initialization, private workspace
+construction and standalone gsc remain necessary. Retire old paths only after all
+compile AND link consumers use the new contract and complete writer/caller closure.
+
+For k admitted uses, let F be the repeated frontend work avoided, Z snapshot freeze
+cost, E extra private materialization per use, and V additional validation work.
+A work saving requires (k-1)F > Z + kE + V. This is a falsifiable conditional model;
+no assumption that k is large, E is free or a cold single-use build benefits.
+Memory accounting must include retained snapshot plus simultaneous emitter workspaces
+and suspended contexts. Span benefit independently requires removed serialization
+exceeding new copying/coordination on the critical path. Exclusive transfer may
+avoid copies for one consumer but is not also a shared-cache saving.
+
+On Darwin, avoiding admitted redundant frontend/native calls can help development
+workflows; this does not reduce the intrinsic preprocessing cost of every necessary
+C compilation. A modern C emitter/ABI redesign remains a separate coupled task.
+No native timing, cross-platform ratio, person-days or predicted speedup is claimed.
+
+* RESEARCH Evidence transport gap and independent local rule checks
+:PROPERTIES:
+:CUSTOM_ID: target-sealing-registration-gap
+:STATUS: repository-attestation-blocked
+:END:
+
+The host repository registration attempt failed with "observation does not match
+host source attestation" while including registered evidence views. The traceback
+is retained. No shared framework, attestation input or acceptance rule was modified.
+The failed path does not establish a host-registered current receipt or successful
+scoped/stale-subject controls for this study.
+
+The independent --local-models path uses the native ASCENT unprivileged fragment
+API to evaluate only caller-authored relational rules and native SysML-projected
+model facts. It does not submit clues, assert host evidence or set runtime authority.
+Three cases check current open gates, synthetic complete gates and missing graph
+sealing. This is separate from repository registration, not a workaround that grants
+it. The fragment is a typed-declaration transport projection of the maintained DSL;
+its input/rule/fragment hashes and raw results are retained. QNT/Lean subjects/logs
+are verified before local results are reported. The host registration gap remains
+explicit in checks.json and is a required subsequent evidence-infrastructure repair,
+independent of the architecture's still-open source/platform obligations.
+
+Raw tool stdout/stderr remains under [[file:../../../evidence/research/retained/target-stage-sealing/receipt.json][the retained observation inventory]], with SHA-256 checks over archived bytes. This verifies historical observations;
+it does not rerun native work or establish current-source admission.

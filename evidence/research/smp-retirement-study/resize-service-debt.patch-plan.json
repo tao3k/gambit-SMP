@@ -1,0 +1,118 @@
+{
+  "schema": "resize-service-debt.patch-plan.v1",
+  "status": "proposed-not-applied",
+  "debtKinds": {
+    "service": "snapshot inspection and per-entry disposition through captured cut",
+    "resource": "per-donor roots/storage/handle/borrowers; not cleared by service ACK"
+  },
+  "vmFields": [
+    "service_demand_seq",
+    "service_acked_seq",
+    "service_sweep",
+    "resize_txn_epoch",
+    "resize_phase",
+    "resize_admit_cut",
+    "membership_generation",
+    "stable_cohort_generation",
+    "deferred_request_root_token"
+  ],
+  "functions": [
+    {
+      "actual": "setup.c:___vm_resize_pstate:1086",
+      "proposed": "___resize_gc_with_common_outcome",
+      "order": [
+        "issue VM service demand before direct GC",
+        "complete GC",
+        "P0 common outcome broadcast",
+        "all-member branch on common result",
+        "preserve current forwarded roots"
+      ],
+      "forbidden": [
+        "GC-return unconditional splice",
+        "P0-only early error schedule"
+      ]
+    },
+    {
+      "actual": "setup.c:barrier_sync_op/OP_SET_PROCESSOR_COUNT",
+      "proposed": "atomic membership and native-domain commit",
+      "requirements": [
+        "VM ledger survives count change",
+        "old donor storage retained",
+        "no service ACK on count publication"
+      ]
+    },
+    {
+      "actual": "setup.c:execute_sync_op_loop election",
+      "proposed": "___prepare_sync_candidate",
+      "order": [
+        "capture admission cut once for current request",
+        "keep original request and rooted thunk token",
+        "gate mutation until cut covered",
+        "represent pending common HANDOFF/service rather than repeated winning resize",
+        "resolve fresh rooted argument before actual resize"
+      ]
+    },
+    {
+      "actual": "setup.c:OP_PROCESSOR_STARTUP_READY, OP_VM_RESIZE result, completed GC epilogue",
+      "proposed": "___resize_publish_outcome_pstate / ___resize_try_handoff_pstate",
+      "opcodeProposal": "OP_VM_RESIZE_HANDOFF=OP_MAKE(9,0)=36; phase-tagged checked envelope",
+      "order": [
+        "preserve common outcome",
+        "VM HANDOFF_PENDING",
+        "fixed selected-operation transcript",
+        "P0 validate all exact status1/membership/epoch",
+        "all current members acknowledge stable certificate",
+        "accept VM sweep snapshot",
+        "ACK cut only; preserve later demand"
+      ]
+    },
+    {
+      "actual": "setup.c:precount setup/GC errors",
+      "proposed": "common precommit ABORT handoff",
+      "order": [
+        "same common error",
+        "current-continuation once-only rollback",
+        "old member ACK and reader grace",
+        "stable-old certificate",
+        "service preserved demand",
+        "legal deferred error return"
+      ]
+    },
+    {
+      "actual": "setup.c:post-count pthread_create fatal branch",
+      "proposed": "explicit retained/terminal failure boundary",
+      "requirements": [
+        "no fake stable or rollback",
+        "debt/root/ownership retention",
+        "new resize denied"
+      ],
+      "recoverableGrowthWouldRequire": "precreated gated workers and staged native-root ownership; not implemented/model-proved"
+    }
+  ],
+  "serviceAckRequires": [
+    "finite pinned entry snapshot dispositions",
+    "all matching common-member ACKs",
+    "same service and membership generations"
+  ],
+  "serviceAckDoesNotRequire": [
+    "blocked donor exits",
+    "all retirement resource debt cleared"
+  ],
+  "progressPremises": [
+    "scheduled participants",
+    "direct GC completes",
+    "startup reaches exact Ready or explicit terminal fault",
+    "rollback members really ACK",
+    "stable cohort accepts sweep",
+    "no unbounded fatal interruption"
+  ],
+  "limits": [
+    "two model epochs, no wrap proof",
+    "post-count retention does not prove serviceable VM",
+    "C candidate/result/interrupt rearm refinement absent",
+    "staged growth rollback absent",
+    "not full composition with recurrent GC/callback/native entry models"
+  ],
+  "runtimeModified": false,
+  "nativeAdmitted": false
+}

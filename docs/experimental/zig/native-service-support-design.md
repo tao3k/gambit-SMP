@@ -1,0 +1,189 @@
+# Native Service Support: Complete Known Responsibilities and Retirement
+
+Research/design only. No service implementation, native test, compiler or model
+execution. Read the [work and cost matrix](native-service-support-costs.md) and
+[source/estimate ledger](native-service-support-ledger.json).
+
+**Working recommendation: use modern generated C as the reference realization
+for these three services.** The current source supplies useful native C leaves,
+storage operations and failure funnels. Zig can simplify some product and private
+cleanup support, but does not remove the ownership, GC or shutdown algorithms.
+The scoped bottom-up estimate currently favors C; it is an engineering judgment,
+not a proven language-wide economic dominance result.
+
+![Native service support and retirement boundaries](native-service-support-boundaries.svg)
+[D2 source](native-service-support-boundaries.d2).
+
+## Equal Capability and Funding Boundary
+
+SD01. RootRegistry is necessary for the proposed cross-context native-root
+ownership contract. BarrierLog is necessary for the proposed generational/
+concurrent-major collector; it is **not an existing service missing from the
+current nongenerational algorithm**. ReleaseCoordinator is necessary if foreign
+destruction is deferred away from GC and has owner-affine, waiting or derived
+resource work. These conditions follow actual root/store/release users; adopting
+all three is not required just to keep today's collector [SS01–SS08].
+
+SD02. Compare full implementations of the three services, with the same Scheme
+semantic producer, current C host/native callers and qualified C/OS/library
+leaves. C-G funds a Scheme-driven C product generator and C service code. The
+Zig candidate implements the service state/algorithms in Zig and exports a
+declared C ABI to those users; it is not a facade over unchanged C service state.
+Neither candidate includes a whole Scheme-to-Zig emitter or the entire new GC
+algorithm in the numeric service subtotal. Those program dependencies are listed
+explicitly and cannot be counted as free or as completed by this study.
+
+Both use one contract schema, opaque handles across native boundaries, checked
+sizes/statuses and independent consumers. Do not demand a duplicate schema or
+lock-free library of C and then call its removal a Zig saving. Existing pthread,
+allocation/conversion and native close/release functions are credited equally;
+adapters and their ownership law are still needed [SS09, SP01/SP02].
+
+## RootRegistry
+
+SD03. Proposed operations are RegisterRoot, Read/ReplaceRoot, BeginSnapshot,
+Enumerate/RelocateRoots, Prepare/CommitTransfer, UnregisterRoot and CloseRegistry.
+RootSlot has stable identity, carrier/storage identity, VM/context owner, value,
+epoch and reader/transfer holds. Entry publication follows allocation protection;
+unlink stops new readers but cannot free a cell while a scanner, transfer or
+major log still refers to it. A moving Scheme value is distinct from its native
+carrier's storage lifetime. Use the prior RootTransferReceipt and collector cuts,
+not a new implementation-language liveness analysis.
+
+The current RC header combines native list membership/refcount with a Scheme
+data field; mark_rc scans that field [SS01]. os_dyn constructs an RC-backed C
+closure and installs proc using set_data_rc; marker construction can allocate
+before its explicit protection TODO [SS02]. Both candidates must protect inputs
+before allocation and migrate every root-bearing producer/consumer. Pure native
+strings with data=false do not automatically need a new GC root object.
+
+The retained local patch already moves mark_rc out of the processor-0-only
+branch, and adds joined-donor transfer of still/RC storage before donor cleanup
+[SS11]. Credit those C mechanisms in both alternatives; do not price a fresh
+implementation of that scan-placement fix or list splice. They do not by
+themselves supply stable registry cells, independent-worker scan epochs,
+RootTransferReceipt admission or arbitrary callback/root-writer closure. Patch
+text is not proof of its loaded/native qualification, and the unpatched vendor
+asymmetry must not be reported as a reproduced current patched-runtime failure.
+
+SD04. C-G uses generated private C records/operations, stable segmented/slab
+cells, existing allocation/synchronization leaves and explicit cleanup funnels.
+Zig uses equivalent typed records, stable storage and ordinary error cleanup.
+A growable array whose cells move is not a valid RootSlot registry merely
+because it comes from either language's library. Both still implement snapshot,
+transfer, owner restoration and teardown protocols. The Zig path additionally
+needs qualified exports, C caller adapters and representation/error/allocator
+agreement. Defer is not a scanner-reader lifetime protocol.
+
+## BarrierLog
+
+SD05. Proposed operations are ReserveBeforeStore, PrepareTypedMutation,
+CommitStore, CancelReservation, PublishBatch, FreezeEpoch, DrainAcknowledgedWork
+and ResetAfterCut. Distinguish ordinary strong fields, weak fields, private init,
+root updates, CAS and bulk stores. Reserve capacity before overwriting; slow
+paths root/reload objects and locations after safepoints. Commit cannot allocate,
+callback, park or change epoch. Remember owner+slot/range/card identity, not a
+raw address in a movable frame or disposable RC cell. Scanner loads and writes
+need one qualified memory model.
+
+Current pair/vector/closure/global writers and the explicitly disabled SSB
+reservation branch prove actual migration work [SS03/SS04]. The existing source
+queue fences are not a substitute for this collector protocol. C-G generates
+typed store variants and calls a C log/coordinator; Zig can construct variants
+and log storage with its type facilities, but current C producers still need
+adapters. Neither provides remembered-set reset or SATB/weak semantics for free.
+Do not credit the same schema-generation saving once per setter or runtime call.
+
+SD06. Share native allocation and checked status conventions with the registry,
+but preserve different policy: BarrierLog requires bounded reservation and a
+no-safepoint commit, whereas RootRegistry requires stable reader-held cells.
+ReleaseCoordinator requires task/resource graph custody. A common buffer wrapper
+does not replace all three. Each full service has an independent failure/drain
+oracle. Unknown raw managed-pointer writers reject the new collector profile.
+
+## ReleaseCoordinator
+
+SD07. Proposed operations are PrepareAttempt, AcceptTask, CancelObserver,
+ClaimStage, Complete/RetainOutcome, Reserve/PublishChild, CloseProducer,
+WaitForAction and Drain/CloseService. Task acceptance has one commit separate
+from cancellation and result observation. WaitContext owns leased native
+interests and a wake endpoint; durable reasons, notification debt and
+drain-check-wait order preserve the prior no-lost-wake argument. No native leaf,
+managed callback or blocking operation runs under the task ledger lock.
+
+Actual device_cleanup removes a device from its group, closes read/write stages,
+waits through device_select on EAGAIN, then releases storage [SS05]. Reuse
+admitted close/readiness leaves, not the whole PSTATE-dependent cleanup loop.
+The current abort writer ignores errors, so the reliable notification protocol
+requires adaptation in either language. Managed os_condvar_select has separate
+scheduler users; migrating one private wait owner does not retire it.
+
+SD08. Before release_foreign clears wrapper fields, obtain an accepted task or
+keep explicit synchronous custody. Do not enqueue a pointer and then allow the
+old wrapper/RC cleanup to free its payload. TLS has one RC context, up to five
+RC strings and an SSL_CTX obligation; its existing shared destructor already
+serves ordinary release and setup-failure cleanup [SS06/SS07]. That is genuine
+C reuse, not six private cleanup implementations for Zig to eliminate.
+Root-bearing C closures, still-object sweep and teardown, device groups and VM/
+OS cleanup form distinct producer/last-user paths [SS02/SS08]. Child reservation
+precedes parent-credit release; unknown effects/owners retain custody.
+
+SD09. C-G reuses C leaf APIs and failure funnels behind an explicit new task,
+wait and custody coordinator. Zig can reduce local builder rollback with
+errdefer, but still owns cancellation, partial native effects, nested storage,
+thread affinity and final drain; nonlocal Scheme exits remain explicit islands.
+Both can retire the old cleanup *authority* for fully migrated users while
+retaining useful leaf code. Private lexical cleanup is a small residual part of
+the complete service [SP01/SP02].
+
+## Actual Retirement Matrix
+
+| ID | Old responsibility eligible to disappear | Required closure | What remains |
+| --- | --- | --- | --- |
+| SR01 | mark_rc over the current PSTATE chain as the root authority | Every root-bearing RC producer, reader, replace/unregister and scanner resolves the registry with valid owner/epoch | Native RC allocation/refcount/list storage can remain for admitted native payloads; not every buffer is a GC root |
+| SR02 | Direct set_data_rc root mutation and marker input-protection gap | All root-bearing callers, including closure construction and marker allocation, use protected root operations | Machine trampoline/native conversion and storage ownership remain; C ABI entry semantics still require qualification |
+| SR03 | Plain managed-pointer stores and disabled-SSB assumptions in the selected profile | Every primitive, root, frame, bulk/CAS/weak and native writer is classified and routed through the store contract | Direct nonpointer/private initialization only under admitted rules; other profiles retain their own valid routes |
+| SR04 | PSTATE scratch and opaque blocking device_cleanup as deferred-runner authority | Migrated cleanup uses explicit WaitContext, staged leaves and actual partial-effect outcomes | Native close/readiness helpers and managed scheduler os_condvar_select remain |
+| SR05 | Unaccounted synchronous foreign destruction inside GC as the release authority | All admitted foreign leaves have owner/effect classification and accepted payload/code/VM custody | Arbitrary unknown release_fn is not admitted on an independent worker; native leaf code may remain C |
+| SR06 | cleanup_rc force-free and final-GC-only assumptions for accepted deferred payloads | Producers/derived tasks/root transfers and actual last users drain while scan/execution services remain live | Residual native storage cleanup occurs after custody closure; VM/OS shutdown still has real work |
+| SR07 | Duplicate private record/variant/rollback support | One shared schema and support layer serves all three necessary services with independent readers | C uses generation/funnels; Zig uses types/local cleanup; protocols and independent checks remain |
+
+These retirement opportunities are available to both native implementations.
+There are zero paths actually retired in this design-only turn. None of these
+services alone retires Gambit's full C backend, exported C FFI or OS library.
+
+## Unpriced Dependencies and Refuters
+
+SD10. The numeric [WBS](native-service-support-costs.md) covers the known service
+surface in a declared Darwin/POSIX cohort with selected TLS support, existing
+Scheme/C producers and retained qualified native leaves. All source branches
+are observations, not proof that a loaded Darwin runtime enables them.
+Additional target/provider/bootstrap work, a complete collector, whole new
+backend and unknown external aliases add explicit unknown tails; no finite
+full-runtime upper bound is claimed.
+
+One concrete gap: the reviewed os_dyn dynamic C-closure template selector lists
+32-bit x86/PPC and SPARC; the selected block does not provide an arm64 template
+[SS02]. If the target profile requires that path on arm64, its implementation
+and admission need a separate estimate in both candidates. C friendliness does
+not silently solve it for either. The service estimate cannot be quoted as a
+complete modern Darwin runtime budget.
+
+SD11. Current source favors C reuse, but the decision is revisable. A preexisting
+qualified Zig ABI/tool setup, reusable service implementation or substantially
+different team proficiency could lower its residual costs. Conversely, failed
+root/writer closure, unexpected native effects or tool changes can exceed either
+planning range. Require named changed work packages and evidence before changing
+the estimate; do not invent future consumers to amortize today's extra support.
+The proposed modern C path is contract/schema/runtime reconstruction, not a
+decision to keep old macros and ownership assumptions indefinitely.
+
+## Concrete Modern Generated C Mainline
+
+The [unified contract](generated-c-native-contract.md),
+[Scheme generator](scheme-native-generator-design.md) and
+[provider/retirement plan](generated-c-provider-retirement.md) now make the
+selected C realization concrete. The [cost matrix](generated-c-contract-cost-matrix.md)
+allocates the existing service WBS without double counting and separately lists
+full control/module/provider work outside that budget. Existing C leaves and
+retained patch mechanisms remain reuse assets; no code is retired by the design.

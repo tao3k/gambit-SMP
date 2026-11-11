@@ -1,0 +1,208 @@
+#+TITLE: Image Membership, Owner Enrollment and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitImageMembershipEnrollment
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| linker-exec | vendor/gambit/lib/setup.c | mol = linker (___GSTATE); | Reservation must precede executing linker |
+| linker-rewrite | vendor/gambit/lib/setup.c | p->mol = linker_to_mod_or_lnk | Link table resolved in place; not immutable discovery |
+| ordered-traverse | vendor/gambit/lib/setup.c | e = for_each_module (ctx, p->mol, proc); | Distinct ownership set must not deduplicate ordered initialization effects |
+| setup-atomic-todo | vendor/gambit/lib/setup.c | TODO: make this phase atomic for when there are multiple VMs? | Current setup lacks image owner gate |
+| positive-count | vendor/gambit/lib/setup.c | ctx->module_count++; | Count restricted by lblcount branch |
+| positive-descriptors | vendor/gambit/lib/setup.c | if (module->lblcount > 0) | Returned descriptor array is not complete native membership |
+| permanent | vendor/gambit/lib/setup.c | NULL, /* allocate as permanent object */ | Current wrapper has process storage lifetime |
+| raw-store | vendor/gambit/lib/setup.c | ___CAST(void*,module), | Raw module pointer escapes |
+| field-store | vendor/gambit/lib/setup.c | ___VECTORELEM(descr, ___MODULE_DESCR_MODULE_STRUCT) = module_scmobj; | Facade migration must cover legacy field reader |
+| program-alias | vendor/gambit/lib/setup.c | ___VECTORELEM(___VECTORELEM(ctx->program_descr, 0), ctx->module_count) = descr; | Same descriptor referenced by permanent program array |
+| setup-outside | vendor/gambit/lib/setup.c | return module->setup_mod (); | Zero-label ABI branch still executes setup hook; legal generated witness OPEN |
+| setup-sentinel | vendor/gambit/lib/setup.c | mol->linkfile.version = -1; | Setup result and loaded sentinel do not prove no partial effects |
+| bootstrap | vendor/gambit/lib/setup.c | ___GSTATE->program_descr = err; | Process owner needed before VM initialization |
+| global-alias | vendor/gambit/lib/_kernel.scm | ___RESULT = ___GSTATE->program_descr; | Program descriptor exposed by reference |
+| init-raw | vendor/gambit/lib/_kernel.scm | ___CAST(___module_struct*,___FOREIGN_PTR_FIELD(___ARG1))->init_mod | Actual reader blindly interprets raw pointer |
+| remove-cell | vendor/gambit/lib/_kernel.scm | (and x (##set-car! x #f)) | Removing registry cell cannot erase descriptor aliases |
+| register-todo | vendor/gambit/lib/_kernel.scm | TODO: make manipulation of ##registered-modules atomic | Concurrent enrollment not presently atomic |
+| supply-alias | vendor/gambit/lib/_kernel.scm | (##register-module-descr! module-ref module-descr) | Multiple supply names share descriptor identity |
+| field-setter | vendor/gambit/lib/_kernel#.scm | (##define-macro (macro-module-descr-module-struct-set! | Mutable vector accessor exists; bounded inventory is not alias closure |
+| module-callback | vendor/gambit/lib/_module.scm | (macro-module-module-descr mod) | Callback/lookup consumers preserve descriptor identity |
+| vm-publish | vendor/gambit/lib/mem.c | tail->next = ___vms; | VM topology publication precedes remaining initialization |
+| vm-glos | vendor/gambit/lib/mem.c | ___vms->glos = ___CAST(___SCMOBJ*,___ALLOC_MEM(n * sizeof (___SCMOBJ))); | Later globals allocation; list presence is not READY |
+| vm-unlink | vendor/gambit/lib/mem.c | prev->next = next; | VM unlink not proof of native detachment |
+| vm-lock | vendor/gambit/lib/mem.c | It is assumed that ___GSTATE->vm_list_mut is currently locked | Topology synchronization distinct from image gate |
+| labels | vendor/gambit/include/gambit.h.in | ___label_struct *lbltbl; int lblcount; | Native image membership includes labels and hosts |
+| ofd | vendor/gambit/include/gambit.h.in | ___WORD *ofdtbl; int ofd_length; | Relocated frame metadata needs independent ownership mapping |
+| label-copy | vendor/gambit/lib/setup.c | module->lbltbl = new_lbltbl; | Addresses can move outside image range |
+| foreign-release | vendor/gambit/lib/c_intf.c | ___FOREIGN_RELEASE_FN_FIELD(r) = ___CAST(___SCMOBJ,release_fn); | Native callback address can outlive ordinary module registry |
+| c-closure | vendor/gambit/lib/os_dyn.c | ___set_data_rc (c_closure, proc); | Scheme root alone omits native converter ownership |
+| load-publish | vendor/gambit/lib/os_dyn.c | p->next = ___dyn_mod.dl_list; | Loader handle published before setup success |
+| linker-emit | vendor/gambit/gsc/_t-c-1.scm | BEGIN_OLD_LNK | Generated linker classification can supply explicit sidecar |
+| unload | vendor/gambit/lib/os_dyn.c | dlclose (p->descr); | Known OS-reference release does not prove unmapped memory |
+| globals-fields | vendor/gambit/include/gambit.h.in | ___FAKEWORD *glotbl; int glocount; int supcount; | Member inventory is field-complete for module/linkfile shape; native dependency closure still OPEN |
+| symbols-fields | vendor/gambit/include/gambit.h.in | ___FAKEWORD *symtbl; int symcount; | Member inventory is field-complete for module/linkfile shape; native dependency closure still OPEN |
+| constant-fields | vendor/gambit/include/gambit.h.in | ___WORD *cnstbl; int cnscount; | Member inventory is field-complete for module/linkfile shape; native dependency closure still OPEN |
+| subtyped-fields | vendor/gambit/include/gambit.h.in | ___FAKEWORD *subtbl; int subcount; | Member inventory is field-complete for module/linkfile shape; native dependency closure still OPEN |
+| linkfile-fields | vendor/gambit/include/gambit.h.in | ___linkinfo *linkertbl; | Member inventory is field-complete for module/linkfile shape; native dependency closure still OPEN |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| module-struct-setter | vendor/gambit/lib/_kernel#.scm | \(##define-macro \(macro-module-descr-module-struct-set! | 1 | Exact lexical scope only; arbitrary vector/FFI aliases and preprocessing closure OPEN |
+| named-setter-kernel | vendor/gambit/lib/_kernel.scm | macro-module-descr-module-struct-set! | 0 | Exact lexical scope only; arbitrary vector/FFI aliases and preprocessing closure OPEN |
+| init-raw-reader | vendor/gambit/lib/_kernel.scm | ___CAST\(___module_struct\*,___FOREIGN_PTR_FIELD\(___ARG1\)\)->init_mod | 1 | Exact lexical scope only; arbitrary vector/FFI aliases and preprocessing closure OPEN |
+| vm-tail-insert | vendor/gambit/lib/mem.c | tail->next = ___vms; | 1 | Exact lexical scope only; arbitrary vector/FFI aliases and preprocessing closure OPEN |
+| registry-todo | vendor/gambit/lib/_kernel.scm | TODO: make manipulation of ##registered-modules atomic | 1 | Exact lexical scope only; arbitrary vector/FFI aliases and preprocessing closure OPEN |
+| descriptor-field-store | vendor/gambit/lib/setup.c | ___VECTORELEM\(descr, ___MODULE_DESCR_MODULE_STRUCT\) = module_scmobj; | 1 | Exact lexical scope only; arbitrary vector/FFI aliases and preprocessing closure OPEN |
+
+** Consumer
+
+| key | callers | custody | gap |
+|---+---+---+---|
+| native-members | linker_to_mod_or_lnk -> for_each_module -> setup_mod | Complete ownership set AND ordered effect plan | Zero-label ABI branch must be represented; no legal generated witness yet |
+| descriptor-alias | collect_moddescrs -> program_descr -> registry supply names | Same descriptor identity and permanent foreign wrapper | Untracked raw aliases pin legacy image; field overwrite insufficient |
+| vm-reservation | setup_mem_vmstate -> glos allocation -> setup_pstate | Stable RESERVED record before executable publication | VM topology is not ready owner roster |
+| bootstrap-owner | setup_modules -> GSTATE program_descr -> setup_vmstate | Process/bootstrap ownership independent of VM count | No current per-image record |
+| exit-owner | cleanup_vmstate -> cleanup_mem_vmstate -> vm unlink | Persistent tombstone until all native leases detached | Failure or unknown outcome retains debt |
+| maintenance-ffi | frame/OFD scanners and foreign release/converter | Native code data and moved metadata ownership | Prior global-unload inventory imported; full native alias closure OPEN |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| membership | Separate deduplicated ownership set and ordered linker effect plan | Producer ModuleSpec and qualified loader adapter cover every member/dependency | Descriptor subset cannot silently omit native setup members | Linker invocation can have effects; complete native image mapping OPEN |
+| reservation | Reserve owner ticket before ready publication under same close authority | Stable ImageId VM incarnation epoch and non-overflow key | Close includes pending VM initialization | Current VM list has no such enrollment |
+| late-commit | Preclose reservation may settle after close without reopening public entry | Existing accepted debt retained until known commit/abort | Initialization completion is distinct from fresh enrollment | Unknown side effects retain tombstone |
+| migration | Interned owned handle replaces raw descriptor access on migrated route | Every old field reader writer exporter and captured alias accounted | Owned facade cannot erase legacy raw escape | Permanent or untracked alias prevents unload |
+| coverage | Explicit quotient maps all native owners to represented slots | Every owner included; slot receipt implies detachment of all mapped owners | Finite model safety composes with previous AllDetached predicate | Coverage and arbitrary owner-product refinement OPEN |
+| retirement | Current-epoch receipt only after close and known quiescence | Native observer and external callback drain included | VM unlink and duplicate acknowledgments cannot authorize unload | C11/source and platform qualification OPEN |
+
+** Memory
+
+| key | publication | consumer | gap |
+|---+---+---+---|
+| reserve-close | One mutex or proven atomic ledger linearizes reserve versus close | Preclose tickets included; late reserve denied before payload access | No independent list snapshot plus gate check |
+| init-publish | Private initialization then release commit of stable owner record | Acquire validates ImageId incarnation epoch and READY or closing-settlement state | Do not hold topology/image mutex through linker callbacks GC or waits |
+| borrow-close | Reserve borrow under same authority before reading module pointer | Return last use before release decrement; acquire receipt sees drain | Raw accessor bypass and counter overflow must deny qualification |
+| receipt-retire | Release publish keyed receipt after alias/root/native detachment | Acquire aggregator checks immutable membership and owner digest | VM storage may die; control record and receipts cannot reside in image |
+| unknown | No speculative decrement on unknown setup/abort/delivery | Stable tombstone retains dependencies and provisional handle | C11 weak-memory refinement not supplied by sequential QNT |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| completeness | Avoid full-VM rescans on each repeated receipt; cache sealed membership | O(M+E) member/effect metadata and O(V+P) stable owner ledger | M members E initialization edges V owners P pending; closure must be complete |
+| parallel | Separate VM topology lock from callbacks and image lifetime control | Short authority operations per accepted enrollment/borrow | Parallel benefit conditional on lock contention and absence of untracked native aliases |
+| incremental | Keep old/new generated module generations concurrently without global restart | Generation-keyed handles and ABI dependency invalidation | Artifact replacement is not permission to free old captured frames |
+| permanent | Qualified handles permit eventual per-image release instead of whole-process retention | One stable handle per identity plus observer drain metadata | Reclaimable bytes ZERO while any untracked permanent/raw alias remains |
+| duplicate | Idempotent keyed receipt avoids duplicate completion accounting | O(V) receipt keys or equivalent compressed set | One owner receipt cannot stand for another without proven coverage |
+| language | Same modern C ownership ABI shared by GC FFI and module service | Explicit generated adapters and source refinement | No runtime speedup or incremental Zig advantage established |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| loader-reservation | resolved-linker-graph | Own provisional native handle before executing mutating linker |
+| resolved-linker-graph | ownership-membership | All native modules including zero-label ABI branch and dependencies |
+| resolved-linker-graph | ordered-initialization | Preserve edge flags order duplicate effects; not ownership dedup |
+| ownership-membership | sealed-image-manifest | Qualified ModuleSpec mapping; immutable close digest |
+| process-bootstrap-owner | owner-reservation | Module setup precedes VM ready; bootstrap not omitted |
+| VM-topology | owner-reservation | Presence is not READY; reserve stable incarnation ticket |
+| owner-reservation | private-initialization | Accepted ticket retains debt through callbacks and failures |
+| private-initialization | published-owner | Open commit or preclose settlement; no fresh postclose access |
+| private-initialization | unknown-tombstone | Unknown side effects preserve provisional ownership |
+| legacy-permanent-raw | retained-image | New facade cannot revoke escaped raw pointers |
+| sealed-image-manifest | close-authority | Freeze accepted and pending owners under same gate |
+| published-owner | local-detachment | Close borrows then drain roots frames FFI and derived work |
+| VM-exit | local-detachment | Unlink not receipt; external stable record survives |
+| local-detachment | current-keyed-receipts | Image generation VM incarnation close epoch scope match |
+| current-keyed-receipts | global-unload-permission | All required owners no pending unknown raw escape or observers |
+| unknown-tombstone | retained-image | Known recovery evidence required; no blind retry or debt erase |
+| close-authority | local-detachment | No fresh public entry; accepted preclose debt must settle |
+| close-authority | global-unload-permission | Closed immutable membership and owner manifest are mandatory guards |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| image_membership_enrollment.enumerateHelper | ImageEnrollment.enumerateHelperPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.sealMembers | ImageEnrollment.sealMembersPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.prepareOwned | ImageEnrollment.prepareOwnedPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.exposeRaw | ImageEnrollment.exposeRawPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.reserveOwner | ImageEnrollment.reserveOwnerPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.commitOpen | ImageEnrollment.commitOpenPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.closeGlobal | ImageEnrollment.closeGlobalPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.commitClosing | ImageEnrollment.commitClosingPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.abortReserved | ImageEnrollment.abortReservedPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.unknownOwner | ImageEnrollment.unknownOwnerPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.close0 | ImageEnrollment.close0Preserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.close1 | ImageEnrollment.close1Preserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.return0 | ImageEnrollment.return0Preserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.return1 | ImageEnrollment.return1Preserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.exitKnown | ImageEnrollment.exitKnownPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.reuseBeforeClose | ImageEnrollment.reuseBeforeClosePreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.issue0 | ImageEnrollment.issue0Preserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.issue1 | ImageEnrollment.issue1Preserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.observe | ImageEnrollment.observePreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.retireObserver | ImageEnrollment.retireObserverPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.borrow0 | ImageEnrollment.borrow0Preserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.borrow1 | ImageEnrollment.borrow1Preserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.rejectLate | ImageEnrollment.rejectLatePreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.rejectStale | ImageEnrollment.rejectStalePreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.unknownExternal | ImageEnrollment.unknownExternalPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.permit | ImageEnrollment.permitPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+| image_membership_enrollment.invalidateMembership | ImageEnrollment.invalidateMembershipPreserves | Extracted typed IR step; source realization and C11 remain OPEN |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| all-step | ImageEnrollment.stepPreserves |
+| reachable | ImageEnrollment.reachableSafe |
+| receipts | ImageEnrollment.permitOwnerReceipts |
+| preclose-ticket | ImageEnrollment.closeCapturesReservedOwner |
+| raw-not-erased | ImageEnrollment.facadeDoesNotEraseRawAlias |
+| required-owners | ImageEnrollmentComposition.permitCoversRequiredOwners |
+| native-coverage | ImageEnrollmentComposition.actualOwnerCoverage |
+| raw-block | ImageEnrollmentComposition.legacyRawBlocksPermit |
+
+** Seam
+
+| producer.componentId | consumer.componentId | contract | actionName | lemma |
+|---+---+---+---+---|
+| build-publisher | resource-exit | complete-member-manifest | image_membership_enrollment.sealMembers | ImageEnrollment.sealMembersPreserves |
+| host-roots | resource-exit | preclose-owner-reservation | image_membership_enrollment.reserveOwner | ImageEnrollment.closeCapturesReservedOwner |
+| continuation | resource-exit | legacy-alias-detachment | image_membership_enrollment.prepareOwned | ImageEnrollment.facadeDoesNotEraseRawAlias |
+| gc-work | resource-exit | root-and-native-detachment | image_membership_enrollment.permit | ImageEnrollmentComposition.actualOwnerCoverage |
+
+** Member
+
+| key | fields | producer | lifetime | migration |
+|---+---+---+---+---|
+| module-header | version kind sizeof_module/global/VM/processor_struct name flags | generated module initializer and setup fixup | ABI and profile scope; name bytes may be image storage | Copy value metadata only with stable identity and source/profile digest |
+| globals | glotbl glocount supcount glo_names | generated resources -> setup fixup -> VM globals | Global bindings may contain procedures/native image-dependent objects | Map global binding roots and per-VM references; name table ownership explicit |
+| symbols-keys | symtbl symcount sym_names keytbl keycount key_names | generated resources -> interning/setup | Interned identities differ from original string/table allocation ownership | Do not assume interning detaches table or other image references |
+| entry-labels | lp lbltbl lblcount | generated hosts and setup label relocation | Executable host plus relocated labels used by call/return | Lease code separately from relocated metadata; zero labels do not erase setup hook |
+| frame-metadata | ofdtbl ofd_length | generated FrameSpec/OFD and setup relocation | GC continuation and restoration retain metadata dependencies | Bind PointId/FrameSpec generation and scanner/maintenance leases |
+| heap-tables | cnstbl cnscount subtbl subcount | generated constants/subtyped objects -> setup fixup | Objects or tables may retain procedure/native addresses | Trace semantic roots and physical allocation owners separately |
+| hooks-descriptor | setup_mod init_mod script_line next moddescr | generated native hooks -> setup -> program/registry consumers | Executable callbacks raw module wrapper descriptor aliases and chain links | Preserve ordered effects; replace raw reader with owned identity only on qualified route |
+| linkfile | version kind name sym_list key_list linkertbl mol flags | generated old/new linker tables -> mutating resolution | Linker graph and ordered edge effects may outlive discovery | Deduplicate ownership membership without deduplicating initialization semantics |
+| external-dependencies | exported callbacks converter release_fn platform dependency images | native FFI installation loader and cleanup adapters | Native registries can retain code independently of Scheme roots | Require explicit dependency/export owner mapping; absence is not derivable from module fields |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| IE-history | interleaving | dev/refactoring/modern-c/models/quint/image_membership_enrollment.qnt | Optional owner reservation close settlement raw escape and incarnation histories |
+| IE-induction | induction | dev/refactoring/modern-c/models/lean/ImageEnrollment.lean | All extracted atomic steps; sequential abstract ledger only |
+| IE-composition | induction | dev/refactoring/modern-c/models/lean/ImageEnrollmentComposition.lean | Required owners imply preceding AllDetached under explicit native coverage premise |
+| IE-projection | restricted-projection | dev/refactoring/modern-c/models/lean/ImageEnrollmentAst.lean | Typed JSON binding IDs field kinds and full action roster |
+| IE-source | source-refinement | dev/refactoring/modern-c/image-membership-enrollment-design.org | Complete native members permanent raw alias closure and all owner mapping OPEN |
+| IE-platform | native-memory-order | dev/refactoring/modern-c/image-membership-enrollment-design.org | C11 gate lifetime teardown and effective build-profile refinement OPEN |

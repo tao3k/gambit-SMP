@@ -1,0 +1,324 @@
+#+TITLE: Gambit-grounded C23 thread admission and nonallocating guard registration
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+STARTUP: overview
+
+* RESEARCH Starting point: Gambit's own research
+:PROPERTIES:
+:CUSTOM_ID: gambit-thread-admission-grounding
+:BASELINE: C23
+:AUTHORITY: GambitGuardThreadAdmission
+:STATUS: research contract; native admission denied
+:END:
+
+This study starts with Gambit research and current Gambit consumers. Standards
+and other runtimes supply constraints and comparisons, not substitute proofs.
+The prior [[file:allocation-capture-guard-design.org][capture-window study]] had
+not established a Gambit-paper derivation of its thread admission/bootstrap.
+This study adds that derivation and preserves the earlier receipts unchanged.
+
+** Primary basis and historical limits
+
+[[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][Feeley and Miller, PVM (1990)]],
+section 2, describes bidirectional target information, including calling
+conventions and representations. Design inference: native entry capabilities
+belong in Scheme-generated contracts, rather than being rediscovered independently
+in C macros and callback wrappers. Historical PVM is not proof of today's ABI.
+
+[[https://www.schemeworkshop.org/2000/feeley.ps][Feeley's SFP2000 paper]] is the
+primary control/lifetime basis. Section 3 describes Gambit-C 3.0's lazy C-frame
+deallocation and its thread-interleaving problem. Section 4 proposes assigning
+native threads/stacks to C-frame segments. Section 5 explicitly says that proposal
+had not been implemented in Gambit-C. The paper also separates Scheme continuation
+extent from C-frame return lifetime. This study does not attribute the proposal
+to the current implementation or reuse its historical timing observations.
+
+The official workshop PostScript was downloaded and hashed, then converted with
+Ghostscript SAFER and pdftotext. See [[file:../../../evidence/research/guard-thread-admission/primary-paper.json][source and conversion receipt]].
+The text layer has missing glyphs; no reconstructed quotation is treated as exact.
+Author PDF endpoints were blocked; the official proceedings source supplies the
+full paper instead. Blocked tail-call/polling papers are listed as unavailable,
+not described as newly read mechanism evidence.
+
+** What this changes in the architecture
+
+The following are new design obligations inferred from those papers and source,
+not claims that the papers prove a particular guard implementation:
+
+| Responsibility | Authority and lifetime | Required distinction |
+|----------------+------------------------+----------------------|
+| ExecutionContext | Scheme GVM registers, frames and multi-shot continuation | Moving/resuming computation does not move a native C activation |
+| NativeThreadDomain | OS thread identity, cancellation baseline, context lease and TLS binding | An OS thread handle is not authorization to access Scheme |
+| NativeReturnDomain | Live C segment, native stack/thread owner, return permission | Guard retention does not resurrect a dead native frame |
+| StableGuard | Operation identity, root binding, completion and observer debt | Its ownership must survive Scheme nonlocal transfer |
+| CollectorParticipant | Actual scan membership and native-wait participation | TLS attachment alone does not make a root scannable |
+
+The modernization goal is to expose these roles in a generated native contract
+and shared C23 runtime services. A native-stack/segment design inspired by the
+paper remains a separate major research track. These guard models neither
+implement that proposal nor reduce Gambit's Scheme continuations to one-shot
+control. Any future use of multiple native stacks must account for their own
+reachability, OS/TLS constraints, resources and return semantics.
+
+** Secondary comparisons, explicitly limited
+
+- [[https://ocaml.org/manual/5.4/intfc.html][OCaml 5.4 C interface]], 12.1-12.2:
+  foreign-thread registration and runtime ownership are separate. Runtime
+  acquire/release may process asynchronous callbacks. Inference: publish cleanup
+  custody before a boundary that can raise or not return. No allocation-free
+  OCaml registration claim is made; its source fetch did not succeed this round.
+- [[https://cisco.github.io/ChezScheme/csug10.3.0/foreign.html][Chez 10.3 foreign interface]],
+  4.4 and 4.9: activation, GC eligibility and stale native contexts are distinct.
+  Inference: Gambit should separate participation from native return rights.
+  This does not establish Gambit/ Chez representation or callback equivalence.
+- [[https://www.erlang.org/doc/apps/erts/erl_nif.html][Erlang NIF reference]]:
+  dirty native work can outlive logical process termination; resource references
+  and term environments have distinct lifetimes. Inference: a stable owner must
+  retain abandoned work. Resource retention is not Gambit movable-root scanning,
+  and dirty schedulers do not provide cancellation safety for arbitrary C.
+
+The OCaml parallel-GC paper is recorded only as a reviewed abstract/bibliography
+in this cut, not a source of proved cancellation mechanics. Comparison source
+scope and unavailable fetches are retained in [[file:../../../evidence/research/guard-thread-admission/external-evidence.json][external evidence]].
+
+* RESEARCH Current source: what existing functions actually sign
+:PROPERTIES:
+:CUSTOM_ID: admission-source
+:END:
+
+[[file:../../../vendor/gambit/lib/os_thread.c][thread_init_from_self]] assigns
+pthread_self on the POSIX branch and calls a common helper that returns success.
+It does not register Scheme roots or issue a stable guard. =thread_set_pstate=
+sets binding/TLS and also calls affinity setup; it is not a leaf ownership claim.
+
+The POSIX fallback =set_tls_ptr= calls pthread_setspecific and ignores its error.
+A direct TLS branch also exists. Neither text alone qualifies the effective
+Darwin backend or proves absence of lazy allocation in TLS/library support.
+Thread-module initialization creates a TLS key with a NULL destructor, and
+cleanup deletes it. It does not provide automatic stable guard cleanup at native
+thread exit. Main setup first creates the VM, identifies the OS thread and binds
+PSTATE. This is a concrete managed startup caller, not generic foreign-thread
+admission.
+
+[[file:../../../vendor/gambit/include/_gambit/foreign_conversion.h.in][BEGIN_SFUN]]
+reads PSTATE and allocates a marker. [[file:../../../vendor/gambit/lib/c_intf.c][The rooted marker helper]]
+reloads from its supplied slot after allocation; a local slot passed by the raw
+wrapper is not thereby registered. Admission and real root coverage must precede
+this allocation. Setting TLS and then hoping marker creation will establish the
+first root is an invalid dependency cycle.
+
+[[file:../../../vendor/gambit/examples/tcltk/tcltk.scm][scheme_call_cmd]] reads
+=data_rc(client_data)= before entering generated =tcltk_call=. The existing
+command creation producer allocates/registers RC data; deletion releases it.
+The new managed producer must issue a stable source-owned ingress descriptor,
+and the callback must admit the thread before dereferencing payload or converting
+Scheme arguments. Native ClientData alone cannot supply a first safe pin after
+the block may already have been freed.
+
+[[file:../../../vendor/gambit/lib/_mem/rc-roots.inc][mark_rc]] scans the registered
+execution-context chain. A VM guard carrier needs an actual root-round adapter;
+a pointer stored in TLS or a C control cell is not automatically scanned.
+The existing resize-root protocol masks cancellation before protected work and
+restores its saved state, but is not a guard issuer. Processor retirement's
+[[file:../../../vendor/gambit/lib/_mem/capacity-resize.inc][external-RC refusal]]
+remains evidence of unclosed borrowing, not a general admission receipt.
+
+* RESEARCH Nonallocating enrollment protocol
+:PROPERTIES:
+:CUSTOM_ID: admission-protocol
+:END:
+
+** Source-owned offer and cancellation before registration
+
+A VM lifecycle owner bootstraps a bounded NativeThreadDomain directory, stable
+control cells, root carrier capacity and result records before opening the
+managed callback API. Cold bootstrap may allocate; it is not inside the claimed
+nonallocating registration span. The source/native registration producer owns
+an IngressOffer and its root/lifetime debt before the recipient arrives.
+
+Before cancellation suppression is confirmed, the recipient owns no new guard,
+performs no Scheme access, and makes no change to the registry. If cancellation
+happens first, the source retains responsibility. This is deliberately not a
+claim that the dead thread executes cleanup. Nor does it prove the offer can
+immediately be reclaimed: late arrival and copied descriptors need a producer
+closure/observer protocol. The model leaves this offer held.
+
+The control lookup must use a live process/domain anchor and expected incarnation,
+not dereference a possibly dead VM or ClientData to discover its generation.
+There is no such generic native-source issuer in the inspected path. Existing
+unmanaged SFUN entrances cannot be granted this protocol retroactively.
+
+** Successful mask to root acknowledgment
+
+1. The native adapter confirms a supported cancellation profile before claiming
+   the prepared offer. Failure/unknown outcome retains source custody; it grants
+   no Scheme access. Suppression does not prevent raw longjmp, pthread_exit or
+   arbitrary signal callbacks. Those must be excluded in the small control span.
+2. Claim the prepared guard/root/result bundle without allocation, Scheme calls,
+   user callbacks, GC-triggering helpers or hidden replenishment. A checked owner
+   lock is allowed only if its own selected implementation is qualified. Do not
+   hold that lock across TLS setup, GC rendezvous or a native call.
+3. Initialize the stable entry and release-publish its operation/generation.
+   Retain the source root until a known target root-round acknowledgment.
+   Unknown publication retains both the reservation and source responsibility;
+   query the same operation, never treat it as an absent registration.
+4. The root-round owner confirms actual slot coverage under the GC participant
+   protocol. A release/acquire store does not retroactively amend an already
+   frozen root manifest. A new foreign entrant remains control-only until this
+   acknowledgment; it must not block a collector by pretending to be an active
+   Scheme participant waiting on itself.
+5. Only then may the source release its root grant. Root readiness and context
+   ownership/TLS are separate acknowledgments. Bind a leased execution context
+   and verify the effective provider result before allocating an SFUN marker.
+   Unknown TLS/binding outcome keeps the guard and target root held.
+
+C23 provides checked arithmetic, atomics and memory-order vocabulary; it does
+not provide allocation-free TLS initialization, thread enrollment or GC roster
+registration. Effective backend, all callback/exit paths and every-round scanner
+integration remain native qualification obligations.
+
+** Application, nested entry and restore that does not return
+
+Once roots, thread/domain identity and context ownership are known, the generated
+entry may allocate its marker and call Scheme while cancellation is suppressed
+under this profile. The marker controls legal return extent, not guard custody.
+The Scheme generator retains control/continuation semantics; shared C23 services
+handle enrollment, root publication and stable cleanup authority.
+
+A nested activation gets a separate guard and root transfer. With the outer
+activation still cancellation-disabled, the inner saved state is DISABLE and
+its known exit restores DISABLE. It cannot unconditionally enable cancellation
+or settle the parent's record. The model explicitly separates nested publication
+from round acknowledgment; uncertain publication retains the child's source root.
+
+Before restoring the outer saved cancellation state, transfer completion debt
+into a stable supervisor. Restoration may never return. The supervisor must
+already own roots, context/TLS leases and any unresolved child dependency; it
+cannot depend on a statement after restoration to discover the record. Unknown
+restoration retains the same debt. Neither state means the native result was NULL.
+
+A continuation resumed later is a fresh execution admission, not response
+redelivery. Its new guard must be issued outside restored Scheme frames. An old
+receipt cannot settle a new activation. Native return rights stay attached to
+the native return domain; guard survival is not permission to return to a stale
+C stack frame. Complete multi-shot and arbitrary nesting refinement remains open.
+
+** Closing and active-root retirement
+
+Known ordinary completion may close admission, restore/detach TLS and wait for
+scan grace before retiring the active guard binding. Unknown binding, restoration
+or nested outcome cannot use this route. Legacy raw RC writers/aliases must be
+closed or refused, not silently treated as enrolled.
+
+Active-root retirement is not ticket backing free, replay-ledger deletion, VM
+teardown or native-stack reclamation. A full retirement receipt additionally
+needs late-reader/reentry closure, descriptor/code lifetime, native return-domain
+references and unresolved native effects. Those fields are not proved by the
+finite TLS/root model. Current physical free/unload permissions remain denied.
+
+* RESEARCH Concrete migration cut
+:PROPERTIES:
+:CUSTOM_ID: admission-migration
+:END:
+
+| Producer/consumer | Required refactor | Reuse and retirement boundary |
+|-------------------+-------------------+-------------------------------|
+| Scheme c-function emitter | Generate NativeEntrySpec and admitted prefix before PSTATE/marker | Reuse Scheme conversion/control semantics; raw macro prefix retires only for migrated entries |
+| Tcl command registration | Produce a generation-bearing stable ingress handle with source-root grant | Reuse command data semantics; direct unprotected data_rc copy retires after deletion/late-call closure |
+| Native callback prefix | Control-only entry, mask confirmation, checked VM/context binding | OS identity/TLS mechanisms reusable; their current unchecked results are insufficient |
+| VM guard/root registry | Preallocated entry and per-round scanner/acknowledgment | Existing mark_rc remains for legacy chain until managed root migration closes |
+| SFUN marker helper | Consume registered carrier rather than raw copied Scheme word | Rooted reload pattern reusable; marker is not an enrollment signer |
+| Stable completion service | Commit custody before restoring cancellation | Catchers reusable as transfer endpoints; manual per-frame cleanup is insufficient |
+| Context/module teardown | Require resolved guards, restored bindings, scanner and native-return grace | Current bulk cleanup cannot replace the joint receipt |
+
+A synchronous foreign callback cannot simply be moved to a different OS thread
+if that breaks its native stack return domain. Scheduling alternatives require
+a separate semantic contract; native worker count is not the number of available
+C return stacks. This is a structural redesign of the C boundary, not a Make,
+compiler-flag or language-switch workaround.
+
+* RESEARCH Actual model and evidence chain
+:PROPERTIES:
+:CUSTOM_ID: admission-model
+:END:
+
+[[file:models/sysml/guard-thread-admission.sysml][SysML]] owns component, issuer,
+source, paper, grounding, action/proof, memory-order and benefit rows. Native
+SysML evaluates it; Python orchestrates tools rather than parsing SysML.
+[[file:../../modeling/ascent/guard-thread-admission.rules.scm][ASCENT DSL]]
+joins each component to its actual source anchor, QNT action, compiled Lean
+lemma and scoped obligation, plus primary-paper grounding. A negative control
+substitutes OCaml material for the Gambit primary classification and must fail;
+another removes the full-text source witness. No file link is a proof receipt.
+
+[[file:models/quint/guard_thread_admission.qnt][Quint]] models one preissued offer,
+one outer activation and one nested admission. Its initial source root is a
+premise. Source and target are abstract root authorities, not actual slot arrays.
+Mask, root publication and TLS value 2 mean unknown. =application= is a permission
+flag, not an invocation/performance count. There is no cell reuse or unbounded
+operation allocator in this model.
+
+The [[file:../../modeling/tools/guard-thread-admission-projection.py][restricted typed-IR projector]]
+generates [[file:models/lean/GuardAdmissionAst.lean][Lean AST]].
+[[file:models/lean/GuardAdmission.lean][Lean]] proves all-step/reachable safety,
+source custody before registration, abstract root coverage, entry ordering,
+retained owner on no-return restoration, and nested restoration preserving the
+outer disabled state. The GC round acknowledgment, checked TLS result and
+stable supervisor commit are abstract events requiring native refinement.
+
+| Obligation | Finite model | Actual source qualification |
+|------------+--------------+-----------------------------|
+| Cancel before registration | No new guard; source remains owner | Preissued stable source descriptor absent |
+| Root transfer | Source retained until target round acknowledgment | VM carrier enumeration and frozen roster integration open |
+| Binding | Application requires known context/TLS | Checked effective backend and original-context restoration open |
+| Restore no-return | Stable supervisor retains root and guard | Real issuer, takeover and exception/cancellation closure absent |
+| Nested activation | Separate child root and disabled parent preserved | Arbitrary nesting, multi-shot entry IDs and native segments open |
+| Active root retirement | Closed entry and known TLS detach precede grace/retire | Actual slot/alias/descriptor/native-return proof open |
+| Gambit paper amplification | Explicit role/grounding contracts | Native C-stack segment proposal not implemented by model |
+
+The parent capture model and this model are not a proved product. The capture
+module's =issue= requires an admission/root receipt here; this module's
+=enterApplication= does not prove the allocator window is nonescaping. Shared
+operation, context incarnation and GC round identity must connect the two.
+Neither may consume a similarly named but independently issued receipt.
+The fully specified histories run once each with an explicit sample bound and
+seed; randomized step sampling is a separate check. The initial default-budget
+history invocation timed out at 60 seconds and is retained as a failure. The
+cause is not established merely by observing the default 10000-sample setting.
+
+#+begin_src python :eval never
+# Source/formal research only; no native runtime is built or tested.
+# .venv/bin/python dev/modeling/tools/guard-thread-admission-study.py
+#+end_src
+
+See [[file:../../../evidence/research/guard-thread-admission/checks.json][scoped checks]],
+[[file:../../../evidence/research/guard-thread-admission/source-witnesses.json][source evidence]],
+[[file:../../../evidence/research/guard-thread-admission/ascent-results.json][ASCENT controls]],
+[[file:../../../evidence/research/guard-thread-admission/primary-paper.json][Gambit original-paper receipt]],
+[[file:../../../evidence/research/guard-thread-admission/input.json][source/formal bindings]],
+and [[file:../../../evidence/research/guard-thread-admission/artifacts.json][artifact hashes]].
+
+* RESEARCH Net benefit and remaining costs
+:PROPERTIES:
+:CUSTOM_ID: admission-return
+:END:
+
+The [[file:guard-thread-admission-matrix.org][native SysML-derived matrix]]
+separates symbolic mechanism counts from performance. The model has no rootless
+guard interval and preserves disabled cancellation after the inner known return.
+It does not count instructions, prove real allocation-free registration, or
+qualify a native speedup. A registration contract can require zero allocator
+calls only inside a fully pre-reserved span; cold enrollment/TLS is excluded.
+
+New costs are bounded admission capacity, overlapping root grants, root-round
+acknowledgments, checked context binding, mask/restore, supervisor custody and
+late-observer grace. Unknown outcomes retain capacity and may block shutdown.
+Amortizing cold enrollment across a stable native session is conditional on
+preserved context/VM ownership; it is not permission to reuse a stale session.
+CPU, memory occupancy, blocking and semantic capability are separate axes.
+
+This work strengthens the modern-C baseline. Zig would need the same identities,
+roots, context ownership, exit handling and native return-domain proof. No extra
+Zig return, human-day estimate, or native path retirement is claimed. Retirement
+count is zero until actual issuers, callers, scanner and failure paths close.

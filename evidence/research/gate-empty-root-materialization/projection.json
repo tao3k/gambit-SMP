@@ -1,0 +1,239 @@
+{
+  "contract": [
+    {
+      "key": "derived-credit",
+      "anchor": "setup.c:206-242; prior interrupt custody contract",
+      "actionName": "exchangePending",
+      "lemmaName": "reservationBeforeExchange",
+      "guardName": "s.cs[i]==1",
+      "duty": "Consumer CAS reservation precedes pending exchange; reservation survives seal and covers empty-result completion",
+      "status": "C replacement pending"
+    },
+    {
+      "key": "producer-release",
+      "anchor": "setup.c:66-92; gambit.h.in:11014-11026",
+      "actionName": "decrementP",
+      "lemmaName": "lastDecrement",
+      "guardName": "s.ps[i]==3",
+      "duty": "Pending and wake publication plus last target access precede release decrement; all gate modifications remain RMW within incarnation",
+      "status": "SC profile candidate"
+    },
+    {
+      "key": "producer-zero",
+      "anchor": "setup.c:4834-4878; proposed native gate",
+      "actionName": "observePZero",
+      "lemmaName": "closedZeroQualified",
+      "guardName": "not(s.po)",
+      "duty": "Observe closed zero through acquire and valid RMW frontier; open zero and last contributor alone are insufficient",
+      "status": "C memory refinement conditional"
+    },
+    {
+      "key": "storage-commit",
+      "anchor": "setup.c:4834-4878; mem.c:6852-6862",
+      "actionName": "issueEmpty",
+      "lemmaName": "finalNeedsBothGates",
+      "guardName": "emptyEligible",
+      "duty": "Both gates closed and drained; exclusive pending inspection after all claims/root handoffs; native empty receipt is not whole VM retirement",
+      "status": "parent root/native obligations retained"
+    },
+    {
+      "key": "consumer-reserve",
+      "anchor": "setup.c:206-242; proposed native gate",
+      "actionName": "reserveC",
+      "lemmaName": "closedGateDenies",
+      "guardName": "s.seenCo[i]",
+      "duty": "One coherent open/count snapshot and CAS; close invalidates stale snapshot; reservation count not inferred from pending bit",
+      "status": "bounded count; no incarnation reuse"
+    },
+    {
+      "key": "root-spill",
+      "anchor": "gambit.h.in:6802-6818,7082-7098; _kernel.c:12400-12449",
+      "actionName": "spill",
+      "lemmaName": "spillMaterializes",
+      "guardName": "s.cs[i]==3",
+      "duty": "R1 may be a C local and SELF may become live carrier; spill selected carrier before GC and publish correct root location",
+      "status": "actual configuration and restore graph open"
+    },
+    {
+      "key": "root-reload",
+      "anchor": "_kernel.scm:55-72,274-283,1971-1977; mem.c:6511-6537",
+      "actionName": "reload",
+      "lemmaName": "reloadFresh",
+      "guardName": "s.cs[i]==4 or s.cs[i]==5",
+      "duty": "Collector rewrites scanned slot; reload live carrier before use; local R1 is not automatically a collector root",
+      "status": "source witness not native admission"
+    },
+    {
+      "key": "consumer-zero",
+      "anchor": "setup.c:1049-1113; prior interrupt custody contract",
+      "actionName": "observeCZero",
+      "lemmaName": "activeClaimBlocksFinal",
+      "guardName": "s.cc==0",
+      "duty": "Seal consumer gate only after producer closed-zero receipt; observe drained reservations and preserve deferred/unknown/root custody",
+      "status": "whole roster and root closure open"
+    }
+  ],
+  "gain": [
+    {
+      "key": "gate-cost",
+      "avoided": "No per-signal heap or lease object; pending remains one coalescible domain slot",
+      "added": "Per accepted callback: one snapshot load and four RMWs including wake; normal claim: one snapshot and three RMWs",
+      "condition": "Protocol counts only; SC is initial profile and weaker order is not admitted; existing flags already coalesce"
+    },
+    {
+      "key": "final-check",
+      "avoided": "Ordered gate drains establish a stable native pending inspection instead of repeated speculative emptiness",
+      "added": "Two close RMWs, at least two qualifying acquire observations, drain polling and exclusive pending inspection",
+      "condition": "No single zero or last decrement licenses VM cleanup; root/native/roster receipts remain necessary"
+    },
+    {
+      "key": "root-cost",
+      "avoided": "Reuse generated register/saved/frame scanning and existing spill-reload mechanisms",
+      "added": "For k live local carriers: k slot stores and k reloads per materialization round, plus actual frame/host overhead",
+      "condition": "Direct PSTATE registers need no extra local spill; k comes from effective masks/configuration, not an assumed constant"
+    },
+    {
+      "key": "net-condition",
+      "avoided": "Eliminate unsafe acceptance/retirement gaps and redundant competing final drain decisions",
+      "added": "Atomic admission, root completion and preserved unknown-result custody; source and memory-model proof work",
+      "condition": "No runtime speed or build-time benefit established; modern C is sufficient to express the contract; Zig removes none of these obligations"
+    }
+  ],
+  "gate": [
+    {
+      "key": "coherent-gates",
+      "qualified": false,
+      "duty": "Exact unsigned fields, non-wrap, lock-free signal ABI and no ordinary stores/reset within a live incarnation"
+    },
+    {
+      "key": "c-memory",
+      "qualified": false,
+      "duty": "C execution graph, modification-order/read-from and release/acquire proof; SC QNT is not a full C memory model"
+    },
+    {
+      "key": "closure-census",
+      "qualified": false,
+      "duty": "All producers, normal/derived writers, roots and cleanup requests covered by frozen parent domains"
+    },
+    {
+      "key": "r1-configuration",
+      "qualified": false,
+      "duty": "Actual generated artifact and effective host/local-register/argument-register settings bound to profile"
+    },
+    {
+      "key": "restore-closure",
+      "qualified": false,
+      "duty": "R1 to SELF, same-host edges, frames, saved values, exceptions and continuation captures all mapped"
+    },
+    {
+      "key": "final-authority",
+      "qualified": false,
+      "duty": "No old target access after decrement; native empty receipt separated from root/VM/OS retirement authority"
+    },
+    {
+      "key": "platform",
+      "qualified": false,
+      "duty": "Darwin signal safety and atomic lowering plus inherited host attestation remain unresolved; no native testing"
+    }
+  ],
+  "edge": {
+    "0": {
+      "dependent.key": "producer-zero",
+      "prerequisite.key": "producer-release",
+      "reason": "Last release observation must carry all prior contributions"
+    },
+    "1": {
+      "dependent.key": "consumer-zero",
+      "prerequisite.key": "producer-zero",
+      "reason": "Producer drain precedes consumer seal"
+    },
+    "2": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "consumer-reserve",
+      "reason": "Reservation exists before exchange"
+    },
+    "3": {
+      "dependent.key": "root-spill",
+      "prerequisite.key": "derived-credit",
+      "reason": "Claim ownership spans root materialization"
+    },
+    "4": {
+      "dependent.key": "root-reload",
+      "prerequisite.key": "root-spill",
+      "reason": "Reload must read relocated scanned slot"
+    },
+    "5": {
+      "dependent.key": "consumer-zero",
+      "prerequisite.key": "root-reload",
+      "reason": "Last consumer exit follows root and restoration settlement"
+    },
+    "6": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "producer-zero",
+      "reason": "Final inspection excludes future publication"
+    },
+    "7": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "consumer-zero",
+      "reason": "Final inspection excludes normal claimers"
+    },
+    "8": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "derived-credit",
+      "reason": "Pending empty cannot hide claimed active batch"
+    },
+    "9": {
+      "dependent.key": "root-spill",
+      "prerequisite.key": "consumer-reserve",
+      "reason": "Reserved target remains alive while carrier is local"
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "GER-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/gate_empty_root_materialization.qnt",
+      "subjectScope": "safe: SC atomic event order, coherent CAS snapshots, two gate drains, exclusive final pending and local spill move reload",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "GER-I",
+      "kind": "induction",
+      "subjectPath": "models/build/GateEmptyRootMaterialization.lean",
+      "subjectScope": "conditional release-frontier history preservation, closed zero and root materialization lemmas",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "GER-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/gate-empty-root-materialization-design.org",
+      "subjectScope": "actual R1 and SELF host/save/GC/reload seams; proposed gate instruction cuts versus old flag path",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "GER-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/gate-empty-root-materialization-design.org",
+      "subjectScope": "C atomic order and signal ABI, effective generated configuration, final authority and root restoration closure",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "GER-S",
+      "prerequisite.obligationId": "GER-H"
+    },
+    "1": {
+      "dependent.obligationId": "GER-S",
+      "prerequisite.obligationId": "GER-I"
+    },
+    "2": {
+      "dependent.obligationId": "GER-S",
+      "prerequisite.obligationId": "GER-E"
+    },
+    "3": {
+      "dependent.obligationId": "GER-S",
+      "prerequisite.obligationId": "ICH-S"
+    }
+  }
+}

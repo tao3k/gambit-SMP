@@ -1,0 +1,236 @@
+#+TITLE: Primitive Header Roles and Native Binding Plan
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:t
+
+* RESEARCH Architectural decision
+:PROPERTIES:
+:CUSTOM_ID: primitive-header-binding
+:AUTHORITY: GambitPrimitiveHeaderBinding
+:STATUS: conditional-source-and-formal-study
+:MAINLINE: modern-generated-C
+:END:
+
+Use one Scheme-owned semantic plan with two explicitly timed projections:
+=HeaderRoleSnapshot= and =NativeBindingPlan=. A native binding is not an
+additional linker demand retroactively applied to the header. Keep the existing
+header observation point; replace mutation during text emission only after its
+whole effect has an explicit owner. No runtime or compiler implementation is
+introduced here. The existing C artifact is inspected, never regenerated.
+
+The authority is [[file:models/sysml/primitive-header-binding.sysml][native SysML]].
+Python queries native SysML; its projection drives [[file:primitive-header-binding-matrix.org][tables]],
+[[file:diagrams/primitive-header-binding.d2][D2]], source checks, actual
+[[file:../../modeling/ascent/primitive-header-binding.rules.scm][ASCENT rules]],
+[[file:models/quint/primitive_header_binding.qnt][Quint]] and
+[[file:models/lean/PrimitiveHeader.lean][Lean step preservation]]. The preceding
+[[file:emission-view-correspondence-design.org][sealed-view study]] remains a
+separate, source-bound parent; this study narrows one unresolved seam rather
+than inheriting its missing native qualification.
+
+* RESEARCH Actual primitive and temporal source refinement
+:PROPERTIES:
+:EVIDENCE_KIND: current-source-plus-existing-generated-artifact
+:END:
+
+** Definition, discovery and resource seed
+The case is =##get-monotonic-time!= in
+[[file:../../../vendor/gambit/lib/_kernel.scm::4092][_kernel.scm]]. Its native body
+stores a clock reading into a supplied u64vector; this is an effectful primitive.
+=define-prim= in [[file:../../../vendor/gambit/lib/_gambit#.scm][the macro library]]
+selects inline support using target primitive information and otherwise creates
+an inline lambda inside =define-prim-no-inline=. The front end's global
+single-definition procedure branch names it and sets primitive?; that branch,
+not its name alone, justifies primitive treatment. Existing generated binding
+records independently establish this artifact's membership.
+
+In [[file:../../../vendor/gambit/gsc/_t-c-1.scm][the C target]], =targ-dump= seeds
+main with both demanded and supplied uses. With tree shaking disabled, other
+procedures receive supplied uses. =targ-use-prc= queues unseen code and invokes
+=targ-use-glo= for primitives. Therefore main's initial demanded status cannot be
+assumed for every primitive. Six additional =targ-use-glo= call sites in
+=_t-c-2.scm= cover global jumps, boxed reads/stores and generic operand/location conversion. In particular =targ-loc-opnd= first supplies a global then invokes =targ-opnd=, which demands it: its net effect is both roles. The source witness inventory
+includes them. A separate direct-caller audit binds the six enclosing procedures,
+boolean flags and source lines into ASCENT, which rejects a substituted caller.
+Lexical occurrence coverage is not an escape/alias proof.
+
+** Exact order and effects
+
+| Order | Current operation | Reads | Writes / observable result |
+|-------+-------------------+-------+----------------------------|
+| 1 | Discovery/use closure | interned key, primitive flag | global entry, resource vector, procedure roster |
+| 2 | heap-dump roster binding | sorted globals and primitive queue | shallow list view; vectors still alias |
+| 3 | start-dump | resource demand/supply lists | linker header bytes: s-d / s-nd / ns |
+| 4 | dump-sym-key-glo | supplied partition, global names | global index cells and DEF_GLO bytes |
+| 5 | dump-prc | procedures, labels | code, label metadata; selected host label 828 |
+| 6 | DEF_MOD_PRM loop | primitive name, index cell, label | use-glo false normalizes demanders; setup binding bytes |
+| 7 | C initialization | ordered fragment strings | opaque native text; arbitrary native effects when later run |
+| 8 | DEF_MOD_GLO loop | same primitive roster | second normalization; init binding bytes |
+| 9 | end-dump | output state | close outcome; exception/unknown outcome cannot authorize a receipt |
+
+=prm-list= and =glo-rsrc= are taken before start-dump, but the latter retains
+resource vector aliases. The header has already been serialized before native
+helper normalization. Moving normalization before step 3 changes classification
+for supplied-only entries. This is a design counterexample, not a demonstrated
+current Gambit defect. No native binding or initialization may be reordered
+across the C-init block on the basis of this study.
+
+** Existing generated artifact: narrow independent witness
+The checked-in [[file:../../../vendor/gambit/lib/_kernel.c][_kernel.c]] embeds
+"produced by Gambit v4.9.8". The selected name occurs in =globals-s-nd= at line
+895; =DEF_GLO= uses slot 146 at line 3668; the procedure block sets PH_LBL0 to
+828; both =DEF_MOD_PRM= (31416) and =DEF_MOD_GLO= (31877) use (146, encoded-name,
+828). Runtime header macros assign distinct PRM and GLO destinations to MLBL.
+The index and label agreement is statically checked across these independent
+locations. Counting the complete label-constructor roster gives INTRO ordinal
+827 and PROC ordinal 828; the native tuple points to PROC, not INTRO. The
+consumer header emits one label-struct initializer for each such constructor. This establishes textual artifact structure, not current Darwin
+configuration, generator revision, ABI layout, or executed behavior. The embedded
+version is insufficient provenance. Those relationships stay OPEN.
+
+* RESEARCH Idempotence and replacement preconditions
+:PROPERTIES:
+:PROOF: PrimitiveBindingAlgebra
+:END:
+
+For existing resource r and false use, model U(r) as replacing demanders with
+=[""]= while retaining name and suppliers. Lean proves U(U(r))=U(r), and
+U(r)=r iff demanders(r)=[""]. Classification preservation is weaker: it holds
+iff demanders were nonempty. An empty list becomes demanded; a list such as
+=["caller"]= keeps classification but loses payload information. True use has
+the symmetric supplier normalization law.
+
+These are structural value laws. The old helper still executes =vector-set!=;
+pointer/list identity, aliases, tracing, concurrent readers, exceptions and GC
+allocation are outside the value equation. An absent entry instead creates a
+new cell and table entry; an uninterned symbol raises compiler-error. Neither
+can silently become an unchecked lookup. Repeated calls require the same
+interned key/table generation and no intervening mutation. Reader/FFI mutation,
+continuation reentry, or a different table epoch invalidates that premise.
+
+Retire the two emission-time mutating uses only when:
+1. Discovery owns all semantic demand/supply effects and their error ordering.
+2. Every primitive has a unique existing global entry in the frozen roster.
+3. Global cells are resolved after the supplied/unsupplied ordering is fixed.
+4. Header values are owned copies from their original read point.
+5. Native binding tuples are owned immutable values and preserve roster order.
+6. No downstream metadata observer depends on the old late mutation; otherwise
+   provide a separate post-binding metadata result at the same logical point.
+7. All payload aliases, GC roots, exceptions and continuation reentry are closed
+   by the parent ownership contract, with unknown outcomes retaining custody.
+
+The proposed =BindingPlan= holds interned semantic identity plus owned encoded
+name, global index, procedure entry label, both store roles and provenance. It
+must not retain an unresolved mutable cell as if that were immutable data. The
+Scheme planner retains semantic discovery; modern C consumers get resolved
+values. The text emitter becomes read-only. This is a responsibility replacement,
+not a second mutable lookup layer.
+
+* RESEARCH C / ModuleSpec byte-interval contract
+:PROPERTIES:
+:STATUS: selected-artifact-observed; full-emitter-fidelity-open
+:END:
+
+The study writes a proposed witness fixture, not a production ModuleSpec.
+Offsets are zero-based half-open byte intervals in the exact SHA-bound C file,
+not character offsets, line numbers, linker addresses or preprocessed offsets.
+Each record identifies constructor kind, primitive identity, output ordinal,
+slot, label, source artifact hash, payload hash and interval. The header name,
+DEF_GLO line, PH_LBL0 line, label-table INTRO and PROC entries and both binding records are checked
+independently. Whole lines include their LF terminator; payload-field intervals
+are nested subranges. Section membership is checked before classifying the
+header name. The witness is sparse: unrelated bytes are explicitly uncovered.
+
+An accepted complete pair additionally needs an ordered partition of every byte
+(including separators, whitespace, declarations and opaque C), independent
+replay/equality verification, stable snapshot identity, successful close of both
+outputs, and no missing or duplicated constructor occurrence. One semantic
+primitive legitimately owns multiple nonadjacent spans; a single interval from
+PRM to GLO would incorrectly absorb all intervening primitives and C-init text.
+Equal counts, equal lengths, matching slot numbers or a digest copied from an
+untrusted encoder do not prove this contract.
+
+The Python byte audit independently parses selected records from immutable
+source bytes and rejects shifted spans, swapped constructor roles and a
+mismatched label. Lean proves algebraic obligations for an abstract span
+relation, including the equal-width counterexample; it does not verify Python's
+parser, SHA, complete C encoder, input transcription or native macro expansion.
+A fixture cannot discharge the production emitter-fidelity need.
+
+* RESEARCH Temporal model, refinement and ownership
+The actual QNT has twelve projected actions. demand=0 is empty, =1 is the exact
+canonical singleton and =2 abstracts any other nonempty list. The model retains
+headerDemand independently after the header cut; emitPrm normalizes current
+demand while preserving headerDemand; emitGlo normalizes again. Exact list
+algebra is proved separately in Lean, so the three-valued quotient does not
+pretend to preserve arbitrary metadata identity.
+
+The extractor checks actual Quint typed-IR variable binding IDs, field kinds,
+supported expressions and the full step roster before emitting Lean AST. Lean
+proves every projected step preserves Safe and hence every finite reachable
+state does. Histories retain missing binding, missing close, missing coverage
+and lost-demand controls. A hoisted-demand history is safe in the local state
+machine yet changes header observation: Safe alone is not observational
+equivalence. This counterexample remains explicit.
+
+=checkCoverage= represents an external qualified verifier, not a proof that the
+production verifier exists. =issue= requires coverage and successful closure;
+=unknownOutput= retains the failed/unknown transaction without authorizing a
+receipt. Rejection is modeled without mutating the sealed demand value. Full
+error precedence, GC root protection, recursive macro execution and multi-shot
+continuation operation identity remain source-refinement obligations.
+
+Modern C publication would initialize an owned snapshot before release
+publication and acquire it before reading; readers must pin its generation until
+completion. Closing admission, draining readers and reclaiming cells/storage
+are separate obligations. Do not share the current Scheme resource vectors and
+assume C11 atomics make them safe. The present sequential model proves none of
+these C11 lifetime protocols; ASCENT leaves PH-platform blocked.
+
+* RESEARCH Benefit and added overhead
+For P primitive records the old module helper performs exactly two iterations
+per primitive, with one false use-glo in each: 2P mutation-capable calls, not a
+measured time saving. The existing artifact has 455 matching PRM and GLO tuples: 910 binding records. This is a static artifact count; a matching generation with the inspected helper would execute 910 use-glo calls. A precomputed plan can remove those emission-time calls
+while retaining two native stores and ordered C initialization. It introduces
+P owned records, 2P read consumers, O(P) span metadata and O(C) byte verification
+for a complete C/Spec pair. The header is already emitted once today; claiming
+that current Gambit repeats that pass would be false.
+
+Let D be duplicate planning work avoided in a future dual-consumer design,
+K the required plan construction, S owned storage/copying, V byte verification
+and A profile qualification. A necessary positive-net condition is
+=2P helper-work + D > K + S + V + A= under equivalent semantics. Some helper
+work may move to planning rather than disappear; count it on K. No timing,
+allocation reduction percentage or macOS speedup is established. The same C
+bytes retain preprocessing and compilation cost. This change enables faithful
+incremental artifacts; it alone does not solve Darwin compile latency.
+
+* RESEARCH Closure and retirement sequence
+
+| Layer | Established in this study | Still open |
+|-------+---------------------------+------------|
+| Source order | header precedes index/body/native helpers; two binding loops | all dynamic aliases, exceptional order and legal-domain closure |
+| Existing artifact | selected header/slot/label/both binding spans | exact current source and Darwin build provenance |
+| QNT / Lean | bounded histories; all-step conditional invariant; value algebra | whole-source refinement, native progress and semantic equivalence |
+| ASCENT | action/lemma/source/span/migration checks and adversarial mismatches | PH-source, PH-emission, PH-platform |
+| Retirement | explicit seven preconditions and ordered migration cuts | no production path retired by this research |
+| Benefits | exact helper count and complexity boundaries | timing, native ABI and end-to-end net gain |
+
+Migration order is header value snapshot → fixed layout and binding tuples →
+read-only PRM/GLO consumers → paired byte coverage and close → profile-qualified
+admission. Only then remove the old helper calls from emission. Preserve the
+existing native stores and error paths until equivalent consumers are proved.
+The parent all-writer freeze and this selected-plan seam must both hold; neither
+receipt substitutes for the other.
+
+* RESEARCH Reproduction and evidence
+#+begin_example
+.venv/bin/python dev/modeling/tools/primitive-header-binding-study.py
+#+end_example
+The displayed command invokes only Python orchestration, native SysML, ASCENT,
+Quint, Lean and D2. It never invokes gsc, a C compiler, a native executable or a
+performance test. See [[file:../../../evidence/research/primitive-header-binding/checks.json][check receipt]],
+[[file:../../../evidence/research/primitive-header-binding/byte-witness.json][byte evidence]],
+[[file:../../../evidence/research/primitive-header-binding/ascent-results.json][ASCENT controls]] and
+[[file:../../../evidence/research/primitive-header-binding/input.json][source lock]].

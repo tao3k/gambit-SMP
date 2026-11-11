@@ -1,0 +1,132 @@
+#+TITLE: Node storage — allocation identity, field footprints and caller closure matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitNodeStorageAuthority
+:END:
+Safety-model closure does not certify native caller coverage, C23 execution or performance.
+
+** Gain
+
+| key | saved | added | condition | status |
+|---+---+---+---+---|
+| node-map | reuse logical NodeId through free-list reordering and role changes; do not treat1201 nodes as one contiguous allocation | allocation ticket/incarnation and slot table; positive metadata bytes depend on actual layout | valid injective table into live800-slot batches; allocator source contract qualified | conditional |
+| field-footprint | derive cache-field/node-payload separation from disjoint live allocation regions without hardcoded offsets | field containment, allocator separation and effective-type evidence; union overlay remains intentionally overlapping | symbolic subfield disjointness proof; native spans unresolved | conditional-model |
+| diagnostic | known Tcl_GetMemoryInfo has no direct object-tail dereference, so no reason to pin transferred tail for those direct fields | cache metadata lease and owner-ready view; DString/provider callouts remain open | complete diagnostic caller closure before admission | source-bound/conditional |
+| opaque-query | stable ID lookup can outlive cache reuse without reading stale pointer target | independent record lifetime, allocation/source generation tracking and lookup service | process-lived record witness; record compaction/reuse not proved | conditional-model |
+| global-gain | potentially retire raw address based validation only after complete binding and caller qualification | lease/gate traffic and alias rejection; no reduction of prior2001 link reads; old retired0 | global native evidence incomplete; no measured speedup or Zig-specific gain | unresolved |
+
+** Consumer
+
+| key | source | access | lifetime | limit |
+|---+---+---+---+---|
+| cache-last | put-last | store retained pointer into Cache.lastPtr only | source cache allocation and actual struct field | not a payload release/barrier on prior target |
+| diagnostics | diagnostic | listLockPtr, Cache.owner/nextPtr and bucket counters plus DString calls | cache metadata and actual callout closure | no direct tail target read; indirect allocation/instrumentation unresolved |
+| nr-callback | callback-dispatch | procPtr receives callbackPtr->data interior pointer | borrowed callback node/data during admitted call | possible raw copy is not permission to use pointer after generic free |
+| object-hooks | object-callback | allocated Tcl_Obj representation and type callbacks | allocated object role | union fields overlap; old free-list observer has no lease |
+| gambit-string-bridge | gambit-callback | RC vector via data_rc, string argv and result handoff | existing RC/string contracts | no direct Cache pointer supplied here; indirect Scheme/Tcl evaluation remains open |
+| late-lookup | prior | stable key and slot/incarnation metadata, no old C pointer dereference | independent record service | raw address equality does not reacquire storage authority |
+
+** Issuer
+
+| key | source | signature | gap |
+|---+---+---+---|
+| allocation-owner | node-chunk | allocation success, fresh storage incarnation, live chunk and valid slot before publication | current Tcl allocator has no installed stable ticket/node table |
+| binding-owner | cache-owner | owner initialized plus layout/provenance and generation-bound map before native lookup | raw list insertion occurs earlier; cannot reuse it as this receipt |
+| reader-owner | callback-dispatch | all reader/writer roles registered and escaping callback aliases refused or independently transferred | arbitrary native callbacks cannot be certified by a textual grep |
+| retire-owner | tls-cleanup | known source completion, admission closed, all native metadata/payload leases detached and actual cleanup complete | TLS/provider and persistent record lifetime remain separate |
+
+** Writer
+
+| key | source | access | closure | limit |
+|---+---+---+---+---|
+| cache-init | zero-all | whole Cache memset then owner/list/TLS writes | captured function | publication ordering and platform TLS calls not closed |
+| object-refill | node-chunk | TclThreadAllocObj writes Cache.lastPtr and object chunk links | captured function | allocator and panic/provider effects open |
+| empty-return | put-tail | TclThreadFreeObj sets lastPtr for previously empty cache | captured function | selected allocator profile required |
+| move | put-last | MoveObjs destination lastPtr plus node tail link; PutObjs old-tail read/final field write | captured functions | cross-thread/context and global reader admission not established |
+| diagnostic | diagnostic | owner/list/bucket reads; no Cache.lastPtr target access in this body | direct body only | DString/format/provider indirect closure unresolved |
+| overlay | callback-overlay | NRE proc/data/next fields reuse Tcl_Obj-sized memory | macro and dispatch body | interior callback alias escape and all registered procs unresolved |
+| object-role | object-callback | TclNewObj field writes and public Tcl_ObjType callbacks | declarations/macros | all user-defined type implementations and trace hooks unresolved |
+| free | cache-free | TclFreeAllocCache flush/unlink/native free | direct body only | keep0/bucket/TLS destructor and generation closure unresolved |
+
+** Refinement
+
+| key | lemma | source | premise |
+|---+---+---+---|
+| field-separation | NodeStorageAuthority.subfieldsApart | alloc-distinct | both fields contained in disjoint live allocation regions; no numeric ABI invented |
+| union-overlap | NodeStorageAuthority.unionRoleNotApart | object-union | same nonempty byte span cannot be disjoint; different role names do not change this |
+| allocation-key | NodeStorageAuthority.freshIncarnation | cache-free | stable incarnation differs even when storage address is reused |
+| node-injection | NodeStorageAuthority.bindingIdentity | node-chunk | injective NodeId to allocation-key/slot mapping is external admission evidence |
+| native-edge | NodeStorageAuthority.walkToNative | prior | prior canonical graph and NativeRel injective binding/edge witness, valid cursor |
+| raw-list | NodeStorageAuthority.rawListNotBinding | cache-list | raw list visible while owner still uninitialized; managed lookup gate remains closed |
+| role-authority | NodeStorageAuthority.postHandoffNoPayload | put-unlock | metadata hold is distinct from transferred target read authority |
+| record-lifetime | NodeStorageAuthority.opaqueRecordSurvivesCache | prior | independent never-reused record; opaque lookup does not dereference retired cache |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| binding-safety | conditional-model | stable independently lived IDs, admitted registry, closed reader set and external layout/allocator evidence |
+| local-census | source-bound | all arrow Cache.lastPtr occurrences in captured allocator file classified; whole-cache memset and macro/callback overlays listed |
+| native-provenance | unresolved | actual live allocation tickets, slot bounds, field spans, effective types and loaded C23 profile |
+| global-readers | unresolved | DTrace, Tcl object/NR callbacks, diagnostics appenders, raw extensions and platform TLS closure |
+| registration-window | unresolved | raw GetCache list publication precedes owner initialization; it cannot issue complete binding receipt |
+| retirement | unresolved | source cache cleanup plus leases/unknown outcomes and independent record lifetime; no generation wrap |
+| full-refinement | unresolved | external native mapping witness and parent-product/control-flow/mutex refinement; no native execution qualification |
+
+** Route
+
+| actionName | lemma | source | obligation |
+|---+---+---+---|
+| publishRawList | NodeStorageAuthority.publishRawListPreserves | cache-list | binding-safety |
+| initializeOwner | NodeStorageAuthority.initializeOwnerPreserves | cache-owner | binding-safety |
+| attestDisjoint | NodeStorageAuthority.attestDisjointPreserves | alloc-distinct | binding-safety |
+| bindNodeMap | NodeStorageAuthority.bindNodeMapPreserves | node-chunk | binding-safety |
+| sealReaderClosure | NodeStorageAuthority.sealReaderClosurePreserves | prior | binding-safety |
+| exposeAlias | NodeStorageAuthority.exposeAliasPreserves | callback-overlay | binding-safety |
+| revokeSeal | NodeStorageAuthority.revokeSealPreserves | trace-hook | binding-safety |
+| rejectAlias | NodeStorageAuthority.rejectAliasPreserves | prior | binding-safety |
+| acquireMetadata | NodeStorageAuthority.acquireMetadataPreserves | diagnostic | binding-safety |
+| returnMetadata | NodeStorageAuthority.returnMetadataPreserves | diagnostic | binding-safety |
+| acquirePayload | NodeStorageAuthority.acquirePayloadPreserves | put-tail | binding-safety |
+| returnPayload | NodeStorageAuthority.returnPayloadPreserves | put-tail | binding-safety |
+| knownHandoff | NodeStorageAuthority.knownHandoffPreserves | put-unlock | binding-safety |
+| unknownHandoff | NodeStorageAuthority.unknownHandoffPreserves | put-unlock | binding-safety |
+| consumerAllocate | NodeStorageAuthority.consumerAllocatePreserves | new-object | binding-safety |
+| fixSourceLast | NodeStorageAuthority.fixSourceLastPreserves | put-last | binding-safety |
+| publishCompletion | NodeStorageAuthority.publishCompletionPreserves | prior | binding-safety |
+| closeAdmission | NodeStorageAuthority.closeAdmissionPreserves | cache-free | binding-safety |
+| attestCleanup | NodeStorageAuthority.attestCleanupPreserves | tls-cleanup | binding-safety |
+| retireCache | NodeStorageAuthority.retireCachePreserves | cache-free | binding-safety |
+| lookupOpaque | NodeStorageAuthority.lookupOpaquePreserves | prior | binding-safety |
+| probeCurrentCache | NodeStorageAuthority.probeCurrentCachePreserves | diagnostic | binding-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| cache-list | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | firstCachePtr = cachePtr; | visible list insertion precedes owner initialization |
+| cache-owner | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | cachePtr->owner = Tcl_GetCurrentThread(); | owner stored after listLockPtr unlock |
+| alloc-distinct | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | cachePtr = TclpSysAlloc(sizeof(Cache), 0); | separate allocation from node chunks; allocator/provenance contract still required |
+| node-chunk | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | newObjsPtr = TclpSysAlloc(sizeof(Tcl_Obj) * numMove, 0); | fresh object batch800; arbitrary later free-list order |
+| zero-all | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | memset(cachePtr, 0, sizeof(Cache)); | whole-object initialization writes implicit fields |
+| cache-layout | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | typedef struct Cache { | private full Cache includes lastPtr and buckets |
+| cache-prefix | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | typedef struct AllocCache { | public prefix excludes lastPtr; common prefix is not a C23 alias proof |
+| object-union | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tcl.h | } internalRep; | free link shares union storage with alternate Tcl object roles |
+| put-tail | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | fromPtr->lastPtr->internalRep.twoPtrValue.ptr1 = sharedPtr->firstObjPtr; | last target access under shared lock |
+| put-unlock | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_MutexUnlock(objLockPtr); | target read capability closed before exposing batch |
+| put-last | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | fromPtr->lastPtr = lastPtr; | write cache field without target dereference |
+| diagnostic | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_GetMemoryInfo( | directly reads owner, nextPtr and bucket statistics; indirect call closure open |
+| diagnostic-callout | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_DStringAppendElement(dsPtr, buf); | formatting/append target effects need separate source closure |
+| callback-overlay | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | _callbackPtr->data[3] = (ClientData)(data3); | NRE storage overlays Tcl_Obj; temporal role exclusion required |
+| callback-dispatch | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | result = procPtr(callbackPtr->data, interp, result); | callback receives interior data-array alias before generic node free |
+| object-callback | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tcl.h | Tcl_FreeInternalRepProc *freeIntRepProc; | public type hooks can manipulate allocated object representation |
+| trace-hook | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | #define	TCL_DTRACE_OBJ_CREATE(objPtr)	TCL_OBJ_CREATE(objPtr) | enabled instrumentation provider not captured/qualified |
+| new-object | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | (objPtr)->typePtr  = NULL; | allocation role change is distinct from physical allocation lifetime |
+| cache-free | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | TclpSysFree(cachePtr); | native cache free can enable address reuse |
+| tls-cleanup | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | TclpFreeAllocCache(cachePtr); | platform TLS destructor/free ordering remains unresolved |
+| gambit-callback | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call (___EXT(___data_rc) | known bridge takes RC payload and string argv, not Cache lastPtr directly |
+| prior | dev/refactoring/modern-c/models/quint/putobjs_move_graph.qnt | action initializeTailPayload= | actual prior tail role transition and retained source activation |

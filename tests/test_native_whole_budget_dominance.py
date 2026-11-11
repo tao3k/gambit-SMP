@@ -1,8 +1,9 @@
 """Native Scheme policy controls for a stronger containing suite deadline."""
 import copy
+import json
 import unittest
 
-from gambit_smp.ascent_program import engine_api, load_catalog, query
+from gambit_smp.ascent_program import engine_api, load_catalog, load_evidence_catalog, query
 from gambit_smp.framework import ROOT
 
 
@@ -70,6 +71,65 @@ class WholeBudgetDominanceTests(unittest.TestCase):
         self.assertEqual([("RETRY_ELIGIBLE",)], self.evaluate()["decision"])
         self.facts["requested_budget"] = [["old", "suite-step", 300001]]
         self.assertEqual([("DENY",)], self.evaluate()["decision"])
+
+    def test_official_make_bridge_requires_containment_and_original_cap(self):
+        self.facts["budget_regime"] = [["old", "whole-sequential", "upstream-make"]]
+        self.facts["required_budget"] = [["old", "suite-step"]]
+        self.facts["original_budget"] = [["old", "suite-step", 300000]]
+        self.assertEqual([("RETRY_ELIGIBLE",)], self.evaluate()["decision"])
+        self.facts["review_current_file"] = [["old", "a"]]
+        self.assertEqual([("DENY",)], self.evaluate()["decision"])
+        self.facts["review_current_file"] = [["old", "a"], ["old", "b"]]
+        self.facts["requested_budget"] = [["old", "suite-step", 300001]]
+        self.assertEqual([("DENY",)], self.evaluate()["decision"])
+
+    def test_official_check_scope_projects_gsi_without_false_gsc(self):
+        contract = json.loads((ROOT / "evidence/research/ci/upstream-tests.json").read_text())
+        targets = contract["targets"]
+        facts = {
+            "selected_make_target": [["check"]],
+            "make_dependency": [[name, child] for name, row in targets.items()
+                                for child in row["dependencies"]],
+            "make_unit_selection": [[name, selection] for name, row in targets.items()
+                                    for selection in row["unitSelections"]],
+            "make_unit_mode": [[name, mode] for name, modes in contract["unitModes"].items()
+                               for mode in modes],
+        }
+        catalog = load_evidence_catalog(ROOT / "evidence/dsl/upstream-test-scope.ss",
+                                        constructor="make-upstream-test-scope", trusted=True)
+        with engine_api(retain=True) as (engine, _):
+            observed = query(facts, catalog,
+                             {"mode": "review_unit_mode", "scope": "review_make_scope",
+                              "cycle": "scope_cycle"}, engine=engine, reuse_program=True)
+        self.assertEqual([("gsi",)], observed["mode"])
+        self.assertIn(("test11",), observed["scope"])
+        self.assertEqual([], observed["cycle"])
+
+    def test_budget_toolchain_disjoint_does_not_waive_assertion_failures(self):
+        facts = {"retry_marker": [[True]], "known_failure": [["budget", "gsc"], ["assertion", "gsc"]],
+                 "selected_failure": [["budget"], ["assertion"]],
+                 "failure_category": [["budget", "budget"], ["assertion", "assertion"]],
+                 "failure_scope": [["budget", "03-number/_num.scm"],
+                                   ["assertion", "06-thread/thread_start.scm"]],
+                 "budget_toolchain_distinct": [["budget"], ["assertion"]]}
+        with engine_api(retain=True) as (engine, _):
+            observed = query(facts, self.catalog,
+                             {"disjoint": "failure_campaign_disjoint", "review": "review_required"},
+                             engine=engine, reuse_program=True)
+        self.assertEqual([("budget", "gsc")], observed["disjoint"])
+        self.assertEqual([("assertion", "gsc")], observed["review"])
+
+    def test_watchdog_migration_invalidates_only_historical_budget_comparison(self):
+        facts = {"retry_marker": [[True]], "known_failure": [["budget", "gsc"], ["assertion", "gsc"]],
+                 "selected_failure": [["budget"], ["assertion"]],
+                 "failure_category": [["budget", "budget"], ["assertion", "assertion"]],
+                 "budget_watchdog_distinct": [["budget"], ["assertion"]]}
+        with engine_api(retain=True) as (engine, _):
+            observed = query(facts, self.catalog,
+                             {"disjoint": "failure_campaign_disjoint", "review": "review_required"},
+                             engine=engine, reuse_program=True)
+        self.assertEqual([("budget", "gsc")], observed["disjoint"])
+        self.assertEqual([("assertion", "gsc")], observed["review"])
 
 
 if __name__ == "__main__":

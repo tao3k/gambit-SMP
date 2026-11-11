@@ -1,0 +1,29 @@
+direction: down
+classes: {
+  gate: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+  candidate: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+  gap: {style.fill: "#FBE9E7"; style.stroke: "#A54A3B"}
+}
+request: "Collector profile request\nMain-image subtype + SDK + exact reader\nRequired imports + platform + deployment\nNo product dependency on libdtrace" {class: gate}
+tapi: "Version-specific stub selection" {
+  older: "TAPI 1300 historical path\nExact hit OR non-exact same-CPU fallback\nExact arm64 request misses inspected stub" {class: candidate}
+  newer: "TAPI 1600 inspected path\nNon-exact miss returns requested arch\nExport filtering still uses that arch\nParsing does not prove usable imports" {class: candidate}
+}
+request -> tapi.older
+request -> tapi.newer
+imports: "U01: actual imports must be established\nPublished versions are not installed identity\nNo rewritten stub or forced compatibility" {class: gate}
+tapi.older -> imports
+tapi.newer -> imports
+profiles: "Alternative candidates; no automatic fallback" {
+  c0: "C0: arm64 collector\nOS arm64e library interoperability\nExact installed reader remains unresolved" {class: candidate}
+  c1: "C1: arm64e collector\nMatching system library and callback ABI\nLaunch / distribution policy unresolved" {class: candidate}
+}
+imports -> profiles.c0
+imports -> profiles.c1
+runtime: "U02: independent loading gate\nOS-established process mode and architecture grade\nKernel / dyld / cache / library identities\nPlatform, dependency validation and signing\nNo manual authentication policy changes" {class: gate}
+profiles.c0 -> runtime
+profiles.c1 -> runtime
+callbacks: "U03: typed callbacks and layouts\nSelected ABI + compiler flags + library revision\nPrivate pointers stay in isolated collector" {class: gate}
+runtime -> callbacks
+probe: "U04-U06: each probe still needs admission\nVisibility / recipe / fidelity / loss / association\nLink and load success cannot qualify a probe" {class: gap}
+callbacks -> probe

@@ -1,4 +1,5 @@
 """Bound disposable Gambit source trees; preserve evidence when pruning them."""
+from gambit_smp.task_processes import run as _task_run
 import argparse
 from contextlib import contextmanager
 import fcntl
@@ -22,8 +23,35 @@ def source_trees(root):
 
 
 @contextmanager
-def source_capacity(destination):
+def source_capacity(destination, *, staging=False):
     destination = Path(destination).resolve()
+    task = next((parent for parent in destination.parents
+                 if parent.parent.name == 'tasks' and parent.parent.parent.name == '.cache'), None)
+    if task is not None:
+        from gambit_smp.artifact_storage import fixture_root
+        root = task.parent.parent.parent
+        active_root = os.environ.get('GAMBIT_SMP_TASK_ROOT')
+        if active_root:
+            if root != Path(active_root).resolve():
+                raise ValueError('nested task stores cannot allocate another source tree')
+            from gambit_smp.workspace import task_output
+            if task_output(root, destination) != destination:
+                raise ValueError('source allocation requires current task ownership')
+        if staging:
+            # Only the incremental materializer opts into a disposable delta.
+            yield
+            return
+        try:
+            fixture_root(root, destination)
+        except ValueError as error:
+            raise ValueError('task source trees require a maintained build product; reuse the producer, not an attempt copy') from error
+        if active_root:
+            from gambit_smp.work_items import admit
+            products = admit(root, task.name, os.environ.get('GAMBIT_SMP_TASK_PROCESS')).get('buildProducts')
+            if products is not None and destination.parent.parent.name not in products:
+                raise ValueError('source allocation requires a registered build product')
+        yield
+        return
     managed = next((parent for parent in destination.parents
                     if parent.name == "fixtures" and parent.parent.name in {".cache", ".data"}), None)
     if managed is None:
@@ -33,19 +61,28 @@ def source_capacity(destination):
     with (managed / ".source-capacity.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         trees = source_trees(managed)
-        if len(trees) >= 2 and destination not in trees:
-            raise ValueError("fixture source limit is 2: reuse or prune an inactive tree first")
+        fixtures = {tree.relative_to(managed).parts[0] for tree in trees}
+        fixture = destination.relative_to(managed).parts[0]
+        if len(fixtures) >= 2 and fixture not in fixtures:
+            raise ValueError("fixture source limit is 2: reuse or prune an inactive fixture first")
         yield
 
 
 def prune(root, keep, archive, *, apply=False, targets=None, discard=None):
     root = Path(root).resolve(strict=True)
     if not (root.name == "fixtures" and root.parent.name in {".cache", ".data"}
+            or root.name == 'fixtures' and root.parent.parent.name == 'tasks'
+               and root.parent.parent.parent.name == '.cache'
             or root.name in {".cache", ".data"}):
         raise ValueError("cleanup is restricted to project data stores")
     if root.name in {".cache", ".data"} and targets is None:
         raise ValueError("explicit cleanup targets required")
-    with (root / ".source-capacity.lock").open("a") as lock:
+    lock_path = root / '.source-capacity.lock'
+    if root.name == 'fixtures' and root.parent.parent.name == 'tasks':
+        locks = root.parent.parent.parent / 'workspace-leases'
+        locks.mkdir(exist_ok=True)
+        lock_path = locks / ('prune-' + hashlib.sha256(str(root).encode()).hexdigest() + '.lock')
+    with lock_path.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         return _prune(root, keep, archive, apply=apply, targets=targets, discard=discard)
 
@@ -87,7 +124,7 @@ def _prune(root, keep, archive, *, apply=False, targets=None, discard=None):
     if not apply:
         return record
     # lsof includes cwd and executable mappings, not just explicitly open files.
-    observed = subprocess.run(["lsof", "-n", "-P", "-F", "n"], capture_output=True, text=True, timeout=60)
+    observed = _task_run(["lsof", "-n", "-P", "-F", "n"], capture_output=True, text=True, timeout=60)
     if observed.returncode not in (0, 1) or not observed.stdout:
         raise ValueError("cannot inspect active files; refusing cleanup")
     active = [line[1:] for line in observed.stdout.splitlines() if line.startswith("n/")]
@@ -109,7 +146,10 @@ def _prune(root, keep, archive, *, apply=False, targets=None, discard=None):
     if receipt.exists():
         raise ValueError("cleanup receipt already exists")
     receipt.write_text(json.dumps(record, indent=2) + "\n")
-    lease_root = (root.parent if root.name == "fixtures" else root) / "workspace-leases"
+    store = root.parent if root.name == 'fixtures' else root
+    if root.name == 'fixtures' and root.parent.parent.name == 'tasks':
+        store = root.parent.parent.parent
+    lease_root = store / 'workspace-leases'
     lease_root.mkdir(exist_ok=True)
     for target in targets:
         key = hashlib.sha256(str(target).encode()).hexdigest()
@@ -125,6 +165,41 @@ def _prune(root, keep, archive, *, apply=False, targets=None, discard=None):
     record["evidencePreserved"] = True
     receipt.write_text(json.dumps(record, indent=2) + "\n")
     return record
+
+
+def discard_bindings(root, declaration, targets):
+    """Resolve reproducible duplicates from one retained artifact, not guessed suffixes."""
+    if declaration.get('schema') != 'artifact-backed-source-discard.v1':
+        return declaration
+    from gambit_smp.framework import digest
+    from gambit_smp.runtime_artifact import archive_manifest
+    from gambit_smp.recipes import tree_identity
+    import tarfile
+    root = Path(root).resolve(strict=True)
+    archive = Path(declaration['archive']).resolve(strict=True)
+    if digest(archive) != declaration['sha256']:
+        raise ValueError('discard generation archive changed')
+    with tarfile.open(archive) as stream:
+        value = archive_manifest(stream, verify_runtime=True)
+    selected = {str(Path(path).resolve().relative_to(root)) for path in targets or ()}
+    if selected != set(declaration['trees']):
+        raise ValueError('discard generation must bind the exact selected trees')
+    bindings = {}
+    for name, kind in declaration['trees'].items():
+        if kind not in {'runtime', 'source'}:
+            raise ValueError('discard tree requires its runtime or materialized-source inventory')
+        target = root / name
+        if archive.is_relative_to(target):
+            raise ValueError('reproduction archive cannot be removed with its duplicate')
+        expected = value['files'] if kind == 'runtime' else value['sourceIdentity']
+        for path, row in tree_identity(target).items():
+            relative = Path(name) / path
+            if (row == expected.get(path) == value['files'].get(path) and 'sha256' in row
+                    and relative.suffix not in {'.json', '.log', '.md', '.out', '.err', '.stdout', '.stderr'}):
+                bindings[relative.as_posix()] = row['sha256']
+    if digest(archive) != declaration['sha256']:
+        raise ValueError('discard generation changed during planning')
+    return bindings
 
 
 def _retire_tree(root, target, archive, discard, record, expected_inode):
@@ -183,27 +258,34 @@ def _retire_tree(root, target, archive, discard, record, expected_inode):
         raise ValueError("source inventory changed during archival")
     record["inventories"][target.relative_to(root).as_posix()] = inventory
     (archive / "receipt.json").write_text(json.dumps(record, indent=2) + "\n")
-    shutil.rmtree(target)
+    from gambit_smp.storage_policy import retiring_fixture
+    with retiring_fixture(target):
+        shutil.rmtree(target)
     record["removed"].append(str(target.relative_to(root)))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--keep", type=Path, action="append", required=True)
+    parser.add_argument("--keep", type=Path, action="append", default=[])
     parser.add_argument("--target", type=Path, action="append")
     parser.add_argument("--discard-bindings", type=Path,
-                        help="exact caller-reviewed reproducible source path/SHA map")
+                        help="exact reproducible source path/SHA map or artifact-backed discard declaration")
     from gambit_smp.artifact_storage import runtime_argument
     parser.add_argument("--archive", type=runtime_argument, required=True)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    discard = None if args.discard_bindings is None else json.loads(args.discard_bindings.read_text())
+    discard = None if args.discard_bindings is None else discard_bindings(
+        args.root, json.loads(args.discard_bindings.read_text()), args.target)
     record = prune(args.root, args.keep, args.archive, apply=args.apply, targets=args.target, discard=discard)
     print(json.dumps({"planned": len(record["planned"]), "removed": len(record["removed"]),
                       "retained": record["retained"], "activeProtected": record.get("activeProtected", []),
                       "gitProtected": record.get("gitProtected", [])}))
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('fixture-storage')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('fixture-storage',main))

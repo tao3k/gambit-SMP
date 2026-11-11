@@ -1,0 +1,231 @@
+#+TITLE: Shared mailbox publication, roots and scan authority
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+PROPERTY: HEADER-ARGS :eval never
+
+* Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: mailbox-publication-ownership
+:AUTHORITY: GambitMailboxPublication
+:STATUS: SOURCE-COUNTEREXAMPLE-RETAINED; BOOTSTRAP-OBSERVED; SCOPED-TEST-RESULTS-BELOW; COMMIT-BLOCKED
+:END:
+[[file:models/sysml/mailbox-publication.sysml][SysML]] owns responsibilities, retirement boundaries, transfers and evidence
+obligations. Native SysML evaluation produces the input to
+[[file:../../modeling/ascent/mailbox-publication.rules.scm][ASCENT]]. Gambit owns the actual Scheme scheduler changes and independently
+named native tests. No new QNT schedule or Lean theorem is introduced:
+CS-SCHEDULE covers continuation GC/root/wind/reentry permit histories only;
+CS-COHERENCE covers authentic issued-view relocation algebra only. Neither
+proves mailbox FIFO linearizability. These original obligations apply to the
+root/continuation boundary; mailbox publication has separate source/native
+refinement obligations and no new formal closure claim.
+
+* What failed, and what can be proved
+:PROPERTIES:
+:CUSTOM_ID: mailbox-message32-evidence
+:HISTORICAL_RESULT: FAILED; EXPECTED-32; ACTUAL-VALUE-UNRECORDED
+:END:
+The original =gambit-shell-qualified/mailbox-roots= executable exited70 after
+reporting expected32. Its output did not print the received message. Preserve
+that binary, original fixture digest, failure and cleanup diagnostic. Later
+success does not identify that run's actual interleaving.
+
+A fixed campaign of six groups with twelve trials each passed on the baseline:
+original binary; serial both-GC; host no-GC; sender-GC; receiver-GC; both-GC.
+This is 72 bounded observations, not a causal proof or a failure-rate bound.
+The capture code retains every byte stream and raw wait status in Scheme data.
+
+The [[file:../../modeling/tools/project-mailbox-witness.scm][native Scheme source projector]] reads the actual first =enable-smp=
+branch's receive definition. It changes only the binding and inserts one
+handoff immediately after =next3= is read. Original and projected ASTs are
+retained. The witness uses real =thread-send= and, after the splice, real
+=thread-receive=. It does not replace the queue with a handwritten model.
+
+#+begin_example
+Receiver queue before the handoff: sentinel -> cell31 -> () ; tail = cell31
+R: next3 := cell31.next = ()
+S: cell31.next := cell32 ; sentinel.tail := cell32
+R: sentinel.next := next3 ; sentinel.tail := sentinel
+S: enqueue33 through sentinel
+R: next receive yields #(33 (33 34)), expected32, GC delta = 0
+#+end_example
+
+This reachable source execution explains a real mechanism for the same failure
+position. It rules out GC as necessary for this witness, not as an independently
+possible cause of the unrecorded historical run. The candidate under the same
+handoff excludes the writer, returns32 and drains all64 messages, also with
+GC delta zero. An injected scheduling point is not an unmodified-binary replay.
+
+* Complete responsibility replacement
+** One identity
+The target thread's low-level lock protects lookup and publication. Candidate
+allocation happens before taking the commit lock. A second lookup chooses one
+winner; a losing candidate remains GC-owned. No mailbox mutex is nested under
+the thread lock. The public =thread-send= initialization check releases its
+thread lock before this protocol. Multiple first publishers must never retain
+different queue identities for one target.
+
+** Rooted allocation before queue ownership
+=##thread-send= initializes its detached cons before the mailbox mutex wait.
+The current frame roots the detached cell, its payload, mailbox and mutex
+across heap checks and blocking. The commit links the initialized cons with
+no allocation between its two pointer stores. Reachability transfers to the
+mailbox graph; there is still one cons per sent message. Generated root maps
+must retain and reload the cell after any relocating GC in the wait path.
+
+** Uniform mutation ownership
+All SMP head/tail/cursor accesses in send, receive, peek, extract and rewind
+use the same mailbox mutex. The old unlocked nonempty path is removed. A
+selective cursor is a predecessor node; extract changes its successor and
+possibly the FIFO tail under the permit. The non-SMP implementation remains
+separate; the generic FIFO allocation macro retains its previous API.
+
+** Safe points and timeout delivery
+The link/splice batches contain no allocation or explicit heap check. Existing
+mutex helpers can check the heap at entry/unlock; the graph is complete before
+unlock is invoked. The first empty observation releases the permit before
+converting the timeout, then reacquires and rechecks the queue. The resulting
+absolute timeout is reused across wakeups; it is never restarted. Timeout
+exceptions arise after the condition-variable wait has released the permit.
+Asynchronous Scheme interrupts remain disabled over the commit batch.
+
+** Collector ownership stays independent
+=mark_execution_roots= owns frame/root repair through a RootTask. Object
+=scan= claims READY -> OWNED -> DONE separately, with the existing forwarding
+and Tail contract. Unique scan authority cannot repair a graph whose mutator
+lost the published link. The scanner must never acquire the mailbox mutex:
+a stopped receiver could own it. Current physical writer stop remains a
+precondition; this change does not establish independent collector workers.
+
+* Source refinement and remaining C memory-model obligation
+=macro-lock-thread!= uses the existing primitive lock; =macro-mutex-lock!=
+and unlock coordinate queue ownership through the thread/mutex low-level
+locks. =gambit.h.in= ticket-lock operations use =___FETCH_AND_ADD_WORD= and
+=___COMPARE_AND_SWAP_WORD=; the GCC sync backend uses full-barrier builtins.
+The portable ticket-lock acquire also polls a volatile =current= word. A strict
+portable C acquire/release proof for every supported backend is still OPEN;
+Darwin/GCC native success must not silently stand in for that proof.
+
+Modern C should eventually make that low-level synchronization contract
+explicit. Adding a second mailbox-specific C atomic implementation here would
+leave two conflicting authorities. This candidate reuses the existing scheduler
+lock service and records its prerequisite instead.
+
+* Evidence and benefit matrix
+#+BEGIN: sysml-view :kind mailbox-responsibilities
+| Responsibility | Retirement | Added work / ownership cost |
+|---+---+---|
+| =identity= | Unsynchronized first lookup and double-check publication | One thread lock/unlock for existing identity; two on cold lookup, losing candidates remain GC owned |
+| =cell= | Queue node allocation inside mutation permit | Same one cons per message, live across wait; no extra per-message node or identity table |
+| =queue= | Unlocked nonempty extraction and unguarded selective cursor mutation | One mailbox acquire/release per nonempty receive, peek, extract or rewind; existing send already paid this permit |
+| =roots= | No GC scanner path retired by fixing mutator publication | Native blocked-cell GC witness and generated-frame root refinement; no additional collector lock |
+| =scan= | No old scanner retired; duplicate mutation and duplicate scan are separate causal hypotheses | Existing Tail/forwarding/scan protocol unchanged; broader independent-worker obligations remain open |
+| =timeout= | Duplicated unlocked and locked receive implementations | Empty initial path unlocks/relocks once for lazy conversion; no deadline reset |
+#+END:
+
+#+BEGIN: ascent-view :kind mailbox-observations
+| Obligation / control | Observation | Limit |
+|---+---+---|
+| current | 5/5 supplied | commit blocked; historical schedule unknown |
+| wrong-source | 0/5 supplied; synthetic control | commit blocked; historical schedule unknown |
+| projection-as-native | 4/5 supplied; synthetic control | commit blocked; historical schedule unknown |
+| unknown-result | 4/5 supplied; synthetic control | commit blocked; historical schedule unknown |
+| all-scoped-only | 5/5 supplied; synthetic control | commit blocked; historical schedule unknown |
+| bootstrap | PASS | exact receipt hash; local evidence only |
+| ordered | PASS | exact receipt hash; local evidence only |
+| blocked-cell | PASS | exact receipt hash; local evidence only |
+| first-publishers | PASS | exact receipt hash; local evidence only |
+| =gambit.smp.gc.root-task.publication-claim-arena= | PASS | kernel; kernel/build processors; exact current-source receipt |
+| =gambit.smp.runtime.roles.storage-layout= | PASS | kernel; kernel/build processors; exact current-source receipt |
+| =gambit.smp.control.continuation.map-multishot= | PASS | scheme; 1 processors; exact current-source receipt |
+| =gambit.smp.gc.frame-roots.single-processor= | PASS | scheme; 1 processors; exact current-source receipt |
+| =gambit.smp.gc.frame-roots.host-processors= | PASS | scheme; 11 processors; exact current-source receipt |
+| =gambit.smp.gc.shared-roots.cyclic-aliases= | PASS | scheme; 11 processors; exact current-source receipt |
+| =gambit.smp.scheduler.mailbox.ordered-shared-values= | PASS | scheme; 11 processors; exact current-source receipt |
+| =gambit.smp.control.dynamic-wind.multishot-gc= | PASS | scheme; 11 processors; exact current-source receipt |
+| =gambit.smp.memory.modules.make-invalidation= | PASS | make; kernel/build processors; exact current-source receipt |
+| =gambit.smp.scheduler.mailbox.blocked-cell-roots= | PASS | scheme; 11 processors; exact current-source receipt |
+| =gambit.smp.scheduler.mailbox.concurrent-first-publishers= | PASS | scheme; 11 processors; exact current-source receipt |
+| Complete named-module ASCENT | 6/6 controls;11 current observations | canonical architecture absent; commit blocked |
+| Baseline repeats | 72/72 | 12 immutable original +60 boundary controls; no historical cause inference |
+| Candidate repeats | 72/72 | 12 immutable original +60 current-runtime boundary controls; no rate/speed claim |
+#+END:
+
+Theoretical work counts are per operation, not elapsed-time claims. No heap
+increase or wait extension is admitted. Old paths retire only when both source
+projection and the real built-in mailbox/root tests agree for the exact source
+lock. Broader foreign-writer, unknown-owner and whole-round packing obligations
+remain open. A mailbox closure cannot authorize a full SMP commit.
+
+* Five gates
+| Gate | Requirement | Current authority |
+|------+-------------+-------------------|
+| Tests | Full bootstrap plus actual ordered/shared/blocked/cursor/init tests | Exact source/profile native receipts only |
+| Architecture | Uniform publication ownership, rooted detached node and scanner separation | Source consumer and generated C review |
+| Process | Complete replaced paths, preserved negative evidence, modern-c HEAD unchanged | No commit before gates close |
+| Models | Native SysML -> ASCENT evidence checks; original formal prerequisites retained | No duplicate QNT/Lean |
+| Questions | Shared aliases and full multi-shot roots retained; portable lock/backend and unknown exits answered | Broad architecture remains OPEN |
+
+** Peak memory and work bounds
+:PROPERTIES:
+:CUSTOM_ID: mailbox-permit-cost-bound
+:BOUND_KIND: SOURCE-DERIVED; NOT-A-PERFORMANCE-MEASUREMENT
+:END:
+A Scheme pair occupies two payload words plus its header. Relative to allocating
+only after acquiring the permit, =W= simultaneously blocked senders can retain
+up to =3 * sizeof(word) * W= additional detached-node bytes. On this 64-bit
+profile that is =24W= bytes, excluding allocator rounding and additional frame
+root slots. Payloads were already live sender roots, so they must not be counted
+as newly introduced copies. This is a local occupancy bound, not a measured
+whole-round GC peak or a promise of lower peak memory.
+
+Completed sends still allocate one node each. A queued message's vector/list
+payload is shared, never serialized or copied by the mailbox protocol; any
+copying during GC is the collector's existing responsibility. The uniform
+permit adds synchronization to successful nonempty receives and selective
+cursor operations. The initial empty path pays a release/reacquire to preserve
+lazy timeout conversion. Possible additional heap checks and generated frame
+slots require inspection of generated C; no throughput or latency percentage
+is inferred from these work counts.
+
+** Writer inventory and admission boundary
+The first =enable-smp= branch has one thread-mailbox publication site, two
+standalone cursor writers (rewind/extract), one unified receive/peek writer,
+and send through the nonallocating tail-link helper. Initial object construction
+is private. The duplicate later mailbox implementation is the non-SMP branch.
+Raw =##unchecked-structure-set!=, arbitrary C/FFI mutation or reflective changes
+to private scheduler objects are outside this API ownership proof; they cannot
+receive a controlled-writer credential merely because exported operations pass.
+GC relocation remains an authorized stopped-world writer with separate scan
+ownership. Preserve these distinctions in any future generational write barrier.
+
+** Retained fixture defect
+The first concurrent-first-publishers attempt exited70 before exercising the
+mailbox property: the test called unbound =make-time= with the absolute
+five-second deadline. =_thread.scm= exports =seconds->time=. The successor changes
+only that constructor, keeps the same absolute deadline and preserves the first
+failure receipt and source. It requires its own named native receipt; the failed
+attempt is never relabelled PASS and is not a runtime-fix claim.
+
+** Concrete blocked-frame consumer chain
+The generated =##thread-send= constructs the detached cell in =R3=, checks the
+heap, spills it to =STK(-4)= before =##mutex-lock-out-of-line!= and reloads =R3=
+from that slot at return label3. Its corresponding normal-return descriptor is
+=IFD(RETN,5,0,0xf)=. The two link stores are adjacent in generated C. These
+checks are bound to the completed bootstrap's =lib/_thread.c= hash, not a copied
+illustrative fragment.
+
+The actual slow mutex path calls =macro-thread-save!=. The SMP syntax maps this
+to =##thread-save!=; =gsc/_t-c-2.scm= emits =THREAD_SAVE= after its end-of-block
+checks. =gambit.h.in:___THREAD_SAVE= forms the break-frame link and stores the
+frame in the thread continuation. The queued thread remains reachable through
+scheduler/mutex queues; stopped-world continuation/root consumers repair its
+frame according to the descriptor. Resume label3 then reloads the repaired
+cell. Generated-code inspection alone does not establish this whole delivery:
+the blocked-cell native test must actually observe the sender waiting on the
+exact mutex, complete GC, release the permit and validate the payload.
+
+The original sender's forced collection at multiples of eight can expose a
+queue with only31 left before32 is sent. After GC resumes both processors, the
+unlocked receive and send can overlap. This makes the source counterexample
+relevant to the old workload; it still does not recover that old execution's
+unrecorded schedule or received value.

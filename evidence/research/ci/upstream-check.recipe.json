@@ -1,8 +1,9 @@
 {
   "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
   "id": "ci-upstream-check",
   "scope": "Exact locked three-flag source-core consumption and upstream-check observations. Independent module budget; no build resumption, native acceptance or performance admission.",
-  "budgetSeconds": 300,
+  "budgetSeconds": 325,
   "inputs": [
     "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
     "patches/fixtures/darwin-stack-trip-owner-limit.patch",
@@ -13,7 +14,14 @@
     "evidence/research/suite-review-rules.ss",
     "evidence/research/ci/upstream-tests.json",
     "evidence/research/ci/test-scope.entry.json",
-    "evidence/dsl/upstream-test-scope.ss"
+    "evidence/dsl/upstream-test-scope.ss",
+    "evidence/research/current-source-full-bootstrap/interpreted-intent.json",
+    "evidence/research/current-source-full-bootstrap/interpreted-causal-review.json",
+    "evidence/research/smp-threaded-vm-native-grid/environment-causal-evidence.json",
+    "evidence/research/smp-threaded-vm-native-grid/global-cleanup-interpreted-causal-evidence.json",
+    "models/gambit/native/host_environment_probe.scm",
+    "models/gambit/native/process_spawn.scm",
+    "evidence/research/incremental-builds/qualified-upstream-tests.json"
   ],
   "steps": [
     {
@@ -41,10 +49,39 @@
       "budgetSeconds": 20
     },
     {
+      "id": "environment-probe",
+      "capability": "gambit.probe",
+      "dependsOn": ["runtime"],
+      "arguments": {
+        "runtime": {"step": "runtime", "output": "runtime"},
+        "identity": {"step": "runtime", "output": "identity"},
+        "program": "models/gambit/native/host_environment_probe.scm",
+        "operations": ["udp-open", "process-pipe-sort", "user-info"]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "review-gsi",
+      "capability": "gambit.review",
+      "dependsOn": ["runtime", "environment-probe"],
+      "arguments": {
+        "runtime": {"step": "runtime", "output": "runtime"},
+        "identity": {"step": "runtime", "output": "identity"},
+        "intent": "evidence/research/current-source-full-bootstrap/interpreted-intent.json",
+        "target": "official",
+        "mode": "gsi",
+        "failureIds": ["018-thread-interrupt", "018-write-shared", "018-table-search", "018-suite-budget", "018-udp-permission", "019-prim-port-budget", "current-host-identity-environment"],
+        "environmentProbe": {"step": "environment-probe", "output": "observation"}
+      },
+      "budgetSeconds": 15
+    },
+    {
       "id": "official",
       "capability": "gambit.upstream-tests",
       "dependsOn": [
-        "runtime"
+        "runtime",
+        "environment-probe",
+        "review-gsi"
       ],
       "arguments": {
         "runtime": {
@@ -57,6 +94,12 @@
         },
         "failures": "evidence/native-failures.json",
         "reviewRules": "evidence/research/suite-review-rules.ss",
+        "additionalFixtures": {
+          "12-os/process_spawn.scm": {"source": "models/gambit/native/process_spawn.scm", "sha256": "eba139d1aa995cc78e53891d5bcf93fd7ce33eff08f6080f52efb78a8f5c98c7"}
+        },
+        "environmentProbe": {"step": "environment-probe", "output": "observation"},
+        "reviews": {"gsi": {"step": "review-gsi", "output": "review"}},
+        "scopeContract": "evidence/research/incremental-builds/qualified-upstream-tests.json",
         "targets": [
           "check"
         ]
@@ -69,6 +112,8 @@
       "dependsOn": [
         "candidate",
         "runtime",
+        "environment-probe",
+        "review-gsi",
         "official"
       ],
       "arguments": {

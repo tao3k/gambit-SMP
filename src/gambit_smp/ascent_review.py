@@ -41,9 +41,9 @@ def project(base, failures, snapshot_identity, proposal=None, changed=(), observ
             return
         facts["ReceiptInput"].extend([qualified, path, sha]
                                      for path, sha in sorted(spec["inputs"].items()))
-        if spec.get("rawLogEvidencePending"):
-            # A legacy summary's accepted bit has no raw log admission.
-            facts["ReceiptInput"].append([qualified, "unverified-raw-log:" + qualified,
+        if spec.get("recordedOutputPending"):
+            # A summary bit alone has no source-bound output observation.
+            facts["ReceiptInput"].append([qualified, "unverified-output:" + qualified,
                                           "verified"])
         if spec["binding"] == "catalog-fallback":
             facts["ReceiptInput"].append([qualified, "validated-catalog", snapshot_identity])
@@ -101,24 +101,46 @@ def collect(root, selected=None, proposal=None, task_model=None):
         return _collect(canonical, selected, proposal, task_model)
 
 
+def _review_catalogs(root):
+    """Bind the configured program closure, not every registered component."""
+    from gambit_smp.ascent_program import load_component_catalog
+    from gambit_smp.framework import relative
+    name = "evidence/scenarios/catalog-review-history/scenario.json"
+    path = relative(root, name)
+    before = digest(path)
+    scenario = json.loads(path.read_text())
+    if scenario.get("schema") != "ascent.consumer-scenario.v1":
+        raise ValueError("declared Evidence consumer scenario required")
+    catalogs = {entry: load_component_catalog(relative(root, scenario["manifest"]), entry=entry,
+                    constructor=declaration["constructor"], trusted=True)
+                for entry, declaration in scenario["entries"].items()}
+    if digest(path) != before:
+        raise ValueError("Evidence consumer scenario changed during binding")
+    inputs = {name: before}
+    for catalog in catalogs.values():
+        inputs.update({str(Path(path).relative_to(root)): sha for path, sha in catalog["sourceInputs"].items()})
+    return catalogs, inputs
+
+
 def _collect(root, selected=None, proposal=None, task_model=None):
     from ascent.evidence import identity
-    from gambit_smp.protocol_evidence import facts as protocol_facts
+    from gambit_smp.protocol_evidence import BUNDLE_REGISTRY
 
     root = root.resolve()
     base = evidence_index.export(root=root)
+    if BUNDLE_REGISTRY not in base["inputs"]:
+        raise ValueError("review requires the Catalog's complete protocol inventory")
     audit_facts, audit_inputs = research_audit.load_audit(root, base)
     observations = json.loads((root / "evidence/research-audit.json").read_text())["issues"]
-    extra, bound = protocol_facts(root)
-    for name, rows in extra.items():
-        base["facts"].setdefault(name, []).extend(rows)
     if task_model is not None and task_model not in {row[0] for row in base["facts"].get("model", []) +
                                                     base["facts"].get("protocol_model", [])}:
         raise ValueError("unknown review model: " + task_model)
-    inputs = {**base["inputs"], **bound, **audit_inputs}
+    inputs = {**base["inputs"], **audit_inputs}
     from gambit_smp.evidence_views import registry, load as load_view
     view_names, view_inputs = registry(root)
     for name in view_names:
+        from gambit_smp.view_materialize import check_binding
+        view_inputs.update(check_binding(root,name))
         _, _, _, bound_view = load_view(root, name)
         view_inputs.update(bound_view)
     inputs.update({str(Path(path).relative_to(root)): sha for path, sha in view_inputs.items()})
@@ -128,11 +150,8 @@ def _collect(root, selected=None, proposal=None, task_model=None):
     inputs["evidence/catalog.ss"] = digest(root / "evidence/catalog.ss")
     inputs["evidence/history-rules.ss"] = digest(root / "evidence/history-rules.ss")
     inputs["evidence/review-rules.ss"] = digest(root / "evidence/review-rules.ss")
-    from gambit_smp.ascent_program import load_component_catalog
-    declarations = load_component_catalog(root / "evidence/dsl/components.json", entry="review",
-                                          constructor="make-review", trusted=True)
-    for path, sha in declarations["sourceInputs"].items():
-        inputs[str(Path(path).relative_to(root))] = sha
+    _, program_inputs = _review_catalogs(root)
+    inputs.update(program_inputs)
     from gambit_smp.review_inputs import RAW_LOG_MANIFEST
     if (root / RAW_LOG_MANIFEST).is_file():
         inputs[RAW_LOG_MANIFEST] = digest(root / RAW_LOG_MANIFEST)
@@ -152,7 +171,7 @@ def _collect(root, selected=None, proposal=None, task_model=None):
     # Bind adapter semantics as well as data; partial concurrent snapshots fail.
     for name in ("ascent_review", "review_links", "review_inputs", "review_brief", "review_graph",
                  "review_validation", "agent_context", "ascent_program", "native_support", "reasoning_history", "research_audit",
-                 "evidence_index", "evidence_views", "protocol_evidence", "check_gambit", "reflection"):
+                 "evidence_index", "evidence_views", "evidence_interface", "protocol_evidence", "check_gambit", "reflection"):
         module = importlib.import_module("gambit_smp." + name)
         path = Path(module.__file__).resolve()
         inputs[str(path.relative_to(root))] = digest(path)
@@ -195,13 +214,9 @@ def run_review(root, selected=None, proposal=None, task_model=None, proposal_pat
     started = time.monotonic()
     with engine_api(engine=native_engine, retain=native_engine is None) as (engine, engine_inputs):
         catalog_backend = {}
-        evidence_catalog = load_component_catalog(
-            root / "evidence/dsl/components.json", entry="catalog", constructor="make-catalog", trusted=True)
-        review_catalog = load_component_catalog(root / "evidence/dsl/components.json", entry="review",
-            constructor="make-review", trusted=True)
-        for catalog in (evidence_catalog, review_catalog):
-            for path, sha in catalog["sourceInputs"].items():
-                inputs[str(Path(path).relative_to(root))] = sha
+        catalogs, program_inputs = _review_catalogs(root)
+        inputs.update(program_inputs)
+        evidence_catalog, review_catalog = catalogs["catalog"], catalogs["review"]
         catalog_rows = evidence_index.query(source_facts, evidence_catalog,
                                             engine=engine, metrics=catalog_backend)
         rows, review_backend = evaluate(engine, facts, review_catalog,
@@ -325,5 +340,9 @@ def main():
     return 2 if any(d["decision"] == "DENY" for d in result["decisions"]) else 3
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('ascent-review')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('ascent-review', main))

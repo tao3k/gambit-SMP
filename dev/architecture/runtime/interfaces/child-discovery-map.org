@@ -1,0 +1,98 @@
+#+TITLE: Child Discovery State, Guard and Preservation Map
+#+SETUPFILE: ../../../modeling/org/setup.org
+
+* SysML-owned discovery and fragment contracts
+:PROPERTIES:
+:CUSTOM_ID: child-discovery-map
+:AUTHORITY: GambitChildDiscovery
+:EVIDENCE_CLASS: derived-action-design
+:END:
+
+Action contracts and scenarios are unimplemented design. Existing initializer names are checked against the unchanged QNT; no new execution result is asserted. Obligation dispositions are inherited through the shared closure matrix.
+
+** State domains
+#+BEGIN: sysml-view :kind child-domains :source architecture/runtime/interfaces/models/sysml/child-discovery.sysml
+#+NAME: child-discovery-domains
+| Domain | Identity | Fields | Invariant | Obligation |
+|---+---+---+---+---|
+| Canonical | collection + old-origin generation, not phase | canonical : ObjKey -> destination/copy-task; copyReady : ObjKey -> Bool | One winning destination per admitted old object; strong-to-weak admission retains identity | WC-CANONICAL-PHASE |
+| Attempt | collection + AttemptId + owner | attempt : AttemptId -> Open/Settled; canonicalWinner : optional ObjKey | Losing speculative attempt can settle without settling or reminting canonical work | WC-CANONICAL-OWNER |
+| CopyTask | collection + CopyTaskId | copy : CopyTaskId -> Copying/Initialized/Settled; owner and publication children | Forwarding does not imply readiness; copy settles only with accepted required fragment custody | WC-CANONICAL-OWNER |
+| Fragment | phase/round + FragmentId + descriptor revision | fragment : Preparing/Scanning/Settled; role Body/Tail/Root/Frame/Still; assignedEdges; visitComplete | Body fragment settlement does not close tail fragment or whole object; no wait-for-child completion | WC-FRAGMENT-CLOSURE |
+| Edge | phase/round + FragmentId + slot + descriptor revision | edge : Unseen/Resolving/Covered; targetReceipt; referenceUpdate; unknownTransfer | Two slots may reuse one canonical target; each has its own exactly-once coverage receipt | WC-DISCOVERY-GUARD |
+| Region | phase + RegionId/generation + exact interval manifest | objects/padding/markers; fragment membership; queue/scanner custodian | Physical layout partition and semantic edge partition are different axes; descriptor reads may overlap | WC-BATCH-PARTITION |
+| Ledger | matching collection/phase identities + typed TaskId | issued; unfinished; settled; producer rights; unknown transfers | Typed attempt/copy/fragment/transfer tasks have unique ownership; edges are obligations contained by live fragments | WC-HANDOFF-ACCOUNT |
+#+END:
+
+** Action contracts
+#+BEGIN: sysml-view :kind child-actions :source architecture/runtime/interfaces/models/sysml/child-discovery.sysml
+#+NAME: child-discovery-actions
+| Action | Guard | Update | Accounting | Frame rule | Obligation |
+|---+---+---+---+---+---|
+| finishCopy | Copy Initialized; matching Body acceptance is PrivateCursor, QueuedOrScanning or known Settled; required Tail live/settled; no unknown copy effect | Only copy task -> Settled; retain canonical identity, payload readiness and all child TaskIds | Settle one copy task only; Body/Tail and source-parent debts unchanged; private acceptance may precede later batch publication | Private receipt requires live counted cursor/descriptor and eventual scan path; no child-completion wait or cross-worker visibility inferred | WC-FRAGMENT-CLOSURE |
+| redirectReference | Parent Scanning; edge Resolving; matching canonical target and exclusively owned live source slot; write disposition known | Redirect this slot to canonical destination and record referenceUpdate receipt; edge remains Resolving | No task creation or settlement; canonical readiness and parent debt unchanged | Only the exact owned slot and its update receipt change; unknown effect remains unresolved | WC-DISCOVERY-GUARD |
+| reserveFragments | Live copy custodian; admitted subtype/length/roles and exact copy identity; before that copy can be included in published prefix | Enroll unique Preparing Body and eligible Tail roles; Tail source activation/cell owns obligation before byte traversal | Mint each required fragment once while parent/copy remains live; excluded Tail has no phantom task | Earlier-prefix publication may occur before this target is claimed; reservation is not payload readiness or scanner start | WC-BATCH-PARTITION |
+| startFragment | Preparing local/Tail fragment; relevant field/root inputs ready; descriptor/phase and counted owner match | Fragment -> Scanning; retain all Unseen/Resolving edge obligations | No task creation or settlement | No claim of whole-object closure; queued Body uses acquireBatch instead | WC-FRAGMENT-CLOSURE |
+| beginDiscover | Parent Scanning; edge Unseen in sealed assigned inventory; matching phase/descriptor; slot owned | Edge -> Resolving; bind sampled origin and resolver; parent stays Scanning | No canonical issue and no fragment settlement; edge debt remains contained in parent | Do not change another edge, phase, queue or scanner | WC-DISCOVERY-GUARD |
+| claimCanonical | Resolver admitted; target absent; native CAS wins; old-header interpretation and origin stable | Insert one canonical destination and live copy custodian; readiness false | Mint one copy task; if attempt exists settle only that attempt with separate ledger deltas | Source edge can remain Resolving; no body-read admission from CAS alone | WC-CANONICAL-PHASE |
+| rejectAttempt | Known losing CAS or known pre-effect rejection; matching AttemptId and live required-edge custodian | Settle only speculative attempt; alias winning ObjKey when known | No canonical decrement and no assumed padding/storage refund | No change to winner readiness, queue entry, assigned edges or fragment completion | WC-CANONICAL-OWNER |
+| discoverChild | Parent Scanning; edge Resolving; canonical identity/custody or imported closure valid; reference update known; no unknown acceptance | Edge -> Covered with target receipt; parent remains Scanning | No new canonical task and no parent settlement; child may remain Copying/Queued/Scanning | Does not require target completion and does not mutate another slot receipt | WC-DISCOVERY-GUARD |
+| coverImmediate | Parent Scanning; edge Resolving; target classified terminal by admitted descriptor/runtime policy; slot handling known | Edge -> Covered with terminal-policy receipt | No managed child task minted; policy proof covers any separately rooted nonmovable data | Do not treat every permanent/still/frame/weak object as an immediate | WC-DISCOVERY-GUARD |
+| replayReceipt | Same EdgeId, descriptor and scope; edge already Covered; receipt registry still live | Read existing coverage receipt; no new discovery effect | All task and completion counts unchanged | No late enqueue, second slot mutation or fabricated receipt | WC-NEGATIVE-CONTROLS |
+| initializeCopy | Canonical winner with live custody; selected payload/padding bytes copied and required role inputs/descriptors known | Copy -> Initialized; local payload readiness true; keep reserved Body/Tail and private cursor custody | No fragment remint, queue commit or task settlement | Local initialized bytes do not establish remote visibility; Tail may remain Preparing | WC-BATCH-PARTITION |
+| publishBatch | Exact completed prefix manifest; initialized boundaries/profile visibility; every included required Tail has counted/accepted custody | Transfer only manifest Body members to queue, or retain qualified local scanner on bypass; exclude unclaimed upcoming target | No canonical issue or task settlement; Body membership conserved; Tail debts unchanged | Signal not acceptance; private suffix may publish later after its copy task already settled under valid private custody | WC-BATCH-PARTITION |
+| acquireBatch | Matching queue entry and phase manifest; counted scanner owns removed region; readiness/visibility valid | Body fragments -> Scanning under scanner custody; local path admits matching cursor fragments | Queue removal transfers debt without settling it | No duplicate claim of same FragmentId; Tail fragments keep their own owners | WC-TRANSFER-REFINE |
+| finishParent | Parent Scanning; sealed assigned edges all Covered; physical visit done; no unknown transfers; scope/custodian match | Only this fragment -> Settled | Settle exactly one fragment; canonical children and other fragments retain their debts | No requirement that children finish; no implication that object or phase is closed | WC-FRAGMENT-CLOSURE |
+| nextPhase | Prior phase receipt valid; participants and next seed/skip policy admitted | Preserve collection canonical map; create only required next-phase seed/deferred fragment ledger | No recopy merely because phase changed; no clearing old unresolved work | Imported closure requires descriptor/phase certificate; forwarding address alone is insufficient | WC-CANONICAL-PHASE |
+| finishPhase | Root/descriptor/issuer census sealed; no live producer rights or unfinished task/transfer in this phase | Publish stable phase receipt; retain collection and target-specific outstanding scopes | No hidden Unseen edge can survive in a settled fragment; no cancellation to force zero | Weak admission and resource-release completion remain separate cuts | WC-FRAGMENT-CLOSURE |
+#+END:
+
+** Retained and proposed scenarios
+#+BEGIN: sysml-view :kind child-scenarios :source architecture/runtime/interfaces/models/sysml/child-discovery.sysml
+#+NAME: child-discovery-scenarios
+| Scenario | Class | Current initializer | History | Required outcome | Boundary | Obligation |
+|---+---+---+---+---+---+---|
+| EarlyPublish | legacy-negative | initOld | Publish before copy progress ready; later acquire observes stale payload | Preserve publicationSafe violation under equivalent omitted-readiness guard | Existing fault 1 source is preserved; no fresh model execution | WC-NEGATIVE-CONTROLS |
+| EarlyIdle | legacy-negative | initEarlyIdle | Last active worker idles with private or scanning/delegated work still owned | Preserve terminationSafe violation when lifetime guard is intentionally omitted | Existing fault 2 source is preserved; extend projection to richer hidden domains | WC-NEGATIVE-CONTROLS |
+| DuplicateAcquire | legacy-negative | initDuplicateClaim | Acquire leaves same fragment queued; second acquire scans it again | Preserve duplicate acquisition violation per FragmentId, not total scans per physical object | Existing fault 3 source preserved; Body and Tail are legitimate distinct fragments | WC-NEGATIVE-CONTROLS |
+| EarlyPhase | legacy-negative | initEarlyPhase | Participants arrive and next phase begins before prior debt drains | Preserve badPhase/old-debt witness across phase admission | Existing fault 4 source preserved; no resetting canonical map to hide it | WC-NEGATIVE-CONTROLS |
+| DuplicateCanonical | design-negative | none | Two resolving slots target same old ObjKey and each mints a canonical copy | Unique canonical identity/count invariant must fail in omitted-dedup control | Hypothetical mutation, not an observed native duplicate-copy failure | WC-CANONICAL-PHASE |
+| MissingTail | design-negative | none | Body fragment settles and queue empties while Tail fragment remains Preparing/Scanning | Object/phase closure must remain false; omitted tail census must retain a witness | Source split motivates the scenario; no executed counterexample | WC-BATCH-PARTITION |
+| PrematureParent | design-negative | none | One target known but another assigned edge Unseen, or transfer result unknown | finishParent disabled; weakening all-edge/unknown guard must expose lost custody | Parent target-exists alone is not coverage of the sealed inventory | WC-DISCOVERY-GUARD |
+| LeafVisit | design-negative | none | Assigned edge set empty but cursor/object physical visit not complete | finishParent disabled despite vacuous all-edge coverage | Payload-free leaves still require admitted physical layout/cursor handling | WC-FRAGMENT-CLOSURE |
+| PhaseRecopy | design-negative | none | Reset canonical map at weak admission and reinterpret old origin as a fresh copy | Identity-preserving phase projection must reject this reinterpretation | Current QNT resets abstract work; not a claim native code recopies here | WC-CANONICAL-PHASE |
+| LateEnqueue | design-negative | none | Replay or new edge creates work after same-phase completion | No same-phase enqueue; retain valid old custodian or reject unsupported stale origin | Existing guarded CollectionContract rescan stays guarded; no withdrawn trace revival | WC-NEGATIVE-CONTROLS |
+| SelfAndShared | positive | none | Self-edge and two source slots reuse one live canonical task; each slot covers independently | Parents can settle with accepted unfinished children; no recursive completion wait | Required positive control, not a new accepted run | WC-DISCOVERY-GUARD |
+| ChildBeforeParent | positive | none | Child claimed, initialized and queued while parent retains another unresolved edge | Child may progress; parent still Scanning until its assigned inventory closes | Preserve native permitted ordering; do not repair by blocking discovery | WC-DISCOVERY-GUARD |
+| StrongWeakReuse | positive | none | Weak seeds reuse strong canonical identities and introduce only phase-required new obligations | Preserve canonical map and actual skip/deferred semantics without global rescan mandate | Finite two-phase model must gain an explicit phase/identity adapter | WC-CANONICAL-PHASE |
+#+END:
+
+** Lean preservation cases
+#+BEGIN: sysml-view :kind child-preservation :source architecture/runtime/interfaces/models/sysml/child-discovery.sysml
+#+NAME: child-discovery-preservation
+| Case | Actions | Premises | Postcondition | Obligation |
+|---+---+---+---+---|
+| Identity | claimCanonical; rejectAttempt | Admitted old-header writers, no ABA, stable collection key, one winner | One canonical copy; loser only settles attempt; origin identity preserved | WC-CANONICAL-PHASE |
+| Discovery | beginDiscover; redirectReference; discoverChild; coverImmediate | Sealed descriptor inventory, exclusive source slot, accepted canonical custody or valid closure | Edge state progresses without settling parent or child; every Covered edge has a valid receipt | WC-DISCOVERY-GUARD |
+| Replay | replayReceipt | Matching immutable EdgeId/descriptor/scope and live receipt registry | Idempotent read preserves every ledger and cannot reopen a phase | WC-NEGATIVE-CONTROLS |
+| Layout | reserveFragments; initializeCopy; publishBatch | Exact object/padding/marker layout; initialized prefix; phase/subtype edge inventory | Physical cover and Body/Tail edge cover both preserved; byte-view overlap is not duplicate edge ownership | WC-BATCH-PARTITION |
+| Acceptance | publishBatch; acquireBatch; startFragment | Qualified profile visibility, exact region membership, counted scanner, all tails retained | Work custody moves without losing scanner/tail obligations or reminting canonical tasks | WC-TRANSFER-REFINE |
+| Settlement | finishParent; finishCopy | All assigned edges Covered, physical visit done, zero unknown transfers, matching custodian | Exactly one fragment settles; other object/child/tail obligations remain | WC-FRAGMENT-CLOSURE |
+| Balance | claimCanonical; reserveFragments; finishCopy; finishParent | Typed task identities are disjoint, creation/settlement unique, nonnegative finite ledger | issued = settled + unfinished with explicit new/settled deltas; no arithmetic-as-native-atomicity claim | WC-HANDOFF-ACCOUNT |
+| Phase | nextPhase; finishPhase | Complete root/issuer census, prior phase receipt, phase-specific skip/import certificates | Canonical map stable across phases; old work cannot be erased or imported by forwarding alone | WC-CANONICAL-PHASE |
+#+END:
+
+** Source facts
+#+BEGIN: sysml-view :kind child-sources :source architecture/runtime/interfaces/models/sysml/child-discovery.sysml
+#+NAME: child-discovery-source-facts
+| Fact | Source | Behavior | Limit |
+|---+---+---+---|
+| CasOrder | [[file:../../../../vendor/gambit/lib/mem.c::3555][vendor/gambit/lib/mem.c:3555-3598]] | Speculative alignment/header before CAS; losing branch decrements header cursor and redirects; winner redirects before payload copy | Do not infer total padding refund or copied readiness |
+| TailSplit | [[file:../../../../vendor/gambit/lib/mem.c::3599][vendor/gambit/lib/mem.c:3599-3627]] | For words>0 and subtype<=BOXVALUES, first field is held for tail marking after optional chunk publication | Subtype/length/profile qualification is mandatory |
+| BodySkip | [[file:../../../../vendor/gambit/lib/mem.c::4168][vendor/gambit/lib/mem.c:4168-4178]] | Matching movable/default scanning skips first field; still/default path scans whole body | No blanket first-field skip for still or special frame/weak layouts |
+| PairFast | [[file:../../../../vendor/gambit/lib/mem.c::4190][vendor/gambit/lib/mem.c:4190-4207]] | PAIR fast path marks ptr+2 for PAIR_SIZE-1, excluding copied first field | NO_FAST_PATH route needs matching default descriptor proof |
+| Still | [[file:../../../../vendor/gambit/lib/mem.c::3630][vendor/gambit/lib/mem.c:3630-3647]] | Still CAS establishes a local to-scan list custodian rather than movable copying | Different canonical/list adapter; not the movable tail partition |
+| Batch | [[file:../../../../vendor/gambit/lib/mem.c::3249][vendor/gambit/lib/mem.c:3249-3306]] | End marker and queued chunk link/tail publication differ from currently-scanned chunk bypass | Exact region membership and actual visibility profile remain unproved |
+| Weak | [[file:../../../../vendor/gambit/lib/mem.c::4040][vendor/gambit/lib/mem.c:4040-4088]] | Will/weak table slot selection depends on phase and flags, including intentionally weak fields | Skipped relation classification is not always deferred tracing work |
+| Phase | [[file:../../../../models/gambit/gc_work_closure.qnt::54][models/gambit/gc_work_closure.qnt:54-90]] | finishScan combines fresh child and parent settlement; nextPhase reconstructs initialState | Bounded abstract graph reset is not native copying behavior |
+#+END:

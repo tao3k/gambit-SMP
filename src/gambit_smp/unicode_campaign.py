@@ -114,5 +114,9 @@ def main():
     return 0 if receipt["status"] == "PASS" else 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('unicode-campaign')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('unicode-campaign',main))

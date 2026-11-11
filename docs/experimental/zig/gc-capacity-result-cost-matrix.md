@@ -1,0 +1,77 @@
+# Capacity Publication and Placement: Modern C / Zig Net Benefit
+
+Reviewed: 2026-10-20. Equal complete capabilities in C-full, C-ZT (modern C
+runtime plus useful Zig tooling) and Z-full. B0 is source behavior; Bmin remains
+a control, not the architecture ceiling. No implementation, native testing,
+measured labor/latency or positive economic bound. See the
+[design](gc-capacity-result-design.md) and
+[source/paper ledger](gc-capacity-result-evidence.md).
+Rows refine CWM/TCM support; do not sum the same shared services again.
+
+The [still/tail support matrix](still-construction-tail-cost-matrix.md) expands
+GCV05/06/08 into actual constructor completion, current-ledger refund/carry,
+typed segment/parser/resume replacement and failed-handoff custody. It separately
+credits generated modern C helpers and scopes Zig cleanup to private ownership;
+it establishes no positive total or Zig-only bound.
+
+## Necessary Support After Reuse
+
+| ID / support | Modern C-full / C-ZT | Z-full | Reuse, retirement and Zig-specific boundary |
+| --- | --- | --- | --- |
+| GCV01 decision/outcome publication | Opaque immutable records, qualified gate/delivery, epoch/reuse validation and held users. | Same records and native ordering; tagged unions help local construction. | Reuse existing sync/wait/transaction authority. Retire leader-local result routes only after every body/ABI consumer migrates. Zig does not broadcast locals or prove memory order. |
+| GCV02 actual reports and safe resume | Owner preparation records, coherent phase completion, safe error delivery and typed unknown state. | Same roots/continuations/C control islands until qualified replacement. | Credit W_ALL/R_ALL and current prepare/error funnels. A plain error union cannot represent a safe Scheme resume by itself. |
+| GCV03 resize stage/role map | Guard/child/setup/membership/startup/retirement decisions with Observed versus ActionSettled. | Same actor topology and report obligations. | Candidate C already has guard/result/cleanup/join support. Retire uncoordinated branches only for a bound profile; no exclusive Zig saving from the semantic repair. |
+| GCV04 merged request/result membership | Frozen RequestIds/demand, prepared result map, per-member ABI and one common publication. | Same source arbitration and membership; compile-time product helpers may reduce private cases. | GC additive combining already exists. Shared result map can replace duplicated local result handling in either language; generated C is the comparator. |
+| GCV05 still grant consume/refund/rebase | One authoritative quota state machine and actual allocation/construction ownership. | Same state transitions; lexical defer useful only for private preclaim resources. | Reuse native allocation/refund and accounting leaves. Cross-thread accepted credit and unknown allocation are not solved by errdefer. |
+| GCV06 extent/interval placement | Explicit physical identities, active-half roles, aligned nonoverlapping ranges, real tail rebinding and actual-growth checks. | Same allocator/storage/GC contract with explicit native owners. | Reuse msection allocator and sharing/fudge rules where qualified. No-GC language does not remove live copy storage, fragmentation or headroom. |
+| GCV07 policy/reserve/ABI repair | Map source factors of two, still charge, max_heap/reserve behavior and common Boolean/SCM outcomes. | Same semantics plus qualified Zig/C mapping. | Credit source headroom formula and policy. Return-type ergonomics do not prove equivalence or eliminate reserve/error behavior. |
+| GCV08 failure, response and physical drain | Lost-response lookup, stalled actor/unknown epoch retention, actual readers/waiters/grants/borrowers. | Same service/leases; ordinary cleanup covers only known private resources. | Reuse earlier I/J/N/D, WaitContext and root-transfer support once. No new executor per component. Unknown may retain an entire VM in both. |
+| GCV09 backend/LLVM service boundary | Stable semantic/root/allocation contracts admitting provider maps and code artifacts. | Same provider support plus Zig compiler/std/native ABI maintenance. | LLVM maps/lowering are shared leverage. They do not replace result/credit/placement services or select Zig by themselves. |
+| GCV10 evolution support | One schema/generator, source binding, role/placement review and transition ownership inventory. | Equivalent schema/comptime helpers and semantic review. | Positive local saving requires unavoidable post-generator C work actually absent in Zig, with additional tool/bridge costs included. No such bound is established here. |
+
+## Maintenance Events
+
+| ID | Change | Required work / differential to price |
+| --- | --- | --- |
+| GCE01 | Add outcome, allocation client or ABI mode. | Extend one membership/record schema, actual consumer mapping and root/error-delivery qualification. Count handwritten changes after opaque C/Zig generation. |
+| GCE02 | Change resize guard, startup or retirement. | Update stage/role/action settlement and before/after topology/error effects. Existing C coordination gets reuse credit. |
+| GCE03 | Change still deferred threshold, grant lifetime or refund. | Reprove actual/deferred/outstanding-credit partition and initialization/unknown-state custody. Both languages retain this semantic work. |
+| GCE04 | Change W, sharing, fudge or section sizing. | Recalculate phase peak, interval placement, source charge conversion and real allocation headroom; do not reprice scalar counts as a complete proof. |
+| GCE05 | Change failure/cancel/close behavior. | Audit old-role exit, outstanding grants, response/user drain and all-exit allocation states. One shared service is charged once. |
+| GCE06 | Upgrade compiler/LLVM/OS/allocator/native ABI. | Revalidate map/root/publication/control/allocator providers. Additional Zig/C bridge/tool maintenance is charged only to the designs carrying it. |
+
+## Quantified Work and Limits
+
+Let o be selected requests, p actual stage roles, u contexts, w workers, n actual
+sections, a outstanding grants and b physical/result borrowers. Source constants
+M/F and selected architecture role counts are evidence denominators, not native
+measurements or forecast savings.
+
+| Quantity | Conditional accounting | Benefit limit / cost exposure |
+| --- | --- | --- |
+| Outcome/map construction | O(o+p) entries outside publication gates; one prepared handle commit may be constant metadata work. | Construction and acknowledgement still occur in the held-operation interval. No constant total pause is claimed. |
+| Resize coordination | Reports and decisions follow actual stages/roles; no inference from u or w alone. | At least guard, child outcome and parent result are distinct semantic checkpoints. Actor progress/failure can dominate latency. |
+| Still promises | Outstanding metadata O(a), quota sum of actual unconsumed d_j, actual storage accounted once after commitment. | Credits may survive result delivery and cross budgets. A scalar total without ownership loses refund/replay correctness. |
+| Physical section baseline | Source initial layout is 2u; a selected unshared trace profile has at least u+w stack/copy sections before further obligations. | Neither number is a complete peak/resume bound. Reusable worker tails may reduce additional context-buffer placements only after actual fit/borrower proof. |
+| Nominal C headroom | H=ceil(normal_reserve/M)+1 gives H*M-normal_reserve >= M if H additional unused sections exist. | Existing C deserves this credit. Actual allocation, changed W, active-half placement and error/resume obligations remain separate. |
+| Memory retention | Actual unique msections/native still blocks + live metadata + VM/code/provider/facility dependencies. | Unknown state can retain whole heap. a result slots or w worker contexts do not bound retained bytes. |
+| Gate and allocator work | Existing helpers reused plus required result/report/credit and interval validation. | Extra synchronization and metadata may outweigh removed duplicated result/accounting code. No speed advantage follows from language or source line counts. |
+
+For equal capability L, let K(L) contain reused support once, residual adapters,
+source/semantic/native-order review, migration/retirement, tool/ABI changes and
+runtime pause/retention exposure under explicit workloads. Unit conversions,
+change frequencies and uncertainty bounds are required before economic
+aggregation. Labor, seconds and bytes are not an unweighted scalar.
+
+| ID | Positive net condition | Refutation / current status |
+| --- | --- | --- |
+| GCN01 | Total reconstruction pays when one result/role/quota/extent authority retires implicit conflicting paths and lowers real change/error cost more than added support and migration. | Retaining old raw allocation/result/branch bypasses and adding wrappers duplicates authority. AG05 remains unresolved; no path retired here. |
+| GCN02 | Zig increment pays when post-reuse C support/edit/review avoided exceeds extra Zig/C ABI, tool, control-island and residual support costs. | Generated opaque C has the same semantic cases, while Zig keeps wrappers/C islands. No strictly positive lower bound; AG06 unresolved. |
+| GCN03 | Cross-component reuse pays when root transfer, delayed release, request/result and shutdown consume one real authority with smaller adapters than retired duplication. | Counting hypothetical clients or charging every service's common ledger again invalidates amortization. Necessary consumer-specific proofs remain. |
+| GCN04 | Worker decoupling pays at runtime when trace parallelism exceeds added copy/resume/headroom, queue/coordination and retention costs for real workloads. | U=1,W>1 requires more synchronization and can increase native space. Source headroom algebra is not runtime acceleration evidence. |
+| GCN05 | LLVM engineering leverage reduces provider-specific map/layout/lowering maintenance behind the shared Gambit runtime contract. | LLVM supplies neither allocation promises nor resize/result authority [GC-P05]. Shared compiler leverage cannot be booked as Zig-only saving. |
+
+The strongest architectural conclusion is a necessary common authority over
+observable result, actual effects and allocation rights. That conclusion justifies
+reconstructing the C-layer boundaries; it does not yet justify choosing Zig over
+a comparably reconstructed C system. All five full questions remain unresolved.

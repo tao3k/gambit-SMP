@@ -1,0 +1,145 @@
+# Configured Darwin Input Evidence Ledger
+
+Date: 2026-10-20. Static reads and document rendering only.
+Companion: [decoding and retirement design](darwin-configured-input-design.md).
+
+## Evidence and Lineage
+
+| ID | Direct source / receipt | What it supports |
+| --- | --- | --- |
+| C1 | Materialized `src/gambit/bin/gambuild-C.unix:1-55,62-283,285-515` | Actual configured bindings, restricted string/condition reducer, package/field order, Darwin literal substitution and retained final eval |
+| C2 | Same Gambit `config.status:426,1138-1167,1197`; `config.log:1-20,78-88`; `include/gambit.h:1230-1253,1447-1493` | Invocation, target/compiler report, actual header defaults and conditional interpretation; no current binary acceptance |
+| C3 | D1388 CC policy reconciliation, sections Verified current CC policy and Recoverable complete-build improvement | Reports retained D935 driver macro flag; isolated object and broader build numbers have separate source/scope; raw D935 path absent here |
+| C4 | D1510 object-request cost, Actual ABBA Evidence and Excluded Attempts | Ordinary mean 0.88s versus coordinator 1.59s; invalid env-changing controls excluded; raw private v3 path absent here |
+| C5 | Vendor `_gsclib.scm:155-161,498-593`; patched Gerbil `compiler/driver.ss:952-1113` | String/list LF transport; source-specific direct LD split; semantic filtering and Darwin source/object/alias boundary |
+| C6 | Vendor `_t-c-1.scm:934-1012` | Semantic link metadata combines script/LD/package fields in module order; CC aggregation is not in this function |
+| C7 | Parent patches 0004 and 0015; `tests/check_object_request_cost.sh:1-21,40-43,84-86` | Macro tracking probe and literal-substitution selection; historical harness's explicit dynamic/PIC options and environment scrubbing; script read, not executed |
+| C8 | D1510 static-object-reuse v4 checkpoint | Candidate/default-disabled/production-not-admitted; source-bound historical identities and result limits; cannot promote generated profile |
+
+Direct links: [generated driver](../../../../../.data/ci-source-patch-check/src/gambit/bin/gambuild-C.unix),
+[config.status](../../../../../.data/ci-source-patch-check/src/gambit/config.status),
+[config.log](../../../../../.data/ci-source-patch-check/src/gambit/config.log),
+[header](../../../../../.data/ci-source-patch-check/src/gambit/include/gambit.h),
+[producer transport](../../../vendor/gambit/gsc/_gsclib.scm),
+[semantic metadata composition](../../../vendor/gambit/gsc/_t-c-1.scm),
+[Gerbil driver](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss),
+[D1388](../../../../../patches/gerbil-v19-darwin/receipts/d1388-cc-policy-and-cold-baseline-reconciliation.md),
+[D1510 request cost](../../../../../patches/gerbil-v19-darwin/receipts/d1510-object-request-cost.md),
+[v4 checkpoint](../../../../../patches/gerbil-v19-darwin/receipts/d1510-static-object-reuse-v4-checkpoint.json),
+[0004](../../../../../patches/gerbil-v19-darwin/0004-gambit-darwin-gcc-macro-expansion.patch),
+[0015](../../../../../patches/gerbil-v19-darwin/0015-gambit-darwin-literal-build-substitution.patch),
+[harness](../../../../../patches/gerbil-v19-darwin/tests/check_object_request_cost.sh).
+Local materialized paths may disappear; hashes and the binding excerpt below
+retain the inspected profile identity, not an executable installation.
+
+Research HEAD `b67da6262a973a0ae898002d5c7f5be2d8b5a90d`; vendor Gambit
+`7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`. Materialized Gerbil HEAD
+`1cfb032c7a1612637da6205f5f8a15683eba3ba0`, Gambit gitlink
+`ea114fc3d2f120abbe20393c1f9aeafdd3f8c89f`.
+Materialized configure.ac and driver template have local changes (8 added lines,
+105-line template diff). Generated files have no independent Git revision;
+HEAD alone does not bind their content. No claim that they are the frozen driver
+with checkpoint hash `d9d537df086e1e40fcd78f0f0713cdd16df71b4101f459bf6b6625c9c2e67779`.
+
+## Inspected Content Digests
+
+| Materialized Gambit file | SHA-256 |
+| --- | --- |
+| `bin/gambuild-C.unix` | `58a8f5938c1ae03b25c9af28d103ea41bf8cc87315bc4417109e6ea9af3f9f60` |
+| `config.status` | `3ec142dbeeecad9aee1bab1e0517b30390bf0c640ec8d1cbd11632b0307eee83` |
+| `config.log` | `932f438230719dce418fdce97ec5a5f94f0b702fb30cb70ed402a1a42c31db2c` |
+| `include/gambit.h` | `c54139a48c7456b07e772077e5318f4f7dde12ccc392a8ec1d66cbc811fb5c58` |
+| `bin/gambuild-C.unix.in` | `1765f8c04957fb666ba44aee0c4d8ea8ecf76aa83d7f3314e72a3aa5f862639a` |
+| `configure.ac` | `c7a8121eec407a7b03a3d9ca5f2df5fc367c1609d855dc7f47401f3d1981234d` |
+
+## Exact Initial Generated Bindings
+
+The following is inert text, lines 1-55 of C1, including assignment-time field
+references and later template references. It is not a portable executable argv
+or a recommendation to source/eval it. In particular retain repeats in FLAGS_EXE.
+Runtime include/lib directories are injected by the request; their actual values
+are not established by this excerpt.
+
+```sh
+#! /bin/sh
+
+# The following bindings are determined by the configure script.  The
+# bindings for CORCXXFLAGS_GAMBUILD and LDFLAGS_GAMBUILD can be
+# overridden by setting the corresponding environment variables.
+
+if test "${CORCXXFLAGS_GAMBUILD+set}" != set; then
+  CORCXXFLAGS_GAMBUILD="-foptimize-sibling-calls "
+fi
+
+if test "${LDFLAGS_GAMBUILD+set}" != set; then
+  LDFLAGS_GAMBUILD="-L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/sqlite/lib -L/opt/homebrew/opt/zlib/lib"
+fi
+
+C_COMPILER="/opt/homebrew/bin/gcc-16"
+C_PREPROC="/opt/homebrew/bin/gcc-16 -E"
+PKG_CONFIG=""
+
+FLAGS_OBJ="${CORCXXFLAGS_GAMBUILD}   -ftrack-macro-expansion=0 -Wno-unused -Wno-write-strings -Wdisabled-optimization -fwrapv -fno-strict-aliasing -fno-trapping-math -fno-math-errno -fschedule-insns2 -fmodulo-sched -freschedule-modulo-scheduled-loops -foptimize-sibling-calls -fomit-frame-pointer -fipa-ra -fmove-loop-invariants -fPIC -fno-common  "
+FLAGS_DYN="${LDFLAGS_GAMBUILD} ${CORCXXFLAGS_GAMBUILD}  -bundle  -ftrack-macro-expansion=0 -Wno-unused -Wno-write-strings -Wdisabled-optimization -fwrapv -fno-strict-aliasing -fno-trapping-math -fno-math-errno -fschedule-insns2 -fmodulo-sched -freschedule-modulo-scheduled-loops -foptimize-sibling-calls -fomit-frame-pointer -fipa-ra -fmove-loop-invariants -fPIC -fno-common   "
+FLAGS_LIB="${LDFLAGS_GAMBUILD} ${CORCXXFLAGS_GAMBUILD}  -dynamiclib -install_name \$(libdir)/\$(LIBRARY)\$(LIB_VERSION_SUFFIX)   "
+FLAGS_EXE="${LDFLAGS_GAMBUILD} ${CORCXXFLAGS_GAMBUILD}   -ftrack-macro-expansion=0 -Wno-unused -Wno-write-strings -Wdisabled-optimization -fwrapv -fno-strict-aliasing -fno-trapping-math -fno-math-errno -fschedule-insns2 -fmodulo-sched -freschedule-modulo-scheduled-loops -foptimize-sibling-calls -fomit-frame-pointer -fipa-ra -fmove-loop-invariants -fPIC -fno-common     -ftrack-macro-expansion=0 -Wno-unused -Wno-write-strings -Wdisabled-optimization -fwrapv -fno-strict-aliasing -fno-trapping-math -fno-math-errno -fschedule-insns2 -fmodulo-sched -freschedule-modulo-scheduled-loops -foptimize-sibling-calls -fomit-frame-pointer -fipa-ra -fmove-loop-invariants -fPIC -fno-common   "
+
+FLAGS_OPT=" -O1"
+FLAGS_OPT_RTS=" -O3"
+
+DEFS_OBJ=" -D___SINGLE_HOST -D___INLINE_JUMPS -D___TRUST_C_TCO -D___CAN_IMPORT_CLIB_DYNAMICALLY -D___CAN_IMPORT_SETJMP_DYNAMICALLY "
+DEFS_DYN=" -D___SINGLE_HOST -D___INLINE_JUMPS -D___TRUST_C_TCO -D___CAN_IMPORT_CLIB_DYNAMICALLY -D___CAN_IMPORT_SETJMP_DYNAMICALLY -D___DYNAMIC"
+DEFS_LIB=" -D___SINGLE_HOST -D___INLINE_JUMPS -D___TRUST_C_TCO -D___CAN_IMPORT_CLIB_DYNAMICALLY -D___CAN_IMPORT_SETJMP_DYNAMICALLY "
+DEFS_EXE=" -D___SINGLE_HOST -D___INLINE_JUMPS -D___TRUST_C_TCO -D___CAN_IMPORT_CLIB_DYNAMICALLY -D___CAN_IMPORT_SETJMP_DYNAMICALLY "
+
+BUILD_OBJ="\${C_COMPILER} \${FLAGS_OPT} \${FLAGS_OBJ} \${DEFS_OBJ} -I\"\${GAMBITDIR_INCLUDE}\" -c -o \${BUILD_OBJ_OUTPUT_FILENAME_PARAM} \${BUILD_OBJ_CC_OPTIONS_PARAM} \${BUILD_OBJ_INPUT_FILENAMES_PARAM}"
+BUILD_DYN="\${C_COMPILER} \${FLAGS_OPT} \${FLAGS_DYN} \${DEFS_DYN} -I\"\${GAMBITDIR_INCLUDE}\" -o \${BUILD_DYN_OUTPUT_FILENAME_PARAM} \${BUILD_DYN_CC_OPTIONS_PARAM} \${BUILD_DYN_LD_OPTIONS_PRELUDE_PARAM} \${BUILD_DYN_INPUT_FILENAMES_PARAM} \${BUILD_DYN_LD_OPTIONS_PARAM}"
+BUILD_LIB="echo BUILD_LIB not yet implemented"
+BUILD_EXE="\${C_COMPILER} \${FLAGS_EXE} \${DEFS_EXE} -I\"\${GAMBITDIR_INCLUDE}\"  -o \${BUILD_EXE_OUTPUT_FILENAME_PARAM} \${BUILD_EXE_CC_OPTIONS_PARAM} \${BUILD_EXE_LD_OPTIONS_PRELUDE_PARAM} \${BUILD_EXE_INPUT_FILENAMES_PARAM} \"\${GAMBITDIR_LIB}/libgambit.a\" \${LIBS} \${BUILD_EXE_LD_OPTIONS_PARAM}"
+
+DEFS=""
+LIBS=" "
+GAMBITLIB="gambit"
+GAMBITGSCLIB="gambitgsc"
+GAMBITGSILIB="gambitgsi"
+LIB_PREFIX="lib"
+LIB_EXTENSION=".a"
+OBJ_EXTENSION=".o"
+EXE_EXTENSION=""
+BAT_EXTENSION=""
+
+ALL_BUILD_FEATURES="unix windows gcc clang visualc cc"
+BUILD_FEATURE_C_COMP="gcc"
+BUILD_FEATURE_OS="unix"
+
+GAMBUILD_CC_OPTIONS_REGEXP="^ #|\\*/\"\\*/\"cc-options|#"
+GAMBUILD_LD_OPTIONS_PRELUDE_REGEXP="^ #|\\*/\"\\*/\"ld-options-prelude|#"
+GAMBUILD_LD_OPTIONS_REGEXP="^ #|\\*/\"\\*/\"ld-options|#"
+GAMBUILD_PKG_CONFIG_REGEXP="^ #|\\*/\"\\*/\"pkg-config|#"
+```
+
+## Deliberate Evidence Limits
+
+Bounded checks found no raw directories at `.data/d935-staging-source`,
+`.data/d1510-object-request-cost-v3`, `.data/d1510-original-gnu-debug-sidecar-v1`,
+`.data/d1510-original-gnu-source-map-v2`, `.data/d1510-source-loader-linked`,
+`.data/d1391-runtime-object-source/build` or the named original request-driver
+paths. This is local availability only; it does not revoke durable historical
+reports or imply those workloads failed. The evidence interface also returned
+unknown for the raw directory string, which is not an absence proof.
+
+The generated .unix file, config.status and config.log were read as text; no
+shell assignment, retained script, configure, compiler, package tool or harness
+was executed. Actual loaded runtime archive, compiler/specs/linker content,
+SDK content and deployment target remain required profile evidence. Code-based
+shell behavior analysis is limited to the inspected source routes. External
+POSIX/GNU shell pages could not be fetched during this turn, so they are not
+used as read/verified normative evidence. No new paper is needed to establish
+these concrete serialization losses; the source itself is the primary evidence.
+
+## Documentation Checks
+
+307 local file references resolve; 123 Markdown tables have consistent columns.
+Both new D2 sources render using D2 0.9.0 (dagre/theme 0); SVGs were rasterized
+and visually inspected for clipping and readable labels. These are document
+checks, not decoder fixtures, native qualification or performance evidence.

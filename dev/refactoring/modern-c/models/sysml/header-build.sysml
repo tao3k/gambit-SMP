@@ -1,0 +1,27 @@
+package GambitHeaderBuild {
+ private import ScalarValues::*;
+ attribute scope:String="One ordered header source inventory and one Make publication owner. Existing configure, Make, install and distribution entrypoints remain. No runtime, front-end, scheduling or independent SMP-family promotion.";
+ attribute stage:String="header-build-qualification";
+ attribute formalDuty:String="OpenSysML SDK resolves component ownership and five submission gates. ASCENT binds source-qualified native observations. QNT schedule exploration and Lean frame/ownership algebra retain their existing distinct duties: no runtime semantics change requires a new duplicate model.";
+ attribute manifest:String="vendor/gambit/include/gambit.h.in";
+ attribute baseline:String="32028f5d5efdef5b901de84aaeba43fe3ba939e3";
+ attribute independentSmp:String="4/12 accepted; eight families remain; this build cut grants zero family credit";
+ attribute sourceRelation:String="Manifest order -> Make HEADER_TEMPLATES -> HEADER_INPUTS, prerequisites and RCFILES/DISTFILES. config.status substitutes their ordered concatenation; Make alone compares and atomically publishes gambit.h.";
+ attribute completion:String="Render to a target-local temporary. Publish only changed bytes. Issue stamp-gambit only after successful comparison/publication. The stamp absorbs unchanged-content input touches; a missing public header is reconstructed. Failed render, missing fragment or invalid manifest grants no completion.";
+ attribute costBoundary:String="Count configuration, real Make phases, generation attempts, C compilations, archive/link operations and public-file writes separately. Include setup and native consumers. Same task/cache, exact C23 profile and original limits. No pause/throughput/RSS or cold-bootstrap speedup claim.";
+ part def Component { attribute id:String; attribute source:String; attribute responsibility:String; }
+ part manifestOwner:Component { attribute :>> id="HEADER-MANIFEST"; attribute :>> source="vendor/gambit/include/gambit.h.in"; attribute :>> responsibility="Only maintained ordered list; fragment payloads remain single-owned and byte-preserving."; }
+ part renderOwner:Component { attribute :>> id="HEADER-RENDER"; attribute :>> source="vendor/gambit/configure.ac"; attribute :>> responsibility="Configure standard AWK and delegate the header command to existing Make. config.status is a substitution service, not a second module inventory."; }
+ part publicationOwner:Component { attribute :>> id="HEADER-PUBLISH"; attribute :>> source="vendor/gambit/include/makefile.in"; attribute :>> responsibility="Validate inventory; derive generation/dependency/distribution inputs; compare, publish and record checked inputs. Preserve installed public header and official targets."; }
+ part evidenceOwner:Component { attribute :>> id="HEADER-EVIDENCE"; attribute :>> source="src/gambit_smp/header_organization.py"; attribute :>> responsibility="Distinguish historical lossless representation from current build-owner refinement; existing ExecutionContext, lease and exact product custody remain the only execution owner."; }
+ part submission:GambitCommitGates::SubmissionUnit {
+  attribute :>> kind="support"; attribute :>> result=""; attribute :>> progressDelta=0;
+  attribute :>> supportPaths=".gitignore;configure.ac;configure;include/makefile.in";
+ }
+ part def Need { ref part gate:GambitCommitGates::Gate; attribute id:String; attribute method:String; attribute artifact:String; attribute scope:String; }
+ part tests:Need { ref part :>> gate=GambitCommitGates::tests; attribute :>> id="HEADER-TESTS"; attribute :>> method="native"; attribute :>> artifact="evidence/research/retained/modern-c/header-build/native.json"; attribute :>> scope="Matched Make controls, no-change and C-only builds, module invalidation, unchanged-content touch, rejected duplicate manifest, installation and real multi-shot/GC consumer. Preserve failed custody attempt separately."; }
+ part learning:Need { ref part :>> gate=GambitCommitGates::learning; attribute :>> id="HEADER-LEARNING"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/header-build.org"; attribute :>> scope="Retire three maintained lists and duplicate public-file publication authority; record unavoidable remaining phases and added AWK/comparison/stamp work."; }
+ part process:Need { ref part :>> gate=GambitCommitGates::process; attribute :>> id="HEADER-PROCESS"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/header-build.org"; attribute :>> scope="Independent build responsibility; retain accepted SMP4/12 and all historical prefixes. Exclude the unverified runtime proposals and later-family tests."; }
+ part models:Need { ref part :>> gate=GambitCommitGates::models; attribute :>> id="HEADER-MODELS"; attribute :>> method="native"; attribute :>> artifact="evidence/research/retained/modern-c/header-build/model-binding.json"; attribute :>> scope="Strict OpenSysML SDK ownership projection plus real ASCENT five-gate admission and negative controls; no duplicated QNT/Lean runtime laws."; }
+ part questions:Need { ref part :>> gate=GambitCommitGates::questions; attribute :>> id="HEADER-QUESTIONS"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/header-build.org"; attribute :>> scope="Show unchanged C payload, representation and continuation behavior. Explain failure custody, no-change invalidation, actual saved work, residual costs and platform coverage limits."; }
+}

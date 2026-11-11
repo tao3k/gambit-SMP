@@ -1,0 +1,71 @@
+#+TITLE: Managed heap materialization, writer closure and peak matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Current producer and consumer matrix
+:PROPERTIES:
+:CUSTOM_ID: materialization-caller-matrix
+:END:
+#+NAME: materialization-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| still-enrollment | mem.c:1487-1498,1677-1708 | Allocate -> link still_objs -> metadata/header -> return uninitialized body | Refcount roots do not initialize traced slots; list append is not a crash-safe commit | Separate private allocation, scan-valid shell and epoch-qualified enrollment; retain old synchronous contract until replacement |
+| generated-structure | _kernel.scm:43-112;_kernel.c:23864-23904 | SAVE1 type -> allocate -> RESTORE1 -> refcount dec -> INIT loop/memset -> result | Saved root is cleared after RESTORE; inserting GC in fill would need input and partial-result roots | Generated InitSpec and lease; root all input aliases and shell before any new checkpoint |
+| native-pair-vector | mem.c:1743-1818;c_intf.c:5732-5803 | String child -> make_pair -> release children; vector plain fill | Native constructors require nonmovable input; no arbitrary movable-pointer admission | Keep raw ABI restrictions; managed facade uses updateable handles, no hidden GC in barrier |
+| mutation-family | gambit.h.in:2021,4231,5328-5329,5477-5482,5835-5838,5926 | CAR/CDR, vector, structure type/slot and continuation frame setters are plain stores | These selected macros are not a generational remembered-set barrier; raw aliases escape them | Generated StoreSpec covers initialization and mutation; raw FFI borrows must be scoped or refused |
+| collector-rewrite | mem.c:3490-3655,4170-4245 | mark_array loads cell and rewrites forwarding address; still scanner enumerates body | A stable still body can contain movable children; atomic valid slots alone do not prevent stale addresses | Mutator/scan exclusion plus complete handle reload and retained dirty coverage |
+| atomic-conversion | mem.c:4016-4040;c_intf.c:5413-5500,5678-5689 | STRING payload fill or error -> release; success writes *obj | GC skips string payload but user-visible data must still be complete; no pointer-shell argument needed | Subtype-specific InitSpec; error is non-delivery, refcount release is not immediate free |
+| physical-cleanup | mem.c:4432-4456,4928-4935;setup.c:903-978 | PSTATE cleanup frees all still blocks, then RC chain; resize joins afterward | Root record in another domain does not alone prevent physical free | Transfer or retain allocator-chain backing before cleanup; ownership domain survives executor |
+| unknown-write | mem.c:1743-1818;_kernel.scm:92-112;os_thread.c:546-591 | Raw field fill has no operation-keyed store receipt | Join failure or lost result cannot certify closure; asynchronous kill may leave torn store or lock held | Reject GC detachment of unknown heap writer; use isolated native stage and controlled bounded commit lease |
+
+* Work and whole-round peak matrix
+:PROPERTIES:
+:CUSTOM_ID: materialization-benefit-matrix
+:END:
+#+NAME: materialization-costs-native
+| Capability | Removed work | Quantified condition | Added cost | Boundary and falsifier |
+|---+---+---+---+---|
+| ordinary shell | Remove dependency of scan validity on final semantic initialization | a ordinary pointer fields: sentinel a + final a = 2a stores versus a | Extra a stores; valid header/layout; no second mandatory body allocation | Only admitted ordinary pointer layouts; weak/procedure/frame/foreign special layouts require separate InitSpec |
+| remembered coverage | Remove per-field post-store ambiguity from minor admission | One whole-object coverage reservation per initialization lifetime; scan up to a slots per minor while retained | Sticky dirty entry, epoch pin, possible repeated full partial-object scans | Must cover allocator overflow, reset/rearm and residual edges; no scalar speedup asserted |
+| managed commit lease | Remove native helper from GC wait only before it acquires heap-write authority | With batch b, at most b logical stores per cooperative lease; no wall-clock bound | Acquire/release, input-handle reload and root-domain enumeration per lease | Unknown-live raw writer or dead lock owner prevents bound; process-local recovery not qualified |
+| stopped-store abort | Avoid replay of ambiguous heap-visible store and global semantic completion wait | Zero additional final fill after abort; retain valid actual slots until collectible | Stop/borrower closure, retained roots/backing, error result and later GC scan | Only integrity-preserving stop; no arbitrary pthread_cancel, fault or process crash recovery |
+| root handoff | Remove dependence on dead PSTATE result slot after domain transfer | Source pin retained until receiver pin acknowledgement; zero rootless intervals | Overlap pins and exact operation generation/result receipt | Root registry transfer alone does not retain still block physically |
+| whole-round memory | No mandatory payload allocation eliminated | Peak >= max_t(stage_t + body_t + input_t + metadata_t) for those simultaneous terms | S+B+E+M overlap plus shell scan/dirty/root metadata; sentinel uses same B | Qg only lowers whole peak if max_t(P_t-Qg_t+A_t) < max_t(P_t); late refund cannot lower past peak |
+| modern C versus Zig | One generated InitSpec/StoreSpec and runtime owner | Same a/2a stores, barriers, scan and ownership duties in both languages | C atomics/schema generator; Zig adds backend/toolchain/ABI maintenance if selected | No incremental Zig GC correctness or work saving established; modern C remains selected |
+
+* Exact model scopes and dependencies
+#+NAME: materialization-needs-native
+| Need | Kind | Subject | Exact scope | Premise |
+|---+---+---+---+---|
+| MC-H | interleaving | models/gambit/still_materialization_custody.qnt | still_materialization_custody:22-named-histories;safe;seed=17;100x100 | Three traced slots, pending store and two relocation epochs; abort custody, root handoff and guarded stale aliases; no native liveness |
+| MC-I | induction | models/gambit/lean/StillMaterializationCustody.lean | GambitSMP.StillMaterializationCustody:shellAloneInsufficient;pendingBlocksScan;rootRequired;domainRequired;backingRequired;stopAloneInsufficient;tornStoreRefused;abortThenScan;rootStepPreserves;rootTracePreserves;acquireReloads;staleAliasRefused;predirtyCoversGap;noDirtyResetWhileRetained;sentinelWriteCost;coexistencePeak | 16 conditional statements and root Step/Trace induction; no whole QNT or C refinement |
+| MC-SHELL | source-refinement | models/gambit/lean/StillMaterializationCustody.lean | MC-SHELL:actual-source-refinement | Private block and valid ordinary pointer-slot sentinels before still-list/root-domain publication; subtype layout and allocator interruption closure required |
+| MC-WRITE | source-refinement | models/gambit/lean/StillMaterializationCustody.lean | MC-WRITE:actual-source-refinement | Epoch lease excludes scan, pre-dirty whole-object coverage precedes first young store and persists through unknown progress; reload inputs after GC; no implicit barrier GC |
+| MC-ROOT | source-refinement | models/gambit/lean/StillMaterializationCustody.lean | MC-ROOT:actual-source-refinement | Independent domain and physical still-chain custody survive PSTATE cleanup; receiver root enrolled before operation root release; no rootless handoff |
+| MC-RECOVER | source-refinement | models/gambit/lean/StillMaterializationCustody.lean | MC-RECOVER:actual-source-refinement | Exact writer stop, delegated borrower drain, integral valid field stores and ordered guard closure before scanning; abort unpublished result without replaying ambiguous heap stores; unknown-live heap writer still blocks |
+
+#+NAME: materialization-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| MC-SHELL | MC-H |
+| MC-SHELL | MC-I |
+| MC-WRITE | MC-H |
+| MC-WRITE | MC-I |
+| MC-ROOT | MC-H |
+| MC-ROOT | MC-I |
+| MC-RECOVER | MC-H |
+| MC-RECOVER | MC-I |
+| MC-SHELL | SP-POLL |
+| MC-SHELL | WB-WRITERS |
+| MC-WRITE | MC-SHELL |
+| MC-WRITE | WB-SNAPSHOT |
+| MC-WRITE | WB-MEMORY |
+| MC-ROOT | RC-LIFETIME |
+| MC-ROOT | FZ-PUBLISH |
+| MC-ROOT | HR-BIND |
+| MC-RECOVER | MC-SHELL |
+| MC-RECOVER | MC-WRITE |
+| MC-RECOVER | MC-ROOT |
+| MC-RECOVER | OR-STOP |
+| MC-RECOVER | IR-DELIVERY |
+| SP-STILL | MC-RECOVER |
+| SP-STILL | MC-ROOT |

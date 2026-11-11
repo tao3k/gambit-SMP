@@ -1,0 +1,34 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "tfib-join-scale",
+  "scope": "Reuse the completed condvar-participation source-core in place. One short gsi fixture ramps original tfib(15) repeats 4, 32, 256, and 1024. Host-derived topology. Not repeat 5000, not the four-file 3600-second inventory, not a configure, seed, source-core, or bootstrap, and not original TFIB acceptance.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation.patch",
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation-runtime.local.json",
+    "models/gambit/native/tfib_join_scale.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {"id": "candidate", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 120,
+     "arguments": {"sourceLock": "evidence/research/exit-drain-mutex-lock-order/condvar-participation.lock.json"}},
+    {"id": "runtime", "capability": "gambit.runtime-import", "dependsOn": ["candidate"], "budgetSeconds": 120,
+     "arguments": {"source": {"step": "candidate", "output": "source"},
+                   "archive": "evidence/research/exit-drain-mutex-lock-order/condvar-participation-runtime.local.json"}},
+    {"id": "scale", "capability": "gambit.executable-test", "dependsOn": ["runtime"], "budgetSeconds": 180,
+     "arguments": {"runtime": {"step": "runtime", "output": "runtime"},
+                   "identity": {"step": "runtime", "output": "identity"},
+                   "program": "models/gambit/native/tfib_join_scale.scm",
+                   "mode": "gsi", "processorTopology": "host-managed", "executionBudgetSeconds": 120,
+                   "stdout": "STAGE go-15x4\nSTAGE go-15x32\nSTAGE go-15x256\nSTAGE go-15x1024\nSCALE-DONE\n"}},
+    {"id": "verdict", "capability": "evidence.evaluate",
+     "dependsOn": ["candidate", "runtime", "scale"],
+     "budgetSeconds": 30,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

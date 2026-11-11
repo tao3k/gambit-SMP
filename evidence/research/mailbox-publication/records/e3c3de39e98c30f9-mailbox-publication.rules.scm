@@ -1,0 +1,27 @@
+;; SysML supplies needs and exact source/profile identity. These relations check
+;; source/native evidence delivery; QNT schedules and Lean algebra stay separate.
+(relation mbIdentity (source profile))
+(relation mbNeed (id method))
+(relation mbObservation (id method source profile outcome))
+(relation mbOutcomePass (outcome) (("pass")))
+(relation mbRejected (id))
+((mbRejected I) <-- (mbNeed I M) (mbIdentity S P)
+ (mbObservation I M S P O) (not (mbOutcomePass O)))
+(relation mbSupplied (id))
+((mbSupplied I) <-- (mbNeed I M) (mbIdentity S P)
+ (mbObservation I M S P "pass") (not (mbRejected I)))
+(relation mbMissing (id))
+((mbMissing I) <-- (mbNeed I _) (not (mbSupplied I)))
+(relation mbBootstrap (source profile))
+(relation mbScopedClosure (source))
+((mbScopedClosure S) <-- (mbIdentity S P) (mbBootstrap S P) (not (mbMissing _)))
+;; Historical execution did not record the received value; no rule manufactures
+;; that value from a source projection or from successful ordinary controls.
+(relation mbHistoricalSchedule (source))
+(relation mbArchitecture (source))
+(relation mbGate (id) (("tests") ("architecture") ("process") ("models") ("questions")))
+(relation mbGateReceipt (id source))
+(relation mbGateMissing (id))
+((mbGateMissing G) <-- (mbGate G) (mbIdentity S _) (not (mbGateReceipt G S)))
+(relation mbCommitReady (source))
+((mbCommitReady S) <-- (mbScopedClosure S) (mbArchitecture S) (not (mbGateMissing _)))

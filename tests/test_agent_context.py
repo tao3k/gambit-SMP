@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from gambit_smp.agent_context import read_bundle, recheck, write_bundle
+from gambit_smp.agent_context import markdown, read_bundle, recheck, write_bundle
 from gambit_smp.framework import digest
 from gambit_smp.review_graph import build
 
@@ -64,6 +64,30 @@ class AgentContextTests(unittest.TestCase):
         path.write_text(json.dumps(manifest))
         with self.assertRaisesRegex(ValueError, "admission status mismatch"):
             read_bundle(self.out)
+
+    def test_markdown_is_only_navigation_not_a_reasoning_transcription(self):
+        result = dict(self.result, evidenceViews=[{"id": "caller-view", "path": "evidence/caller.view.json",
+            "queries": {"options": "options", "missing": "missing", "exploration": "exploration"},
+            "answers": {"options": [["question", "method"]], "missing": [],
+                        "exploration": [["unknown-method-remains-open"]]}}])
+        text = markdown(result)
+        self.assertIn("evidence.json", text)
+        self.assertLess(len(text), 250)
+        self.assertNotIn("options", text)
+        self.assertNotIn("unknown-method-remains-open", text)
+        self.assertNotIn("Inquiry Interface", text)
+
+    def test_historical_v1_bundle_is_read_without_rewriting_its_identity(self):
+        write_bundle(self.out, self.result)
+        path = self.out / "context.json"
+        manifest = json.loads(path.read_text())
+        manifest["schema"] = "gambit-agent-context.v1"
+        manifest.pop("entrypoint")
+        manifest["artifacts"].pop("evidence.json")
+        path.write_text(json.dumps(manifest))
+        original = path.read_bytes()
+        self.assertEqual(read_bundle(self.out)[0]["schema"], "gambit-agent-context.v1")
+        self.assertEqual(path.read_bytes(), original)
 
 
 if __name__ == "__main__":

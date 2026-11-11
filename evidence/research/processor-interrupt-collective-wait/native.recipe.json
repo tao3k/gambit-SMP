@@ -1,0 +1,76 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "processor-interrupt-collective-wait-original-stress",
+  "scope": "Source-bound single-core regeneration and unchanged compiled/interpreted four-file stress on fixed processor membership. Reuse observed build material, not historical runtime qualification. No observer overlay, repeated two-pass bootstrap, causal holder attribution or whole-SMP admission.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/processor-interrupt-collective-wait/source.lock.json",
+    "patches/fixtures/processor-interrupt-collective-wait-cumulative.patch",
+    "evidence/research/processor-interrupt-collective-wait/source-review.md",
+    "evidence/research/processor-interrupt-collective-wait/material-state.json",
+    "evidence/research/processor-interrupt-collective-wait/material-reference.json",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "models/gambit/processor_interrupt_ticket.qnt",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/research/processor-interrupt-collective-wait/source.lock.json",
+        "workspace": ".cache/fixtures/abandonment-gc-publication-reader-repaired/run/source/source",
+        "workspaceState": "evidence/research/processor-interrupt-collective-wait/material-reference.json"
+      }
+    },
+    {
+      "id": "configure", "capability": "gambit.configure", "dependsOn": ["source"], "budgetSeconds": 60,
+      "arguments": {"source": {"step": "source", "output": "source"},
+                    "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"}
+    },
+    {
+      "id": "seed", "capability": "gambit.seed-core", "dependsOn": ["configure"], "budgetSeconds": 180,
+      "arguments": {"source": {"step": "configure", "output": "source"}}
+    },
+    {
+      "id": "core", "capability": "gambit.source-core", "dependsOn": ["seed"], "budgetSeconds": 180,
+      "arguments": {"runtime": {"step": "seed", "output": "runtime"}}
+    },
+    {
+      "id": "stress-gsc", "capability": "gambit.suite", "dependsOn": ["core"], "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {"step": "core", "output": "runtime"},
+        "identity": {"step": "core", "output": "identity"},
+        "mode": "gsc", "regime": "whole-parallel", "inventory": "stress", "selection": ["."],
+        "expectedFiles": ["06-thread/tfib_stress.scm", "06-thread/thread_interrupt2_stress.scm",
+                          "06-thread/thread_interrupt_stress.scm", "06-thread/thread_terminate_stress.scm"],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "stress-gsi", "capability": "gambit.suite", "dependsOn": ["core", "stress-gsc"], "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {"step": "core", "output": "runtime"},
+        "identity": {"step": "core", "output": "identity"},
+        "mode": "gsi", "regime": "whole-parallel", "inventory": "stress", "selection": ["."],
+        "expectedFiles": ["06-thread/tfib_stress.scm", "06-thread/thread_interrupt2_stress.scm",
+                          "06-thread/thread_interrupt_stress.scm", "06-thread/thread_terminate_stress.scm"],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict", "capability": "evidence.evaluate",
+      "dependsOn": ["source", "configure", "seed", "core", "stress-gsc", "stress-gsi"],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step", "bindings": "bound_source", "controls": "bound_control"},
+        "expected": {"missing": [], "bindings": [], "controls": []}
+      }
+    }
+  ]
+}

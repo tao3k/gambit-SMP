@@ -1,0 +1,71 @@
+#+TITLE: VM Root Registry, GC Epoch and Lease Retirement Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: vm-root-registry-matrix
+:AUTHORITY: VMRootRegistry
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** Caller
+
+| key | anchor | condition |
+|---+---+---|
+| rc-register | mem.c:277,306,723-754,3969-3986,6845-6849 | Current PSTATE registration versus processor-0 RC scan is not a VM-wide root contract |
+| c-closure | os_dyn.c:744-769,1047-1058; c_intf.c:6511-6546 | Real C closure stores Scheme proc in RC data; callback self and marker protection remain separate qualified boundaries |
+| tcl-client | examples/tcltk/tcltk.scm:188-194,298-326 | Tcl retains RC client data plus still vector; deletion releases both; scan observations alone do not prove current object death |
+| resize-exit | setup.c:918-978,4665-4706; mem.c:4432-4449,4659,4928-4934 | Processor setup/cleanup initializes/frees RC chains; committed VM roots and their still-object storage must survive creator processor; root registration alone is insufficient |
+| gc-phase | mem.c:6591-6645,6845-6858,7002-7038 | Existing GC phase barriers and root partitions are source seams; registry membership is not processor_count |
+
+** Protocol
+
+| key | anchor | condition |
+|---+---+---|
+| register | proposed VM contract; mem.c:723-754 | Reserve initialized slot; producer root protects payload until atomic VM-root/index receipt handoff; wrong VM rejects |
+| seal | proposed contract; mem.c:7002-7016 | Close new permits, drain/cancel preaccepted updates and dereferences, then freeze slot membership and scanner tickets |
+| scan | mem.c:3984,6626,6642-6644; proposed adapter | Exactly covered slots scanned via mutable root locations; relocation updates values; registered readers hold lifetime not raw addresses |
+| retire | proposed contract; mem.c:760-791,4928-4934 | Close slot admission; retain until scanner tickets, update permits, read leases and unresolved receipt holders all retire |
+| processor-lifetime | setup.c:930-978; proposed VM contract | Committed slot ownership belongs to VM, not creator PSTATE; local-only pending roots and still storage need separate handoff before processor cleanup |
+
+** Route
+
+| key | anchor | qntAction | leanLemma | condition |
+|---+---+---+---+---|
+| registration | mem.c:723-754; os_dyn.c:764-769 | commitRegister | vmMatch | All publishers retain producer root until slot and registration receipt are authoritative |
+| quiescence | mem.c:7002-7016; proposed GC entry seam | startScan | acceptedUpdateMayDrain | Closing prevents new writers but permits accepted writers to finish before snapshot freeze |
+| coverage | mem.c:3969-3986,6845-6858 | endScan | coverageUnion | Nonzero processor roots included by VM membership; scanner assignment exactly covers snapshot |
+| retirement | mem.c:760-791,4928-4934; proposed epoch gate | reclaim | scanBlocksReclaim | Reader retirement alone cannot unlink a slot still held by current GC snapshot or unknown acknowledgement |
+| resize | setup.c:918-978; mem.c:4432-4449 | departOne | creatorExitPreservesSlot | PSTATE departure does not revoke VM slot identity; backing storage needs separate handoff |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| vm-root-ownership | Per-processor root transfer tied to compiler task migration after VM handoff | VM registry, payload admission, epoch/scanner tickets and GC slot adapters | Only committed VM-owned slots decouple from processor exit; no elimination of root scanning |
+| stable-scan | Repeated uncertain RC-chain discovery and unqualified worker coverage | Closed snapshot, partition/coverage evidence and update/deref draining | Exact membership can bound scan work; quiescence delays and slot bookkeeping count |
+| independent-service | Global processor-zero affinity for newly managed compiler holders | Per-VM handle/lease identity and callback/native migration | Parallel benefit requires actual independent work and all native writers admitted; no automatic multicore gain |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| root | prepareRegister;commitRegister;departOne | vmMatch;creatorExitPreservesSlot;storageBlocksExit | Actual C closure/Tcl/native producer/root transfer and teardown simulation |
+| phase | beginUpdate;closeGC;commitUpdate;startScan | acceptedUpdateMayDrain;noNewWriter;coverageUnion | Actual barrier/participant/slot freeze relation and independent worker coverage |
+| reclaim | requestRetire;reclaim;ackRegister | scanBlocksReclaim;leaseBlocksReclaim;unknownBlocksReclaim | All leases/GC tickets/unknown outcomes and root registration lifetime closed |
+| value | readSlot;endScan | slotAfterScan;costPositive | Moving reference restoration, C memory order and work/span/retention measurement |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| producer-closure | False | Resolved C closure/Tcl/FFI/compiler publishers and borrowers completely admitted |
+| vm-ownership | False | Actual per-VM slots and registration receipts survive PSTATE exit with source protection |
+| gc-seal | False | New permit closure and preaccepted update/deref draining cannot deadlock with actual GC |
+| scan-coverage | False | Registry snapshot and scanner partitions cover every admitted nonzero root and update correct slot |
+| retirement | False | Epoch tickets/read leases/unresolved outcomes/continuations/native holds fully drained |
+| source-replacement | False | Old RC/global root authorities retired only after all required users migrate |
+| platform | False | C weak memory/root maps/host attestation/native qualification and measured benefit remain open |

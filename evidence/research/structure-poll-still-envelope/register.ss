@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "structure-poll-still-envelope:f4ad06e603a7d624b621101bc3d85179e7d66a70df2d258bb4ee3afd9d51ca64" "structure-poll-still-envelope:f4ad06e603a7d624b621101bc3d85179e7d66a70df2d258bb4ee3afd9d51ca64" "support" "dev/architecture/runtime/gc/models/sysml/structure-poll-still-envelope.sysml"))
+ (fact (factor "structure-poll-still-envelope:f4ad06e603a7d624b621101bc3d85179e7d66a70df2d258bb4ee3afd9d51ca64" "target-model-bundle-sha256" "f4ad06e603a7d624b621101bc3d85179e7d66a70df2d258bb4ee3afd9d51ca64"))
+ (fact (factor "structure-poll-still-envelope:f4ad06e603a7d624b621101bc3d85179e7d66a70df2d258bb4ee3afd9d51ca64" "native-output-sha256" "9e5242e62590e2fee24a1d1ec24fe904614735b7a17bd969572c3680722bf173"))
+ (fact (factor "structure-poll-still-envelope:f4ad06e603a7d624b621101bc3d85179e7d66a70df2d258bb4ee3afd9d51ca64" "planner-dsl-sha256" "429af24e465c5d85006181fe37df366e173a7985da80088f72ea37efe86b7770"))
+)

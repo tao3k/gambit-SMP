@@ -1,0 +1,109 @@
+#+TITLE: Execution-root REV necessity, benefit and test audit
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never-export
+
+* Review boundary :architecture:audit:
+:PROPERTIES:
+:AUTHORITY: GambitExecutionStorage
+:SOURCE: models/sysml/execution-storage.sysml
+:END:
+
+The submitted source unit replaces storage and address consumers for ten root
+field families. It does not redesign the scheduler, collector, CFFI service,
+cleanup policy or frontend optimization. Public Gambit identifiers and original
+configure/Make/CI entrypoints retain their names. Each generated product must
+come from the same Scheme source through the existing distribution mechanism.
+
+The root/guard distinction matters: =na= is the existing call-arity scalar and
+=heap_limit= is the existing allocator capacity guard. Both retain their unique
+PSTATE storage. The root record contains =stack_limit/fp/stack_start/stack_break/
+hp/r/pc/saved/type_cache/processor_scmobj=. This intermediate cut cannot rebind
+an arbitrary executing context or detach its allocation/call state.
+
+* Handwritten source necessity matrix :source:retirement:
+
+Paths below are relative to =vendor/gambit=. Shared pending files are selected
+by exact tested blocks, never by staging the whole working prototype.
+
+| Source | Necessary responsibility replacement | Retired assumption / concrete benefit | Required verification |
+|--------+--------------------------------------+----------------------------------------+-----------------------|
+| include/gambit.h.in | Define VM-owned root slots; public accessors address that owner; retain flat header | Ten root families no longer occupy PSTATE; one owner and one root representation | Typed access/save-reload, old-field rejection, real offsetof, full source archive/core |
+| gsc/_t-cpu-abstract-machine.scm | Carrier-only field table and pure context-coordinate projection | CPU instructions cannot treat relocated root slots as PSTATE offsets; no generic instruction/allocator rewrite | Existing dispatcher/allocator byte identity; five real CPU generators; C offsetof fixtures |
+| lib/setup.c | Bind roots before setup helpers/publication; bridge roots by actual offsetof; validate module ABI before cached completion/mutation | Retire direct root coordinates and rejection that poisons fixup completion | Early/regular/resize binding census, multi-shot/roots, held old-module negative/positive controls, bridge compilation |
+| lib/os_setup.c | Move native startup/argument root accesses to the root owner | Startup objects use the same scanned bank as generated Scheme | Coordinate-only source comparison, original startup/GSI/core tests |
+| lib/_io.scm | Retarget existing embedded-C root accesses | No stale generated-C PSTATE root coordinate | Exact Scheme producer/default generated C; original I/O/embedding observations |
+| lib/_kernel.scm | Retarget existing kernel embedded-C root accesses | Kernel entry uses the declared root owner | Bootstrap, frame/multi-shot/map/root consumers |
+| lib/_num.scm | Retarget numeric embedded-C root/heap-frontier access | Numeric materialization uses the same root bank; no numeric algorithm change | Source substitution equality, original numeric GSI/default check, qualified generated C |
+| lib/_mem/allocation-limits.inc | Read/write stack/heap frontiers through context; allocator guard stays in PSTATE | Root frontier is distinct from capacity-policy ownership | Coordinate-only equality and original allocation/overflow/GC consumers |
+| lib/_mem/allocation-statistics.inc | Inspect the relocated frontier | Statistics no longer dereference retired carrier fields | Coordinate-only equality and original runtime checks; no speed claim |
+| lib/_mem/capacity-resize.inc | Retarget existing frontier accesses | Preserve current resize algorithm while replacing its root coordinates | Coordinate-only equality, setup-before-membership census, existing bootstrap/root consumers |
+| lib/_mem/collection-round.inc | Scan/save/reload the same roots through their owner | Retire direct r/saved/cache carrier scan coordinates | Coordinate-only equality, saved-root controls and real GC/multi-shot frames |
+| lib/_mem/configuration.inc | Initialize relocated root/frontier fields | Configuration initialization agrees with actual scanned storage | Coordinate-only equality, existing configure/Make and startup consumers |
+| lib/_mem/continuation-roots.inc | Address relocated stack roots | Preserve the original multi-shot frame/winding protocol | Coordinate-only equality, actual captured frames, repeated restore and GC |
+| lib/_mem/diagnostics.inc | Inspect the relocated roots/frontiers | Diagnostics and collector agree on storage coordinates | Coordinate-only equality, ordinary debug/default source build |
+| lib/_mem/memory-lifecycle.inc | Initialize/use context stack/frontier slots | Old carrier root fields cease being a lifetime owner | Coordinate-only equality and original setup/overflow/root consumers; no independent retirement claim |
+| tests/frame-spec.scm | Reuse existing compiler fixture channel for C layout assertions | Check real CPU/carrier/root/bridge coordinate contract, not another SCM runner | Existing frame assertions retained; typed C fixture compiles with ordinary and lowlevel headers |
+| tests/runtime-roles.c | Actual public accessor, root bank, SAVE/RELOAD and storage-identity controls | Expose missed owner routing and report actual structure sizes | Existing BUILD_EXE service, explicit success marker and source inventory |
+| tests/stack-overflow-undo.c | Attach its existing fake carrier to a fake root record | Original overflow assertions still exercise their actual fields | Original assertion/loop preservation, original test12 |
+| tests/makefile.in | Ship/run the necessary C control using existing build target | No parallel suite, executor, renamed official target or changed core command | Source distribution and original check prerequisites retained |
+
+* Deliberately excluded changes :scope:
+
+- =lib/_system.scm= needed no change once =na= stayed with its current owner.
+- Existing =apply-instruction=, =choose-register= and all three CPU emitters are
+  unchanged. Address ownership does not justify a general allocator rewrite.
+- Modular-header prototypes, worker arenas, RootTask/participant protocols,
+  lifetime/cleanup changes, test inventory restructuring, SMP workflow changes
+  and build-resource policy remain separate pending cuts.
+- Existing official Scheme cases, expected outputs, processor limits, waits,
+  heaps and clocks are unchanged. No tfib diagnosis is performed.
+
+* Benefit, maintenance and runtime-cost matrix :assurance:
+
+| Mechanism | Benefit established | Corresponding evidence | Added cost / boundary |
+|-----------+---------------------+------------------------+-----------------------|
+| One VM root owner | Ten root families and all admitted real consumers share one storage contract | Coordinate-only source census; public accessor/SAVE/RELOAD and real root/frame/map/multi-shot consumers pass | One carrier pointer; root-access indirection before optimization; no live migration permission |
+| Matched 64-bit structure accounting | PSTATE 1232 -> 928 bytes; context 312 bytes | Same-profile baseline/candidate BUILD_EXE public-header sizeof observations | VM 80040 -> 80552 bytes, +512; struct footprint, not whole-process peak or speedup |
+| C-compiled bridge offsets | Remove handwritten root/return-slot displacements from actual assembly | Five matched baseline/candidate bridge compiles; real public-header offsetof fixture | Two transient bridge words when lowlevel is enabled; padding may absorb their size; extra pointer/scratch moves |
+| Carrier guard distinction | Avoid introducing root-pointer/spill machinery into emitted CPU checks | Original instruction dispatcher/allocator and three emitters byte-identical; five real CPU code generators pass | Complete call/allocator detachment remains later work; no measured speedup |
+| Admission before mutation | A rejected held module cannot acquire SETUP_FIXUP_DONE and bypass a later cached fixup check | Old baseline module positive; rejection before fix changed flags1->3; fixed repeated rejection retains1->1->1 and never enters body | Existing version/size comparisons precede cached path; matching concurrent fixup remains outside this unit |
+| Existing test/fixture channels | Actual frame and layout coverage without adding SCM modules or a runner | Existing frame assertions retained;290 added layout assertions; default original check passes | Finite fixture compilation/testing cost; no new test framework |
+| Existing cache/Make dependency reuse | Final C-only admission edit rebuilt core in3.547s with zero Scheme generation and unchanged inventory | Exact source delta lib/setup.c and retained producer identities; final default full bootstrap137.093s separately passes | Different workloads, not a bootstrap speedup ratio |
+
+The final default image passes original GSI408/408 and all original check
+prerequisites. The SMP image independently passes GSI408/408 and the scoped
+root/continuation controls; its original embedding failure is not waived into
+PASS. Necessity is reviewed per path above, not inferred from the number of
+files or lines changed. Changes to official names, build entrypoints, allocator
+policy or unrelated fixtures cannot be included merely because they are pending.
+
+The numerical tests establish only the measured configuration and stated
+consumer scopes. Five-target assembly/code-generation checks are compile-only;
+OS-tail ABI and execution on foreign machines are not inferred. No SMP milestone,
+throughput gain, removed GC scan/barrier or generational collector is claimed.
+
+* Original failure disposition :evidence:
+
+The fixed same-path experiment actually switches =gsi/gsi= before invoking the
+unchanged official runner. The earlier parent-only binary switch was invalid:
+the runner always starts =../gsi/gsi=. Its observations remain retained without
+baseline attribution.
+
+The valid12 paired schedule reproduced inactive-thread failures in5 baseline
+and3 earlier candidate runs. The final ten-root candidate separately completed
+408/408 original GSI cases. This establishes a pre-existing failure class and
+no new observed class; it establishes neither a failure-rate improvement nor
+universal absence of regression.
+
+The official embedding test returns70 in both baseline and candidate. A
+separate diagnostic view enters =___setup= and exits70 before setup returns,
+with no first eval callback, in both images. Its deeper internal startup cause
+remains open under the later entry/lifetime service work; the diagnostic is not
+a passing official test. Earlier heartbeat warnings belong to =mix.scm= stderr,
+not an established test8 cause. No official assertion or threshold is changed.
+
+Final-source default CI-profile complete check, SMP functional roots/control
+consumers and baseline failure disposition are separately reported. A default
+pass cannot become whole-SMP acceptance; failed original SMP observations stay
+failed in their packet and future owner route.

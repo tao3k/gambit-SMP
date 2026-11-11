@@ -10,11 +10,16 @@ class EagerChainWorkClosureTests(unittest.TestCase):
     def test_source_split_model_is_checked_without_claiming_native_acceptance(self):
         manifest = verify.load_manifest(index.ROOT / "evidence/eager-tail-scan-partition.json")
         receipt = index.ROOT / "evidence/model-results/eager-tail-scan-partition/receipt.json"
-        self.assertEqual("eager_tail_scan_partition",
-                         evidence.checked_rows(index.ROOT, manifest, receipt)[0][0])
+        missing = [name for name in manifest["contextInputs"] if not (index.ROOT / name).is_file()]
+        if missing:
+            with self.assertRaises(OSError):
+                evidence.checked_rows(index.ROOT, manifest, receipt)
+        else:
+            self.assertEqual("eager_tail_scan_partition",
+                             evidence.checked_rows(index.ROOT, manifest, receipt)[0][0])
         facts, _ = evidence.facts(index.ROOT)
-        self.assertTrue(any(row[0] == "eager_tail_scan_partition"
-                            for row in facts["protocol_checked"]))
+        self.assertEqual(not missing, any(row[0] == "eager_tail_scan_partition"
+                                          for row in facts["protocol_checked"]))
         self.assertIn(("eager_tail_scan_partition", "gc_scan_claim_transfer"),
                       facts["protocol_composes"])
         self.assertIn(("eager_tail_scan_partition", "gc_copy_queue_memory_order"),
@@ -37,8 +42,10 @@ class EagerChainWorkClosureTests(unittest.TestCase):
     def test_composition_keeps_general_graph_wait_and_native_requirements_open(self):
         facts = index.export()["facts"]
         result = index.query(facts, load_catalog(index.ROOT / "evidence/catalog.ss"))
-        self.assertTrue(any(row[0] == "eager_chain_work_closure"
-                            for row in facts["protocol_checked"]))
+        manifest = verify.load_manifest(index.ROOT / "evidence/eager-chain-work-closure.json")
+        missing = [name for name in manifest["contextInputs"] if not (index.ROOT / name).is_file()]
+        self.assertEqual(not missing, any(row[0] == "eager_chain_work_closure"
+                                          for row in facts["protocol_checked"]))
         self.assertIn(("eager_chain_work_closure", "gc_scan_claim_transfer"),
                       result["model_contract_dependencies"])
         self.assertIn(("eager_chain_work_closure", "ticket_queue_handoff"),

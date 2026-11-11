@@ -1,0 +1,141 @@
+#+TITLE: GetCache — private construction, Ready, snapshots and retirement matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitCacheReadyPublication
+:END:
+Safety-model closure does not certify native caller coverage, C23 execution or performance.
+
+** Gain
+
+| key | saved | added | condition | status |
+|---+---+---+---+---|
+| ready-init | readers cannot obtain a complete managed handle from list membership before owner/TLS setup | one logical Ready publication and exact epoch/lifetime validation | all consumers migrate; current raw list path does not implement gate | conditional-model |
+| reentry | one candidate per modeled epoch; reentry sees Pending/Closing instead of second builder or self-wait | pre-reserved NativeThreadDomain record and typed admission/bootstrap interface | legacy mandatory allocator APIs cannot silently return Pending | conditional-model |
+| diagnostic-lock | move B+3 DString helper calls per cache outside global registry lock | immutable snapshot of owner label plus7 scalar values per bucket and copy/lease handoff | C caches/B buckets; O(C*B) snapshot content; race-free stats source not yet qualified | source-bound/conditional |
+| hot-path | owner-held Ready handle can avoid a new global atomic pin on every object allocation | scope lifetime and close/fast-handle revocation still required | owner NativeThreadDomain remains live; raw fast pointer cannot bypass close | design-only |
+| failure | distinguish committed-but-ACK-lost from rejected; prevent duplicate publication/free | unknown install/publication/free may retain stable ownership indefinitely | native outcome receipts/reconciliation are external; no retry on assumption | conditional-model |
+| retirement | potentially retire raw list-as-ready, untyped TLS getter and formatting-under-list-lock paths | global init, fast/platform TLS, interpreter access, diagnostic and cleanup caller migration | all native evidence still required; old retired0 and no measured speedup | unresolved |
+
+** Consumer
+
+| key | source | access | lifetime | limit |
+|---+---+---+---+---|
+| getcache | tls-read | Empty/Constructing/Ready/Closing descriptor in proposed service | stable owner reservation and matching cache epoch | actual raw pointer getter has no such tagged ABI |
+| fast-getcache | fast-slot | Ready handle under owner scope; no stale raw fast pointer after close | current OS thread and owner NativeThreadDomain | captured finalizer has no explicit tcachePtr reset; platform/legal reuse closure open |
+| interpreter | interp-cache | allocCache prefix obtained after interpreter allocation initializes cache | interpreter/cache ownership and canonical typed view | all callers and prefix layout must migrate together |
+| diagnostic | diagnostic-lock | capture/pin handles, release registry lock, request owner snapshot, unpin, then format | cache pin until copy ACK; independent snapshot afterward | mutable bucket stats need separate race-free source contract |
+| formatter | diagnostic-callout | owner label and scalar copy only; no raw cache/node/TLS dereference | stable diagnostic operation and buffer through formatting failure/reentry | current DString/format provider closure not captured |
+| cleanup | tls-cleanup | Closing entry prevents new readers, clears platform/fast/list aliases, drains native cleanup | stable supervisor and exact native owner | unknown outcomes and published cache cannot take private rollback path |
+
+** Issuer
+
+| key | source | signature | gap |
+|---+---+---+---|
+| thread-domain | tls-read | stable nonallocating builder reservation before callout, allocation and TLS installation | bootstrap TLS/global services may allocate; no circular self-qualification |
+| ready-owner | list-publish | owner, storage and TLS known installed; Preparing entry then matching single Ready commit | list/TLS writes are not one atomic operation; legacy direct pointers must migrate |
+| snapshot-owner | stats-read | owner-safe coherent copy and legal captured owner label into independent preowned buffer | list lock alone, or plain-data seqlock retries, do not establish C23 safety |
+| rollback-owner | cache-free | known not published, list/TLS/fast aliases detached, then exact same-operation private release | unknown release retains metadata duty, not permission to dereference/re-free storage |
+| close-owner | tls-cleanup | close admission, settle builder outcome, drain readers/copy, clear aliases and known cleanup | source OS thread/return domain and shared provider lifetime remain independent |
+
+** Writer
+
+| key | source | access | closure | limit |
+|---+---+---+---+---|
+| runtime-init | runtime-locks | global init lock/listLock/objLock/bucket initialization | captured body | plain first pointer test is not complete RuntimeServiceReady proof |
+| cache-builder | cache-allocate | allocate/zero/list-link/owner/TLS sequence | captured body | allocator/mutex/TLS/owner/panic providers and exception landing unresolved |
+| fast-slot | fast-slot | static __thread tcachePtr assigned after GetCache return | captured macro | all readers/clear/owner exit and provider profile unresolved |
+| statistics | stats-read | owner bucket writers versus diagnostic list-locked scalar reads | direct read fields identified | list lock alone does not serialize all mutable bucket fields |
+| diagnostic-output | diagnostic-callout | DString start/append/end and formatting inside list lock | captured body | indirect allocation/reentry and owner-label lifetime unresolved |
+| cleanup | tls-cleanup | thread finalization delegates platform cleanup; native free after unlink | captured call sites | same-operation clear/free outcome and platform callbacks unresolved |
+
+** Refinement
+
+| key | lemma | source | premise |
+|---+---+---+---|
+| ready-fields | CacheReadyPublication.readyRequiresInitialization | cache-owner | Ready is modeled canonical gate, not legacy list membership |
+| unknown-owner | CacheReadyPublication.unknownRetainsBuilder | list-publish | publication outcome unknown whether physically Ready or absent |
+| tls-unknown | CacheReadyPublication.unknownTlsNoRegistry | tls-write | void setter needs qualified provider receipt; unknown retains constructor |
+| detached-copy | CacheReadyPublication.formatUsesDetachedCopy | diagnostic-callout | owner snapshot ACK and independent buffer lifetime |
+| late-format | CacheReadyPublication.lateFormatAdmitted | diagnostic-callout | format reads copy, not freed cache or stale thread-id pointer |
+| single-candidate | CacheReadyPublication.noSecondCandidate | cache-allocate | one builder-authorized allocation per modeled epoch; raw recursion closure external |
+| unknown-rollback | CacheReadyPublication.rollbackUnknownRetainsDuty | cache-free | metadata duty retained even if native storage effect unknown; no replay |
+| parent-lease | CacheReadyPublication.guardedPriorDiagnostic | prior | explicit metadata-view mirror includes layout/generation/caller qualification; full product not proved |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| ready-safety | conditional-model | pre-reserved native guard, single builder epoch, stable record and atomic admission/pin domain |
+| source-order | source-bound | actual list-before-owner/TLS, void setter, fast TLS caller and diagnostic callouts captured |
+| global-runtime | unresolved | all allocator locks/bucket tables and bootstrap TLS ready before per-cache builder; no early pointer shortcut |
+| tls-provider | unresolved | same-thread install/clear/destructor receipts for platform TLS and fast handles; no silent pointer/descriptor ABI change |
+| reentry | unresolved | all allocator/owner/TLS/panic/format callbacks qualified; Constructing/Closing cannot wait on self or silently use private cache |
+| diagnostic-snapshot | unresolved | race-free owner snapshot or all-atomic payload plus defined consistency, owner-label lifetime and independent buffer cleanup |
+| rollback-retirement | unresolved | exact publication and free outcomes, alias detachment, native return domain and cleanup guard |
+| c23-refinement | unresolved | matching release/acquire epoch, atomic check-and-pin/close, all raw consumers and source-CFG/product refinement |
+
+** Route
+
+| actionName | lemma | source | obligation |
+|---+---+---+---|
+| reserveConstruction | CacheReadyPublication.reserveConstructionPreserves | tls-read | ready-safety |
+| allocateCandidate | CacheReadyPublication.allocateCandidatePreserves | cache-allocate | ready-safety |
+| allocationRejected | CacheReadyPublication.allocationRejectedPreserves | cache-panic | ready-safety |
+| initializeOwner | CacheReadyPublication.initializeOwnerPreserves | cache-owner | ready-safety |
+| installTlsKnown | CacheReadyPublication.installTlsKnownPreserves | tls-write | ready-safety |
+| installTlsUnknown | CacheReadyPublication.installTlsUnknownPreserves | tls-write | ready-safety |
+| stageRegistryEntry | CacheReadyPublication.stageRegistryEntryPreserves | list-publish | ready-safety |
+| publishKnown | CacheReadyPublication.publishKnownPreserves | list-publish | ready-safety |
+| publishUnknownCommitted | CacheReadyPublication.publishUnknownCommittedPreserves | list-publish | ready-safety |
+| publishUnknownAbsent | CacheReadyPublication.publishUnknownAbsentPreserves | list-publish | ready-safety |
+| rejectPublication | CacheReadyPublication.rejectPublicationPreserves | list-publish | ready-safety |
+| reconcileCommitted | CacheReadyPublication.reconcileCommittedPreserves | prior | ready-safety |
+| reconcileAbsent | CacheReadyPublication.reconcileAbsentPreserves | prior | ready-safety |
+| finishBuilder | CacheReadyPublication.finishBuilderPreserves | prior | ready-safety |
+| publishFastHandle | CacheReadyPublication.publishFastHandlePreserves | fast-slot | ready-safety |
+| constructionReentry | CacheReadyPublication.constructionReentryPreserves | tls-read | ready-safety |
+| closingReentry | CacheReadyPublication.closingReentryPreserves | tls-cleanup | ready-safety |
+| acquireReader | CacheReadyPublication.acquireReaderPreserves | fast-slot | ready-safety |
+| releaseReader | CacheReadyPublication.releaseReaderPreserves | prior | ready-safety |
+| qualifyStats | CacheReadyPublication.qualifyStatsPreserves | stats-read | ready-safety |
+| beginDiagnostic | CacheReadyPublication.beginDiagnosticPreserves | diagnostic-lock | ready-safety |
+| requestOwnerSnapshot | CacheReadyPublication.requestOwnerSnapshotPreserves | stats-read | ready-safety |
+| ownerSnapshotAck | CacheReadyPublication.ownerSnapshotAckPreserves | stats-read | ready-safety |
+| releaseDiagnosticPin | CacheReadyPublication.releaseDiagnosticPinPreserves | diagnostic-callout | ready-safety |
+| formatSnapshot | CacheReadyPublication.formatSnapshotPreserves | diagnostic-callout | ready-safety |
+| closeReady | CacheReadyPublication.closeReadyPreserves | tls-cleanup | ready-safety |
+| unlinkEntry | CacheReadyPublication.unlinkEntryPreserves | list-unlink | ready-safety |
+| clearTlsKnown | CacheReadyPublication.clearTlsKnownPreserves | tls-cleanup | ready-safety |
+| clearFastKnown | CacheReadyPublication.clearFastKnownPreserves | fast-slot | ready-safety |
+| attestNativeCleanup | CacheReadyPublication.attestNativeCleanupPreserves | cache-free | ready-safety |
+| retireKnown | CacheReadyPublication.retireKnownPreserves | cache-free | ready-safety |
+| rollbackUnknown | CacheReadyPublication.rollbackUnknownPreserves | cache-free | ready-safety |
+| rollbackKnown | CacheReadyPublication.rollbackKnownPreserves | cache-free | ready-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| runtime-locks | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | listLockPtr = TclpNewAllocMutex(); | global init publishes this pointer before objLockPtr and bucket table complete |
+| runtime-buckets | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | bucketInfo[i].blockSize = MINALLOC << i; | RuntimeServiceReady is a separate prerequisite |
+| tls-read | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | cachePtr = TclpGetAllocCache(); | no Constructing/Closing result in existing raw Cache pointer path |
+| cache-allocate | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | cachePtr = TclpSysAlloc(sizeof(Cache), 0); | allocation success needs stable pre-reserved owner guard |
+| cache-panic | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_Panic("alloc: could not allocate new cache"); | existing allocation failure panics; no proposed typed error implementation |
+| cache-zero | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | memset(cachePtr, 0, sizeof(Cache)); | private payload initialization |
+| list-publish | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | firstCachePtr = cachePtr; | source links list before owner and TLS installation |
+| cache-owner | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | cachePtr->owner = Tcl_GetCurrentThread(); | actual owner writer follows list unlock |
+| tls-write | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | TclpSetAllocCache(cachePtr); | platform binding body not captured; void declaration is not failure receipt |
+| tls-prototype | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | MODULE_SCOPE void	TclpSetAllocCache(void *); | no integer success/failure returned in captured interface |
+| fast-slot | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | tcachePtr = GetCache(); | HAVE_FAST_TSD direct TLS assignment after GetCache returns |
+| diagnostic-lock | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_MutexLock(listLockPtr); | Tcl_GetMemoryInfo holds list lock across output helpers |
+| diagnostic-callout | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_DStringAppendElement(dsPtr, buf); | formatter/append may allocate or call providers; no native closure proof |
+| stats-read | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | cachePtr->buckets[n].numFree, | list lock does not alone prove synchronization with owner bucket writes |
+| list-unlink | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | *nextPtrPtr = cachePtr->nextPtr; | actual unlink is under listLockPtr |
+| cache-free | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | TclpSysFree(cachePtr); | known/unknown backend release must not be retried as absent |
+| tls-cleanup | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | TclpFreeAllocCache(cachePtr); | thread finalization delegates platform TLS/free effects |
+| interp-cache | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | iPtr->allocCache = (AllocCache *)TclpGetAllocCache(); | interpreter prefix consumer must migrate with TLS getter contract |
+| prior | dev/refactoring/modern-c/models/quint/node_storage_authority.qnt | action probeCurrentCache= | actual parent metadata lease guard; layout/caller mirror is external |

@@ -5,13 +5,14 @@ from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load
 from gambit_smp.framework import ROOT
 from gambit_smp import research_actions
+from tests.historical_view import projection
 
 VIEW = "evidence/scenarios/concurrent-gc/reasons.view.json"
 
 
 class DesignReasonsTests(unittest.TestCase):
     def test_current_lifecycle_keeps_uncovered_obligations_open(self):
-        document, facts, catalog, _ = load(ROOT, "evidence/scenarios/concurrent-gc/lifecycle-024.view.json")
+        document, facts, catalog, _ = projection(ROOT, "evidence/scenarios/concurrent-gc/lifecycle-024.view.json")
         with engine_api() as (engine, _):
             answers, _ = evaluate(engine, facts, catalog, document["queries"])
             self.assertEqual(len(answers["why"]), 3)
@@ -24,7 +25,7 @@ class DesignReasonsTests(unittest.TestCase):
             self.assertEqual(len(changed["unknown"]), 6)
 
     def test_compiled_ffi_closes_only_its_exact_requirement(self):
-        document, facts, catalog, _ = load(ROOT, "evidence/scenarios/concurrent-gc/stable-ffi-023.view.json")
+        document, facts, catalog, _ = projection(ROOT, "evidence/scenarios/concurrent-gc/stable-ffi-023.view.json")
         with engine_api() as (engine, _):
             answers, _ = evaluate(engine, facts, catalog, document["queries"])
             self.assertEqual(len(answers["why"]), 1)
@@ -36,7 +37,7 @@ class DesignReasonsTests(unittest.TestCase):
             changed, _ = evaluate(engine, withdrawn, catalog, document["queries"])
             self.assertEqual(len(changed["missing_flag"]), 3)
     def test_scoped_reasons_withdraw_and_restore(self):
-        document, facts, catalog, inputs = load(ROOT, VIEW)
+        document, facts, catalog, inputs = projection(ROOT, VIEW)
         self.assertGreater(len(inputs), 5)
         with engine_api() as (engine, _):
             answers, first = evaluate(engine, facts, catalog, document["queries"])
@@ -58,14 +59,19 @@ class DesignReasonsTests(unittest.TestCase):
             self.assertEqual(first["sessionOwner"], last["sessionOwner"])
 
     def test_action_discovery_has_no_adoption_or_execution(self):
-        snapshot = research_actions.discover(ROOT, {"views": [VIEW]})
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            research_actions.discover(ROOT, {"views": [VIEW]})
+        snapshot = research_actions.discover(ROOT, {"views": [
+            "evidence/scenarios/concurrent-gc/modeling-024.view.json"]})
         actions = [r for r in snapshot["actions"] if r.get("query") in
                    ("why", "why_not", "unknown", "tradeoff")]
-        self.assertEqual(len(actions), 4)
+        self.assertEqual(len(actions), 0)
+        actions = snapshot["actions"]
+        self.assertEqual(len(actions), 2)
         for action in actions:
             self.assertEqual(action["risk"], "read-only")
             self.assertFalse(action["explanation"]["executionAuthorized"])
-        selected = next(r for r in actions if r["query"] == "why_not")
+        selected = next(r for r in actions if r["query"] == "model_gaps")
         handle = str(uuid.uuid4())
         result = research_actions.select(ROOT, snapshot, selected["id"], {}, handle,
                                          authorize_execution=True)

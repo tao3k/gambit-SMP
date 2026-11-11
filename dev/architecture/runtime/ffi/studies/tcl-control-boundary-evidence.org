@@ -1,0 +1,98 @@
+#+TITLE: Tcl Control Boundaries: Source, Reports and Papers
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Tcl Control Boundaries: Source, Reports and Papers :ffi:
+:PROPERTIES:
+:ID: f61587fb-851c-5f9b-86d7-906958bf90ee
+:CUSTOM_ID: tcl-control-boundaries-source-reports-and-papers
+:SOURCE_PATH: docs/experimental/zig/tcl-control-boundary-evidence.md
+:SOURCE_SHA256: 8cfb97d414a62f2bf51110656c9c2f94e16e4a831c6d67b8790b35613bf972be
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed 2026-10-21. Research HEAD
+~1a2d8612f2065387c62858e10baf63ce369cc48c~; Gambit HEAD
+~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~. Exact local working bytes and
+intervals are bound in the [[file:../../../../../docs/experimental/zig/tcl-control-boundary-traceability.json][trace]].
+[[file:../../../../../docs/experimental/zig/tcl-control-external-readings.json][External reading records]] identify reviewed
+web pages/source locators separately from raw-file hashes and installed
+library identity. No implementation, expansion, native test, performance,
+whole-program analysis or proof engine ran.
+
+*** Gambit Source and Real Callers
+:PROPERTIES:
+:ID: ab4deddb-ba72-5644-b78d-187ae797645e
+:CUSTOM_ID: gambit-source-and-real-callers
+:END:
+
+| ID | Exact source anchors | Observation and boundary |
+|-
+| CE01 | [[file:../../../../../vendor/gambit/lib/_thread.scm::4529][SMP exception procedures]], 4529–4620; [[file:../../../../../vendor/gambit/lib/_thread.scm::4623][call/cc]], 4623–4708; feature boundaries 9–16, 5350–5364 | with-exception-handler dynamically installs a handler; with-exception-catcher captures and grafts; native and explicit R7RS procedures differ. Selected code is SMP; later duplicate non-SMP definitions are not extra runtime clients. |
+| CE02 | [[file:../../../../../vendor/gambit/lib/_thread#.scm::888][Raise/abort macros]], 888–902; [[file:../../../../../vendor/gambit/doc/gambit.txi::11449][manual]], 11449–11552 | macro-raise calls the current handler, with interrupts enabled; abort re-signals a noncontinuable exception if it returns. Manual states native raise continuation resumes on handler return. A result wrapper must not conflate these. |
+| CE03 | [[file:../../../../../vendor/gambit/lib/_thread.scm::4794][Wind implementation]], 4794–4819, 4908–5080; [[file:../../../../../vendor/gambit/lib/_thread#.scm::752][dynwind/denv representation]], 752–792, 810–826 | Captured-context dynamic-wind construction; source/destination comparison; unwind and wind use saved contexts and call Scheme hooks. Actual internal no-winding operations are part of transfer coverage, not independent safe public replacements. |
+| CE04 | [[file:../../../../../vendor/gambit/doc/gambit.txi::11135][Gambit hook semantics]], 11135–11153; [[file:../../../../../vendor/gambit/lib/_kernel.scm::1354][dynamic binding]], 1354–1378 | Saved dynamic environment and hook continuation semantics are explicit; kernel binding restores denv/caches around thunk. Gambit's stronger specified hook behavior cannot be erased using a weaker report's unspecified case. |
+| CE05 | [[file:../../../../../vendor/gambit/lib/_kernel.scm::1019][C return handler]], 1019–1071; [[file:../../../../../vendor/gambit/lib/setup.c::3275][call/run]], 3275–3422; [[file:../../../../../vendor/gambit/lib/c_intf.c::6511][marker]], 6511–6562; [[file:../../../../../vendor/gambit/doc/gambit.txi::12208][manual C-return case]], 12208–12267 | Native origin/validity checks, matching marker or rethrow, pre-allocation target-root obligation and marker invalidation. General managed continuation lifetime and native activation lifetime remain separate. |
+| CE06 | [[file:../../../../../vendor/gambit/examples/tcltk/tcltk.scm::106][Tcl bridge]], 106–122, 124–195, 217–228, 260–276, 347–425, 575–618; [[file:../../../../../vendor/gambit/examples/tcltk/fig16-10.scm::24][real event callback]], 24–28 | Tcl eval → Scheme error callback, static exported proc/apply/string result, command removal, active Scheme DoOneEvent loop and widget procedure export. Figure callback invokes tcl again. Combined map/wind/capture/nested histories are composed, not discovered executed samples. |
+| CE07 | [[file:../../../../../vendor/gambit/gsc/_ptree2.scm::2902][FFI cleanup selection]], 2902–2931, 3235–3245, 3310–3336; [[file:../../../../../vendor/gambit/include/gambit.h.in::10040][SFUN/CFUN macros]], 10040–10066, 10325–10405; [[file:../../../../../vendor/gambit/lib/mem.c::674][RC lifecycle]], 674–829, 3969–3996 | Cleanup-type-driven C catcher and conversion-error reentry differ from a semantic foreign-effect boundary. RC locations and scanner updates require actual lifetime/order; they do not protect abandoned Tcl stack resources. |
+
+*** Tcl Semantics and Implementation Readings
+:PROPERTIES:
+:ID: 111290a3-be5a-562f-be6e-70e55257f0ae
+:CUSTOM_ID: tcl-semantics-and-implementation-readings
+:END:
+
+| ID | Primary evidence | Bounded finding |
+|-
+| CX01 | [[https://www.tcl-lang.org/man/tcl8.6/TclCmd/catch.htm][catch manual]]; [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclCmdAH.c][tclCmdAH.c]], browser source ordinals 277–357 | Ordinary completion codes become visible results/options; normal catch callback can return TCL_OK. Its rewind/limit special branch is distinct from normal error handling. Do not claim every form of cancellation is catchable. |
+| CX02 | [[https://www.tcl-lang.org/man/tcl8.6/TclCmd/try.htm][try manual]]; [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclCmdMZ.c][tclCmdMZ.c]], 4856–4899, 5073–5124, 5138–5178 | Normal handler/finally results can replace prior status; -during preserves previous exception information. Rewind/limits have separate early exits, so native cleanup and execution of user finally code are different questions. |
+| CX03 | [[https://www.tcl-lang.org/man/tcl8.6.17/TclLib/Cancel.htm][Cancel API manual]], description/flags; [[https://core.tcl-lang.org/tips/doc/trunk/tip/285.md][TIP 285]], semantics/notes | Explicit cancel-unwind aims past Tcl catch, unlike plain error. API is thread-safe for CancelEval but Canceled is interpreter-thread-sensitive; checks/extensions matter. TIP is design rationale, not a full proof of current interpreter paths. |
+| CX04 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclBasic.c][tclBasic.c]], 3770–3797, 3825–3898, 3922–3981 | Cancellation request is queued/marked, one-shot and persistent flags differ, reset depends on nesting/force. Request acceptance does not prove all active frames returned or a later request cannot observe cancellation. |
+| CX05 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclBasic.c][tclBasic.c]], 3732–3749, 8290–8299; [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclCmdAH.c][tclCmdAH.c]], 328–337; [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclCmdMZ.c][tclCmdMZ.c]], 4873–4884 | Coroutine execution-environment rewind, limit and cancellation checks must not be conflated into one flag. Complete cancellation correspondence for bytecode/non-bytecode/try paths remains unresolved. |
+| CX06 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclEvent.c][tclEvent.c]], 1322–1393, 1413–1458 | vwait/update loop through DoOneEvent and check cancellation/limits; vwait removes its variable trace on return, update clears result. Raw jump can bypass that cleanup; a normal event return does not carry an arbitrary host outcome. |
+| CX07 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/DoOneEvent.htm][DoOneEvent]], [[https://www.tcl-lang.org/man/tcl8.6/TclCmd/update.htm][update]], [[https://www.tcl-lang.org/man/tcl8.6/TclCmd/vwait.htm][vwait]] manuals | Events can recurse. DONT_WAIT avoids sleeping for unavailable work, not time in handlers. vwait's variable write does not complete an outer call while its inner handler remains active. |
+| CX08 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclEvent.c][tclEvent.c]], 14–44, 139–167, 186–224, 548–564 | Background exception stores result/options, schedules idle handling and resets result; handler expects callers to preserve needed interpreter state; interpreter deletion cancels/disposes pending records. This is not host Scheme delivery. Actual Tk callers remain separate qualification. |
+| CX09 | [[file:tcl-command-custody-evidence.org][Prior Tcl source ledger]], TX04/TX06–TX09 | Existing string argv post-call release, interpreter/result/image and owner-thread evidence is credited without rereading it as a new binary claim. |
+
+Live general manuals identify Tcl/Tk 8.6.18; the successful cancellation page
+identifies 8.6.17. Source readings identify ~core-8-6-branch~, not an immutable
+commit. Their browser source ordinals are navigation locators, not claimed
+downloaded byte hashes. The CancelEval and BgExc manual paths failed; the
+successful versioned Cancel page, TIP and source supply the claims. Earlier
+retrieval failures remain historical. No installed Tcl/Tk correspondence or
+full extension/native-control qualification is inferred.
+
+*** Reports, Papers and Language Mechanisms
+:PROPERTIES:
+:ID: 80571da1-9a7c-59a8-a119-d9854b5e3599
+:CUSTOM_ID: reports-papers-and-language-mechanisms
+:END:
+
+| ID | Primary evidence | Use and limit |
+|-
+| CL01 | [[https://small.r7rs.org/attachment/r7rs.pdf][R7RS report]], §§6.10–6.11 | Dynamic extent, hook order and continuable/noncontinuable exceptions provide semantic questions. Its unspecified transfer within hook extent is weaker than Gambit's documented behavior. Do not assume native Gambit raise is the R7RS noncontinuable binding. |
+| CL02 | [[https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf][Retrofitting Effect Handlers onto OCaml]], §§2.3, 3.1–3.2 | Mixed stack, deliberate C-frame boundary and resource-cleanup tradeoffs. Learn explicit contracts; do not import one-shot semantics or paper performance numbers. |
+| CL03 | [[https://raw.githubusercontent.com/ocaml/ocaml/5.3/runtime/caml/callback.h][OCaml callback header]], 26–52 | Propagating versus typed-result callbacks are deliberately different interfaces. This supports making a boundary explicit, not equating it with arbitrary Gambit continuation behavior. |
+| CL04 | [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570]], §§5.1.2.4, 7.13.2.1; [[file:native-callback-custody-contract.org][prior custody contract]] | Race-free native publication, live same-thread saved environments and stable cleanup state remain requirements. Custody success does not restore skipped Scheme/library semantics. |
+| CL05 | [[file:../../../../refactoring/zig/studies/zig-vs-modern-c-evidence.org][Existing paired language evidence]], P01–P04; [[https://ziglang.org/documentation/0.15.1/][Zig reference]] | Prior reviewed tagged state/error/defer/atomic facilities. No new compiler support or foreign-longjmp guarantee is claimed. Generated modern C is the mainline comparator. |
+
+CD01. [[file:native-callback-custody-contract.org][Native callback contract]],
+[[file:native-callback-arguments.org][arguments]], [[file:native-callback-benefit-matrix.org][matrix]]:
+root/cut/writeback and marker laws remain shared support; no duplicate scan
+savings or new root system is introduced.
+
+CD02. [[file:tcl-command-custody-design.org][Tcl custody design]],
+[[file:tcl-command-custody-arguments.org][arguments]],
+[[file:../../execution/studies/shared-runtime-root-custody-design.org][shared runtime custody]]: pre-dispatch
+scope grace, producer-owned issuance, derived-work accounting, native result
+and module last-return dependencies remain prerequisites.

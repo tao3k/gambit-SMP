@@ -1,0 +1,64 @@
+#+TITLE: VM Resume Capacity: Physical Regions and Logical First-entry Allowance
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:nil
+
+* Observed gap in the first transaction candidate
+:PROPERTIES:
+:CUSTOM_ID: vm-resume-zero-budget
+:AUTHORITY: GambitVMResumeReservation
+:STATUS: SOURCE-IMPLEMENTED; FRESH-NATIVE-QUALIFICATION-PENDING; COMMIT-BLOCKED
+:END:
+
+The first physical-grant candidate completes its official two-pass bootstrap,
+but its map compiler times out and subsequent lanes fail with heap overflow.
+No native pass is inherited. A read-only LLDB census of that exact executable
+shows 22 sections, all 22 assigned, 11 members, and overflow reserve 204,808
+words. Global free budget is therefore -204,808 words. The ten new contexts
+enter collection with heap limits four words behind hp and stack limits
+24 words ahead of fp. These are actual observations, not the original
+six-section exhaustion and not a confirmed claim of a scheduler deadlock.
+
+* One joint capacity contract
+:PROPERTIES:
+:CUSTOM_ID: vm-resume-joint-floor
+:END:
+
+The actual =prepare_mem_pstate= consumer computes =avail=max(free/2,0)=,
+then gives the stack =avail/2=. Physical ownership alone cannot qualify a
+startup grant. The same capacity decision must leave a logical allowance:
+
+#+BEGIN_EXAMPLE
+W = 131072 words per physical section
+F = MSECTION_FUDGE = 8194 words in this profile
+O = normal_overflow_reserve = 204808 words
+R = ceil((O + 4*F) / W) = 2 VM-unassigned sections
+new capacity >= old assigned + 2*new contexts + R
+post-GC floor >= copied assigned + actual fudge-restoration sections + R
+only startup pairs become assigned; R stays on the VM's free list
+free >= 4*F => stack allowance >= F, subject to its own physical limit
+#+END_EXAMPLE
+
+The reserve comes from the existing overflow policy and actual subdivision
+algorithm. It is not a larger default heap setting. Contraction after every GC
+must preserve the same allowance; keeping it only during the first growth
+would recreate the failure at the next collection. Caller allocation bound B,
+arbitrary FFI/foreign allocation and complete C refinement remain obligations.
+
+* Current boundary and cost
+:PROPERTIES:
+:CUSTOM_ID: vm-resume-cost
+:END:
+
+The two additional physical sections carry two MiB of payload on this profile,
+before allocator metadata. The original six-section VM must cover two assigned
+sections, twenty startup sections and two free resume sections: 24 in this
+observed state. Usable existing capacity is subtracted before requesting more
+physical memory. This is a capacity floor, not peak RSS, an arbitrary performance
+budget, or an extra cost charged against a correct modern C baseline.
+
+The fixed ledger still owns known failure and unknown-result custody. The
+first failed candidate, timeout and raw census are retained under their exact
+source identity. Five-gate admission remains blocked until the current source,
+native callers, model assumptions and mandatory lifecycle questions qualify.
