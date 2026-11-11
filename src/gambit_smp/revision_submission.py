@@ -26,6 +26,131 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2) + "\n")
 
 
+def commit_source_checkpoint(root, request, storage):
+    """Save explicit source snapshots; this receipt cannot qualify native work.
+
+    Use an alternate index and a compare-and-swap ref update. Neither the real
+    index nor working files are written. Recorded observations retain their
+    original epoch; they are not promoted to tests of the resulting Git tree.
+    """
+    import uuid
+    root = Path(root).resolve(strict=True)
+    request = Path(request).resolve(strict=True)
+    storage = Path(storage).resolve()
+    if not request.is_relative_to(root) or not storage.is_relative_to(root / '.cache/tasks'):
+        raise ValueError('task-owned checkpoint request and storage required')
+    raw = request.read_bytes()
+    spec = json.loads(raw)
+    if (set(spec) != {'schema','task','repository','baseRevision','scope','ledger','files','observations','audit','message'}
+            or spec['schema'] != 'revision-source-checkpoint-request.v1'
+            or not isinstance(spec['scope'],str) or not spec['scope'].strip()
+            or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}',spec['baseRevision'])):
+        raise ValueError('explicit non-admitting source checkpoint required')
+    # A checkpoint is an explicit user-scoped source-control action, not an
+    # agent-selected way around native admission. No wildcard or force grant.
+    registration = root/'docs/work-items.json'
+    plan = json.loads(registration.read_text()) if registration.is_file() else {}
+    grant = dict(path=str(request.relative_to(root)),sha256=hashlib.sha256(raw).hexdigest())
+    if (plan.get('schema')!='gambit-work-items.v1' or grant not in
+            plan.get('items',{}).get(spec['task'],{}).get('sourceCheckpointRequests',[])):
+        raise ValueError('exact registered source checkpoint request required')
+    fields = {'responsibility','retired','validation','benefits','costs','process','checklist','models','open'}
+    if set(spec['audit']) != fields or any(not isinstance(v,str) or not v.strip() for v in spec['audit'].values()):
+        raise ValueError('complete source-checkpoint audit required')
+
+    def contained(name):
+        path = Path(name)
+        if path.is_absolute() or '..' in path.parts or str(path) != name or '.git' in path.parts:
+            raise ValueError('canonical contained checkpoint path required')
+        resolved = (root / path).resolve(strict=True)
+        if not resolved.is_relative_to(root):
+            raise ValueError('checkpoint input escapes repository owner')
+        return resolved
+
+    repository = contained(spec['repository'])
+    environment = dict(os.environ,GIT_OPTIONAL_LOCKS='0',GIT_TERMINAL_PROMPT='0')
+    environment.pop('GIT_INDEX_FILE',None)
+    def git(*args, private=False, data=None):
+        result = run(['git','--no-optional-locks','-C',str(repository),*args],cwd=root,
+                     env=private_environment if private else environment,input=data,
+                     capture_output=True,timeout=30)
+        if result.returncode:
+            raise ValueError(result.stderr.decode(errors='replace')[:1500] or 'checkpoint Git operation failed')
+        return result.stdout
+
+    if Path(git('rev-parse','--show-toplevel').decode().strip()).resolve() != repository:
+        raise ValueError('exact checkpoint Git repository required')
+    base = spec['baseRevision']
+    if git('rev-parse','HEAD').decode().strip() != base:
+        raise ValueError('checkpoint predecessor changed')
+    gitdir = Path(git('rev-parse','--absolute-git-dir').decode().strip())
+    real_index = gitdir / 'index'
+    index_before = digest(real_index) if real_index.exists() else None
+    attempt = storage / ('checkpoint-' + uuid.uuid4().hex)
+    attempt.mkdir(parents=True)
+    private_environment = dict(environment,GIT_INDEX_FILE=str(attempt/'index'))
+    git('read-tree',base,private=True)
+    if not isinstance(spec['files'],list) or not spec['files']:
+        raise ValueError('nonempty exact checkpoint source selection required')
+    seen, bound = set(), {request:digest(request),registration:digest(registration),
+                         Path(__file__):digest(__file__)}
+    for row in spec['files']:
+        name = row['path']
+        path = Path(name)
+        if (name in seen or path.is_absolute() or '..' in path.parts or '.git' in path.parts
+                or str(path) != name):
+            raise ValueError('unique canonical checkpoint target required')
+        seen.add(name)
+        if row.get('mode') == '160000':
+            if set(row) != {'path','mode','revision'} or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}',row['revision']):
+                raise ValueError('exact checkpoint gitlink required')
+            child = (repository/path).resolve(strict=True)
+            if not child.is_relative_to(root):raise ValueError('checkpoint gitlink escapes owner')
+            result = run(['git','--no-optional-locks','-C',str(child),'rev-parse','HEAD'],
+                         env=environment,capture_output=True,timeout=30)
+            if result.returncode or result.stdout.decode().strip()!=row['revision']:
+                raise ValueError('checkpoint gitlink differs from current child revision')
+            blob = row['revision']
+        else:
+            if set(row) != {'path','mode','source','sha256'} or row['mode'] not in {'100644','100755'}:
+                raise ValueError('explicit checkpoint source bytes required')
+            source = contained(row['source'])
+            data = source.read_bytes()
+            if hashlib.sha256(data).hexdigest()!=row['sha256']:
+                raise ValueError('checkpoint source changed: '+name)
+            bound[source]=row['sha256']
+            blob = git('hash-object','-w','--stdin',data=data).decode().strip()
+        git('update-index','--add','--cacheinfo',row['mode']+','+blob+','+name,private=True)
+    if not isinstance(spec['observations'],list) or not spec['observations']:
+        raise ValueError('checkpoint observations must retain their original identities')
+    for row in spec['observations']:
+        if set(row)!={'path','sha256'}:raise ValueError('exact recorded observation reference required')
+        source=contained(row['path'])
+        if digest(source)!=row['sha256']:raise ValueError('checkpoint observation changed')
+        json.loads(source.read_text());bound[source]=row['sha256']
+    tree=git('write-tree',private=True).decode().strip()
+    body=spec['message'].rstrip()+'\n\nSource checkpoint; not native or integration acceptance.\n'
+    body+='Scope: '+spec['scope']+'\nSMP ledger: '+spec['ledger']+'\n'
+    body+='Architecture progress delta: 0\nRuntime admitted: false\n\n'
+    body+='\n'.join(name+': '+spec['audit'][name] for name in sorted(fields))+'\n\n'
+    body+='Recorded observations (historical identities; no new-tree test claim):\n'
+    body+='\n'.join(row['path']+' sha256='+row['sha256'] for row in spec['observations'])+'\n'
+    message=attempt/'message.txt';message.write_text(body)
+    for source,expected in bound.items():
+        if digest(source)!=expected:raise ValueError('checkpoint input changed before publication')
+    revision=git('commit-tree',tree,'-p',base,'-F',str(message)).decode().strip()
+    git('update-ref','-m','source checkpoint','HEAD',revision,base)
+    result=dict(schema='revision-source-checkpoint.v1',qualificationKind='source-checkpoint',
+                complete=False,repository=spec['repository'],revision=revision,parent=base,tree=tree,
+                sourcePaths=sorted(seen),requestSha256=hashlib.sha256(raw).hexdigest(),
+                observations=spec['observations'],progressDelta=0,runtimeAdmitted=False,
+                wholeSmpAdmitted=False,ledger=spec['ledger'],pushed=False,
+                realIndexTouched=False,workingTreeTouched=False,
+                realIndexBytesUnchanged=(digest(real_index) if real_index.exists() else None)==index_before)
+    write_json(attempt/'receipt.json',result)
+    return result
+
+
 class RevisionSubmission:
     """Freeze one tested tree, project its model, then submit its admitted cut."""
 
@@ -34,6 +159,8 @@ class RevisionSubmission:
         self.workspace, self.storage = Path(workspace), Path(storage)
         self.evidence = Path(evidence)
         self.native = native
+        if native.get('qualificationKind') == 'source-checkpoint':
+            raise ValueError('source checkpoint cannot supply native qualification')
         self.framework_support = native.get("qualificationKind") == "framework-support"
         if self.framework_support and self.repository.resolve() != self.root.resolve():
             raise ValueError("framework-support scope is restricted to the framework repository")
