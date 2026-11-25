@@ -90,14 +90,21 @@ def declares_ordered_stress(steps):
                and "orderedStress" in step.get("arguments", {}) for step in steps)
 
 
-def original_test_inputs(manifest, original, manifest_sha, profile_sha, files):
+def original_test_inputs(manifest, original, manifest_sha, profile_sha, files, *, mode="gsi"):
     """Check the same workload contract at launch and during independent audit."""
     spec = manifest["spec"]
     inputs = original["testInputFiles"]
+    expected_spec = (
+        mode, "stress",
+        ";".join(str(processors) for _, processors, _ in TOPOLOGIES),
+        ";".join(f"{processors}:{jobs}" for _, processors, jobs in TOPOLOGIES),
+        INNER_SECONDS, WHOLE_SECONDS,
+    )
     require(profile_sha == original["profileSha256"] == spec["profile"]
-            and manifest_sha == original["manifestSha256"]
+            and (mode != "gsi" or manifest_sha == original["manifestSha256"])
+            and (mode != "gsc" or spec.get("maxCompilerRssGiB") == 8)
             and (spec["mode"], spec["inventory"], spec["processors"], spec["jobs"],
-                 spec["innerSeconds"], spec["wholeSeconds"]) == ORIGINAL_STRESS_SPEC
+                 spec["innerSeconds"], spec["wholeSeconds"]) == expected_spec
             and len(files) == 4 and sorted(case["target"] for case in manifest["cases"]) == files
             and all(case["kind"] == "original-stress" and case["seconds"] == 0
                     and inputs.get("unit-tests/" + case["target"]) == case["sha256"]

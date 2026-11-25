@@ -418,7 +418,10 @@ class SourceMaterializeTests(unittest.TestCase):
         v9_path = source.ROOT / "evidence/fixtures/dev-family6-engineering/family6-local-admit-v9.lock.json"
         v9_lock = json.loads(v9_path.read_text())
         validate_source_lock(v9_lock)
-        for rel, row in v9_lock["files"].items():
+        v10_path = source.ROOT / "evidence/fixtures/dev-family7-stress-gsc/family7-stress-gsc-v10.lock.json"
+        v10_lock = json.loads(v10_path.read_text())
+        validate_source_lock(v10_lock)
+        for rel, row in v10_lock["files"].items():
             self.assertEqual(digest(source.ROOT / "vendor/gambit" / rel), row["candidateSha256"], rel)
 
 

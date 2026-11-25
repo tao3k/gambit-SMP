@@ -1,5 +1,7 @@
 /* Actual walker and both actual handler conditionals. This bounded control
  * stops at the break before decoding; it supplies no cross-break witness. */
+#include <stdint.h>
+#include <string.h>
 typedef long ___WORD;
 typedef unsigned long ___UWORD, ___SIZE_TS;
 typedef int ___BOOL;
@@ -13,7 +15,7 @@ typedef struct {
 typedef struct { ___WORD *base; int copy_gate; } ___msection;
 typedef struct { int unused; } ___msections;
 typedef struct { int fs, link; } ___frame_descriptor;
-struct context { ___WORD *stack_limit, *stack_break; };
+struct context { ___WORD *stack_limit, *stack_break, *stack_start; };
 struct processor { struct context *context; ___WORD internal_return; };
 typedef struct processor *___processor_state;
 static struct processor processor;
@@ -62,6 +64,18 @@ static int ___rest_publish_owned_soft_edge(___processor_state ps, ___WORD pendin
   if (soft_publish_ok) grant_ok=grant_after_extension;
   return soft_publish_ok;
 }
+#ifndef ___FIRST_BREAK_FRAME_SPACE
+#define ___FIRST_BREAK_FRAME_SPACE ___FRAME_SPACE(0)
+#endif
+static int rest_chain_frame_refused(___processor_state ps, const section_claim *claim,
+                                    ___WORD *cursor, ___WORD *base, ___WORD *past)
+{
+  if (!ps || !claim || !source_claim_is_live(claim)) return 2;
+  if (claim->stack_owner!=ps) return 1;
+  if (!cursor || (___CAST(___UWORD,cursor)&(___WS-1)) ||
+      (base && past && (cursor<base || cursor>past))) return 3;
+  return 0;
+}
 #include "walker.inc"
 
 /* Project the real guards, order, and terminal jumps. Runtime operations
@@ -80,6 +94,14 @@ static int ___rest_publish_owned_soft_edge(___processor_state ps, ___WORD pendin
 #define ___rest_note_before_collect() ((void)0)
 #define ___rest_note_attempt_view(...) ((void)0)
 #define ___rest_note_attempt_acquired(...) ((void)0)
+#define ___rest_observation_note_saved_fp(...) ((void)0)
+#define ___rest_observation_note_return_fp(...) ((void)0)
+#define ___rest_planted_short() (0)
+#define ___rest_one_word_short(...) (0)
+#define ___FRAME_FETCH_RA (1)
+#define ___PSP ___ps,
+#define ___PSPNC ___ps
+#define ___FIX(x) (x)
 #define ___rest_reload_window(...) (reload_ok)
 #define ___rest_stack_slots_fit(...) (stack_ok)
 #define ___rest_grant_fits(...) (grant_ok)
@@ -87,7 +109,7 @@ static int ___rest_publish_owned_soft_edge(___processor_state ps, ___WORD pendin
 #define ___garbage_collect(...) (++gc_calls,0)
 #define ___heap_limit(...) (0)
 
-#define ROUTE_LOCALS int cut=0, overflow=0; ___WORD i=2,np=3;
+#define ROUTE_LOCALS int cut=0, overflow=0; ___WORD i=2,np=3,held=0,held_epoch=0,repaired=0,nb_key=0,stack_slots=1; ___WORD *___hp=0,*key_vals=0;
 static int ordinary_route(___processor_state ___ps, ___WORD *___fp, ___WORD na, ___WORD ___R0)
 {
   ROUTE_LOCALS
@@ -107,6 +129,7 @@ static void setup(void)
   processor.context=&ctx;
   ctx.stack_limit=stack;
   ctx.stack_break=stack+4;
+  ctx.stack_start=stack+8;
   /* Owned, in-bounds terminal break metadata, not a successor frame. */
   ctx.stack_break[___BREAK_FRAME_NEXT]=0;
   reload_ok=stack_ok=grant_ok=1;

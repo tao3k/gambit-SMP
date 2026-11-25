@@ -1602,8 +1602,18 @@ def bound_execution_summary(out, receipt, *, checkpoint=None):
     result['nativeFailureDiagnostics'] = native_failure_diagnostics(out / 'run', child.get('steps', []))
     result.update(rest_execution_summary(out, receipt, child))
     from gambit_smp.ordered_stress_audit import declares_ordered_stress, item12_audit
-    if declares_ordered_stress(child.get('plannedSteps', child['steps'])):
-        result['item12Audit'] = item12_audit(out, receipt, child, checkpoint=checkpoint)
+    planned = child.get('plannedSteps', child['steps'])
+    if declares_ordered_stress(planned):
+        ordered_modes = {
+            s.get('arguments', {}).get('mode')
+            for s in planned
+            if s.get('capability') == 'gambit.suite' and 'orderedStress' in s.get('arguments', {})
+        }
+        if ordered_modes == {'gsc'}:
+            from gambit_smp.stress_gsc_audit import stress_gsc_audit
+            result['stressGscAudit'] = stress_gsc_audit(out, receipt, child, checkpoint=checkpoint)
+        else:
+            result['item12Audit'] = item12_audit(out, receipt, child, checkpoint=checkpoint)
     from gambit_smp.gate2_collection import CAPABILITY, read_collection
     if any(step.get('capability') == CAPABILITY for step in child.get('plannedSteps', child['steps'])):
         result['gate2Collection'] = read_collection(Path(receipt['root']), out, outer=receipt, child=child,
@@ -1810,7 +1820,18 @@ def inspect(out, *, input_archive=None, include_resumption=False):
     from gambit_smp.ordered_stress_audit import declares_ordered_stress, item12_audit
     summary = result.get('executionSummary', {})
     declaration = (retained_header or {}).get('declaration', {}).get('steps', [])
-    if 'item12Audit' in summary or declares_ordered_stress(declaration):
+    declared_gsc_stress = any(
+        s.get('capability') == 'gambit.suite'
+        and 'orderedStress' in s.get('arguments', {})
+        and s.get('arguments', {}).get('mode') == 'gsc'
+        for s in declaration
+    )
+    if declared_gsc_stress:
+        from gambit_smp.stress_gsc_audit import stress_gsc_audit
+        summary = result.setdefault('executionSummary', {})
+        if 'stressGscAudit' not in summary:
+            summary['stressGscAudit'] = stress_gsc_audit(out, receipt, None, checkpoint=prefix)
+    elif 'item12Audit' in summary or declares_ordered_stress(declaration):
         from gambit_smp.gate2_evidence import investigation
 
         summary = result.setdefault('executionSummary', {})

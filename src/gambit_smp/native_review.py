@@ -418,6 +418,21 @@ def environment_change(ctx, change, current, failure, previous, facts, inputs):
             milliseconds(record["wholeSuiteBudgetPerMode"])])
 
 
+def _historical_path(root, name):
+    """Resolve historical failure artifacts relocated out of evidence/ under the Git boundary."""
+    from gambit_smp.recipes import source_path
+    root = Path(root).resolve()
+    direct = relative(root, name)
+    if direct.exists():
+        return source_path(root, name) if not str(name).startswith(".cache/") else direct
+    for prefix in ("evidence/model-results/", "evidence/source-results/fixtures/thread-completion-contract/"):
+        if isinstance(name, str) and name.startswith(prefix):
+            relocated = root / "tests/fixtures/historical-bootstrap" / name[len(prefix):]
+            if relocated.exists():
+                return source_path(root, relocated.relative_to(root).as_posix())
+    return source_path(root, name) if not str(name).startswith(".cache/") else direct
+
+
 def project_review(ctx, document, current, failures, runtime, tested_unit, facts, inputs, *, producer_binding=False):
     from gambit_smp.recipes import fields, read_json, source_path
     fields(document, ("schema", "campaign", "failures"))
@@ -437,7 +452,7 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
 
     def bound(reference):
         fields(reference, ("path", "sha256"))
-        path = source_path(ctx.root, reference["path"])
+        path = _historical_path(ctx.root, reference["path"])
         if digest(path) != reference["sha256"]:
             raise ValueError("retry review evidence identity drift")
         inputs[reference["path"]] = reference["sha256"]
@@ -674,11 +689,11 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
 
 
 def historical_observation(ctx, failure, original, inputs, facts):
-    from gambit_smp.recipes import fields, read_json, source_path
+    from gambit_smp.recipes import fields, read_json
     from gambit_smp.native_archive import validate
     if "observation" not in failure:
         return failure, original
-    version_path = source_path(ctx.root, failure["observation"])
+    version_path = _historical_path(ctx.root, failure["observation"])
     version = read_json(version_path)
     fields(version, ("schema", "original", "archive", "log", "agreements"))
     if version["schema"] != "historical-failure-observation.v1":
@@ -687,18 +702,18 @@ def historical_observation(ctx, failure, original, inputs, facts):
     for label in ("original", "archive", "log"):
         reference = version[label]
         fields(reference, ("path", "sha256"))
-        path = source_path(ctx.root, reference["path"])
+        path = _historical_path(ctx.root, reference["path"])
         if digest(path) != reference["sha256"]:
             raise ValueError("historical observation reference drift: " + label)
         inputs[reference["path"]] = reference["sha256"]
     if version["original"] != {"path": failure["receipt"], "sha256": inputs[failure["receipt"]]}:
         raise ValueError("historical observation must retain the exact canonical failure")
-    archive_path = source_path(ctx.root, version["archive"]["path"])
-    archived_inputs = validate(ctx.root, version["archive"]["path"])
+    archive_path = _historical_path(ctx.root, version["archive"]["path"])
+    archived_inputs = validate(ctx.root, archive_path.relative_to(ctx.root.resolve()).as_posix())
     # Transcript observations are represented by publication bindings in the
     # validator's input closure. Membership still belongs to the validated
     # archive inventory, not to the set of ordinary repository input paths.
-    log_path = source_path(ctx.root, version["log"]["path"])
+    log_path = _historical_path(ctx.root, version["log"]["path"])
     try:
         log_member = log_path.relative_to(archive_path.parent).as_posix()
     except ValueError:
@@ -723,7 +738,7 @@ def historical_observation(ctx, failure, original, inputs, facts):
         if same_type and before == after:
             facts["observation_equal_pointer"].append(
                 [route, agreement["field"], agreement["original"], agreement["observed"]])
-    ctx.bind(ctx.root / name for name in inputs)
+    ctx.bind(_historical_path(ctx.root, name) for name in inputs)
     return {**failure, "log": version["log"]["path"]}, recovered
 
 
@@ -782,13 +797,13 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         seen.add(failure["id"])
         if not selected_scope(failure["file"], selected, files):
             continue
-        observed = relative(ctx.root, failure["receipt"])
+        observed = _historical_path(ctx.root, failure["receipt"])
         prior = read_json(observed)
         inputs[failure["receipt"]] = digest(observed)
-        failure, prior = historical_observation(ctx, failure, prior, inputs, facts)
         denied = failure_modes(prior)
         if denied and args["mode"] not in denied:
             continue
+        failure, prior = historical_observation(ctx, failure, prior, inputs, facts)
         route = failure["id"]
         facts["known_failure"].append([route, args["mode"]])
         facts["selected_failure"].append([route])
@@ -810,7 +825,12 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         overlaps.append(route)
     comparisons = []
     if budget_compilers:
-        output = ctx.require("budget-compiler-version", [ctx.tools["gcc"], "--version"], ctx.root, 10)
+        probe_stage = (
+            "budget-compiler-version"
+            if label == "retry-review"
+            else f"{label}-budget-compiler-version"
+        )
+        output = ctx.require(probe_stage, [ctx.tools["gcc"], "--version"], ctx.root, 10)
         version = output.splitlines()[0] if output.splitlines() else ""
         if "gcc" not in version.lower() or "clang" in version.lower():
             raise ValueError("GNU GCC budget comparison requires current compiler identity")
@@ -855,7 +875,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
                                               if entry["id"] not in distinct]}
         project_review(ctx, reviewable, current, failures, runtime, tested_unit, facts, inputs,
                        producer_binding=producer_binding)
-    ctx.bind(ctx.root / name for name in inputs)
+    ctx.bind(_historical_path(ctx.root, name) for name in inputs)
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,95}", label):
         raise ValueError("bounded retry observation label required")
     answers = evaluate_observations(ctx, rule_paths, facts,
@@ -879,7 +899,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         check_runtime(runtime, candidate)
     if campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, suite_budget=suite_budget) != current:
         raise ValueError("candidate campaign or topology drift during native inference")
-    if any(digest(ctx.root / name) != expected for name, expected in inputs.items()):
+    if any(digest(_historical_path(ctx.root, name)) != expected for name, expected in inputs.items()):
         raise ValueError("retry review input drift during native inference")
     ctx.bind([candidate_receipt])
     decisions = answers["decision"]

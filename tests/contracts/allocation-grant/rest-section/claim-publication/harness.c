@@ -1,6 +1,7 @@
 /* Actual extension, candidate selection, commit and heap/stack publication.
  * The allocation lock is a serialized environment boundary; no interleaving
  * or full-VM/processor admission is assumed proved by this harness. */
+#include <limits.h>
 typedef long ___WORD;
 typedef unsigned long ___UWORD, ___SIZE_TS, ___SIZE_T;
 typedef int ___BOOL;
@@ -22,17 +23,23 @@ static struct context context;
 #define CHECK(p,n) __CPROVER_assert((p),(n))
 static ___WORD old_space[HALF], candidate_space[HALF];
 static ___msection old, candidate, *alloc_msection, *heap_msection, *stack_msection;
-static struct { ___msection *head; int nb_sections; } sections;
-#define the_msections (&sections)
+static struct sections_s { ___msection *head; int nb_sections; } sections;
+static struct sections_s *the_msections = &sections;
 static const struct { struct { ___SIZE_T max_heap; } setup_params; } globals;
 #define ___GSTATE (&globals)
 static int nb_msections_assigned, custom_msection_alloc, lock_depth, lock_entries, vm_admitted;
 static ___SIZE_TS tospace_offset;
+static ___SIZE_TS heap_size;
 static ___WORD words_prev_msections;
 static ___WORD *alloc_heap_ptr, *alloc_heap_start, *alloc_heap_limit;
 static ___WORD *alloc_stack_ptr, *alloc_stack_limit, *alloc_stack_start;
 #define ALLOC_MEM_LOCK() do { CHECK(lock_depth==0,"section.lock-entry"); ++lock_depth; ++lock_entries; } while (0)
 #define ALLOC_MEM_UNLOCK() do { CHECK(lock_depth==1,"section.lock-exit"); --lock_depth; } while (0)
+static void clear_fast_span(___processor_state ps) { (void)ps; }
+static void publish_fast_span(___processor_state ps) { (void)ps; }
+static ___SIZE_TS compute_free_heap_space_approximately(void) { return ___MSECTION_SIZE; }
+static void adjust_msections(void *m, int n) { (void)m; (void)n; }
+static ___SIZE_TS compute_heap_size(void) { return heap_size; }
 static int current_heap_interval_matches(___processor_state ps, ___WORD *hp)
 { return ps==___PSTATE && hp==old_space && alloc_heap_start==old_space; }
 static int ___rest_new_section_admitted(___processor_state ps, ___SIZE_T max_heap)

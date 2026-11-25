@@ -58,9 +58,10 @@ def ordered_stress_suite(ctx, args, runtime, identity, files, gcc, driver):
     manifest = read_json(manifest_path)
     original = read_json(receipt_path)["originalCampaign"]
     spec = manifest["spec"]
+    mode = args["mode"]
     inventory = sorted(map(str, files))
     manifest_sha = digest(manifest_path)
-    test_inputs = original_test_inputs(manifest, original, manifest_sha, digest(profile_path), inventory)
+    test_inputs = original_test_inputs(manifest, original, manifest_sha, digest(profile_path), inventory, mode=mode)
     copied = runtime / "tests"
     inputs = {relative(copied, name): expected for name, expected in test_inputs.items()}
     if len(inputs) != len(test_inputs) or any(digest(path) != expected for path, expected in inputs.items()):
@@ -120,16 +121,31 @@ def ordered_stress_suite(ctx, args, runtime, identity, files, gcc, driver):
             or header["stepBudgets"].get(ctx.directory.name) != INNER_SECONDS
             or abs(header["deadlineMonotonic"] - header["startedMonotonic"] - WHOLE_SECONDS) > 0.000001):
         raise ValueError("ordered stress requires a single 295/300-second campaign")
-    ctx.bind([identity, runtime / "gsi/gsi", manifest_path, receipt_path, profile_path, header_path, *inputs])
-    preflight_report = ctx.directory / 'item10-preflight.json'
+    bound_paths = [identity, runtime / "gsi/gsi", manifest_path, receipt_path, profile_path, header_path, *inputs]
+    if mode == "gsc":
+        bound_paths.extend([runtime / "gsc/gsc", runtime / "bin/gambuild-C"])
+    ctx.bind(bound_paths)
     inner_deadline = min(ctx.deadline, header["startedMonotonic"] + INNER_SECONDS)
-    try:
-        start_check = ordered_stress_start_check(ctx, plan, frozen_identity, inner_deadline)
-    except (OSError, ValueError, KeyError, TypeError, TimeoutError) as error:
-        write(preflight_report, dict(checklist=10, canStart=False, reason=str(error),
-                                    requiredCases=11, innerBudgetSeconds=INNER_SECONDS,
-                                    wholeBudgetSeconds=WHOLE_SECONDS, runtimeAdmitted=False))
-        raise
+    if mode == "gsc":
+        from gambit_smp.stress_gsc_audit import stress_gsc_compiled_host_check
+
+        preflight_report = ctx.directory / "link4-preflight.json"
+        try:
+            start_check = stress_gsc_compiled_host_check(ctx, plan, frozen_identity, inner_deadline)
+        except (OSError, ValueError, KeyError, TypeError, TimeoutError) as error:
+            write(preflight_report, dict(checklist=4, canStart=False, reason=str(error),
+                                         innerBudgetSeconds=INNER_SECONDS,
+                                         wholeBudgetSeconds=WHOLE_SECONDS, runtimeAdmitted=False))
+            raise
+    else:
+        preflight_report = ctx.directory / 'item10-preflight.json'
+        try:
+            start_check = ordered_stress_start_check(ctx, plan, frozen_identity, inner_deadline)
+        except (OSError, ValueError, KeyError, TypeError, TimeoutError) as error:
+            write(preflight_report, dict(checklist=10, canStart=False, reason=str(error),
+                                         requiredCases=11, innerBudgetSeconds=INNER_SECONDS,
+                                         wholeBudgetSeconds=WHOLE_SECONDS, runtimeAdmitted=False))
+            raise
     write(preflight_report, start_check)
     rows = [dict(processors=population, jobs=jobs, started=False, complete=False,
                  reason="predecessor-unresolved") for _, population, jobs in TOPOLOGIES]

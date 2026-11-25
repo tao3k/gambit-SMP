@@ -297,7 +297,8 @@ def validate_suite(args, inputs):
            ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles", "numericGrouping", "childProgress", "sharedAssertions", "orderedStress"))
     if "orderedStress" in args:
         plan = args["orderedStress"]
-        fields(plan, ("manifest", "inputReceipt", "profile"), ("reviews", "makeLineage", "restEvidence", "gate2Receipt"))
+        fields(plan, ("manifest", "inputReceipt", "profile"),
+               ("reviews", "makeLineage", "restEvidence", "gate2Receipt", "compiledHostReceipt"))
         if "restEvidence" in plan:
             rest_evidence = plan["restEvidence"]
             fields(rest_evidence, ("run", "receiptSha256"))
@@ -309,14 +310,16 @@ def validate_suite(args, inputs):
         if "makeLineage" in plan and plan["makeLineage"] is not True:
             raise ValueError("ordered stress makeLineage must require a witnessed producer")
         reviews = plan.get("reviews", {})
-        if ((args["mode"], args.get("inventory"), args["regime"], args["selection"])
-                != ("gsi", "stress", "whole-parallel", ["."])
+        if (args["mode"] not in {"gsi", "gsc"}
+                or (args.get("inventory"), args["regime"], args["selection"])
+                != ("stress", "whole-parallel", ["."])
                 or not set(args) <= {"runtime", "identity", "mode", "inventory", "regime", "selection",
                                     "expectedFiles", "failures", "reviewRules", "orderedStress"}
                 or not isinstance(reviews, dict) or not reviews.keys() <= {"p2", "p1"}
                 or any(not isinstance(name, str) or name not in inputs or not name.endswith(".json")
                        for name in (plan["manifest"], plan["inputReceipt"], plan["profile"], *reviews.values(),
-                                    *([plan["gate2Receipt"]] if "gate2Receipt" in plan else [])))):
+                                    *([plan["gate2Receipt"]] if "gate2Receipt" in plan else []),
+                                    *([plan["compiledHostReceipt"]] if "compiledHostReceipt" in plan else [])))):
             raise ValueError("ordered stress requires declared original inputs and fixed populations")
     fixture_parameters(args)
     if "sharedAssertions" in args and (
@@ -2136,7 +2139,7 @@ def _run_suite_groups(ctx, runtime, copied, args, files, jobs, option, slots, *,
                     if child_progress is not None:
                         child_progress.close()
                 command_accepted = admitted_suite(code, output, timeout, len(group))
-                if indexed_numeric or (args["mode"] == "gsi" and args.get("inventory") == "stress"):
+                if indexed_numeric or (args["mode"] in {"gsi", "gsc"} and args.get("inventory") == "stress"):
                     observed_files = completed_suite_files(output, group)
                     command_accepted = command_accepted and bool(observed_files)
                 if child_progress is not None:

@@ -479,6 +479,68 @@ def require_stress_smp_evidence(root, receipt):
                 raise ValueError("stress group did not complete its original interpreted invocation")
 
 
+def require_stress_gsc_smp_evidence(root, receipt):
+    """Require one unchanged compiled stress campaign bound to Link 4 compiled-host validation."""
+    from gambit_smp.stress_gsc_audit import MAX_COMPILER_RSS_BYTES, verify_compiled_host_receipt, verify_formal_models_link
+
+    folder = Path("evidence/research/retained/modern-c/stress-gsc")
+    if receipt.get("family") != "stress-gsc" or receipt.get("mode") != "gsc":
+        raise ValueError("compiled stress acceptance requires family stress-gsc and mode gsc")
+    reference = receipt["nativeReference"]
+    raw, _ = _load_smp_evidence(root, reference["path"], reference["sha256"])
+    if raw.get("complete") is not True or any(receipt.get(k) != v for k, v in raw.items()):
+        raise ValueError("compiled stress acceptance requires one complete raw campaign")
+    manifest, _ = _load_smp_evidence(root, folder / "manifest.json", receipt["manifestSha256"])
+    spec, cases = manifest["spec"], manifest["cases"]
+    if ((spec["mode"], spec["inventory"]) != ("gsc", "stress")
+            or spec.get("maxCompilerRssGiB") != 8
+            or receipt["wholeBudgetSeconds"] != spec["wholeSeconds"]
+            or receipt["innerBudgetSeconds"] != spec["innerSeconds"]
+            or type(receipt["seconds"]) not in {int, float}
+            or not 0 < receipt["seconds"] <= spec["innerSeconds"]
+            or any(receipt.get(k) is not False for k in ("heapRaised", "waitExtended", "observationsSpliced"))):
+        raise ValueError("compiled stress campaign changed the original fixed resource boundary")
+    peak_rss = receipt.get("peakCompilerRssBytes", 0)
+    if not isinstance(peak_rss, int) or not 0 <= peak_rss < MAX_COMPILER_RSS_BYTES:
+        raise ValueError("compiled stress campaign exceeded 8 GiB compiler RSS budget")
+    verify_formal_models_link(root, manifest)
+    link4_ref = receipt["compiledHostValidation"]
+    link4_doc, _ = _load_smp_evidence(root, link4_ref["path"], link4_ref["sha256"])
+    verify_compiled_host_receipt(link4_doc, receipt["runtimeIdentity"])
+    expected = sorted(c["target"] for c in cases)
+    populations = list(map(int, spec["processors"].split(";")))
+    jobs = {int(k): int(v) for k, v in (s.split(":") for s in spec["jobs"].split(";"))}
+    if [r["processors"] for r in receipt["topologies"]] != populations:
+        raise ValueError("compiled stress requires every ordered processor population")
+    for run in receipt["topologies"]:
+        population = run["processors"]
+        if run.get("complete") is not True or run["jobs"] != jobs[population]:
+            raise ValueError("compiled stress topology is incomplete")
+        rows = run["observations"]
+        if (sorted(n for row in rows for n in row["files"]) != expected
+                or any(row.get("accepted") is not True or row.get("exit") != 0
+                       or row.get("timeout") is not False
+                       or sorted(row.get("observedFiles", [])) != sorted(row["files"]) for row in rows)):
+            raise ValueError("compiled stress requires every original file to finish in each population")
+        for row in rows:
+            stage = f"suite-{row['batch']}-{row['shard']}"
+            commands = [p for p in receipt["processes"]
+                        if p.get("topology") == population and p.get("stage") == stage]
+            if len(commands) != 1:
+                raise ValueError("compiled stress group lacks its unique original runner command")
+            command = commands[0]
+            argv = command.get("argv", [])
+            if (len(argv) < 4 or Path(argv[0]).name != "gsi" or argv[2:] !=
+                    ["-f", "run-unit-tests.scm", "-gsc", "-stress",
+                     *["unit-tests/" + name for name in row["files"]]]
+                    or command.get("exit") != 0 or command.get("timeout") is not False
+                    or command.get("parentReaped") is not True
+                    or command.get("processGroupQuiescent") is not True
+                    or not 0 < command.get("seconds", 0) <=
+                       command.get("effectiveBudgetSeconds", 0) <= spec["innerSeconds"]):
+                raise ValueError("compiled stress group did not complete its original compiled invocation")
+
+
 def accepted_smp_status(root):
     """Report the recorded milestone from its own bound evidence period."""
     root = Path(root).resolve()
@@ -628,6 +690,8 @@ def accepted_smp_progress(root, baseline_path, candidate_path, previous=None):
             require_pr_smp_evidence(root, receipt)
         if family == "stress-gsi":
             require_stress_smp_evidence(root, receipt)
+        if family == "stress-gsc":
+            require_stress_gsc_smp_evidence(root, receipt)
         references[family] = identity
 
     return dict(origin=origin, originPassed=baseline["passed"], accepted=accepted,
