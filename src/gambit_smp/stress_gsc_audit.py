@@ -103,8 +103,8 @@ def verify_compiled_host_receipt(receipt: dict, candidate: dict) -> dict:
             and producer.get("runtimeIdentitySha256") == hashlib.sha256(runtime_identity_bytes(candidate)).hexdigest(),
             "Link 4 compiled-host receipt refers to a different sealed gsc/gsi producer")
     peak_rss = receipt.get("peakCompilerRssBytes", 0)
-    require(isinstance(peak_rss, int) and 0 <= peak_rss < MAX_COMPILER_RSS_BYTES,
-            f"Link 4 peak compiler RSS {peak_rss} exceeds 8 GiB limit")
+    require(isinstance(peak_rss, int) and 0 < peak_rss < MAX_COMPILER_RSS_BYTES,
+            f"Link 4 peak compiler RSS {peak_rss} must be measured (>0) and below 8 GiB limit")
 
     modules = receipt.get("modules") or []
     require(sorted(m.get("target") for m in modules) == REQUIRED_STRESS_FILES,
@@ -120,6 +120,10 @@ def verify_compiled_host_receipt(receipt: dict, candidate: dict) -> dict:
                     f"Link 4 missing {key} artifact digest for {mod.get('target')}")
         require(mod.get("dlopenExecutionPassed") is True,
                 f"Link 4 dynamic .o1 execution check failed for {mod.get('target')}")
+        if "dynamicAbiClean" in mod or "undefinedGambitSymbols" in mod:
+            require(mod.get("dynamicAbiClean") is True and mod.get("undefinedGambitSymbols") == [],
+                    f"Link 4 dynamic .o1 leaked undefined Gambit symbols for {mod.get('target')}: "
+                    f"{mod.get('undefinedGambitSymbols')}")
 
     neg = receipt.get("negativeControls") or {}
     require(neg.get("passed") is True and neg.get("total") == 5
@@ -133,6 +137,17 @@ def verify_compiled_host_receipt(receipt: dict, candidate: dict) -> dict:
             and native.get("crossModuleInterruptUnwindPassed") is True
             and native.get("oneWordShortRefusalPassed") is True,
             "Link 4 native .o1 wire-trace controls incomplete or failed")
+    if "controlArtifacts" in native:
+        ctrl_arts = native["controlArtifacts"]
+        require(isinstance(ctrl_arts, dict) and set(ctrl_arts) >= {"shortage", "interrupt", "oneWordShort"},
+                "Link 4 controlArtifacts must cover all three native controls")
+        for ctrl_name, meta in ctrl_arts.items():
+            require(meta.get("tvPassed") is True
+                    and meta.get("dynamicAbiClean") is True
+                    and meta.get("undefinedGambitSymbols") == []
+                    and isinstance(meta.get("cSha256"), str) and len(meta["cSha256"]) == 64
+                    and isinstance(meta.get("o1Sha256"), str) and len(meta["o1Sha256"]) == 64,
+                    f"Link 4 native control {ctrl_name} failed TV or dynamic ABI symbol audit")
 
     return dict(
         modules=len(modules),
@@ -202,6 +217,12 @@ def _audit_compiled_topology(run, step, row, commands, runtime, clock, started, 
                     f"{name}: wrong fixture population")
             output, timing, natural = command_result(run, step, command, clock, started, deadline,
                                                      [executable, *argv])
+            peak_group_rss = command.get("peakGroupRssBytes")
+            if peak_group_rss is not None:
+                require(isinstance(peak_group_rss, int) and 0 <= peak_group_rss < MAX_COMPILER_RSS_BYTES,
+                        f"{name}: peak group RSS {peak_group_rss} exceeds 8 GiB limit")
+            if command.get("rssLimitExceeded") is True:
+                raise ValueError(f"{name}: process group exceeded configured RSS limit")
             windows.append(timing)
             return output, natural, command
         except READ_ERRORS as error:

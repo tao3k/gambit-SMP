@@ -137,6 +137,129 @@ class CompiledHostValidatorTests(unittest.TestCase):
         desc_viols = [v for v in report["violations"] if v["code"] == "invalid-frame-descriptor"]
         self.assertEqual(desc_viols, [])
 
+    def test_typed_allocation_macros_are_enforced(self):
+        macro_cases = [
+            ("___BEGIN_ALLOC_STRING(16)", 3),
+            ("___BEGIN_ALLOC_U8VECTOR(16)", 3),
+            ("___BEGIN_ALLOC_S16VECTOR(8)", 3),
+            ("___BEGIN_ALLOC_F32VECTOR(4)", 3),
+            ("___BEGIN_ALLOC_F64VECTOR(4)", 5),
+            ("___BEGIN_ALLOC_STRUCTURE(3)", 4),
+            ("___BEGIN_ALLOC_VALUES(3)", 4),
+            ("___BEGIN_ALLOC_LIST(2,___R1)", 3),
+            ("___ADD_LIST_ELEM(1,___R2)", 3),
+            ("___SET_R1(___BOX(___R1))", 2),
+            ("___BEGIN_ALLOC_SUBTYPED(hd)", 1),
+        ]
+        for stmt, expected_words in macro_cases:
+            with self.subTest(stmt=stmt):
+                # Unguarded allocation must be rejected
+                unguarded = f"""
+#define ___LBLCOUNT 10
+#define ___PH_PROC ___H_alloc_case
+#define ___PR_ALL ___R_HEAP
+___BEGIN_P_COD
+___BEGIN_P_SW
+___DEF_SLBL(0,___L0_alloc)
+   {stmt}
+   ___JUMPRET(___R0)
+___END_P_SW
+___END_P_COD
+"""
+                r_bad = validate_compiled_c(unguarded)
+                self.assertFalse(r_bad["passed"], stmt)
+                self.assertIn("unguarded-heap-write", {v["code"] for v in r_bad["violations"]})
+
+                # Guarded with exact H passes; H-1 fails
+                def _guarded(h_words: int) -> str:
+                    return f"""
+#define ___LBLCOUNT 10
+#define ___PH_PROC ___H_alloc_case
+#define ___PR_ALL ___R_HEAP
+___BEGIN_P_COD
+___BEGIN_P_SW
+___DEF_SLBL(1,___L1_alloc)
+   if(!___group_demand_enter(___ps,&___hp,&___fp,0,{h_words},___LBL(1),&___demand_attempt)){{___ps->temp1=___LBL(1);___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit);}}
+   {stmt}
+   ___group_demand_commit(___ps,___LBL(1),___demand_attempt);
+   ___JUMPRET(___R0)
+___END_P_SW
+___END_P_COD
+"""
+
+                r_ok = validate_compiled_c(_guarded(expected_words))
+                self.assertTrue(r_ok["passed"], (stmt, r_ok["violations"]))
+                r_short = validate_compiled_c(_guarded(expected_words - 1))
+                self.assertFalse(r_short["passed"], stmt)
+                self.assertIn("insufficient-heap-demand", {v["code"] for v in r_short["violations"]})
+
+    def test_branch_aware_if_else_merges_stack_and_catches_escape(self):
+        # Mutually exclusive ___IF / ___ELSE branches each using 2 stack words fit in S=2
+        branch_ok = """
+#define ___LBLCOUNT 12
+#define ___PH_PROC ___H_branch_ok
+#define ___PR_ALL ___R_HEAP
+___BEGIN_P_COD
+___BEGIN_P_SW
+___DEF_SLBL(1,___L1_branch)
+   if(!___group_demand_enter(___ps,&___hp,&___fp,2,3,___LBL(1),&___demand_attempt)){___ps->temp1=___LBL(1);___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit);}
+   ___IF(___EQP(___R1,___FAL))
+   ___SET_STK(1,___R1)
+   ___ADJFP(2)
+   ___SET_R2(___CONS(___R1,___R2))
+   ___ELSE
+   ___SET_STK(1,___R2)
+   ___ADJFP(2)
+   ___SET_R2(___CONS(___R2,___R1))
+   ___END_IF
+   ___group_demand_commit(___ps,___LBL(1),___demand_attempt);
+   ___JUMPRET(___R0)
+___END_P_SW
+___END_P_COD
+"""
+        r_ok = validate_compiled_c(branch_ok)
+        self.assertTrue(r_ok["passed"], r_ok["violations"])
+
+        # Escaping a write group via ___GOTO before commit must be rejected
+        branch_escape = """
+#define ___LBLCOUNT 12
+#define ___PH_PROC ___H_branch_escape
+#define ___PR_ALL ___R_HEAP
+___BEGIN_P_COD
+___BEGIN_P_SW
+___DEF_SLBL(1,___L1_branch)
+   if(!___group_demand_enter(___ps,&___hp,&___fp,1,3,___LBL(1),&___demand_attempt)){___ps->temp1=___LBL(1);___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit);}
+   ___IF(___EQP(___R1,___FAL))
+   ___GOTO(___L2_out)
+   ___END_IF
+   ___SET_R2(___CONS(___R1,___R2))
+   ___group_demand_commit(___ps,___LBL(1),___demand_attempt);
+___DEF_GLBL(___L2_out)
+   ___JUMPRET(___R0)
+___END_P_SW
+___END_P_COD
+"""
+        r_esc = validate_compiled_c(branch_escape)
+        self.assertFalse(r_esc["passed"])
+        self.assertIn("uncommitted-write-group-escape", {v["code"] for v in r_esc["violations"]})
+
+    def test_source_bound_cbmc_harness_stays_synced_with_vendor_headers(self):
+        harness = (ROOT / "tests/contracts/modern-c/compiled-host/source-bound-macro-equiv/harness.c").read_text()
+        sync_specs = [
+            ("vendor/gambit/include/_gambit/object_access.h.in", 31, 44, "object_access"),
+            ("vendor/gambit/include/_gambit/runtime_protocols.h.in", 1231, 1249, "runtime_protocols_commit"),
+            ("vendor/gambit/include/_gambit/runtime_protocols.h.in", 1265, 1275, "runtime_protocols_gate2"),
+        ]
+        for rel, start, end, tag in sync_specs:
+            with self.subTest(tag=tag):
+                begin_marker = f"/* BEGIN_SYNC: {rel}:{start}-{end} */\n"
+                end_marker = f"\n/* END_SYNC: {tag} */"
+                self.assertIn(begin_marker, harness)
+                body = harness.split(begin_marker, 1)[1].split(end_marker, 1)[0]
+                vendor_lines = (ROOT / rel).read_text().splitlines()[start - 1 : end]
+                self.assertEqual(body.splitlines(), vendor_lines,
+                                 f"CBMC harness drifted from {rel}:{start}-{end}")
+
 
 if __name__ == "__main__":
     unittest.main()

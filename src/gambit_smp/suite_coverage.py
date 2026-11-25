@@ -501,8 +501,8 @@ def require_stress_gsc_smp_evidence(root, receipt):
             or any(receipt.get(k) is not False for k in ("heapRaised", "waitExtended", "observationsSpliced"))):
         raise ValueError("compiled stress campaign changed the original fixed resource boundary")
     peak_rss = receipt.get("peakCompilerRssBytes", 0)
-    if not isinstance(peak_rss, int) or not 0 <= peak_rss < MAX_COMPILER_RSS_BYTES:
-        raise ValueError("compiled stress campaign exceeded 8 GiB compiler RSS budget")
+    if not isinstance(peak_rss, int) or not 0 < peak_rss < MAX_COMPILER_RSS_BYTES:
+        raise ValueError("compiled stress campaign requires measured (>0) compiler RSS below 8 GiB budget")
     verify_formal_models_link(root, manifest)
     link4_ref = receipt["compiledHostValidation"]
     link4_doc, _ = _load_smp_evidence(root, link4_ref["path"], link4_ref["sha256"])

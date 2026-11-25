@@ -21,16 +21,19 @@ FRAME_ALIGN_DEFAULT = 4
 NB_GVM_REGS_DEFAULT = 5
 
 # LP64 no-handle word sizes matching vendor/gambit/include/_gambit/object_access.h.in
+# and vendor/gambit/include/_gambit/module_generation.h.in
 PAIR_WORDS = 3           # ___PAIR_BODY(1) + ___PAIR_SIZE(2)
-VECTOR_HEADER_WORDS = 1  # ___VECTOR_BODY(1)
+VECTOR_HEADER_WORDS = 1  # ___VECTOR_BODY(1) / ___SUBTYPED_BODY(1)
 CLO_HEADER_WORDS = 2     # header + entry label word
+BOX_WORDS = 2            # ___SUBTYPED_BODY(1) + ___BOX_SIZE(1)
 FLONUM_WORDS = 2         # header + f64 payload
 
 _LBLCOUNT_RE = re.compile(r"^\s*#define\s+___LBLCOUNT\s+(\d+)\b", re.MULTILINE)
 _PROC_NAME_RE = re.compile(r"^\s*#define\s+___PH_PROC\s+(\S+)")
 _SLBL_RE = re.compile(r"^___DEF_SLBL\((\d+),([^,)]+)\)")
 _GLBL_RE = re.compile(r"^___DEF_GLBL\(([^,)]+)\)")
-_GOTO_RE = re.compile(r"___GOTO\(([^,)]+)\)")
+_GOTO_RE = re.compile(r"\b___GOTO\(([^,)]+)\)")
+_IF_GOTO_RE = re.compile(r"\b___IF_GOTO\([^,]+,\s*([^,)]+)\)")
 _DEMAND_ENTER_RE = re.compile(
     r"if\s*\(\s*!\s*___group_demand_enter\s*\(\s*___ps\s*,\s*&___hp\s*,\s*&___fp\s*,"
     r"\s*(\d+)\s*,\s*(\d+)\s*,\s*___LBL\((\d+)\)\s*,\s*&___demand_attempt\s*\)\s*\)"
@@ -55,14 +58,24 @@ _TERMINAL_RE = re.compile(
     r"JUMPGENNOTSAFE|JUMPEXTPRM|JUMPEXT|JUMPINT|JUMP_)\b"
 )
 _SAFE_JUMP_RE = re.compile(r"\b___(?:JUMPGLOSAFE|JUMPGENSAFE|POLL|CHECK_HEAP|CHECK_HEAP_FLO)\(")
-_ADJFP_RE = re.compile(r"___ADJFP\(\s*(-?\d+)\s*\)")
-_SET_STK_RE = re.compile(r"___SET_STK\(\s*(-?\d+)\s*,")
-_ALLOC_CLO_RE = re.compile(r"___ALLOC_CLO\(\s*(\d+)[uUlL]*\s*\)")
-_BEGIN_VEC_RE = re.compile(r"___BEGIN_ALLOC_VECTOR\(\s*(\d+)[uUlL]*\s*\)")
-_BEGIN_PAIR_RE = re.compile(r"___BEGIN_ALLOC_PAIR\s*\(")
-_CONS_RE = re.compile(r"___CONS\s*\(")
-_F64BOX_RE = re.compile(r"___F64BOX\s*\(")
-_RAW_ALLOC_RE = re.compile(r"___ALLOC\(\s*(\d+)[uUlL]*\s*\)")
+_ADJFP_RE = re.compile(r"\b___ADJFP\(\s*(-?\d+)\s*\)")
+_SET_STK_RE = re.compile(r"\b___SET_STK\(\s*(-?\d+)\s*,")
+_ALLOC_CLO_RE = re.compile(r"\b___ALLOC_CLO\(\s*(\d+)[uUlL]*\s*\)")
+_BEGIN_VEC_RE = re.compile(r"\b___BEGIN_ALLOC_VECTOR(?:_EXPR)?\(\s*(\d+)[uUlL]*\s*\)")
+_BEGIN_STRUCT_RE = re.compile(r"\b___BEGIN_ALLOC_(?:STRUCTURE|VALUES)\(\s*(\d+)[uUlL]*\s*\)")
+_BEGIN_PAIR_RE = re.compile(r"\b___BEGIN_ALLOC_PAIR\s*\(")
+_PAIR_EXPR_RE = re.compile(
+    r"\b___(?:CONS|XCONS|ALLOC_PAIR|ALLOC_PAIR_EXPR|BEGIN_ALLOC_LIST|ADD_LIST_ELEM)\s*\("
+)
+_BOX_RE = re.compile(r"\b___BOX\s*\(")
+_F64BOX_RE = re.compile(r"\b___F64BOX\s*\(")
+_BEGIN_STRING_RE = re.compile(r"\b___BEGIN_ALLOC_STRING\(\s*(\d+)[uUlL]*\s*\)")
+_BEGIN_8VEC_RE = re.compile(r"\b___BEGIN_ALLOC_[SU]8VECTOR\(\s*(\d+)[uUlL]*\s*\)")
+_BEGIN_16VEC_RE = re.compile(r"\b___BEGIN_ALLOC_[SU]16VECTOR\(\s*(\d+)[uUlL]*\s*\)")
+_BEGIN_32VEC_RE = re.compile(r"\b___BEGIN_ALLOC_(?:[SU]|F)32VECTOR\(\s*(\d+)[uUlL]*\s*\)")
+_BEGIN_64VEC_RE = re.compile(r"\b___BEGIN_ALLOC_(?:[SU]|F)64VECTOR\(\s*(\d+)[uUlL]*\s*\)")
+_BEGIN_SUBTYPED_RE = re.compile(r"\b___BEGIN_ALLOC_SUBTYPED\s*\(")
+_RAW_ALLOC_RE = re.compile(r"\b___ALLOC(?:_ALIGN64)?\(\s*(\d+)[uUlL]*\s*\)")
 
 
 def _round_up(value: int, align: int) -> int:
@@ -197,17 +210,37 @@ def _extract_procedures(text: str) -> list[dict]:
     return procedures
 
 
+def _words_from_bytes_lp64(byte_count: int) -> int:
+    return (byte_count + 7) // 8
+
+
 def _line_heap_words(stmt: str) -> int:
-    """Lower-bound heap words allocated directly by one emitted statement."""
+    """Lower-bound LP64 heap words allocated directly by one emitted statement."""
     words = 0
     for m in _ALLOC_CLO_RE.finditer(stmt):
         words += CLO_HEADER_WORDS + int(m.group(1))
     for m in _BEGIN_VEC_RE.finditer(stmt):
         words += VECTOR_HEADER_WORDS + int(m.group(1))
+    for m in _BEGIN_STRUCT_RE.finditer(stmt):
+        words += VECTOR_HEADER_WORDS + int(m.group(1))
     words += len(_BEGIN_PAIR_RE.findall(stmt)) * PAIR_WORDS
-    words += len(_CONS_RE.findall(stmt)) * PAIR_WORDS
+    words += len(_PAIR_EXPR_RE.findall(stmt)) * PAIR_WORDS
+    words += len(_BOX_RE.findall(stmt)) * BOX_WORDS
     words += len(_F64BOX_RE.findall(stmt)) * FLONUM_WORDS
-    # Count standalone ___ALLOC(n) only when not part of BEGIN_ALLOC_* expansion.
+    for m in _BEGIN_STRING_RE.finditer(stmt):
+        # Conservative lower bound valid across UCS-1/2/4 char widths.
+        words += VECTOR_HEADER_WORDS + _words_from_bytes_lp64(int(m.group(1)))
+    for m in _BEGIN_8VEC_RE.finditer(stmt):
+        words += VECTOR_HEADER_WORDS + _words_from_bytes_lp64(int(m.group(1)))
+    for m in _BEGIN_16VEC_RE.finditer(stmt):
+        words += VECTOR_HEADER_WORDS + _words_from_bytes_lp64(2 * int(m.group(1)))
+    for m in _BEGIN_32VEC_RE.finditer(stmt):
+        words += VECTOR_HEADER_WORDS + _words_from_bytes_lp64(4 * int(m.group(1)))
+    for m in _BEGIN_64VEC_RE.finditer(stmt):
+        words += VECTOR_HEADER_WORDS + int(m.group(1))
+    # Count raw subtyped header or standalone ___ALLOC(n) when not part of typed macros.
+    if words == 0:
+        words += len(_BEGIN_SUBTYPED_RE.findall(stmt)) * VECTOR_HEADER_WORDS
     if words == 0:
         for m in _RAW_ALLOC_RE.finditer(stmt):
             words += int(m.group(1))
@@ -253,8 +286,20 @@ def _find_sccs_with_cycles(node_count: int, adj: dict[int, set[int]]) -> list[li
     return cyclic
 
 
+def _clone_group(group: dict | None) -> dict | None:
+    return dict(group) if group is not None else None
+
+
+def _merge_branch_groups(groups: list[dict]) -> dict:
+    merged = dict(groups[0])
+    merged["used_heap"] = max(g["used_heap"] for g in groups)
+    merged["peak_stack"] = max(g["peak_stack"] for g in groups)
+    merged["cur_stack"] = max(g["cur_stack"] for g in groups)
+    return merged
+
+
 def _validate_procedure(proc: dict) -> dict:
-    """Run Dominance, Reload, Label-Bijection, and Back-Edge Poll checks on one procedure."""
+    """Run Dominance, Reload, Label-Bijection, Branch-Aware Demand, and Back-Edge Poll checks."""
     name = proc["name"]
     lines = proc["lines"]
     violations = []
@@ -289,7 +334,7 @@ def _validate_procedure(proc: dict) -> dict:
             continue
         current["stmts"].append((line_no, stmt))
 
-    # Build CFG edges & check safepoint label bindings + write-group dominance.
+    # Build CFG edges & check safepoint label bindings + branch-aware write-group dominance.
     adj = defaultdict(set)
     write_groups = 0
     procedure_allocates = False
@@ -298,16 +343,64 @@ def _validate_procedure(proc: dict) -> dict:
     for idx, block in enumerate(blocks):
         stmts = block["stmts"]
         active_group = None  # dict(stack, heap, lbl, used_heap, peak_stack, cur_stack, line)
+        branch_stack = []
+        reachable = True
         cond_depth = 0
         saw_safepoint_without_reload = False
 
         for pos, (line_no, stmt) in enumerate(stmts):
             if stmt.startswith("___IF("):
                 cond_depth += 1
-            elif stmt == "___END_IF":
+                branch_stack.append(dict(
+                    entry_group=_clone_group(active_group),
+                    entry_sp=saw_safepoint_without_reload,
+                    entry_reach=reachable,
+                    in_else=False,
+                    then_group=None,
+                    then_sp=False,
+                    then_reach=False,
+                ))
+                continue
+            if stmt == "___ELSE":
+                if branch_stack:
+                    frame = branch_stack[-1]
+                    frame["then_group"] = _clone_group(active_group)
+                    frame["then_sp"] = saw_safepoint_without_reload
+                    frame["then_reach"] = reachable
+                    frame["in_else"] = True
+                    active_group = _clone_group(frame["entry_group"])
+                    saw_safepoint_without_reload = frame["entry_sp"]
+                    reachable = frame["entry_reach"]
+                continue
+            if stmt == "___END_IF":
                 cond_depth = max(0, cond_depth - 1)
+                if branch_stack:
+                    frame = branch_stack.pop()
+                    if frame["in_else"]:
+                        branches = (
+                            (frame["then_reach"], frame["then_group"], frame["then_sp"]),
+                            (reachable, active_group, saw_safepoint_without_reload),
+                        )
+                    else:
+                        branches = (
+                            (reachable, active_group, saw_safepoint_without_reload),
+                            (frame["entry_reach"], frame["entry_group"], frame["entry_sp"]),
+                        )
+                    live = [(g, sp) for r, g, sp in branches if r]
+                    if not live:
+                        reachable = False
+                        active_group = None
+                    else:
+                        reachable = True
+                        saw_safepoint_without_reload = any(sp for _, sp in live)
+                        open_groups = [g for g, _ in live if g is not None]
+                        active_group = _merge_branch_groups(open_groups) if open_groups else None
+                continue
 
             for target in _GOTO_RE.findall(stmt):
+                if target in label_to_block:
+                    adj[idx].add(label_to_block[target])
+            for target in _IF_GOTO_RE.findall(stmt):
                 if target in label_to_block:
                     adj[idx].add(label_to_block[target])
 
@@ -458,7 +551,23 @@ def _validate_procedure(proc: dict) -> dict:
                         ),
                     ))
 
-        if active_group is not None:
+            # Detect escaping control-flow transfers while a write group is still open
+            if _TERMINAL_RE.match(stmt) or _GOTO_RE.search(stmt) or _IF_GOTO_RE.search(stmt):
+                if active_group is not None:
+                    violations.append(dict(
+                        code="uncommitted-write-group-escape",
+                        procedure=name,
+                        line=line_no,
+                        detail=(
+                            f"control-flow transfer escapes open write group "
+                            f"(label {active_group['lbl']}) without commit"
+                        ),
+                    ))
+                    active_group = None
+                if _TERMINAL_RE.match(stmt):
+                    reachable = False
+
+        if reachable and active_group is not None:
             violations.append(dict(
                 code="uncommitted-write-group",
                 procedure=name,
@@ -466,11 +575,9 @@ def _validate_procedure(proc: dict) -> dict:
                 detail=f"write group for label {active_group['lbl']} reaches block end without commit",
             ))
 
-        # Fallthrough edge to next block unless unconditionally terminated
-        if idx + 1 < len(blocks):
-            last_stmt = stmts[-1][1] if stmts else ""
-            if cond_depth > 0 or not _TERMINAL_RE.match(last_stmt):
-                adj[idx].add(idx + 1)
+        # Fallthrough edge to next block unless unconditionally terminated on all paths
+        if idx + 1 < len(blocks) and reachable:
+            adj[idx].add(idx + 1)
 
     if procedure_allocates and not need_heap:
         violations.append(dict(

@@ -15,6 +15,10 @@ from gambit_smp.stress_gsc_audit import (
     verify_compiled_host_receipt,
     verify_formal_models_link,
 )
+from gambit_smp.stress_gsc_link4 import (
+    _parse_time_rss_bytes,
+    classify_undefined_gambit_symbols,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -91,11 +95,36 @@ class StressGscAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different sealed gsc/gsi producer"):
             verify_compiled_host_receipt(bad_gsc, candidate)
 
-        # RSS >= 8 GiB rejected
+        # RSS >= 8 GiB or silent-zero RSS rejected
         bad_rss = copy.deepcopy(valid)
         bad_rss["peakCompilerRssBytes"] = MAX_COMPILER_RSS_BYTES
         with self.assertRaisesRegex(ValueError, "8 GiB"):
             verify_compiled_host_receipt(bad_rss, candidate)
+
+        zero_rss = copy.deepcopy(valid)
+        zero_rss["peakCompilerRssBytes"] = 0
+        with self.assertRaisesRegex(ValueError, ">0"):
+            verify_compiled_host_receipt(zero_rss, candidate)
+
+        # Leaked dynamic .o1 Gambit ABI symbol rejected when audited
+        bad_sym = copy.deepcopy(valid)
+        bad_sym["modules"][0]["dynamicAbiClean"] = False
+        bad_sym["modules"][0]["undefinedGambitSymbols"] = ["___group_demand_enter"]
+        with self.assertRaisesRegex(ValueError, "leaked undefined Gambit symbols"):
+            verify_compiled_host_receipt(bad_sym, candidate)
+
+        # Failed controlArtifacts TV or ABI check rejected
+        bad_ctrl = copy.deepcopy(valid)
+        bad_ctrl["nativeControls"]["controlArtifacts"] = {
+            "shortage": {"cSha256": "a" * 64, "o1Sha256": "b" * 64, "tvPassed": True,
+                         "dynamicAbiClean": True, "undefinedGambitSymbols": []},
+            "interrupt": {"cSha256": "a" * 64, "o1Sha256": "b" * 64, "tvPassed": True,
+                          "dynamicAbiClean": False, "undefinedGambitSymbols": ["___gate2_group_site"]},
+            "oneWordShort": {"cSha256": "a" * 64, "o1Sha256": "b" * 64, "tvPassed": True,
+                             "dynamicAbiClean": True, "undefinedGambitSymbols": []},
+        }
+        with self.assertRaisesRegex(ValueError, "failed TV or dynamic ABI"):
+            verify_compiled_host_receipt(bad_ctrl, candidate)
 
         # Label count >= 6000 rejected
         bad_lbl = copy.deepcopy(valid)
@@ -114,6 +143,31 @@ class StressGscAuditTests(unittest.TestCase):
         bad_native["nativeControls"]["oneWordShortRefusalPassed"] = False
         with self.assertRaisesRegex(ValueError, "native .o1 wire-trace"):
             verify_compiled_host_receipt(bad_native, candidate)
+
+    def test_nm_undefined_symbol_classifier_and_cross_platform_rss_parser(self):
+        mach_o_clean = "_memcpy\n___stack_chk_fail\n____stack_chk_guard\ndyld_stub_binder\n"
+        self.assertEqual(classify_undefined_gambit_symbols(mach_o_clean, mach_o=True), [])
+
+        mach_o_leaked = (
+            "_memcpy\n"
+            "____group_demand_enter\n"
+            "____rest_observation_store_fast\n"
+            "____stack_chk_fail\n"
+        )
+        self.assertEqual(
+            classify_undefined_gambit_symbols(mach_o_leaked, mach_o=True),
+            ["___group_demand_enter", "___rest_observation_store_fast"],
+        )
+
+        elf_leaked = "                 U memcpy\n                 U ___gate2_group_site\n"
+        self.assertEqual(
+            classify_undefined_gambit_symbols(elf_leaked, mach_o=False),
+            ["___gate2_group_site"],
+        )
+
+        self.assertEqual(_parse_time_rss_bytes("  156876800  maximum resident set size\n"), 156876800)
+        self.assertEqual(_parse_time_rss_bytes("\tMaximum resident set size (kbytes): 153200\n"), 153200 * 1024)
+        self.assertEqual(_parse_time_rss_bytes("no rss metric here"), 0)
 
     def test_validate_suite_accepts_gsc_ordered_stress_with_compiled_host_receipt(self):
         args = {

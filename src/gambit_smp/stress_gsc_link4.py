@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sys
 import tempfile
 import time
 
@@ -34,7 +35,11 @@ from gambit_smp.stress_gsc_audit import (
 )
 from gambit_smp.task_processes import run as run_process
 
-_RSS_RE = re.compile(r"^\s*(\d+)\s+maximum resident set size\b", re.MULTILINE)
+_MACOS_RSS_RE = re.compile(r"^\s*(\d+)\s+maximum resident set size\b", re.MULTILINE)
+_LINUX_RSS_KB_RE = re.compile(r"Maximum resident set size \(kbytes\):\s*(\d+)")
+# Platform CRT/libc double-underscore internals are ignored; Gambit runtime ABI
+# exports always use the triple-underscore ___ prefix (quad-underscore ____ on Mach-O).
+_SYSTEM_TRIPLE_UNDERSCORE = frozenset({"___stack_chk_fail", "___stack_chk_guard", "___stderrp", "___stdoutp", "___stdinp", "___error", "___bzero", "___memcpy_chk", "___memset_chk", "___memmove_chk", "___strcpy_chk", "___strncpy_chk", "___snprintf_chk", "___vsnprintf_chk", "___sprintf_chk", "___strcat_chk", "___strncat_chk", "___darwin_check_fd_set_overflow", "___chkstk_darwin"})
 
 _CONTROL_A_SCM = r"""
 (declare (standard-bindings) (block) (not inline))
@@ -256,10 +261,78 @@ _CONTROL_C_WRAPPER_SCM = r"""
 """
 
 
+def _parse_time_rss_bytes(stderr_text: str) -> int:
+    """Parse peak RSS in bytes from BSD/macOS `time -l` or GNU/Linux `time -v`."""
+    m = _MACOS_RSS_RE.search(stderr_text)
+    if m:
+        return int(m.group(1))
+    m = _LINUX_RSS_KB_RE.search(stderr_text)
+    if m:
+        return int(m.group(1)) * 1024
+    return 0
+
+
+def _normalize_undefined_symbol(raw: str, *, mach_o: bool) -> str:
+    tok = raw.strip()
+    if not tok:
+        return ""
+    # Strip trailing symbol-version or address columns if present
+    tok = tok.split()[-1]
+    if mach_o and tok.startswith("_"):
+        tok = tok[1:]
+    return tok
+
+
+def classify_undefined_gambit_symbols(nm_output: str, *, mach_o: bool | None = None) -> list[str]:
+    """Extract leaked Gambit runtime ABI symbols (___*) from `nm -u` output."""
+    if mach_o is None:
+        mach_o = sys.platform == "darwin"
+    leaked = []
+    for line in nm_output.splitlines():
+        sym = _normalize_undefined_symbol(line, mach_o=mach_o)
+        if not sym.startswith("___"):
+            continue
+        if sym in _SYSTEM_TRIPLE_UNDERSCORE or sym.startswith(("___chkstk", "___darwin_", "___sanitizer_")):
+            continue
+        leaked.append(sym)
+    return sorted(set(leaked))
+
+
+def inspect_dynamic_o1_symbols(o1_path: Path, *, timeout: int = 30) -> dict:
+    """Run audited `nm -u` on a dynamic .o1 bundle to verify zero leaked Gambit ABI symbols."""
+    o1_file = Path(o1_path)
+    nm_bin = shutil.which("nm")
+    if not nm_bin:
+        raise FileNotFoundError("nm binary required for dynamic .o1 undefined-symbol audit")
+    completed = run_process(
+        [nm_bin, "-u", str(o1_file)],
+        cwd=str(o1_file.parent),
+        env=dict(os.environ),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        start_new_session=True,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"nm -u failed on {o1_file}: {completed.stderr[:400]}")
+    leaked = classify_undefined_gambit_symbols(completed.stdout or "")
+    all_lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
+    return dict(
+        tool="nm -u",
+        totalUndefined=len(all_lines),
+        undefinedGambitSymbols=leaked,
+        dynamicAbiClean=(len(leaked) == 0),
+    )
+
+
 def _run_timed(cmd: list[str], *, cwd: Path, env: dict[str, str], timeout: int) -> dict:
     """Run command through the audited task_processes.run boundary, capturing peak RSS."""
-    use_time = Path("/usr/bin/time").exists()
-    full_cmd = ["/usr/bin/time", "-l", *cmd] if use_time else cmd
+    time_bin = Path("/usr/bin/time")
+    if time_bin.exists():
+        time_flag = "-l" if sys.platform == "darwin" else "-v"
+        full_cmd = [str(time_bin), time_flag, *cmd]
+    else:
+        full_cmd = cmd
     started = time.monotonic()
     completed = run_process(
         full_cmd,
@@ -273,16 +346,13 @@ def _run_timed(cmd: list[str], *, cwd: Path, env: dict[str, str], timeout: int) 
     elapsed = time.monotonic() - started
     stdout_s = completed.stdout or ""
     stderr_s = completed.stderr or ""
-    rss_bytes = 0
-    if use_time:
-        m = _RSS_RE.search(stderr_s)
-        if m:
-            rss_bytes = int(m.group(1))
+    rss_bytes = _parse_time_rss_bytes(stderr_s) if time_bin.exists() else 0
     return dict(
         cmd=cmd,
         exit=completed.returncode,
         seconds=round(elapsed, 3),
         peakRssBytes=rss_bytes,
+        rssMeasured=(rss_bytes > 0),
         stdout=stdout_s,
         stderr=stderr_s,
     )
@@ -391,8 +461,9 @@ def execute_link4_validation(
                     f"stdout={p2['stdout'][-500:]} stderr={p2['stderr'][:500]}"
                 )
 
-            # Independent Translation Validation on the exact .c + .o1
+            # Independent Translation Validation on the exact .c + .o1 + dynamic symbol audit
             tv = validate_compiled_module_files(c_out, o1_out, module_name=target)
+            sym_audit = inspect_dynamic_o1_symbols(o1_out)
             if target.endswith("tfib_stress.scm"):
                 tfib_c_text = c_out.read_text(errors="replace")
 
@@ -429,6 +500,8 @@ def execute_link4_validation(
                 zeroAllocTightLoopCount=tv["zeroAllocTightLoopCount"],
                 violationCount=tv["violationCount"],
                 violations=tv["violations"][:10],
+                undefinedGambitSymbols=sym_audit["undefinedGambitSymbols"],
+                dynamicAbiClean=sym_audit["dynamicAbiClean"],
                 schemeToCSeconds=p1["seconds"],
                 cToO1Seconds=p2["seconds"],
                 cToO1PeakRssBytes=p2["peakRssBytes"],
@@ -437,7 +510,7 @@ def execute_link4_validation(
                 **({"dlopenStderr": exec_stderr} if exec_stderr else {}),
             ))
 
-        # 2. Five mutated-host negative controls on real v9-emitted tfib_stress.c
+        # 2. Five mutated-host negative controls on real emitted tfib_stress.c
         if tfib_c_text is None:
             raise RuntimeError("tfib_stress.c was not emitted")
         neg_controls = run_mutated_host_negative_controls(tfib_c_text)
@@ -451,19 +524,29 @@ def execute_link4_validation(
             c_f = ctrl_dir / f"{name}.c"
             o1_f = ctrl_dir / f"{name}.o1"
             scm_f.write_text(code)
+            emit_expr = (
+                f'(exit (if (compile-file-to-target {json.dumps(scm_f.name)} '
+                f'options: (quote ((linker-name {json.dumps(o1_f.name)}))) '
+                f'output: {json.dumps(c_f.name)}) 0 1))'
+            )
             rc_c1 = _run_timed(
-                [str(gsc), f"-:{inst_opt}", "-f", "-c", "-o", str(c_f), str(scm_f)],
+                [str(gsc), f"-:{inst_opt}", "-f", "-e", emit_expr],
                 cwd=ctrl_dir,
                 env=base_env,
                 timeout=120,
             )
             if rc_c1["exit"] != 0 or not c_f.exists():
                 raise RuntimeError(
-                    f"Control {name} failed -c: out={rc_c1['stdout'][-400:]} err={rc_c1['stderr'][:400]}"
+                    f"Control {name} failed scheme-to-c: out={rc_c1['stdout'][-400:]} err={rc_c1['stderr'][:400]}"
                 )
             c_text = c_f.read_text(errors="replace")
+            # Compile the exact emitted .c file into .o1 (unbroken .c -> .o1 provenance)
+            link_expr = (
+                f'(exit (if (compile-file {json.dumps(c_f.name)} '
+                f'output: {json.dumps(o1_f.name)}) 0 1))'
+            )
             rc_c2 = _run_timed(
-                [str(gsc), f"-:{inst_opt}", "-f", "-o", str(o1_f), str(scm_f)],
+                [str(gsc), f"-:{inst_opt}", "-f", "-e", link_expr],
                 cwd=ctrl_dir,
                 env=base_env,
                 timeout=120,
@@ -472,9 +555,20 @@ def execute_link4_validation(
             peak_rss = max(peak_rss, rc_c1["peakRssBytes"], rc_c2["peakRssBytes"])
             if rc_c2["exit"] != 0 or not o1_f.exists():
                 raise RuntimeError(
-                    f"Control {name} failed .o1: out={rc_c2['stdout'][-400:]} err={rc_c2['stderr'][:400]}"
+                    f"Control {name} failed c-to-o1: out={rc_c2['stdout'][-400:]} err={rc_c2['stderr'][:400]}"
                 )
-            return c_text, o1_f, dict(compile=rc_c2, o1Sha256=digest(o1_f))
+            tv_ctrl = validate_compiled_module_files(c_f, o1_f, module_name=f"{name}.c")
+            sym_ctrl = inspect_dynamic_o1_symbols(o1_f)
+            return c_text, o1_f, dict(
+                compile=rc_c2,
+                cSha256=tv_ctrl["cSha256"],
+                o1Sha256=tv_ctrl["o1Sha256"],
+                tvPassed=tv_ctrl["passed"],
+                tvViolations=tv_ctrl["violations"][:5],
+                labelCount=tv_ctrl["labelCount"],
+                undefinedGambitSymbols=sym_ctrl["undefinedGambitSymbols"],
+                dynamicAbiClean=sym_ctrl["dynamicAbiClean"],
+            )
 
         def _run_control(
             name: str,
@@ -574,8 +668,22 @@ def execute_link4_validation(
             and counts_c.get("retry-grant", 0) >= 1
         )
 
+        control_artifacts = {
+            key: {
+                "cSha256": meta["cSha256"],
+                "o1Sha256": meta["o1Sha256"],
+                "tvPassed": meta["tvPassed"],
+                "labelCount": meta["labelCount"],
+                "undefinedGambitSymbols": meta["undefinedGambitSymbols"],
+                "dynamicAbiClean": meta["dynamicAbiClean"],
+            }
+            for key, meta in (("shortage", meta_a), ("interrupt", meta_b), ("oneWordShort", meta_c))
+        }
+        controls_clean = all(
+            a["tvPassed"] and a["dynamicAbiClean"] for a in control_artifacts.values()
+        )
         native_controls = dict(
-            passed=bool(ctrl_a_ok and ctrl_b_ok and ctrl_c_ok),
+            passed=bool(ctrl_a_ok and ctrl_b_ok and ctrl_c_ok and controls_clean),
             shortageGcReloadWriteCommitPassed=ctrl_a_ok,
             shortageO1Sha256=meta_a["o1Sha256"],
             shortageGate2Target=dict(procedure=gate2_proc, label=gate2_lbl),
@@ -588,15 +696,16 @@ def execute_link4_validation(
             oneWordShortO1Sha256=meta_c["o1Sha256"],
             oneWordShortOutput=run_c["stdout"].strip(),
             oneWordShortTraceSummary=trace_c,
+            controlArtifacts=control_artifacts,
         )
 
     receipt = dict(
         schema="family7-compiled-host-validation.v1",
         passed=bool(
-            all(m["passed"] and m["dlopenExecutionPassed"] for m in modules)
+            all(m["passed"] and m["dlopenExecutionPassed"] and m["dynamicAbiClean"] for m in modules)
             and neg_controls["passed"]
             and native_controls["passed"]
-            and peak_rss < MAX_COMPILER_RSS_BYTES
+            and 0 < peak_rss < MAX_COMPILER_RSS_BYTES
         ),
         producer=dict(
             gsiSha256=candidate_identity["binarySha256"],
