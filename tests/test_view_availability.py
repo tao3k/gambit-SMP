@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import subprocess
 import unittest
+from unittest.mock import patch
 
 from gambit_smp.ascent_program import engine_api
 from gambit_smp.evidence_views import load, evaluate, ReferenceUnavailable
@@ -71,6 +72,32 @@ class ViewAvailabilityTests(unittest.TestCase):
             self.assertEqual(stale["brief"]["counts"]["support"], 0)
             with self.assertRaises(ReferenceUnavailable):
                 evaluate(self.root, "evidence/changing.view.json", engine)
+
+    def test_missing_git_history_is_unavailable_and_late_arrival_invalidates_snapshot(self):
+        path = self.root/'evidence/changing.view.json'
+        view = json.loads(path.read_text())
+        ref = view['references'][0]
+        ref['identity'] = dict(kind='git', repository='.', revision='0'*40,
+                               path='evidence/changing.md', blob='1'*40, sha256=ref['sha256'])
+        path.write_text(json.dumps(view))
+        snapshot = _repository_snapshot(self.root)
+        _current(snapshot)  # The current file exists; it is not the historical identity.
+        missing = snapshot['unavailableViews'][0]['references'][0]
+        self.assertEqual('source-identity-unavailable', missing['reason'])
+        with engine_api() as (engine, _):
+            packet = repository_clues(self.root, 'changing-claim', engine)
+            self.assertEqual(0, packet['brief']['counts']['support'])
+            self.assertFalse(packet['brief']['runtimeAdmitted'])
+            self.assertFalse(packet['brief']['evidenceCoverage']['complete'])
+        with patch('gambit_smp.source_identity.read_source', return_value=b'changing'):
+            with self.assertRaisesRegex(ValueError, 'immutable source availability changed'):
+                _current(snapshot)
+            restored = _repository_snapshot(self.root)
+            self.assertNotEqual(snapshot['sourceIdentity'], restored['sourceIdentity'])
+        with patch('gambit_smp.source_identity.read_source', side_effect=ValueError('identity mismatch')):
+            with self.assertRaisesRegex(ValueError, 'identity mismatch') as error:
+                _repository_snapshot(self.root)
+            self.assertNotIsInstance(error.exception, ReferenceUnavailable)
 
     def test_missing_reference_reappearance_invalidates_snapshot_then_restores_view(self):
         receipt = self.root / "evidence/changing.md"

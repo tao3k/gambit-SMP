@@ -38,7 +38,7 @@ bootstrap producer is reused; its transfer reports 2243 filesystem clones,
 zero byte copies and no hardlinks.
 
 The portable native stdout is retained in
-`evidence/model-results/table-iteration-current-producer/native.stdout`, digest
+`.cache/research/legacy-evidence/evidence/model-results/table-iteration-current-producer/native.stdout`, digest
 `0093580b26cf2ac88b6e0e851141c64c00ab6b56ab656369184b29a77cdfa1c2`.
 It contains no personal absolute path or cache reference. The authoritative
 local outer receipt digest is

@@ -8,7 +8,7 @@ from gambit_smp.verify_protocols import load_manifest
 
 class VmRetirementJoinCompositionTests(unittest.TestCase):
     base = "evidence/fixtures/interrupt-prefix-owned-lifecycle"
-    receipt = "evidence/model-results/fixtures/interrupt-prefix-owned-lifecycle/retirement-join-design-contract/receipt.json"
+    receipt = ".cache/research/legacy-evidence/evidence/model-results/fixtures/interrupt-prefix-owned-lifecycle/retirement-join-design-contract/receipt.json"
 
     def test_complete_composition_is_bound_and_preserves_conditional_progress(self):
         manifest_path = self.base + "/retirement-join-design-contract.json"
@@ -29,7 +29,7 @@ class VmRetirementJoinCompositionTests(unittest.TestCase):
         self.assertIn("vm.flow == 6 and S::terminal", model)
 
     def test_native_negative_is_observed_uncorrected_caller_not_green_repair(self):
-        path = "evidence/source-results/fixtures/interrupt-prefix-owned-lifecycle/retirement-join-observation.json"
+        path = ".cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-prefix-owned-lifecycle/retirement-join-observation.json"
         saved = json.loads((ROOT / path).read_text())
         for name, expected in saved["inputs"].items():
             self.assertEqual(expected, digest(ROOT / name), name)

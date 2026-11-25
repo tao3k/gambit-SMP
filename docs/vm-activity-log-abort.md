@@ -59,7 +59,7 @@ failure nor an expected protocol counterexample.
 Campaign002 completed all four expected counterexamples and positive safety plus
 temporal progress: 107 distinct / 131 generated states, zero queued, 23.363
 seconds for the positive check. Inputs and model stayed stable. Portable proof
-material is under `evidence/model-results/vm-activity-log-abort-model/`. This
+material is under `.cache/research/legacy-evidence/evidence/model-results/vm-activity-log-abort-model/`. This
 qualifies only the bounded abort protocol, not implemented C, runtime flags or
 native startup/shutdown. The accompanying framework regression passed 210 tests
 in 33.008 seconds; those tests do not count as Gambit native acceptance.
@@ -74,10 +74,10 @@ It does not release P0 buffers or implement constructor caller rollback.
 
 The source031-bound model campaign retains all four counterexamples and the
 bounded safety/progress result in
-`evidence/model-results/vm-activity-log-abort-source031/`. Its context uses the
+`.cache/research/legacy-evidence/evidence/model-results/vm-activity-log-abort-source031/`. Its context uses the
 pinned submodule, source lock and reviewed patch, not cache source paths.
 
-`evidence/source-results/vm-actlog-abort-source031/archive.json` binds the actual
+`.cache/research/legacy-evidence/evidence/source-results/vm-actlog-abort-source031/archive.json` binds the actual
 source fixture, three positive branches, a real exit-1 ignored-initializer
 control and complete enabled/disabled `actlog.c` object compilation. These are
 GNU GCC source-unit observations, not linked-runtime or native pthread proof.

@@ -9,7 +9,7 @@ from gambit_smp.protocol_evidence import bundle_facts
 class EndedInterruptResultLifecycleTests(unittest.TestCase):
     def test_native_failure_has_a_corresponding_model_counterexample(self):
         manifest = "evidence/fixtures/sfun-owned-unwind/ended-interrupt-result-contract.json"
-        folder = "evidence/model-results/fixtures/sfun-owned-unwind/ended-interrupt-result-native-feedback"
+        folder = ".cache/research/legacy-evidence/evidence/model-results/fixtures/sfun-owned-unwind/ended-interrupt-result-native-feedback"
         facts, _ = bundle_facts(ROOT, manifest, folder + "/receipt.json")
         self.assertEqual(len(facts["protocol_control"]), 3)
         self.assertEqual(len(facts["protocol_checked"]), 1)
@@ -18,7 +18,7 @@ class EndedInterruptResultLifecycleTests(unittest.TestCase):
         self.assertEqual(final["result"], 2)
         self.assertEqual(final["outcome"], 3)
         self.assertFalse(final["locked"])
-        archive = "evidence/source-results/fixtures/sfun-owned-unwind/ended-interrupt-result-abandon-denial/archive.json"
+        archive = ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/ended-interrupt-result-abandon-denial/archive.json"
         validate(ROOT, archive)
         native = (ROOT / archive).parent
         receipt = json.loads((native / "receipt.json").read_text())

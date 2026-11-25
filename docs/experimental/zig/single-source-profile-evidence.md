@@ -20,10 +20,10 @@ Date: 2026-10-20. Static reads only. Companion
 Direct links: [configuration source](../../../vendor/gambit/configure.ac),
 [native shell template](../../../vendor/gambit/bin/gambuild-C.unix.in),
 [Gambit producer](../../../vendor/gambit/gsc/_gsclib.scm),
-[generated .unix](../../../../../.data/ci-source-patch-check/src/gambit/bin/gambuild-C.unix),
-[config.status](../../../../../.data/ci-source-patch-check/src/gambit/config.status),
-[header](../../../../../.data/ci-source-patch-check/src/gambit/include/gambit.h),
-[Gerbil source](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss),
+generated .unix (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/bin/gambuild-C.unix`; unavailable in a clean checkout),
+config.status (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/config.status`; unavailable in a clean checkout),
+header (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/include/gambit.h`; unavailable in a clean checkout),
+Gerbil source (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss`; unavailable in a clean checkout),
 [previous process/runtime ledger](native-request-migration-evidence.md),
 [configured/historical ledger](darwin-configured-input-evidence.md).
 

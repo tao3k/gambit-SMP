@@ -1,0 +1,116 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "c-refusal",
+  "scope": "Bounded source-level C contract observations only. Four copy-plan boundaries. No core/Grok execution or native admission; Family 6 remains 5/12 with 295/300 unchanged.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "evidence/dsl/c-bounded-contract.ss",
+    "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+    "tests/contracts/allocation-grant/plan-refusal/cleanup/check.recipe.json",
+    "tests/contracts/allocation-grant/plan-refusal/cleanup/harness.c",
+    "tests/contracts/allocation-grant/support/lp64.h",
+    "vendor/gambit/include/_gambit/memory_state.h.in",
+    "vendor/gambit/include/_gambit/object_access.h.in",
+    "vendor/gambit/lib/_mem/copy-planning.inc",
+    "vendor/gambit/lib/collector.h",
+    "vendor/gambit/lib/mem.h"
+  ],
+  "steps": [
+    {
+      "id": "refusal",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/plan-refusal/cleanup/harness.c",
+        "function": "refusal_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/collector.h",
+          "vendor/gambit/lib/_mem/copy-planning.inc",
+          "tests/contracts/allocation-grant/plan-refusal/cleanup/harness.c",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "vendor/gambit/include/_gambit/object_access.h.in"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "census.inc",
+            "begin": "enum ___gc_plan_state {",
+            "end": "/* Two sufficient"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/copy-planning.inc",
+            "target": "refusal.inc",
+            "begin": "refuse:\n  work->census=0;",
+            "end": "<EOF>"
+          }
+        ],
+        "unwind": 24,
+        "scope": "Actual shared refusal epilogue cleanup, decision and measured-demand custody.",
+        "assumptions": [
+          "LP64; a live completed census with two queued slots and no unsettled replacement.",
+          "Predecessor branch conditions, census traversal and first-cause persistence are outside this epilogue cut."
+        ],
+        "contract": "allocation-grant/plan-refusal",
+        "branch": "cleanup",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "refusal.publishes-refused-decision",
+          "refusal.detaches-temporary-census-owner",
+          "refusal.retains-owned-storage",
+          "refusal.retains-measured-demand",
+          "refusal.clears-traversal-cursors"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "refusal"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+        "queries": {
+          "missing": "missing_boundary",
+          "repairs": "repair_needed",
+          "verified": "verified",
+          "unresolved": "unresolved",
+          "sources": "bound_source",
+          "assumptions": "assumption"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "repairs",
+          "verified",
+          "unresolved",
+          "sources",
+          "assumptions"
+        ]
+      }
+    }
+  ]
+}

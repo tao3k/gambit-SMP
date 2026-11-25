@@ -218,4 +218,67 @@ theorem declaredFamiliesNeedConcreteCoverage (actual declared emitted : SlotKey 
 theorem layoutEqualityIsNotDynamicMembership :
  ∃ (abi recipe : Nat) (before after : List Nat), abi = recipe ∧ before ≠ after := by
  exact ⟨1,1,[],[2],rfl,by decide⟩
+namespace Contracts
+
+-- Parametric interface laws. Actual C transitions, alias/frame preservation
+-- and environment interference require source correspondence at each edge.
+structure Contract (State : Type) where
+ requires : State → Prop
+ ensures : State → State → Prop
+
+def Realizes {State : Type} (contract : Contract State)
+ (step : State → State → Prop) : Prop :=
+ ∀ before after, contract.requires before → step before after → contract.ensures before after
+
+def Sequence {State : Type} (first second : State → State → Prop)
+ (before after : State) : Prop := ∃ middle, first before middle ∧ second middle after
+
+theorem sequentialComposition {State : Type} (first second : Contract State)
+ (firstStep secondStep : State → State → Prop)
+ (firstCorrect : Realizes first firstStep) (secondCorrect : Realizes second secondStep)
+ (handoff : ∀ before middle, first.requires before → first.ensures before middle → second.requires middle) :
+ Realizes { requires := first.requires,
+            ensures := fun before after => ∃ middle, first.ensures before middle ∧ second.ensures middle after }
+          (Sequence firstStep secondStep) := by
+ intro before after ready steps
+ rcases steps with ⟨middle, left, right⟩
+ have produced := firstCorrect before middle ready left
+ exact ⟨middle, produced, secondCorrect middle after (handoff before middle ready produced) right⟩
+
+-- A replacement must admit callers satisfying the original precondition.
+theorem substitutionPreservesCallers {State : Type} (original replacement : Contract State)
+ (step : State → State → Prop)
+ (admits : ∀ state, original.requires state → replacement.requires state)
+ (guarantee : ∀ before after, original.requires before → replacement.ensures before after → original.ensures before after)
+ (correct : Realizes replacement step) : Realizes original step := by
+ intro before after ready transition
+ exact guarantee before after ready (correct before after (admits before ready) transition)
+
+theorem frameWithExplicitPreservation {State : Type} (contract : Contract State)
+ (step : State → State → Prop) (frame : State → Prop)
+ (correct : Realizes contract step)
+ (preserves : ∀ before after, step before after → frame before → frame after) :
+ Realizes { requires := fun state => contract.requires state ∧ frame state,
+            ensures := fun before after => contract.ensures before after ∧ frame after } step := by
+ intro before after ready transition
+ exact ⟨correct before after ready.1 transition, preserves before after transition ready.2⟩
+
+inductive History {State : Type} (step : State → State → Prop) (initial : State) : State → Prop where
+ | start : History step initial initial
+ | next {before after} : History step initial before → step before after → History step initial after
+
+theorem interferenceClosure {State : Type} (localStep peerStep : State → State → Prop)
+ (invariant : State → Prop) (initial : State) (initialized : invariant initial)
+ (localPreserves : ∀ before after, invariant before → localStep before after → invariant after)
+ (peerPreserves : ∀ before after, invariant before → peerStep before after → invariant after) :
+ ∀ after, History (fun before after => localStep before after ∨ peerStep before after) initial after → invariant after := by
+ intro after history
+ induction history with
+ | start => exact initialized
+ | next _ edge ih =>
+   cases edge with
+   | inl ownStep => exact localPreserves _ _ ih ownStep
+   | inr peer => exact peerPreserves _ _ ih peer
+
+end Contracts
 end GambitRuntimeOwnership

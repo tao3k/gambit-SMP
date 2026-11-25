@@ -18,7 +18,33 @@ module interrupt_request_lifecycle {
   pure val deliveryInitial = { enabled:false,stage:0,head:1,tail:2,next1:2,next2:0,
     local:0,tq:false,receiver:false,notified:true,idle:false,target:0,sampled:0,
     moved:false,rechecked:false,lost:false,wrongTarget:false,falseEmpty:false }
-  type State = { delivery:Delivery,policy:int, early:bool, nested:bool, migrate:bool, slow:bool,
+  // Physical reply authority is not revived by a retained Scheme continuation.
+  // Owners: 1 original target, 0 abandoned/unowned, 2 a subsequent live owner.
+  // This bounded history refines the actual target-death native regression;
+  // it does not model arbitrary continuation stacks or C memory ordering.
+  type LateReturn = { enabled:bool,stage:int,physicalOwner:int,
+    committed:bool,result:bool,heapEpoch:int,rootEpoch:int }
+  pure val lateInitial = { enabled:false,stage:0,physicalOwner:1,
+    committed:false,result:false,heapEpoch:0,rootEpoch:0 }
+  // A reusable logical wait is not its current physical queue registration.
+  // Typed-frame/root repair and zero payload copy in THREAD_PARK are source
+  // refinement premises, not consequences of this temporal abstraction.
+  // registrations is cardinality only: native BTQ container/tree consistency
+  // and composed scheduler dequeue versus request withdrawal/wake are not
+  // implied by waitControlSafe. The retained p2 crash has no reconstructed
+  // legal interleaving yet; do not manufacture a model counterexample from it.
+  type WaitControl = { enabled:bool,stage:int,snapshot:bool,epoch:int,
+    rootEpoch:int,currentThread:int,registeredThread:int,registrations:int,
+    services:int,restores:int,denv:int,parameterUpdated:bool,released:bool,
+    kind:int,reason:int,postChecked:bool,signalCredited:bool,deadlineRevision:int }
+  // kind: mutex0/join1/sleep2 have durable predicates. CV3/IO4 abort the
+  // current wait after service, as the existing API already does. reason3
+  // is interruption-abort, not evidence of a signal or completed I/O.
+  pure val waitInitial = { enabled:false,stage:0,snapshot:true,epoch:0,
+    rootEpoch:0,currentThread:1,registeredThread:1,registrations:1,
+    services:0,restores:0,denv:1,parameterUpdated:false,released:false,
+    kind:0,reason:0,postChecked:false,signalCredited:false,deadlineRevision:1 }
+  type State = { delivery:Delivery,late:LateReturn,waiter:WaitControl,policy:int, early:bool, nested:bool, migrate:bool, slow:bool,
     outcome:int, active:int, childCreated:bool, gcCount:int,
     outer:Request, inner:Request }
   var s:State
@@ -28,7 +54,7 @@ module interrupt_request_lifecycle {
     stored:false,status:0,valueEpoch:0,heapEpoch:0,wakeCount:0,preMoved:false,routeEpoch:0,targetEpoch:0,staleDispatch:false,session:1,vm:1,lookupToken:t,
     dispatchDone:false,closed:false,replayed:false,coverage:true,claimsBreakpoint:false,executions:0,resultWrites:0,replies:0,targetEnded:false }
   pure def initial(p:int,e:bool,n:bool,m:bool,l:bool,o:int):State = {
-    delivery:deliveryInitial,policy:p,early:e,nested:n,migrate:m,slow:l,outcome:o,active:1,
+    delivery:deliveryInitial,late:lateInitial,waiter:waitInitial,policy:p,early:e,nested:n,migrate:m,slow:l,outcome:o,active:1,
     childCreated:false,gcCount:0,outer:request(1,0),inner:request(2,1) }
   action init = s' = initial(0,false,false,true,true,0)
   action initEarlyNested = s' = initial(0,true,true,true,true,0)
@@ -59,6 +85,105 @@ module interrupt_request_lifecycle {
   action initAbandonAsSuccess = s' = initial(20,false,true,true,true,2)
   action initOldOwnerExecution = s' = initial(21,true,true,true,true,0)
   action initOpaqueReplay = s' = initial(22,false,true,true,true,3)
+  pure def lateState(p:int):State = {
+    ...initial(p,false,false,false,false,0),
+    late:{...lateInitial,enabled:true} }
+  action initLateReturn = s' = lateState(0)
+  action initLateResultWithoutOwner = s' = lateState(29)
+  action initLateUnlockWithoutOwner = s' = lateState(30)
+  val lr = s.late
+  action lateCapture = all { lr.stage == 0,
+    s' = {...s,late:{...lr,stage:1}} }
+  action lateOwnerExit = all { lr.stage == 1,
+    s' = {...s,late:{...lr,stage:2,physicalOwner:0}} }
+  action lateNewOwner = all { lr.stage == 2,
+    s' = {...s,late:{...lr,stage:3,physicalOwner:2}} }
+  action lateRestoreCollect = all { lr.stage == 3,
+    s' = {...s,late:{...lr,stage:4,
+      heapEpoch:lr.heapEpoch+1,rootEpoch:lr.heapEpoch+1}} }
+  action lateCommit = all { lr.stage == 4,
+    s' = {...s,late:{...lr,stage:5,
+      committed:lr.physicalOwner == 1 or s.policy == 29,
+      result:lr.physicalOwner == 1 or s.policy == 29}} }
+  action lateRelease = all { lr.stage == 5,
+    s' = {...s,late:{...lr,stage:6,
+      physicalOwner:if(lr.committed or s.policy == 30) 0 else lr.physicalOwner}} }
+  action lateStep = any { lateCapture,lateOwnerExit,lateNewOwner,
+    lateRestoreCollect,lateCommit,lateRelease,all { lr.stage == 6,s' = s } }
+  val lateSafe = not(lr.enabled) or all {
+    lr.rootEpoch == lr.heapEpoch,
+    lr.stage < 5 or not(lr.result),
+    lr.stage < 3 or lr.physicalOwner == 2 }
+  pure def waiterState(p:int):State = {
+    ...initial(p,false,false,false,false,0),
+    waiter:{...waitInitial,enabled:true} }
+  action initWaitControl = s' = waiterState(0)
+  action initWaitConsumesSnapshot = s' = waiterState(31)
+  action initWaitRewindsParameter = s' = waiterState(32)
+  action initWaitReusesDeadThread = s' = waiterState(33)
+  pure def waiterKind(p:int,k:int):State = {
+    ...waiterState(p),waiter:{...waitInitial,enabled:true,kind:k} }
+  action initWaitJoin = s' = waiterKind(0,1)
+  action initWaitSleep = s' = waiterKind(0,2)
+  action initWaitCV = s' = waiterKind(0,3)
+  action initWaitIO = s' = waiterKind(0,4)
+  action initWaitSkipsIOCheck = s' = waiterKind(34,4)
+  action initWaitInventsSignal = s' = waiterKind(35,3)
+  action initWaitRestartsDeadline = s' = waiterKind(36,2)
+  val wc = s.waiter
+  action waitServiceEntry = all { wc.stage == 0,wc.services < 2,
+    s' = {...s,waiter:{...wc,stage:1,registrations:0,
+      snapshot:s.policy != 31}} }
+  action waitServiceCollect = all { wc.stage == 1,
+    s' = {...s,waiter:{...wc,stage:2,epoch:wc.epoch+1,
+      rootEpoch:wc.epoch+1,denv:2,parameterUpdated:true}} }
+  action waitReleaseDuringService = all { wc.stage == 1 or wc.stage == 2,
+    wc.kind < 3,not(wc.released),
+    s' = {...s,waiter:{...wc,released:true}} }
+  action waitRepark = all { wc.stage == 2,wc.kind < 3,
+    s' = {...s,waiter:{...wc,stage:if(wc.released) 3 else 0,
+      registrations:if(wc.released) 0 else 1,
+      registeredThread:wc.currentThread,services:wc.services+1,
+      reason:if(wc.released) (if(wc.kind == 2) 2 else 1) else 0,
+      deadlineRevision:if(s.policy == 36) 2 else wc.deadlineRevision,
+      denv:if(s.policy == 32) 1 else wc.denv}} }
+  action waitAbortTransient = all { wc.stage == 2,wc.kind >= 3,
+    s' = {...s,waiter:{...wc,stage:3,registrations:0,services:wc.services+1,
+      reason:3,signalCredited:s.policy == 35}} }
+  action waitRealWake = all { wc.stage == 0,
+    s' = {...s,waiter:{...wc,stage:3,registrations:0,released:true,
+      reason:if(wc.kind == 2) 2 else 1,signalCredited:wc.kind >= 3}} }
+  action waitIOPostcheck = all { (wc.stage == 3 or wc.stage == 6),
+    wc.kind == 4,not(wc.postChecked),
+    s' = {...s,waiter:{...wc,postChecked:true}} }
+  action waitReturn = all { wc.stage == 3,
+    wc.kind != 4 or wc.postChecked or s.policy == 34,
+    s' = {...s,waiter:{...wc,stage:4}} }
+  // The original target has returned/ended. A retained full continuation can
+  // still resume on another live thread; it gets fresh physical registration.
+  action waitLateRestore = all { wc.stage == 4,wc.restores < 3,wc.services > 0,
+    s' = {...s,waiter:{...wc,stage:5,currentThread:2,
+      epoch:wc.epoch+1,rootEpoch:wc.epoch+1,restores:wc.restores+1,
+      postChecked:false}} }
+  action waitLateRegister = all { wc.stage == 5,
+    s' = {...s,waiter:{...wc,stage:6,
+      registrations:if(wc.released or wc.kind >= 3) 0 else 1,
+      registeredThread:if(s.policy == 33) 1 else wc.currentThread}} }
+  action waitLateReturn = all { wc.stage == 6,
+    wc.kind != 4 or wc.postChecked or s.policy == 34,
+    s' = {...s,waiter:{...wc,stage:4,registrations:0}} }
+  action waitControlStep = any { waitServiceEntry,waitServiceCollect,
+    waitReleaseDuringService,waitRepark,waitAbortTransient,waitRealWake,waitReturn,waitLateRestore,waitLateRegister,
+    waitIOPostcheck,waitLateReturn,all { wc.stage == 4,
+      wc.restores == 3 or wc.services == 0,s' = s } }
+  val waitControlSafe = not(wc.enabled) or all {
+    wc.snapshot,wc.epoch == wc.rootEpoch,wc.registrations <= 1,
+    wc.deadlineRevision == 1,
+    wc.registrations == 0 or wc.registeredThread == wc.currentThread,
+    wc.stage != 6 or wc.registeredThread == wc.currentThread,
+    wc.kind != 4 or wc.stage != 4 or wc.postChecked,
+    wc.reason != 3 or not(wc.signalCredited),
+    not(wc.parameterUpdated) or wc.denv == 2 }
   pure def deliveryState(p:int):State = {
     ...initial(p,false,false,false,false,0),
     outer:{...request(1,0),waitAttempt:true,blocked:true},
@@ -209,7 +334,7 @@ module interrupt_request_lifecycle {
   val done = s.active == 1 and
     ((s.outer.phase == 6 and s.outer.closed) or s.outer.phase == 9)
   val oldDone = s.active == 1 and (s.outer.phase == 6 or s.outer.phase == 9)
-  action step = if(d.enabled) deliveryStep else any { wait,dequeue,targetMovesBeforeDispatch,recheckReceiver,dispatch,beginMove,moveCollect,publishMove,
+  action step = if(wc.enabled) waitControlStep else if(lr.enabled) lateStep else if(d.enabled) deliveryStep else any { wait,dequeue,targetMovesBeforeDispatch,recheckReceiver,dispatch,beginMove,moveCollect,publishMove,
     restoreMove,nest,actionCollect,finishAction,replyCollect,fastReply,
     unlock,consume,returnToParent,dispatchAckOuter,dispatchAckInner,
     closeInner,closeOuter,reuseClosedChild,replyReplay,abandonBeforeDispatch,
@@ -225,7 +350,7 @@ module interrupt_request_lifecycle {
     not(r.unlocked and r.waitAttempt) or r.ready,
     not(r.stored and r.phase >= 4) or
       (r.mutexRoot and r.resultRoot and r.valueEpoch == r.heapEpoch) }
-  val safe = all { deliverySafe,requestSafe(s.outer),
+  val safe = all { waitControlSafe,lateSafe,deliverySafe,requestSafe(s.outer),
     not(s.childCreated) or requestSafe(s.inner),
     s.outer.token == 1,s.inner.token == 2,s.inner.parent == s.outer.token,
     not(s.active == 2 and s.gcCount > 0) or s.outer.mutexRoot,

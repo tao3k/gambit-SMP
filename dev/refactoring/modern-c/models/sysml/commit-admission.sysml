@@ -12,31 +12,31 @@ package GambitModernCCommitAdmission {
   ref part reconstructionSchedule = GambitHashIndexOwnership::qnt;
   ref part reconstructionTransport = GambitHashIndexOwnership::lean;
   attribute gerbilHeaderPublication : String = GambitHeaderOrganization::publication;
-  attribute selectedAdmissionModel:String="dev/refactoring/modern-c/models/sysml/index-owner-delivery.sysml";
+  attribute selectedAdmissionModel:String="dev/refactoring/modern-c/models/sysml/primitive-delivery.sysml";
   attribute legacyNeedBoundary:String="The31 Need/Question records in this package retain mixed-candidate programme scope; actual first-submission facts are projected from GambitSourceOrganization, never auto-waived or asserted passed here.";
   attribute candidateStatus : String = "DELIVERED-INDEX-OWNER-REV; INDEPENDENT-TWELVE-REQUIREMENT-CAMPAIGN-STARTED; NO-AGGREGATE-ACCEPTANCE";
-  attribute currentStage : String = "Committed modern-c 582104b861ac31beebe2ffaa56a66f3f2d9ccf5e contains four production changes separating GC reference repair from Scheme index ownership and three namespaced vendor Scheme tests. Exact production-equivalent full bootstrap and interpreted/compiled controls passed. Original branch GSI/GSC and the remaining programme contracts are independent postcommit tests.";
+  attribute currentStage : String = "Delivered hash-layout ace4dd71 and two-path checked-increment cdd6d9e8, each through five scoped ASCENT gates. Hash-layout completed two-pass bootstrap and all374 original GSI cases; the subsequent compiler cut has its own old-compiler negative, incremental rebuild and affected original GSC tests. Publish only qualified REVs through tao3k/gambit pull request 1. Runtime-role ABI, publication, build-budget, consolidated component controls and official-runner SMP CI remain separately unqualified working responsibilities; the existing repository CI is enabled, and no twelve-requirement patch progress is inherited.";
   attribute vmRegistryProtocolId : String = "vm-registry";
   attribute vmRegistryModel : String = "dev/refactoring/modern-c/models/quint/vm_registry.qnt";
-  attribute vmRegistryEvidence : String = "evidence/research/revision-admission/vm-lifecycle-results.json";
+  attribute vmRegistryEvidence : String = ".cache/research/legacy-evidence/evidence/research/revision-admission/vm-lifecycle-results.json";
   attribute vmRegistryModelDuty : String = "QNT alone checks finite writer/reader/acknowledgement/interrupt schedules, with retained-effect and late-publication negative controls. No new Lean proof is introduced for this finite protocol; unchanged root/round algebra stays with its owning component. No duplicate schedule or new universal C theorem is claimed. LLM source review checks owner/TLS, signal backend, constructor stage and native-stop premises. Native tests exercise actual initialized secondary VM lifecycle, not secondary Scheme execution or secondary GC.";
-  attribute custodyRefinementEvidence : String = "evidence/research/revision-admission/runtime-custody-refinement.json";
+  attribute custodyRefinementEvidence : String = ".cache/research/legacy-evidence/evidence/research/revision-admission/runtime-custody-refinement.json";
   attribute custodyRefinementBoundary : String = "Seven real source routes and27 anchors locate root publication, RC scanning, task completion, R-context restoration before owner cleanup, join-dependent still transfer and retained-state cleanup refusal. These are conditional source observations, not complete C memory-order or stopped-writer proofs. Supported synchronous lifetime and changed callers must close in this REV; independent carrier retirement, universal foreign recovery, collector generations and frontend performance remain later programme work.";
   attribute globalCleanupFrontier : String = "Implemented candidate: allocator no longer edits VM membership; setup publishes after initialization. A stable atomic registry admission word separates signal readers from exclusive setup/retirement/global shutdown. Other owners explicitly retire their VM and receive BOOL acknowledgement; global cleanup refuses while any secondary remains. Effectful still teardown retains a VM-owned cursor/payload on failed/unknown return and never grants global free or replays it. Native qualification and C refinement remain required; no universal foreign-stop claim.";
-  attribute testedSourceLock : String = "evidence/research/revision-admission/reconstruction-source.lock.json; partial11-input consumer frontier; full1228 production-core manifest and exact bootstrap witness remain separately bound";
+  attribute testedSourceLock : String = ".cache/research/legacy-evidence/evidence/research/revision-admission/reconstruction-source.lock.json; partial11-input consumer frontier; full1228 production-core manifest and exact bootstrap witness remain separately bound";
   attribute prospectiveCommitTree : String = "Delivered 582104b861ac31beebe2ffaa56a66f3f2d9ccf5e tree e27bb1ed6118134eef2aa07933a451cabae7b895 on modern-c. The three tests live in vendor/gambit/tests/smp/gc. Other pending header/worker/root/FFI research is not part of this REV.";
   attribute revisionScope : String = "Use the immutable committed REV for its independent twelve-requirement campaign, consuming the same Modern C SDK only after exact input/artifact checks. Keep other working and staged research intact. Do not borrow patch-line progress or deliver runtime changes solely as external evidence fixtures or patch files.";
   attribute revisionTests : String = "The four production changes match the retained 422.880377-second full bootstrap; three added vendor tests have no bootstrap-generation edge and were separately interpreted and compiled. The original374-file GSI campaign now starts with parentp1/childp2 and300 seconds. Original GSC remains separately bound to its original limits; no heap or time increases.";
   attribute revisionBlockers : String = "The selected seven-path bootstrap prerequisite passed its scoped five submission gates and was committed. Postcommit runtime/whole-inventory/stress/lifecycle/GC-FFI/Gerbil/performance acceptance remains separate; each failure keeps its actual REV/profile/artifact identity and does not reopen a mixed-candidate source scope.";
   attribute revisionObservations : String = "VM lifecycle runtime source on c9258cba passed a full406.118-second two-pass bootstrap, sixteen-case218.683-second campaign and seven W/R/fault observations. The Make source-distribution-only successor2c5d161b passed a separate358.346-second whole bootstrap within600. No native lifecycle campaign is retagged onto its rebuilt binaries. Earlier600-second failure remains failed. These observations do not select a submission tree or solve the programme twelve gates.";
   attribute buildResourceBoundary : String = "Make -j11 with inherited p11 formerly permitted 121 initial Scheme processor contexts. Qualified native gsc-boot actions now specify -:p1, so initial processor sum <= active jobs <= 11 while target SMP features remain unchanged. Not an OS-thread quota, matched speedup or arbitrary macro/interpreted-adapter guarantee.";
-  attribute baselineDefinition : String = "The twelve semantic requirement labels are comparison targets. The recorded8/12 belongs to the patch-repair evidence line in evidence/source-results/current-checkpoint-qualification/summary.json; it is not a modern-c branch checkpoint or inherited credit.";
+  attribute baselineDefinition : String = "The twelve semantic requirement labels are comparison targets. The recorded8/12 belongs to the patch-repair evidence line in .cache/research/legacy-evidence/evidence/source-results/current-checkpoint-qualification/summary.json; it is not a modern-c branch checkpoint or inherited credit.";
   attribute baselineAcceptance : String = "No8/12 or9/12 credit transfers from the patch-repair line. db7e3425 retains its failed bootstrap. The committed index-owner successor starts its own source-bound twelve-requirement campaign; bootstrap reuse uses explicit production-input equivalence, not inherited repair credit.";
   attribute comparisonHistoricalScope:String="patch-repair-line; not-modern-c-branch";
   attribute comparisonCreditInherited:Boolean=false;
   attribute comparisonBranchProgress:String="not-established; no-branch9-of12-evidence";
-  attribute comparisonClassification:String="evidence/research/modern-c-mainline-comparison/progress-classification.json";
-  attribute comparisonEvidence:String="evidence/research/modern-c-mainline-comparison/official-results.json";
+  attribute comparisonClassification:String=".cache/research/legacy-evidence/evidence/research/modern-c-mainline-comparison/progress-classification.json";
+  attribute comparisonEvidence:String=".cache/research/legacy-evidence/evidence/research/modern-c-mainline-comparison/official-results.json";
   attribute comparisonSource:String="0b16c5bd5138decf478599c163c3735056cd3436";
   attribute comparisonPublishedCommit:String="db7e3425152c7036aec4cc30b20dd188d034773a";
   attribute comparisonAppliesToPublishedCommit:Boolean=false;
@@ -101,9 +101,9 @@ package GambitModernCCommitAdmission {
   part tMap : Need { ref part :>> gate=tests; attribute :>> id="T-MAP"; attribute :>> method="native"; attribute :>> artifact="vendor/gambit/lib/_std.scm"; attribute :>> scope="real-map-multishot-continuation-gc-and-resume"; }
   part tSmp : Need { ref part :>> gate=tests; attribute :>> id="T-SMP"; attribute :>> method="native"; attribute :>> artifact="vendor/gambit/lib/setup.c"; attribute :>> scope="resize-rc-roots-callbacks-join-failure-and-runtime-retirement"; }
   part tCatalog : Need { ref part :>> gate=tests; attribute :>> id="T-CATALOG"; attribute :>> method="native"; attribute :>> artifact="vendor/gambit/tests/smp/catalog.scm"; attribute :>> scope="all-sixteen-named-cases-including-vm-retirement-global-permit-and-nonlocal-callback-exit-on-current-generated-cohort-with-original-bounds"; }
-  part tProducts : Need { ref part :>> gate=tests; attribute :>> id="T-PRODUCTS"; attribute :>> method="source-refinement"; attribute :>> artifact="evidence/research/revision-admission/candidate-tree.json"; attribute :>> scope="complete-tree-to-bootstrap-inputs-and-regenerated-tracked-products-reconciliation"; }
+  part tProducts : Need { ref part :>> gate=tests; attribute :>> id="T-PRODUCTS"; attribute :>> method="source-refinement"; attribute :>> artifact=".cache/research/legacy-evidence/evidence/research/revision-admission/candidate-tree.json"; attribute :>> scope="complete-tree-to-bootstrap-inputs-and-regenerated-tracked-products-reconciliation"; }
   part tOriginal : Need { ref part :>> gate=tests; attribute :>> id="T-ORIGINAL"; attribute :>> method="native"; attribute :>> artifact="vendor/gambit/tests/makefile.in"; attribute :>> scope="full-declared-GSI-GSC-and-PR-inventories-no-selected-case-substitution"; }
-  part tGerbil : Need { ref part :>> gate=tests; attribute :>> id="T-GERBIL"; attribute :>> method="native"; attribute :>> artifact="evidence/research/revision-admission/gerbil-build-contract.json"; attribute :>> scope="selected-Gerbil-producer-bootstrap-core-stdlib-tools-gxi-gxc-macro-import-supported-profile-module-executable-linkage-and-native-artifact-invalidation-on-current-Gambit-with-unchanged-Gerbil-facing-contracts"; }
+  part tGerbil : Need { ref part :>> gate=tests; attribute :>> id="T-GERBIL"; attribute :>> method="native"; attribute :>> artifact=".cache/research/legacy-evidence/evidence/research/revision-admission/gerbil-build-contract.json"; attribute :>> scope="selected-Gerbil-producer-bootstrap-core-stdlib-tools-gxi-gxc-macro-import-supported-profile-module-executable-linkage-and-native-artifact-invalidation-on-current-Gambit-with-unchanged-Gerbil-facing-contracts"; }
   part tBaseline : Need { ref part :>> gate=tests; attribute :>> id="T-BASELINE"; attribute :>> method="source-analysis"; attribute :>> artifact="docs/smp-threaded-vm-milestone.md"; attribute :>> scope="twelve-semantic-gates-applicability-required-controls-and-explicit-unqualified-release-boundaries"; }
   part tUnequal : Need { ref part :>> gate=tests; attribute :>> id="T-UNEQUAL"; attribute :>> method="native"; attribute :>> artifact="vendor/gambit/tests/smp/gc/worker-root-domains.scm"; attribute :>> scope="fresh-current-runtime-three-roots-worker-sequence-1-2-3-1-owner-cleanup-three-no-independent-worker-thread-claim"; }
   part tUnknownEmpty : Need { ref part :>> gate=tests; attribute :>> id="T-UNKNOWN-EMPTY"; attribute :>> method="native"; attribute :>> artifact="vendor/gambit/tests/smp/gc/unknown-join-worker-domains.scm"; attribute :>> scope="fresh-calibrated-empty-unpublished-abort-with-healthy-three-roots-one-worker-and-three-GCs-no-general-unknown-exit-claim"; }
@@ -132,7 +132,7 @@ part gerbilModules:GenerationBoundary {
   part gerbilBudget:GenerationBoundary {
     ref part :>> evidence=tGerbil;
     attribute :>> id="gerbil-resource-and-source-context";
-    attribute :>> source="src/gambit_smp/gerbil_build.py;evidence/research/revision-admission/gerbil-build-source.patch;Gerbil src/build.sh and compiler/base.ss";
+    attribute :>> source="src/gambit_smp/gerbil_build.py;.cache/research/legacy-evidence/evidence/research/revision-admission/gerbil-build-source.patch;Gerbil src/build.sh and compiler/base.ss";
     attribute :>> anchor="_stage0_modules;GAMBOPT;GERBIL_BUILD_CORES;__jobs-mx";
     attribute :>> invariant="The existing managed source delta preserves caller runtime options before authoritative install mappings. Source overlays enter action identity rather than the physical workspace key. Only a target matching its previous witnessed input may be replaced. Compiler semantic context includes GAMBOPT; independent-action job capacity does not change it. Parent plus J one-processor compiler jobs uses a conservative 2J+1 scheduling envelope, not an OS-thread quota.";
     attribute :>> removedWork="No new checkout for a managed source delta; unchanged input copies retain timestamps. Exact completed-module outputs can be reused after validation. No automatic multiplication by the host default processor population.";
@@ -255,7 +255,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Retire branch-owned final releases and dispatch while the helper lock remains borrowed; no per-operation allocation or layout field added";
     attribute :>> remaining="Existing lock acquire/release ordering and callback non-escape premises require source refinement; bounded QNT is not C weak-memory or all-exit liveness proof";
     attribute :>> model="models/gambit/ended_interrupt_lock.qnt";
-    attribute :>> modelReceipt="evidence/model-results/ended-interrupt-lock.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/model-results/ended-interrupt-lock.json";
     attribute :>> abstractPremise="acquire/propagate/observe; propagate closes locked in fixed state; exceptional termination does not preserve the lock";
   }
   part pipeOwnership:OwnershipBoundary {
@@ -267,7 +267,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Retire endpoint-private locks for shared state and post-construction lock replacement; mutex allocations per pair2 to1";
     attribute :>> remaining="Pair-wide serialization can reduce bidirectional throughput; exact latency/memory delta unmeasured; existing wait atomicity, timeout reentry and GC root premises remain";
     attribute :>> model="models/gambit/pipe_close_wait.qnt";
-    attribute :>> modelReceipt="evidence/model-results/pipe-close-wait.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/model-results/pipe-close-wait.json";
     attribute :>> abstractPremise="shared=true before checkEmpty/acquireWriter; registerWait atomically releases predicate lock; bounded one-direction conservation only";
   }
   part producerWitness:OwnershipBoundary {
@@ -279,7 +279,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Reuse the completed SDK without reconstruction or fabricated Recipe ancestor; no extra source copy, profile or executor";
     attribute :>> remaining="Hash verification and leases add read work; external producer mutation rejects reuse; other mutable-origin consumer bridges and native completeness not implied";
     attribute :>> model="none:identity/source-refinement";
-    attribute :>> modelReceipt="evidence/research/revision-admission/ownership-bootstrap-producer.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/research/revision-admission/ownership-bootstrap-producer.json";
     attribute :>> abstractPremise="Distinct native reference; exact profile/input/generated/runtime/log witnesses; no duplicate QNT or Lean obligation";
   }
 
@@ -293,7 +293,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Remove duplicated success manufacture from the value-returning helper; no root slot, runtime record, allocation or representation field added";
     attribute :>> remaining="Original whole GSC inventory and other target/word-width cohorts remain separate; the real local regression establishes the selected current C23 cohort only. Correct exceptional branching is required work, not a measured speedup";
     attribute :>> model="none:sequential-delegation-source-law-and-native-regression";
-    attribute :>> modelReceipt="evidence/research/revision-admission/checked-predicate-results.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/research/revision-admission/checked-predicate-results.json";
     attribute :>> abstractPremise="For multiplier -1, success iff x differs from MIN_FIX; then out=-x. On failure the output is not consumed. Existing negation helper owns both outcomes; no duplicate QNT or Lean state machine";
   }
 
@@ -306,7 +306,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Avoid a parallel Gerbil namespace or alternate build frontdoor; internal Gambit restructuring is consumed through the existing interfaces";
     attribute :>> remaining="Exact downstream producer binding and actual build/runtime acceptance missing; a pinned source audit or namespace equality cannot supply T-GERBIL. Native old-ABI artifacts may be invalidated and rebuilt";
     attribute :>> model="dev/architecture/toolchain/models/sysml/gerbil-module-build.sysml; existing build assurance/QNT/Lean obligations remain owned there";
-    attribute :>> modelReceipt="evidence/research/revision-admission/gerbil-build-contract.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/research/revision-admission/gerbil-build-contract.json";
     attribute :>> abstractPremise="Planning/front-end/readiness/execution preserve their actual source-duty edges; unchanged Scheme namespaces do not imply compiler-option, phase, ABI or artifact identity equivalence";
   }
 
@@ -359,7 +359,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Three concurrent compiler VMs start three initial Scheme participants instead of nine; completed core/generation inputs survive a test-driver-only change";
     attribute :>> remaining="Matched prim_port control passes with byte-identical C, but whole379/300 and numeric90 aggregate still require current qualification; not a quota on C subprocesses or all OS threads";
     attribute :>> model="GerbilModuleBuild::execution and existing toolchain resource obligations";
-    attribute :>> modelReceipt="evidence/research/revision-admission/construction-results.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/research/revision-admission/construction-results.json";
     attribute :>> abstractPremise="Different execution roles have separate resource and artifact ownership; test population is not lowered to make compilation pass";
   }
   part reconstructionRoots:OwnershipBoundary {
@@ -371,7 +371,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Retire the two flags-zero construction windows; reuse one begin/commit protocol for both decoders without new per-object metadata";
     attribute :>> remaining="Constructor failure, incomplete cycles, caller root maps and raw FFI producers remain source/native obligations; a representative QNT slot is not a concrete C pointer proof";
     attribute :>> model="dev/refactoring/modern-c/models/quint/hash_index_owner.qnt; existing HashIndexOwner Lean transport premise";
-    attribute :>> modelReceipt="evidence/research/revision-admission/construction-protocol.recipe.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/research/revision-admission/construction-protocol.recipe.json";
     attribute :>> abstractPremise="QNT owns the partial-store/relocation/commit schedule; Lean owns the existing conditional semantic transport law; the native adapter must establish scanned references and policy publication";
   }
   part contextInitialization:OwnershipBoundary {
@@ -384,7 +384,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Retire the inference that an empty cleanup escrow grants initialization; consume the existing reservation identity without another slot table or per-object field";
     attribute :>> remaining="Current bootstrap and three-origin no-debt/cleanup controls pass. Upstream setup/cleanup issuer admission and exclusive-caller premises remain unresolved; the leaf check is not a global VM lifecycle seal";
     attribute :>> model="Existing runtime_roles.qnt frozen-origin and participant premises; initialization is a C source refinement, not another schedule or Lean theorem";
-    attribute :>> modelReceipt="evidence/research/revision-admission/context-initialization-results.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/research/revision-admission/context-initialization-results.json";
     attribute :>> abstractPremise="The real setup callers are initial VM setup and the closed resize coordinator; callbacks cannot recreate an already admitted live origin even when no cleanup payload is in flight";
   }
   part checkedIncrement:OwnershipBoundary {
@@ -396,7 +396,7 @@ part gerbilModules:GenerationBoundary {
     attribute :>> removedWork="Remove the unsafe gap in general-vector increment specialization; no parallel safe primitive or namespace";
     attribute :>> remaining="No typed atomic claim for concurrent writers that replace a fixnum with arbitrary values; whole original-suite acceptance is still required";
     attribute :>> model="Existing Scheme primitive specialization contract and native counterexamples; no duplicate QNT or Lean scheduler";
-    attribute :>> modelReceipt="evidence/research/revision-admission/construction-results.json";
+    attribute :>> modelReceipt=".cache/research/legacy-evidence/evidence/research/revision-admission/construction-results.json";
     attribute :>> abstractPremise="Short-circuit index checks precede element access; rejected operations preserve the vector; default and explicit deltas return the old value";
   }
   part source : Stage { attribute :>> id="source-cut"; attribute :>> status="current-tree-bound;construction-and-safe-specialization-replaced;aggregate-admission-open"; attribute :>> exitCriterion="Representation and consumers replaced; exact proposed Git tree and dependencies bound to tests; no fallback aliases or unrelated staged changes; regenerated tracked products reconciled explicitly"; }

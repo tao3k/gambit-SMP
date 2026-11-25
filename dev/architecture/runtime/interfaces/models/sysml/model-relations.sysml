@@ -70,8 +70,8 @@ package GambitRuntimeModelRelations {
             attribute :>> leanSource = "models/gambit/lean/HostRootParticipation.lean";
             attribute :>> leanSymbols = "frozenHandoffComposesRelocation; recordPublicationIsNotParticipation";
             attribute :>> argumentOrg = "dev/modeling/correspondence.org::#root-handoff";
-            attribute :>> evidenceReport = "evidence/research/host-root-publication/participation-validation.md";
-            attribute :>> inputManifest = "evidence/research/host-root-publication/participation.manifest.json";
+            attribute :>> evidenceReport = ".cache/research/legacy-evidence/evidence/research/host-root-publication/participation-validation.md";
+            attribute :>> inputManifest = ".cache/research/legacy-evidence/evidence/research/host-root-publication/participation.manifest.json";
             attribute :>> reportScope = "Historical report covers selected QNT and Lean input identities; no native refinement";
             attribute :>> resultClass = "historical-report-conditional-only";
             attribute :>> compositionStatus = "unresolved";
@@ -96,8 +96,8 @@ package GambitRuntimeModelRelations {
             attribute :>> leanSource = "models/gambit/lean/SavedStackRetirementWindow.lean";
             attribute :>> leanSymbols = "nonConsumingUsePreservesRawOrigin; completeOriginsBoundLastRawAccess";
             attribute :>> argumentOrg = "dev/modeling/correspondence.org::#control-origin";
-            attribute :>> evidenceReport = "evidence/research/host-root-publication/retirement-window-validation.md";
-            attribute :>> inputManifest = "evidence/research/host-root-publication/retirement-window.manifest.json";
+            attribute :>> evidenceReport = ".cache/research/legacy-evidence/evidence/research/host-root-publication/retirement-window-validation.md";
+            attribute :>> inputManifest = ".cache/research/legacy-evidence/evidence/research/host-root-publication/retirement-window.manifest.json";
             attribute :>> reportScope = "Historical report covers Lean companion only; selected saved-stack-origin QNT is not a bound input of that report";
             attribute :>> resultClass = "Lean-report-only-QNT-source-characterization";
             attribute :>> compositionStatus = "unresolved";
@@ -122,8 +122,8 @@ package GambitRuntimeModelRelations {
             attribute :>> leanSource = "models/gambit/lean/SavedStackRetirementWindow.lean";
             attribute :>> leanSymbols = "emptyWitnessNeedsStableWindow; foreignFrameClosureDoesNotEmptySchemeQueue; phaseCompletionOrdersReuse";
             attribute :>> argumentOrg = "dev/modeling/correspondence.org::#retire-window";
-            attribute :>> evidenceReport = "evidence/research/host-root-publication/retirement-window-validation.md";
-            attribute :>> inputManifest = "evidence/research/host-root-publication/retirement-window.manifest.json";
+            attribute :>> evidenceReport = ".cache/research/legacy-evidence/evidence/research/host-root-publication/retirement-window-validation.md";
+            attribute :>> inputManifest = ".cache/research/legacy-evidence/evidence/research/host-root-publication/retirement-window.manifest.json";
             attribute :>> reportScope = "Historical report covers selected QNT and Lean input identities; no native refinement";
             attribute :>> resultClass = "historical-report-conditional-only";
             attribute :>> compositionStatus = "unresolved";

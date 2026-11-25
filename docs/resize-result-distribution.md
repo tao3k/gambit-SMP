@@ -79,7 +79,7 @@ Campaign `resize-result-distribution-001` produced all four expected negative
 counterexamples. Positive safety and temporal progress exhausted 25,092 distinct
 states (60,057 generated, zero queued) in 25.564 seconds. Model/source/paper inputs
 remained stable; workers were detected from the host. Portable hash-bound evidence
-is in `evidence/model-results/resize-result-distribution/`. Native execution was
+is in `.cache/research/legacy-evidence/evidence/model-results/resize-result-distribution/`. Native execution was
 not run; runtime and release admission remain false.
 
 After registering the receipt, `uv run --locked python -m unittest discover -s tests`

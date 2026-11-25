@@ -11,7 +11,7 @@ VIEW = "evidence/scenarios/concurrent-gc/btq-copy-epochs.view.json"
 
 class CopyEpochEvidenceTests(unittest.TestCase):
     def test_movable_queue_result_checks_color_and_container_not_boolean_only(self):
-        result = json.loads((ROOT / "evidence/source-results/compiled-stress-failure/queue-relocation-model.json").read_text())
+        result = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/queue-relocation-model.json").read_text())
         for key in ("source", "import", "recipe", "sourceLock", "nativeFailure"):
             self.assertEqual(result[key + "Sha256"], digest(ROOT / result[key]))
         self.assertTrue(all(row["accepted"] for row in result["checks"]))
@@ -42,7 +42,7 @@ class CopyEpochEvidenceTests(unittest.TestCase):
             self.assertFalse(result[key])
 
     def test_model_result_binds_reproducible_inputs_and_all_controls(self):
-        result = json.loads((ROOT / "evidence/source-results/compiled-stress-failure/copy-epochs-model.json").read_text())
+        result = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/copy-epochs-model.json").read_text())
         for key in ("source", "import", "recipe", "sourceLock", "nativeFailure"):
             self.assertEqual(result[key + "Sha256"], digest(ROOT / result[key]))
         self.assertTrue(all(row["accepted"] for row in result["checks"]))

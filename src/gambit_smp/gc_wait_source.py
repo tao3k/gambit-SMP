@@ -59,7 +59,7 @@ def main():
     args = parser.parse_args()
     source, header = args.source.resolve(strict=True), args.header.resolve(strict=True)
     manifest_path = ROOT / "evidence/gc-wait-notification.json"
-    proof = ROOT / "evidence/model-results/gc-wait-notification/receipt.json"
+    proof = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-wait-notification/receipt.json"
     manifest = json.loads(manifest_path.read_text())
     checked_rows(ROOT, manifest, proof)
     for path in (source, header):

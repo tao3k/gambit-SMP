@@ -291,7 +291,7 @@ class ActionInferenceTests(unittest.TestCase):
                 actions._study(root, "study.json")
 
     def test_real_recipe_discovery_without_seal_is_blocked(self):
-        context = {"recipes": ["evidence/research/source-schedule-revalidation/control.recipe.json"]}
+        context = {"recipes": ["tests/recipes/research/source-schedule-revalidation/control.recipe.json"]}
         first = actions.discover(ROOT, context)
         second = actions.discover(ROOT, context)
         self.assertEqual(first["revision"], second["revision"])

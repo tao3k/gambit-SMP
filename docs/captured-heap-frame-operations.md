@@ -223,7 +223,7 @@ The existing completed-producer interface revalidated only that final review
 through the original sealed rules runner, within its original ten-second
 review window. No native failure was recovered and no rebuild was performed.
 The resulting producer is bound in
-`evidence/research/current-source-full-bootstrap/darwin-section-pool-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/darwin-section-pool-completed-producer.json`.
 The updated framework is separately sealed as engine
 `8ea18e4c20d4159c190dcd3b13633f9d0d1f3b8ab5fb493818b388f9c5eb9b3d`;
 46 completed-producer/watchdog tests pass. Native stress consumes the completed

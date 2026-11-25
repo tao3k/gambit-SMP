@@ -47,7 +47,7 @@ available capacity, with the existing shared compiler-processor budget.
 The actual generated driver retains original object flags and appends the
 two negative modulo options only to its dynamic flags.
 
-Completed producer: `evidence/research/current-source-full-bootstrap/dynamic-modulo-completed-producer.json`.
+Completed producer: `.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/dynamic-modulo-completed-producer.json`.
 Outer bootstrap receipt SHA-256:
 `849037859fe4f9e34423c941e1b0d5b9edc80582a406386d3ed9facf76b89f4c`.
 
@@ -89,7 +89,7 @@ The same completed producer subsequently passed the complete interpreted/PR
 inventory: 380/380 files, native suite execution 9.039662542 seconds, whole
 attempt 57.073525125 seconds, three host-derived workers with three processors
 per child. This requalifies the existing GSI and PR/GSI gates, not new gates.
-Recipe: `evidence/research/current-source-full-bootstrap/dynamic-modulo-interpreted.recipe.json`.
+Recipe: `.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/dynamic-modulo-interpreted.recipe.json`.
 Run: `.data/fixtures/darwin-dynamic-modulo-complete-interpreted-run`.
 Outer receipt SHA-256:
 `83d4f175417e3bbf87046d28449c4d30a96fa48468e18b2460f618b4e043c52c`;
@@ -124,7 +124,7 @@ file coverage. The original sealed engine then evaluated the generic coverage
 rules plus the separate Scheme DSL PR requirements. It derived both
 `complete-gsc` and `pr-regressions-gsc`, with no missing required fixture.
 No invented observed-step alias or historical pass was inserted.
-Receipt: `evidence/source-results/compiled-suite-coverage/receipt.json`.
+Receipt: `.cache/research/legacy-evidence/evidence/source-results/compiled-suite-coverage/receipt.json`.
 The projection's first two integration attempts failed (passing a filesystem
 path as an Engine object, then attempting sealed evaluation from editable
 code). The successful path uses the existing sealed runner's `rules` entry;

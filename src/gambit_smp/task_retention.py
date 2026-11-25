@@ -76,7 +76,18 @@ def collect(root,task,*,today=None,opened=None):
                 if cleanup.get('state')!='removing':raise ValueError('retained artifact disappeared outside cleanup')
             else:
                 st=path.stat()
-                if [st.st_dev,st.st_ino]!=row['identity']:raise ValueError('retained artifact identity changed')
+                observed=[st.st_dev,st.st_ino]
+                identity_observation=None
+                if observed!=row['identity']:
+                    # Device numbers can change across mounts. This branch is
+                    # disposal of declared ephemeral output, never proof that
+                    # historical evidence still denotes the current bytes.
+                    # Keep the original identity; replacement inodes and other
+                    # filesystems still require owner reconciliation.
+                    if st.st_ino!=row['identity'][1] or st.st_dev!=root.stat().st_dev:
+                        raise ValueError('retained artifact identity changed')
+                    identity_observation=dict(registered=row['identity'],observed=observed,
+                                              purpose='disposal-only',reuseAdmitted=False)
                 if cleanup.get('state')=='removing':
                     unchanged_remainder(path,cleanup['inventory'])
                     if inspect(path,cutoff,deleting=True,disposable_databases=[q['path'] for q in cleanup.get('validationQueues',{}).get('queues',[])],disposable_git=cleanup.get('disposableGit',[]))['blocked']:raise ValueError('interrupted deletion now contains protected state')
@@ -106,6 +117,7 @@ def collect(root,task,*,today=None,opened=None):
                                               **({'gitCustody':row['gitCustody']} if reason=='nested Git checkout' else {})));continue
                     cleanup=dict(state='removing',at=now().isoformat(),inventory=inventory(path),
                                  archivedRecords=archive_records(root,path))
+                    if identity_observation:cleanup['identityObservation']=identity_observation
                     if fixture:cleanup['validationQueues']=fixture
                     if git_release:cleanup.update(gitRelease=git_release,disposableGit=disposable_git)
                     row['cleanup']=cleanup;write(target,value)

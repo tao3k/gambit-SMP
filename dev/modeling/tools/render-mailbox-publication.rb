@@ -1,7 +1,7 @@
 require 'json';require 'digest';require 'fileutils';require 'zlib'
 m=JSON.parse(File.read(ARGV.fetch(0)));a=JSON.parse(File.read(ARGV.fetch(1)+'/receipt.json'));sha=->p{Digest::SHA256.file(p).hexdigest}
 raise 'projection/evidence mismatch' unless a['modelSha256']==sha.call(ARGV[0])
-plan=JSON.parse(File.read('evidence/research/modular-smp-bootstrap/ci-plan.json'))
+plan=JSON.parse(File.read('.cache/research/legacy-evidence/evidence/research/modular-smp-bootstrap/ci-plan.json'))
 raise 'CI and mailbox authority differ' unless plan['sourceLock']==m['sourceLock'] && plan['profile']==m['profile']
 cases=plan['lanes'].to_h do |lane|
  path='.cache/tasks/modern-c-frame-contract/runs/mailbox-named-cases/'+lane['id']+'/receipt.json'
@@ -58,7 +58,7 @@ d<<"formal: "+JSON.generate("Existing continuation QNT / root-view Lean\nno mail
 d<<"open: "+JSON.generate("Historical schedule unknown / portable lock proof open\nwhole SMP and five commit gates remain open")+"\n"
 d<<"authority -> ascent\nsource -> ascent\nnative -> ascent\nformal -> ascent\nascent -> open\n"
 File.write('dev/refactoring/modern-c/diagrams/mailbox-publication.d2',d)
-e='evidence/research/mailbox-publication';FileUtils.mkdir_p(e+'/records');records={}
+e='.cache/research/legacy-evidence/evidence/research/mailbox-publication';FileUtils.mkdir_p(e+'/records');records={}
 retain=->path do
  next unless File.file?(path)
  h=sha.call(path);dest=e+'/records/'+h[0,16]+'-'+File.basename(path)

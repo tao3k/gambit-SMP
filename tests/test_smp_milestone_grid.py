@@ -8,8 +8,8 @@ from gambit_smp.framework import ROOT
 class MilestoneGridTests(unittest.TestCase):
     def setUp(self):
         self.catalog = load_catalog(
-            ROOT / "evidence/research/execution-rules.ss",
-            ROOT / "evidence/research/smp-threaded-vm-native-grid/milestone-rules.ss")
+            ROOT / "evidence/dsl/execution-rules.ss",
+            ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/milestone-rules.ss")
 
     def evaluate(self, observations):
         return query({"required_step": [["independent-vms"]],

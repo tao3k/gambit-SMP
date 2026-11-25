@@ -95,7 +95,7 @@ because this model has one. Conversely, a single normal collective return does
 not qualify all exceptional or post-membership cleanup paths. No current source,
 source lock, native manifest, checkpoint, budget or milestone count changes here.
 
-[Validation and retained failed attempts](../../evidence/research/participant-exit-publication/validation.md)
+Validation and retained failed attempts (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/participant-exit-publication/validation.md`; unavailable in a clean checkout)
 bind the checked source identities. The existing Scheme research facts expose
 the new finite interfaces but retain missing source-composition bindings and
 all native obligations.

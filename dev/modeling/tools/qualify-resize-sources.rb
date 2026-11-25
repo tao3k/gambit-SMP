@@ -2,7 +2,7 @@ require 'json';require 'digest';require 'fileutils';require 'open3'
 root=Dir.pwd;sha=->p{Digest::SHA256.file(p).hexdigest};quote=->x{JSON.generate(x)}
 fact=->n,*a{"(fact (#{n} #{a.map{|v|quote.call(v)}.join(' ')}))\n"}
 b='.cache/tasks/modern-c-frame-contract/cohort/copy-custody-model'
-e='evidence/research/modern-c-bootstrap';sys='dev/refactoring/modern-c/models/sysml/copy-custody.sysml'
+e='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap';sys='dev/refactoring/modern-c/models/sysml/copy-custody.sysml'
 m=JSON.parse(File.read(b+'/native-projection.json'));lock=m.fetch('sourceLock');profile='evidence/fixtures/gerbil-bazel-build-profile/profile.json';identity=[sha.call(lock),sha.call(profile)]
 JSON.parse(File.read(lock)).fetch('files').each{|p,h|raise 'source drift '+p unless sha.call('vendor/gambit/'+p)==h.fetch('candidateSha256')}
 formal=ARGV.fetch(0);f=JSON.parse(File.read(formal));raise 'formal failure' unless f.fetch('rows').all?{|r|r.fetch('matched')}

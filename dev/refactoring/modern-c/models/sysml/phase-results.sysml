@@ -1,0 +1,29 @@
+package GambitPhaseResults {
+  private import ScalarValues::*;
+  ref part sourceBase=GambitSymkeyGetters::component;
+  ref part coverage=GambitModernCDeliveryPlan::buildGraph;
+  attribute auditNumber:String="12.1";
+  attribute parentNumber:String="12";
+  part component:GambitRevisionDelivery::Revision {
+    attribute :>> activeArchitecture=true;
+    attribute :>> id="phase-results";
+    attribute :>> responsibility="The existing Make phases target owns ordered child completion: stop after the first failed child and publish success only after all four returned success";
+    attribute :>> sources="makefile.in";
+    attribute :>> tests="Actual configured Make predecessor/candidate failure injections; exhaustive four-phase returned-status combinations; complete same-cache Bazel C23 source producer and original GSI/Make inventories";
+    attribute :>> retired="Discarding phase1/phase2/phase3 nonzero returns and allowing the last phase to overwrite parent failure; depending solely on outer log heuristics to discover the error";
+    attribute :>> excluded="No configured-tool cleanup change, official target/entrypoint rename, new executor/profile, frontend optimization, runtime root/worker/CFFI edits or whole build/SMP acceptance";
+  }
+  attribute scope:String="Base ae19f986. Stage12 independent support leaf12.1, selected one-line phase-result responsibility from the classified pending queue. This is not a runtime SMP fix or an automatic reopening of parked cleanup policy. External ROOT-VIEWS admission is a separately evidenced source-census conclusion, not code bundled into this patch.";
+  attribute stage:String="QUALIFYING the existing phase-loop candidate under the user's explicit request to advance classified pending responsibilities. Revisit only with actual three false-success witnesses, unchanged entrypoints and full five-gate evidence; earlier configured-tool cleanup remains parked.";
+  attribute contract:String="For child returned statuses r1..r4, run phase i only after every earlier return is zero; parent success iff all four are zero. A nonzero child including a returned signal status causes immediate shell failure. GNU Make reports its own failure status; the exact child numeric code is not promised. A hung/unknown child stays under existing supervisor budget and cannot grant completion or artifact admission.";
+  attribute limitation:String="Phase success is necessary, not sufficient, for generated-product admission. Exact source/configuration/tool/output identity, complete phase counters and original consumers still apply. Existing outer framework may already reject old false-success logs; do not claim a previously accepted bad product without evidence. No unknown native owner recovery or runtime capacity property follows.";
+  attribute formalDuty:String="SysML owns the source boundary and five Needs; ASCENT binds actual source/profile/test receipts. The serial returned-status law is checked against real Make combinations, not duplicated as a QNT scheduler or Lean machine. Existing QNT retains competing root/task histories; existing Lean retains distinct conditional cell/census/address laws. Neither file changes.";
+  attribute benefit:String="Retire three observed false-success classes at the authority that composes child results. A failure also prevents launching later phases, reducing wasted failed-build work and stale-product exposure independently of log parsing. Successful build performs the same four phases with the same tools, names and resource limits; no successful-build speedup claim.";
+  attribute cost:String="One shell status branch per executed phase; zero new processes, persistent records, native fields, locks or runtime storage. Fail-fast omits later diagnostic attempts after failure; retain child output and exit evidence. Artifact equivalence and broad build/CI admission remain separate.";
+  part def Need { ref part gate:GambitCommitGates::Gate; attribute id:String; attribute method:String; attribute artifact:String; attribute scope:String; }
+  part native:Need { ref part :>> gate=GambitCommitGates::tests; attribute :>> id="PHASE-RESULTS-NATIVE"; attribute :>> method="native"; attribute :>> artifact="evidence/research/retained/modern-c/phase-results/receipt.json"; attribute :>> scope="Real configured Make predecessor/candidate, returned-status cases, complete source producer and original consumers on the selected source/profile"; }
+  part learning:Need { ref part :>> gate=GambitCommitGates::learning; attribute :>> id="PHASE-RESULTS-LEARNING"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/phase-results.org"; attribute :>> scope="Phase-result composition belongs to Make; an outer observer and matching products cannot replace child-failure propagation"; }
+  part process:Need { ref part :>> gate=GambitCommitGates::process; attribute :>> id="PHASE-RESULTS-PROCESS"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/phase-results.org"; attribute :>> scope="Independent stage12 support leaf, explicit parked-scope disposition,13-item programme, separate SMP12 and pending queue custody"; }
+  part models:Need { ref part :>> gate=GambitCommitGates::models; attribute :>> id="PHASE-RESULTS-MODELS"; attribute :>> method="source-refinement"; attribute :>> artifact="dev/refactoring/modern-c/phase-results.org"; attribute :>> scope="Native SysML and actual ASCENT with separate static external-reader proof; no new QNT/Lean model"; }
+  part questions:Need { ref part :>> gate=GambitCommitGates::questions; attribute :>> id="PHASE-RESULTS-QUESTIONS"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/phase-results.org"; attribute :>> scope="Why this revisits only one parked candidate, why it replaces authority rather than edits tests, what status/unknown outcome remains and why whole runtime credit cannot follow"; }
+}

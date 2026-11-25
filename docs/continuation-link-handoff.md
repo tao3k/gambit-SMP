@@ -60,5 +60,5 @@ TLC verification completed: both negative controls produced counterexamples;
 the fixed contract exhausted 6 distinct / 7 generated states, queue zero, with
 safety and explicit temporal progress checked. Source/model inputs remained
 stable. Portable logs, typed traces and receipt are in
-`evidence/model-results/continuation-link-model/`. These results are registered
+`.cache/research/legacy-evidence/evidence/model-results/continuation-link-model/`. These results are registered
 as protocol evidence, not native acceptance.

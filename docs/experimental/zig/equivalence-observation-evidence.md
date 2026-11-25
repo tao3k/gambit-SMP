@@ -20,8 +20,8 @@ command, configure/package query or performance validation was run. Companions:
 | O9 | Parent d1510-object-request-cost.md, Excluded Attempts | Environment-changing phase/output controls invalidated old timing comparisons; scope warning for recorder calibration, not new evidence or a speedup |
 | O10 | Prior native-request-migration-evidence.md R7-R9; compilation-unit-artifact-contract.md | Semantic link/module/FFI/GC/control and native/runtime gates remain independent; old receipts do not qualify this proposed profile |
 
-Links: [Gerbil driver](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss),
-[Gerbil executor](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/base.ss),
+Links: Gerbil driver (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss`; unavailable in a clean checkout),
+Gerbil executor (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/base.ss`; unavailable in a clean checkout),
 [Gambit native producer](../../../vendor/gambit/gsc/_gsclib.scm),
 [native shell template](../../../vendor/gambit/bin/gambuild-C.unix.in),
 [process API](../../../vendor/gambit/lib/gambit/process/process.scm),

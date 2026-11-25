@@ -119,7 +119,7 @@ Guard rejection tests are not solver `ENABLED` proofs. The declaration is
 typechecked; exhaustive safety and temporal verification remain open.
 
 The declarative research recipe is
-`evidence/research/recursive-wait-recheck/mechanism.recipe.json`. It declares
+`.cache/research/legacy-evidence/evidence/research/recursive-wait-recheck/mechanism.recipe.json`. It declares
 typed capabilities, exact inputs, dependencies and budgets, not commands or a
 prescribed Agent action sequence. The Agent
 can select and interpret this experiment using the evidence graph. There is no

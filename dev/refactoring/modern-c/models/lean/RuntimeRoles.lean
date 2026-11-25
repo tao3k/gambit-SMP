@@ -2,7 +2,7 @@ import Std
 
 namespace Gambit.RuntimeRoles
 
--- These are universal contract laws over root origins and receipts receipts.
+-- These are universal contract laws over root origins and receipts.
 -- They assume stable VM storage and a real collective publication edge.
 def Covered (frozen scanned : Nat → Bool) : Prop :=
   ∀ i, scanned i = true → frozen i = true
@@ -62,5 +62,65 @@ theorem finalAckImpliesConsumed (prepared consumed : Nat → Bool)
     (allPrepared : ∀ i, prepared i = true) : ∀ i, consumed i = true := by
   intro i
   exact h i (allPrepared i)
+
+-- Root coverage is a data-refinement obligation, not a temporal protocol.
+-- Cell denotes a logical root location (including its owner/family/slot), not
+-- the heap object stored there. Two cells may refer to the same continuation.
+-- No theorem below grants unique object copying or asserts that C supplies
+-- these premises. In particular, scanning only the leader RC chain cannot
+-- establish completeCensus for a nonzero-origin RC payload cell.
+section RootTaskCoverage
+variable {Cell Origin Task : Type}
+
+def CompleteCensus (actual : Cell → Prop) (represented : Origin → Cell → Prop) : Prop :=
+  ∀ c, actual c → ∃ o, represented o c
+
+def TaskCoverage (represented : Origin → Cell → Prop)
+    (taskOrigin : Task → Origin) (admitted : Task → Prop) : Prop :=
+  ∀ o c, represented o c → ∃ t, admitted t ∧ taskOrigin t = o
+
+def AdapterFaithful (represented : Origin → Cell → Prop)
+    (taskOrigin : Task → Origin) (visited : Task → Cell → Prop) : Prop :=
+  ∀ t c, visited t c ↔ represented (taskOrigin t) c
+
+theorem completeRootVisit
+    (actual : Cell → Prop) (represented : Origin → Cell → Prop)
+    (taskOrigin : Task → Origin) (admitted : Task → Prop)
+    (visited : Task → Cell → Prop)
+    (census : CompleteCensus actual represented)
+    (tasks : TaskCoverage represented taskOrigin admitted)
+    (adapter : AdapterFaithful represented taskOrigin visited) :
+    ∀ c, actual c → ∃ t, admitted t ∧ visited t c := by
+  intro c hc
+  obtain ⟨o, ho⟩ := census c hc
+  obtain ⟨t, ht, he⟩ := tasks o c ho
+  exact ⟨t, ht, (adapter t c).mpr (by simpa [he] using ho)⟩
+
+-- A faithful task visits exactly its explicit root-cell domain; it must not
+-- replace the source with the worker's bank. Disjointness is required only
+-- for root locations, never for reachable heap-object identity.
+theorem distinctOriginsNoDuplicateCell
+    (represented : Origin → Cell → Prop) (taskOrigin : Task → Origin)
+    (visited : Task → Cell → Prop)
+    (adapter : AdapterFaithful represented taskOrigin visited)
+    (partition : ∀ a b c, represented a c → represented b c → a = b)
+    (a b : Task) (different : taskOrigin a ≠ taskOrigin b) :
+    ∀ c, ¬ (visited a c ∧ visited b c) := by
+  intro c h
+  exact different (partition _ _ c ((adapter a c).mp h.1) ((adapter b c).mp h.2))
+
+-- Physical GC relocation changes root addresses. The C refinement must supply
+-- a faithful cell-to-current-address map and scanned-address witness; an old
+-- saved pointer is not a proof of either premise.
+theorem currentAddressCovered {Address : Type}
+    (actual : Cell → Prop) (visited : Task → Cell → Prop)
+    (currentAddress : Cell → Address) (scannedAddress : Task → Address → Prop)
+    (covered : ∀ c, actual c → ∃ t, visited t c)
+    (decode : ∀ t c, visited t c → scannedAddress t (currentAddress c)) :
+    ∀ c, actual c → ∃ t, scannedAddress t (currentAddress c) := by
+  intro c hc
+  obtain ⟨t, ht⟩ := covered c hc
+  exact ⟨t, decode t c ht⟩
+end RootTaskCoverage
 
 end Gambit.RuntimeRoles

@@ -178,7 +178,7 @@ class ProgressiveClueTests(EvidenceCacheTestCase):
         observation = brief["families"][0]["observations"][0]
         self.assertEqual(observation["polarity"], "counter")
         self.assertEqual(observation["digest"], digest(
-            ROOT / "evidence/research/stack-entry-contract/interpreter-crash.json"))
+            ROOT / ".cache/research/legacy-evidence/evidence/research/stack-entry-contract/interpreter-crash.json"))
         self.assertFalse(brief["executionAuthorized"])
 
     def test_new_scope_does_not_present_repository_evidence_as_empty(self):
@@ -770,7 +770,7 @@ print(json.dumps(result))'''
         self.assertEqual(family["claim"], "shared-registry-lifetime")
         self.assertFalse(family["unknown"])
         self.assertEqual(family["observations"][0]["factors"]["sourceLock"],
-                         [digest(ROOT / "evidence/research/processor-interrupt-collective-wait/source.lock.json")])
+                         [digest(ROOT / ".cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json")])
         self.assertIn("registry-model-coverage", {row["claim"] for row in family["links"]})
         expanded = repository_clues(ROOT, "registry-model-coverage", checkpoint=first["checkpoint"])
         self.assertFalse(expanded["brief"]["families"][0]["unknown"])
@@ -835,7 +835,7 @@ print(json.dumps(result))'''
         self.assertFalse(qualified["completionRevalidation"]["failedStagesRecovered"])
         self.assertEqual(observation["factors"]["outcome"], ["STALE"])
         self.assertEqual(observation["factors"]["changed-input"],
-                         ["evidence/research/suite-review-rules.ss"])
+                         ["evidence/dsl/suite-review-rules.ss"])
         record = json.loads((ROOT / observation["source"]).read_text())
         self.assertEqual(record["nativeCommand"]["exit"], 0)
         self.assertFalse(record["publication"]["producerExported"])

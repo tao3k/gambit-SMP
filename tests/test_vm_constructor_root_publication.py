@@ -10,7 +10,7 @@ class RootPublicationTests(unittest.TestCase):
     def test_controls_and_finite_protocol_check_are_source_bound(self):
         name = "evidence/fixtures/pstate-log-owned-rollback/root-publication-contract.json"
         manifest = load_manifest(ROOT / name)
-        receipt = "evidence/model-results/fixtures/pstate-log-owned-rollback/root-publication-contract/receipt.json"
+        receipt = ".cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-log-owned-rollback/root-publication-contract/receipt.json"
         rows = evidence.checked_rows(ROOT, manifest, ROOT / receipt)[0][1]
         self.assertEqual(5, len(rows))
         controls = {row["initializer"] for row in rows if row["variant"] == "old"}
@@ -22,7 +22,7 @@ class RootPublicationTests(unittest.TestCase):
         self.assertIn("vm_constructor_root_publication_source", manifest["cases"][0]["openObligations"])
 
     def test_count_only_deferral_has_a_real_missing_root_counterexample(self):
-        directory = ROOT / "evidence/model-results/fixtures/pstate-log-owned-rollback/root-publication-contract"
+        directory = ROOT / ".cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-log-owned-rollback/root-publication-contract"
         trace = json.loads((directory /
             "vm_constructor_root_publication-old-rootCoverageSafe.trace.json").read_text())
         state = trace["states"][-1]["publication"]

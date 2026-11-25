@@ -59,7 +59,7 @@ build is distinct from a release/performance producer and cannot replace it.
 The existing `gambit.object` capability now accepts a strictly boolean
 `debugSymbols` option and the validated completed source-runtime artifact.
 It adds only `-g` to the configured command. Recipe
-`evidence/research/vm-registry-reader-lease/thread-source-map.recipe.json`
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/thread-source-map.recipe.json`
 passed through engine
 `c3417721becfd49a648ee0a379b9479fc9f9fa0128aa60fc3b7a412259664334`.
 Actual object compilation took 4.243 seconds; this is not runtime acceptance.

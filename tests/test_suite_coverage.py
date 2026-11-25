@@ -86,6 +86,81 @@ class AcceptedSmpProgressTests(unittest.TestCase):
                 accepted_smp_progress(ROOT, origin, accepted, result)
 
 
+class StressSmpEvidenceTests(unittest.TestCase):
+    """Synthetic gate controls, never original native stress admission."""
+
+    def setUp(self):
+        from gambit_smp.suite_coverage import _load_smp_evidence
+        self.load = _load_smp_evidence
+        self.raw = json.loads((ROOT / "evidence/research/retained/modern-c/stress-gsi/native-result.json").read_text())
+
+    def require(self, raw):
+        from unittest.mock import patch
+        from gambit_smp.suite_coverage import require_stress_smp_evidence
+        ref = dict(path="synthetic-stress-transport.json", sha256="0" * 64)
+        receipt = dict(raw, nativeReference=ref)
+        def load(root, path, expected=None):
+            return (raw, ref) if str(path) == ref["path"] else self.load(root, path, expected)
+        with patch("gambit_smp.suite_coverage._load_smp_evidence", side_effect=load):
+            require_stress_smp_evidence(ROOT, receipt)
+
+    def synthetic_complete_transport(self):
+        # Deliberately fabricated process outcomes test the verifier's positive
+        # shape only. They are neither saved as evidence nor passed to ASCENT.
+        raw = copy.deepcopy(self.raw)
+        raw.update(complete=True, seconds=10)
+        raw["topologies"] = [copy.deepcopy(raw["topologies"][0]) for _ in range(2)]
+        raw["processes"] = []
+        for run, population, jobs in zip(raw["topologies"], (2, 1), (3, 4)):
+            run.update(processors=population, jobs=jobs, complete=True)
+            run["request"].update(processors=population, jobs=jobs)
+            run["probes"][1].update(expected=population, observed=f"PROCESSORS:{population}")
+            for row in run["observations"]:
+                row.update(accepted=True, exit=0, timeout=False, seconds=1,
+                           observedFiles=list(row["files"]))
+                raw["processes"].append(dict(topology=population,
+                    stage=f"suite-{row['batch']}-{row['shard']}", exit=0, timeout=False,
+                    seconds=1, effectiveBudgetSeconds=200,
+                    parentReaped=True, processGroupQuiescent=True,
+                    argv=["/synthetic/gsi", "-:p1", "-f", "run-unit-tests.scm", "-gsi", "-stress",
+                          *["unit-tests/" + name for name in row["files"]]]))
+        return raw
+
+    def test_retained_original_failure_cannot_extend_accepted_five(self):
+        from gambit_smp.suite_coverage import accepted_smp_status
+        with self.assertRaisesRegex(ValueError, "complete raw campaign"):
+            self.require(self.raw)
+        self.assertEqual(accepted_smp_status(ROOT)["passed"], 5)
+
+    def test_synthetic_complete_shape_is_not_published_native_credit(self):
+        self.require(self.synthetic_complete_transport())
+
+    def test_cannot_relabel_failed_or_unstarted_work_as_complete(self):
+        raw = copy.deepcopy(self.raw)
+        raw.update(complete=True, seconds=10)
+        with self.assertRaisesRegex(ValueError, "topology is incomplete"):
+            self.require(raw)
+
+    def test_rejects_changed_budget_inputs_topology_mode_and_unsettled_child(self):
+        def missing_topology(r): r["topologies"].pop()
+        def missing_file(r): r["topologies"][0]["observations"][0]["observedFiles"].pop()
+        def bad_input(r): r["testInputFiles"]["unit-tests/06-thread/tfib_stress.scm"] = "0" * 64
+        def missing_assertion_helper(r): r["testInputFiles"].pop("unit-tests/#.scm")
+        def longer_budget(r): r["wholeBudgetSeconds"] = 1800
+        def spliced(r): r["observationsSpliced"] = True
+        def compiled(r): r["processes"][0]["argv"][4] = "-gsc"
+        def unresolved(r): r["processes"][0]["processGroupQuiescent"] = None
+        def duplicate_command(r): r["processes"].append(copy.deepcopy(r["processes"][0]))
+        def progress_renewal(r): r["topologies"][0]["request"]["childProgressSeconds"] = 300
+        for mutate in (missing_topology, missing_file, bad_input, missing_assertion_helper, longer_budget, spliced,
+                       compiled, unresolved, duplicate_command, progress_renewal):
+            with self.subTest(mutation=mutate.__name__):
+                raw = self.synthetic_complete_transport()
+                mutate(raw)
+                with self.assertRaises(ValueError):
+                    self.require(raw)
+
+
 class PrSmpEvidenceTests(unittest.TestCase):
     """Synthetic tampering controls; only the retained native campaign grants credit."""
     def setUp(self):

@@ -1,0 +1,136 @@
+#+TITLE: Permanent identity borrowing across native symbol callbacks
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: QUALIFYING | PUBLISHED
+#+PROPERTY: header-args :eval never
+
+* PUBLISHED Native callback identity custody :roots:refactoring:audit:
+:PROPERTIES:
+:CUSTOM_ID: ROOT-SYMKEY-CALLBACK
+:AUTHORITY: GambitSymkeyCallback
+:SOURCE: models/sysml/symkey-callback.sysml
+:AUDIT_NUMBER: 3.5.2.3
+:BASE: ae9c64f85157759c46f967b0084b0a76bc403c7c
+:END:
+
+** Complete replacement and actual consumer
+
+The sole production consumer of =___for_each_symkey= is =complete_word= in
+=os_tty.c=, called by =lineeditor_word_completion=. Its =visit_symbol= callback
+is a pure fold of permanent names and saves a permanent next identity. The old
+iterator holds global_gate across every callback and retains bucket/NEXT state.
+The new iterator copies a checked permanent identity sequence, unlocks, invokes
+callbacks in the same order, then frees the native array. Scheme vectors and
+native arrays share one checked-copy implementation. No new public namespace,
+root registry, VM field or alternate build/test framework is introduced.
+
+The private iterator returns status; its real caller checks refusal before using
+completion storage or editing input. A prototype query/allocate/copy across two
+lock intervals was rejected: ordinary concurrent growth could become
+CANNOT_COMPLETE/INVALID_OP, or a retry loop could starve. Final query, existing
+native allocation and checked copy share one gate interval. The actual native
+allocator in os_base.c calls malloc plus native diagnostics; it cannot enter
+Scheme/GC. This choice trades native-allocation lock occupancy for complete
+callback separation without a new normal-growth failure.
+
+** Conditional correctness and counterexamples
+
+Let I be the ordered identity sequence copied under the existing registry gate.
+A successful snapshot establishes every I[i] is a permanent symbol/keyword of
+the selected kind and the copied length equals the protected count. The array
+outlives every normal callback and contains no bucket/NEXT address. Consequently
+registry growth, rehash and ordinary moving GC cannot invalidate traversal.
+Global-state lifetime remains a caller premise; a permanent tag is not an
+arbitrary owner-death or shutdown receipt. Ordinary object contents retain their
+existing semantics; arbitrary raw writers remain outside admission.
+
+For the actual pure terminal fold, equal ordered identities and permanent names
+produce the same completion result. This is source refinement, not an interactive
+PTY test. The old implementation's lock probe fails the stronger no-held-lock
+callback contract; that is not a claim that its previously restricted pure caller
+was already a demonstrated SMP corruption bug.
+
+| Obligation | Mechanism | Falsifier / required evidence |
+|------------+-----------+-------------------------------|
+| Atomic acquisition | One existing gate interval through native allocation/copy | A growth gap or callback while holding the gate |
+| Stable lifetime | Validate each copied identity as permanent | Movable/still value admitted without a scanned root |
+| Root/GC coexistence | Only permanent addresses in the native snapshot | Real GC changes callback identities or drops the rooted replay input |
+| Nested publication | Iterate private captured sequence | Newly interned identity incorrectly joins the outer snapshot |
+| Returned failure | No callback before complete validation; free if acquired | Controlled allocation/copy refusal leaks storage or invokes callback |
+| TTY delivery | Status checked before completion edits/storage use | Normal growth returns INVALID_OP or failure consumes uninitialized completion |
+| Unknown exit | Normally returning callback and live global owner required | longjmp/cancellation/global teardown is silently treated as balanced |
+
+** Benefit and new cost matrix
+
+| Dimension | Retired work / restriction | New work / positive-return condition |
+|-----------+---------------------------+--------------------------------------|
+| Traversal ownership | Mutable bucket/NEXT borrowed over a callback | N permanent identities copied once; no callback alias into the registry |
+| Lock occupancy | Traversal plus all callback work | Query/native allocation/checked copy only; advantage depends on callback work versus allocation/copy |
+| Shared support | Native unchecked walk separate from Scheme checked walk | One checked-copy helper, two destination/ownership consumers |
+| Roots | No extra root handle for proven permanent identities | Zero new RC roots/VM fields/root-scan work; global lifetime still required |
+| Native memory | Previous iterator has no whole-array allocation | N*sizeof(SCMOBJ) payload per active snapshot plus allocator/C stack overhead; nested arrays add |
+| Failure | Void visitor cannot report acquisition failure | Explicit private status and real CANNOT_COMPLETE endpoint; controlled refusal is not physical OOM proof |
+
+No throughput, tail-latency, whole-round peak/RSS or all-SMP improvement is inferred
+from these structural changes. If callback work is trivial or native allocation
+blocks heavily, the additional copy/allocation can outweigh reduced lock occupancy.
+An unbounded or nonreturning callback still prevents local release; it is not
+admitted by this private caller contract.
+
+** Evidence and model responsibilities
+
+Reuse the existing Scheme root-task generator, fresh-process replay, domain oracle
+and deletion shrinker. Normal cases call the linked production iterator. The old
+control is its actual predecessor source, with helper names changed only for
+coexistence; a real mutex probe observes held-lock callbacks without deadlocking.
+Failure-only adapters compile the exact current source with allocation/validation
+boundaries interposed. They do not mutate registry metadata or replace normal
+runtime/PBT execution. Optional feature selection keeps this family out of the
+default generated fixture while retaining its explicit mandatory REV target.
+
+SysML owns scope, lifetime, allocator/caller effects, linearization and costs.
+ASCENT binds exact source/profile/output and each native/source case. Existing
+QNT owns competing root/task histories; Lean owns distinct conditional laws.
+Neither is duplicated, changed or rerun to pretend to prove this C loop. Source
+refinement of the existing mutex interval and real implementation replay are the
+new evidence. Parent3.5.2/3.5/3.6 and independent SMP12 remain open.
+
+** Qualified results and retained boundaries
+
+[[file:../../../evidence/research/retained/modern-c/symkey-callback/receipt.json][The native/source receipt]] and [[file:../../../evidence/research/retained/modern-c/symkey-callback/source.json][actual source cut]] bind all inputs to the five-file tree.
+
+| Evidence | Actual result | What remains outside admission |
+|----------+---------------+--------------------------------|
+| Complete source producer | Bootstrap356.362s, stock core68.471s; phase1--4 twice | No frontend/build speedup or untested tag-mode native claim |
+| Current original recheck | GSI408/40813.591s; remaining Make49.725s | Retained scheduler veto remains; whole GSC/Gerbil/SMP not qualified |
+| Failure comparison | First current407/408; exact baseline also fails thread_interrupt line41 in13.669s | Not a scheduler diagnosis or claim this iterator fixed interrupts |
+| Actual PBT | Seed1973,12 histories,313 actions, two actual moving-root GC events | Finite singleton-owner probe, not arbitrary concurrent-owner attribution |
+| Old source / new contract | Real held-lock control13→1, deletion-one-minimal, current replay passes | Stronger callback contract, not proof the prior pure TTY caller was corrupt |
+| Serialized transport | Both exported old/current minimal files independently replayed | No cached test execution or removed old case |
+| Source/native separation | Four static premises and eleven native requirements; shared ASCENT rejects missing each | QNT/Lean unchanged/not rerun; source conditions are not native cases |
+| Optional generation | Default C2038862 bytes; selected2174821 bytes;135959-byte difference | Code-generation footprint, not service/runtime performance |
+| Added storage | Native sizeof(SCMOBJ)=8; payload8*N per active snapshot | Allocator/C-stack/nested sum and whole-round RSS are additional/unmeasured |
+
+The actual linked entry and controlled source adapter have different jobs. Normal
+histories call the library iterator. Only allocation/validation-refusal cases use
+the exact-source adapter. Physical OOM, empty-table execution, interactive PTY
+behavior, arbitrary raw writers, nonlocal exit and global cleanup remain separate
+or source-only premises. No test result proves arbitrary lifetime ownership.
+
+The shared DSL now distinguishes =requiredPremise/sourcePremise= from native cases;
+all previous rule bodies are unchanged. The historical DSL text/hash is retained.
+This changes no runtime protocol or QNT/Lean theorem.
+
+The type-directed vector store uses exactly =___tVECTOR= as the original
+=___VECTORELEM= macro. Current-profile tag equality alone was insufficient:
+Gambit supports branches where the vector tag differs from SUBTYPED. The rejected
+prototype and superseded producer are retained; only the corrected tree qualifies.
+
+Main programme remains item3/13, ROOTS4 scoped closed/2 open, parent3.5.2/3.5/3.6
+open. Independent SMP12 stays1 qualified prerequisite/11 open, explicitly carrying
+the thread-interrupt uncertainty despite this complete current recheck.
+
+** Publication
+
+[[file:symkey-callback-result.org][Published4b9d8656]] binds the actual committed tree and frozen pre-commit evidence.
+The five-file REV does not publish remaining prototypes or close parent3.5.2/3.5.

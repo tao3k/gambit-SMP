@@ -7,13 +7,14 @@ from pathlib import Path
 
 from gambit_smp.framework import digest
 
-CONTRACT = "evidence/research/ci/upstream-tests.json"
-ENTRY = "evidence/research/ci/test-scope.entry.json"
+CONTRACT = "tests/recipes/ci/upstream-tests.json"
+MODERN_CONTRACT = "tests/recipes/ci/modern-c-upstream-tests.json"
+ENTRY = "tests/recipes/ci/test-scope.entry.json"
 RULES = "evidence/dsl/upstream-test-scope.ss"
-POLICIES = {CONTRACT: "policy/upstream-tests.json", ENTRY: "policy/upstream-test-scope.entry.json",
+POLICIES = {CONTRACT: "policy/upstream-tests.json", MODERN_CONTRACT: "policy/modern-c-upstream-tests.json", ENTRY: "policy/upstream-test-scope.entry.json",
             RULES: "policy/upstream-test-scope.ss",
-            "evidence/research/incremental-builds/qualified-upstream-tests.json": "policy/qualified-upstream-tests.json",
-            "evidence/research/incremental-builds/qualified-suite-review-rules.ss": "policy/qualified-suite-review-rules.ss"}
+            "tests/recipes/support/incremental-builds/qualified-upstream-tests.json": "policy/qualified-upstream-tests.json",
+            "evidence/dsl/qualified-suite-review-rules.ss": "policy/qualified-suite-review-rules.ss"}
 
 
 def validate(args, inputs):
@@ -50,7 +51,7 @@ def validate(args, inputs):
         raise ValueError("unique literal official Make test targets required")
     if (args["failures"] != "evidence/native-failures.json" or args["failures"] not in inputs
             or args["reviewRules"] not in inputs or not args["reviewRules"].endswith(".ss")
-            or not {CONTRACT, ENTRY, RULES} <= set(inputs)):
+            or not {args.get("scopeContract", CONTRACT), ENTRY, RULES} <= set(inputs)):
         raise ValueError("canonical failures, sealed policy and scope sources required")
     fixtures = args.get("additionalFixtures", {})
     if not isinstance(fixtures, dict):
@@ -77,43 +78,101 @@ def validate(args, inputs):
                 reference(path)
 
 
-def scope_contract(ctx, runtime, *, declaration=CONTRACT):
-    """Validate byte correspondence only; do not interpret Make or infer closure."""
-    from gambit_smp.recipes import fields, read_json, source_path
-    from gambit_smp.research_kernel import manifest_paths
-    from gambit_smp.framework import relative
-    manifest = manifest_paths(Path(ctx.receipt["engine"]["path"]))
-    for name in {CONTRACT, ENTRY, RULES, declaration}:
-        sealed = POLICIES[name]
-        path = source_path(ctx.root, name)
-        if digest(path) != manifest["files"].get(sealed):
-            raise ValueError("test scope policy differs from the sealed implementation")
-        ctx.bind([path])
-    if declaration not in POLICIES:raise ValueError("unsealed Make scope contract")
-    contract_path = source_path(ctx.root, declaration)
-    contract = read_json(contract_path)
-    ctx.bind([contract_path])
-    fields(contract, ("schema", "template", "makefile", "targets", "unitModes", "scope"), ("inventories",))
+def target_headers(lines, name):
+    """Literal target-header observation shared by execution and migration review."""
+    return [line for line in lines if ":" in line
+            and name in line.split(":", 1)[0].split() and not line.startswith((" ", "\t"))]
+
+
+def target_recipes(text, name):
+    """Observe literal recipe lines attached to every rule for one target."""
+    active, result = False, []
+    for line in text.splitlines():
+        if line and not line.startswith((' ', '\t', '#')):
+            active = ':' in line and name in line.partition(':')[0].split()
+        if active and line.startswith('\t'):
+            result.append(line)
+    return '\n'.join(result)
+
+
+def validate_execution(execution, targets, source, configured):
+    from gambit_smp.recipes import fields
+    from gambit_smp.source_capabilities import source_name, sha
+    fields(execution, ('recipeCalls', 'filePrerequisites', 'variables', 'configuredVariables', 'sourceInputs'))
+    calls, files = execution['recipeCalls'], execution['filePrerequisites']
+    if (not isinstance(calls, dict) or not isinstance(files, dict)
+            or not set(calls) <= targets.keys() or not set(files) <= targets.keys()
+            or execution['variables'] != {'SUBDIRS': ''}
+            or execution['configuredVariables'] != {'srcdir': '.', 'srcdirpfx': ''}
+            or not isinstance(execution['sourceInputs'], dict) or not execution['sourceInputs']):
+        raise ValueError('bounded in-place Make execution profile required')
+    for name, identity in execution['sourceInputs'].items():
+        source_name(name)
+        sha(identity)
+    for target, mapping in files.items():
+        if (not isinstance(mapping, dict) or not mapping
+                or any(word != '$(srcdirpfx)' + Path(name).name
+                       or name not in execution['sourceInputs'] for word, name in mapping.items())):
+            raise ValueError('source-bound literal file prerequisites required')
+        prerequisites = [word for header in target_headers(source.splitlines(), target)
+                         for word in header.partition(':')[2].split()]
+        if not set(mapping) <= set(prerequisites):
+            raise ValueError('file prerequisite not present in source header')
+    for target, selected in calls.items():
+        if (not isinstance(selected, list) or len(selected) != len(set(selected))
+                or not set(selected) <= targets.keys()):
+            raise ValueError('unique declared recursive Make targets required')
+    for text in [source, *([configured] if configured is not None else [])]:
+        for name, expected in execution['variables'].items():
+            writes = re.findall(r'^(?:(?:override|export)\s+)?' + re.escape(name)
+                                + r'[ \t]*([:+?]?=)[ \t]*(.*)$', text, re.M)
+            if writes != [('=', expected)]:
+                raise ValueError('Make variable closure differs: ' + name)
+        for target in targets:
+            body = target_recipes(text, target)
+            observed = []
+            for match in re.finditer(r'\$\(MAKE\)\s+([^\s;]+)', body):
+                word = match[1]
+                if word == '$$target)' and target == 'core-recursive' and 'if test -n "$(SUBDIRS)"' in body:
+                    continue  # The sole source SUBDIRS assignment is empty.
+                if not re.fullmatch(r'[a-z][a-z0-9-]*', word):
+                    raise ValueError('unmanaged dynamic recursive Make invocation')
+                observed.append(word)
+            if observed != calls.get(target, []):
+                raise ValueError('recursive Make call inventory differs: ' + target)
+    if configured is not None:
+        for name, expected in execution['configuredVariables'].items():
+            if re.findall(r'^' + name + r'[ \t]*=[ \t]*(.*)$', configured, re.M) != [expected]:
+                raise ValueError('unqualified out-of-tree Make profile: ' + name)
+
+
+def validate_scope_definition(contract, source, configured=None):
+    """Shared literal source/configured correspondence; never execute Make."""
+    from gambit_smp.recipes import fields
+    fields(contract, ("schema", "template", "makefile", "targets", "unitModes", "scope"), ("inventories", "execution", "policyInputs"))
     fields(contract["template"], ("path", "sha256"))
-    template = relative(runtime, contract["template"]["path"])
-    if contract["schema"] != "upstream-make-test-contract.v1" or digest(template) != contract["template"]["sha256"]:
+    if contract["schema"] != "upstream-make-test-contract.v1":
         raise ValueError("official Make source contract drift")
-    makefile = relative(runtime, contract["makefile"])
-    source_lines, configured_lines = template.read_text().splitlines(), makefile.read_text().splitlines()
+    source_lines = source.splitlines()
+    configured_lines = configured.splitlines() if configured is not None else source_lines
     targets = contract["targets"]
     if not isinstance(targets, dict) or not targets:
         raise ValueError("nonempty source-bound target declarations required")
+    execution = contract.get("execution", {})
+    if 'execution' in contract:
+        validate_execution(execution, targets, source, configured)
     for name, row in targets.items():
         fields(row, ("executable", "headers", "dependencies", "unitSelections"))
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name) or type(row["executable"]) is not bool:
             raise ValueError("typed official target declaration required")
-        headers_for = lambda lines: [line for line in lines if ":" in line
-            and name in line.split(":", 1)[0].split() and not line.startswith((" ", "\t"))]
+        headers_for = lambda lines: target_headers(lines, name)
         headers = headers_for(source_lines)
         if (not headers or row["headers"] != headers
                 or headers_for(configured_lines) != headers):
             raise ValueError("complete configured/source target headers required")
         dependencies = list(dict.fromkeys(word for line in headers for word in line.partition(":")[2].split()))
+        files = execution.get("filePrerequisites", {}).get(name, {})
+        dependencies = [word for word in dependencies if word not in files]
         if row["dependencies"] != dependencies or not set(dependencies) <= targets.keys():
             raise ValueError("literal target prerequisite correspondence differs")
         selections = row["unitSelections"]
@@ -131,6 +190,48 @@ def scope_contract(ctx, runtime, *, declaration=CONTRACT):
     if (not isinstance(inventories, dict) or not set(inventories) <= targets.keys()
             or any(value not in {'unit', 'stress'} for value in inventories.values())):
         raise ValueError('typed unit/stress inventories required')
+
+
+def scope_contract(ctx, runtime, *, declaration=CONTRACT):
+    """Validate byte correspondence only; do not interpret Make or infer closure."""
+    from gambit_smp.recipes import fields, read_json, source_path
+    from gambit_smp.research_kernel import manifest_paths
+    from gambit_smp.framework import relative
+    manifest = manifest_paths(Path(ctx.receipt["engine"]["path"]))
+    for name in {ENTRY, RULES, declaration}:
+        sealed = POLICIES[name]
+        path = source_path(ctx.root, name)
+        if digest(path) != manifest["files"].get(sealed):
+            raise ValueError("test scope policy differs from the sealed implementation")
+        ctx.bind([path])
+    if declaration not in POLICIES:raise ValueError("unsealed Make scope contract")
+    contract_path = source_path(ctx.root, declaration)
+    contract = read_json(contract_path)
+    ctx.bind([contract_path])
+    dependencies = contract.get('policyInputs', [])
+    if (not isinstance(dependencies, list) or len(dependencies) != len(set(dependencies))
+            or any(name not in POLICIES or name == declaration for name in dependencies)):
+        raise ValueError('declared sealed policy dependencies required')
+    for name in dependencies:
+        path = source_path(ctx.root, name)
+        if digest(path) != manifest['files'].get(POLICIES[name]):
+            raise ValueError('policy dependency differs from the sealed implementation')
+        ctx.bind([path])
+    template = relative(runtime, contract["template"]["path"])
+    makefile = relative(runtime, contract["makefile"])
+    if digest(template) != contract['template']['sha256']:
+        raise ValueError('official Make source contract drift')
+    validate_scope_definition(contract, template.read_text(), makefile.read_text())
+    sources = []
+    for name, sha in contract.get('execution', {}).get('sourceInputs', {}).items():
+        source = relative(runtime, name)
+        if not source.is_file() or digest(source) != sha:
+            raise ValueError('Make execution source input missing or changed: ' + name)
+        sources.append(source)
+    if contract.get('execution') and any(ctx.env.get(key) for key in
+            ('MAKEFLAGS', 'MFLAGS', 'GNUMAKEFLAGS', 'MAKEFILES')):
+        raise ValueError('modern Make scope rejects ambient Make overrides')
+    ctx.bind(sources)
     ctx.bind([template, makefile])
     return contract, makefile
 
@@ -146,7 +247,8 @@ def infer_scope(ctx, contract, makefile, targets, *, unit_root=None, resolve_fil
         raise ValueError("official non-file test target is shadowed by a filesystem entry")
     projected = {
         "selected_make_target": [[name] for name in targets],
-        "make_dependency": [[name, parent] for name, row in declarations.items() for parent in row["dependencies"]],
+        "make_dependency": [[name, parent] for name, row in declarations.items()
+                            for parent in [*row["dependencies"], *contract.get("execution", {}).get("recipeCalls", {}).get(name, [])]],
         "make_unit_selection": [[name, selection] for name, row in declarations.items() for selection in row["unitSelections"]]}
     projected["make_unit_mode"] = [[name, mode] for name, modes in contract["unitModes"].items() for mode in modes]
     inferred = evaluate_observations(ctx, [], projected,

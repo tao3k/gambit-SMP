@@ -1,0 +1,107 @@
+--- a/completion-wait-poll-overlay.scm
++++ b/completion-wait-poll-overlay.scm
+@@ -73,10 +73,36 @@
+ (define internal-wait-frame? (c-lambda (scheme-object) bool
+   "___return(___FIELD(FRAME, ___arg1, 0) == ___ps->internal_return);"))
+ 
++(c-declare #<<c-end
++#ifdef ___DEBUG_STACK_LIMIT
++#error DEV poll injection needs the non-debug poll profile
++#endif
++static _Thread_local int dev_wait_arm;
++static ___SCMOBJ dev_wait_poll;
++static ___SCMOBJ dev_wait_saved_r0;
++static unsigned dev_wait_poll_site;
++#undef ___POLL
++#define ___POLL(n)                                                   \
++  if (dev_wait_arm) {                                               \
++    dev_wait_arm = 0;                                                \
++    dev_wait_poll = ___LBL(n);                                      \
++    dev_wait_saved_r0 = ___R0;                                      \
++    dev_wait_poll_site = (n);                                       \
++    ___raise_interrupt_pstate(___ps, ___INTR_USER);                 \
++  }                                                                \
++  if (___EXPECT_FALSE(___POLL_TRIGGER)) {                            \
++    ___ps->temp1 = ___LBL(n);                                       \
++    ___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit)              \
++  }
++c-end
++)
++(define injected-poll-site (c-lambda () unsigned-int
++  "___return(dev_wait_poll_site);"))
+ (define poll-descriptor-matches? (c-lambda (scheme-object) bool #<<c-end
+ ___SCMOBJ frame = ___CONTINUATION_FRAME_FIELD(___arg1);
+ ___SCMOBJ poll = ___FIELD(FRAME,frame,___FRAME_RETI_RA);
+-___return(___LABEL_DESCR_GET(poll) == 0x3f03022);
++___return(poll == dev_wait_poll &&
++          ___FIELD(FRAME,frame,9) == dev_wait_saved_r0);
+ c-end
+ ))
+ 
+@@ -132,7 +158,7 @@
+                            (and (pair? rows)
+                                 (or (matches? (car rows) label word live)
+                                     (find (cdr rows)))))) "live slot9 omission accepted")
+-            (write (list 'JOINT-WAIT-LIVE-SLOT9 generation size word
++            (write (list 'JOINT-WAIT-INJECTED-SLOT9 generation (injected-poll-site) size word
+                          (if exact? 'saved-thread-return 'other-live-slot)
+                          'reachable 'omission-rejected))
+             (newline))))
+@@ -179,16 +205,10 @@
+         (escape #f) (callbacks 0) (completed 0) (winds '())
+         (bytes (make-f64vector 2 0.0)))
+     (mutex-lock! m #f #f)
+-    (let ((worker
+-           (thread-start!
+-            (make-thread
+-             (lambda () (mutex-lock! m) (set! completed (+ completed 1))
+-                        (mutex-unlock! m))))))
+-      (let await ()
+-        (if (not (thread-state-waiting? (thread-state worker)))
+-            (begin (thread-yield!) (await))))
+-      (##thread-intr! worker #t
+-       (lambda ()
++    (let* ((worker #f)
++           (previous-handler (##vector-ref ##interrupt-vector 3))
++           (capture-wait
++            (lambda ()
+          (set! callbacks (+ callbacks 1))
+          (dynamic-wind
+           (lambda () (set! winds (cons 'before winds)))
+@@ -215,7 +235,27 @@
+                   ;; Exit before the old physical scheduler registration path.
+                   ;; This is a real user multi-shot restore, not a retry/query.
+                   (escape (list answer (vector-ref cell 1))))))
+-          (lambda () (set! winds (cons 'after winds))))))
++          (lambda () (set! winds (cons 'after winds)))))))
++      (set! worker
++            (make-thread
++             (lambda ()
++               (if converted? (##c-code "dev_wait_arm = 1; ___RESULT = ___VOID;"))
++               (mutex-lock! m)
++               (set! completed (+ completed 1))
++               (mutex-unlock! m))))
++      (if converted?
++          (##interrupt-vector-set!
++           3 (lambda ()
++               (if (eq? (current-thread) worker)
++                   (capture-wait)
++                   (if previous-handler (previous-handler))))))
++      (thread-start! worker)
++      (if (not converted?)
++          (begin
++            (let await ()
++              (if (not (thread-state-waiting? (thread-state worker)))
++                  (begin (thread-yield!) (await))))
++            (##thread-intr! worker #t capture-wait)))
+       (let* ((k (thread-receive))
+              (ignore (##get-bytes-allocated! bytes 0))
+              (generation (transfer-init (if converted? k (vector 'generic-target k)))))
+@@ -242,6 +282,7 @@
+           (mutex-unlock! gate)
+           (mutex-unlock! m)
+           (thread-join! worker)
++          (if converted? (##interrupt-vector-set! 3 previous-handler))
+           (transfer-cache! #f)
+           (ensure (and (= callbacks 1) (= completed 1)) "capturing owner ended exactly once")
+           (if converted?

@@ -9,7 +9,7 @@ class InterruptDeliveryCompositionTests(unittest.TestCase):
     def test_combined_model_has_current_source_bound_controls_and_completion(self):
         manifest_path = ROOT / "evidence/fixtures/abandoned-result-state/interrupt-delivery-contract.json"
         manifest = json.loads(manifest_path.read_text())
-        folder = ROOT / "evidence/model-results/fixtures/abandoned-result-state/interrupt-delivery-composition"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/model-results/fixtures/abandoned-result-state/interrupt-delivery-composition"
         receipt = json.loads((folder / "receipt.json").read_text())
         self.assertIn((str(manifest_path.relative_to(ROOT)),
                        str((folder / "receipt.json").relative_to(ROOT))), load_bundles(ROOT))

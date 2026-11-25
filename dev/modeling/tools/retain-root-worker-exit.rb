@@ -1,5 +1,5 @@
 require 'json'; require 'digest'; require 'fileutils'; require 'open3'
-b=ARGV.fetch(0); out=ARGV.fetch(1); e='evidence/research/root-worker-exit'
+b=ARGV.fetch(0); out=ARGV.fetch(1); e='.cache/research/legacy-evidence/evidence/research/root-worker-exit'
 raise 'fresh records required' if File.exist?(e+'/validation.json') || File.exist?(e+'/records')
 sha=->p { Digest::SHA256.file(p).hexdigest }
 m=JSON.parse(File.read(b+'/native-projection.json')); a=JSON.parse(File.read(out+'/receipt.json'))
@@ -28,7 +28,7 @@ paths+=%w[
  dev/modeling/tools/render-root-worker-exit.rb
  dev/modeling/tools/retain-root-worker-exit.rb
  evidence/fixtures/gerbil-bazel-build-profile/profile.json
- evidence/research/modern-c-bootstrap/request-custody-source.lock.json
+ .cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json
  vendor/erlang-otp/LICENSE.txt
  .state/task-runs/modern-c-frame-contract/a44e8e74c1554414a4c4e00646a9d79a.json
 ]

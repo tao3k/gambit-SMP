@@ -98,13 +98,22 @@ def runner_option(option):
 
 def parallel_suite(runtime, copied, out, mode, files, jobs, timeout, environment,
                    option, sources, patched, extras):
+    from gambit_smp.framework import project_root
+    from gambit_smp.suite_primitives import suite_workers
+    with suite_workers(project_root(), out, jobs) as slots:
+        return _parallel_suite(runtime, copied, out, mode, files, jobs, timeout,
+                               environment, option, sources, patched, extras, slots)
+
+
+def _parallel_suite(runtime, copied, out, mode, files, jobs, timeout, environment,
+                    option, sources, patched, extras, slots):
+    from gambit_smp.suite_primitives import prepare_suite_worker, retain_unquiesced_suite_worker
     groups = partitions(files, jobs)
 
-    def worker(item, deadline):
+    def worker_in_slot(item, deadline, slot):
         index, group = item
-        work = runtime_view(runtime, out / "shards" / mode / str(index))
-        shutil.copytree(copied / "unit-tests", work / "unit-tests")
-        shutil.copyfile(copied / "run-unit-tests.scm", work / "run-unit-tests.scm")
+        work, storage = prepare_suite_worker(runtime, copied, slot, context={
+            'environment': environment, 'mode': mode, 'option': option})
         remaining = deadline - time.monotonic()
         metadata = {}
         if remaining > 0:
@@ -114,6 +123,7 @@ def parallel_suite(runtime, copied, out, mode, files, jobs, timeout, environment
                 env=environment, metadata=metadata)
         else:
             code, output, timed_out, seconds = -9, "whole budget exhausted before shard launch\n", True, 0
+        retain_unquiesced_suite_worker(slot, [metadata])
         (out / f"{mode}-{index}.log").write_text(output)
         stable = all((work / name).is_file() and digest(work / name) == patched.get(name, sha)
                      for name, sha in sources.items())
@@ -123,7 +133,14 @@ def parallel_suite(runtime, copied, out, mode, files, jobs, timeout, environment
         print(f"{mode} shard {index}: {'PASS' if accepted else 'DENY'}; {len(group)} files", flush=True)
         return dict(shard=index, files=[str(p) for p in group], exit=code,
                     timeout=timed_out, seconds=round(seconds, 3), accepted=accepted,
-                    sourceStable=stable, process=metadata)
+                    sourceStable=stable, process=metadata, storageTransfer=storage)
+
+    def worker(item, deadline):
+        slot = slots.get()
+        try:
+            return worker_in_slot(item, deadline, slot)
+        finally:
+            slots.put(slot)
 
     start = time.monotonic()
     rows = parallel_jobs(list(enumerate(groups)), worker, jobs, timeout)
@@ -219,9 +236,12 @@ def main():
     sources["run-unit-tests.scm"] = digest(tests / "run-unit-tests.scm")
     out.mkdir(parents=True, exist_ok=False)
     mirror = out / "runtime"
-    copied = runtime_view(runtime, mirror)
-    shutil.copytree(unit, copied / "unit-tests")
-    shutil.copyfile(tests / "run-unit-tests.scm", copied / "run-unit-tests.scm")
+    if args.extra_fixture or args.fixture_patch:
+        copied = runtime_view(runtime, mirror)
+        shutil.copytree(unit, copied / "unit-tests")
+        shutil.copyfile(tests / "run-unit-tests.scm", copied / "run-unit-tests.scm")
+    else:
+        copied = tests
     extras = {destination: {"source": Path(source), "sha256": extra_fixture(Path(source), destination, copied / "unit-tests")}
               for source, destination in args.extra_fixture}
     patchable_sources = {**sources, **{"unit-tests/" + name: row["sha256"] for name, row in extras.items()}}

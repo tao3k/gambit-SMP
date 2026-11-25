@@ -8,7 +8,7 @@ from gambit_smp import recipes
 
 class RegistryCapacityWriterReplayTests(unittest.TestCase):
     def test_recipe_binds_source_and_exact_controls_without_building(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/capacity-writer-replay.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/capacity-writer-replay.recipe.json"
         recipes.load(ROOT, path)
         recipe = json.loads(path.read_text())
         self.assertEqual(300, recipe["budgetSeconds"])

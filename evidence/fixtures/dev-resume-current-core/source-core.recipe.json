@@ -1,0 +1,154 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-current-core-gc-diagnostics",
+  "scope": "Fresh selected DEV core under the existing profile and original whole 600-second budget, followed by p1 and p2 bounded GC/continuation smoke diagnostics. No old runtime import, two-pass bootstrap, negative barrier or family acceptance.",
+  "budgetSeconds": 600,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/dev-resume-limit-568e/source.lock.json",
+    "patches/fixtures/dev-resume-limit-568e.patch",
+    "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-resume-current-core/binding.json",
+    "evidence/fixtures/dev-resume-current-core/observations.json",
+    "vendor/gambit/tests/smp/gc/interpreter-rte-identity.scm",
+    "evidence/fixtures/dev-resume-current-core/gc-p2.scm"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-resume-limit-568e/source.lock.json",
+        "buildWorkspace": "gambit-core"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "buildProfile": "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json"
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "source-core",
+      "capability": "gambit.source-core",
+      "dependsOn": [
+        "seed"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "p1-smoke",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "source-core"
+      ],
+      "budgetSeconds": 45,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/smp/gc/interpreter-rte-identity.scm",
+        "stdout": "PROCESSORS:1\nINTERPRETED-RTE-IDENTITY-PASS\n",
+        "mode": "gsi",
+        "processorTopology": "fixture-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "p2-smoke",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "source-core"
+      ],
+      "budgetSeconds": 45,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "program": "evidence/fixtures/dev-resume-current-core/gc-p2.scm",
+        "stdout": "CURRENT-CORE-P2-GC-CONTINUATION-SMOKE-PASS\n",
+        "mode": "gsi",
+        "processorTopology": "fixture-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "source-core",
+        "p1-smoke",
+        "p2-smoke"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-resume-current-core/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

@@ -24,7 +24,7 @@ class BTQEdgeEvidenceTests(unittest.TestCase):
         self.assertFalse(observation["releaseAdmitted"])
 
     def test_ticket_selection_composition_keeps_native_failure_open(self):
-        model = json.loads((ROOT / "evidence/source-results/compiled-stress-failure/ticket-selection-model.json").read_text())
+        model = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/ticket-selection-model.json").read_text())
         for field in ("source", "recipe"):
             self.assertEqual(model[field + "Sha256"], digest(ROOT / model[field]))
         self.assertEqual([True, False], [row["negative"] for row in model["checks"]])
@@ -43,7 +43,7 @@ class BTQEdgeEvidenceTests(unittest.TestCase):
         self.assertIn(VIEW,registry(ROOT)[0])
         document,facts,_,inputs = load(ROOT,VIEW)
         self.assertFalse(any("/.data/" in path[len(str(ROOT)):] for path in inputs))
-        model = json.loads((ROOT/"evidence/source-results/compiled-stress-failure/model-contract.json").read_text())
+        model = json.loads((ROOT/".cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/model-contract.json").read_text())
         self.assertEqual(model["sourceSha256"],digest(ROOT/model["source"]))
         self.assertFalse(model["sourceRefinementAdmitted"])
         self.assertEqual(3,len(facts["obligation"]))
@@ -78,7 +78,7 @@ class BTQEdgeEvidenceTests(unittest.TestCase):
         self.assertIn("NATIVE_DENY",{row[1] for row in answer["observed"]})
 
     def test_operational_model_is_bound_without_promoting_native_milestone(self):
-        path = ROOT/"evidence/source-results/compiled-stress-failure/operations-model.json"
+        path = ROOT/".cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/operations-model.json"
         observation = json.loads(path.read_text())
         for field in ("source", "recipe", "sourceLock", "generator", "nativeFailure"):
             self.assertEqual(observation[field + "Sha256"], digest(ROOT/observation[field]))
@@ -104,7 +104,7 @@ class BTQEdgeEvidenceTests(unittest.TestCase):
         self.assertIn("NATIVE_DENY",{row[1] for row in answer["observed"]})
 
     def test_chunk_cursor_component_is_bound_to_candidate_not_cache_source(self):
-        path = ROOT/"evidence/source-results/compiled-stress-failure/chunk-cursor-model.json"
+        path = ROOT/".cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/chunk-cursor-model.json"
         observation = json.loads(path.read_text())
         for field in ("source", "recipe", "sourceLock", "overlay", "nativeFailure"):
             self.assertEqual(observation[field + "Sha256"], digest(ROOT/observation[field]))
@@ -137,7 +137,7 @@ class BTQEdgeEvidenceTests(unittest.TestCase):
         self.assertIn("NATIVE_DENY",{row[1] for row in answer["observed"]})
 
     def test_historical_scan_origins_do_not_invent_queue_owner_or_current_cause(self):
-        item = json.loads((ROOT/"evidence/source-results/compiled-stress-failure/historical-scan-origin.json").read_text())
+        item = json.loads((ROOT/".cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/historical-scan-origin.json").read_text())
         from tests.support import published_digest
         for field in ("receipt", "log", "originDecoder"):
             self.assertEqual(item[field+"Sha256"], published_digest(ROOT, ROOT/item[field]))

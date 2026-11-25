@@ -1,0 +1,245 @@
+#+title: Authoritative allocation intervals before C pointer formation
+#+startup: overview
+
+* Delivery boundary
+:PROPERTIES:
+:CUSTOM_ID: authoritative-allocation-intervals
+:OBLIGATION: BC-CENTRY-REFINE
+:STATUS: OPEN
+:NATIVE_PROGRESS: 5/12
+:END:
+
+This is the interval refinement of the existing =grant-extent= SysML cut,
+not another runtime or proof namespace. It composes with the existing
+caller transfer, handler return and actual retry-view contracts. No runtime
+change, bootstrap, same-GSI A acceptance or family credit follows from it.
+Historical gradual cc1 growth remains a separate build-resource failure;
+these source findings do not explain that growth or TFIB timing.
+
+* Actual producers and consumers
+
+| Source | Present behavior | Required replacement boundary |
+|--------+------------------+-------------------------------|
+| =lib/_mem/allocation-limits.inc: ___heap_alloc_fits= | Checks =current_heap_interval_matches= and clips the heap end for a shared stack. | Bind the resolved interval and full emitted extent to the actual generated consumer. |
+| =lib/_mem/allocation-limits.inc: ___stack_adjust_fits= | Selects a half from fp and forms fp-delta before checking the result. | Select the owned active interval independently of fp; validate the whole decrement footprint before forming a pointer. |
+| =lib/_mem/heap-sections.inc: current_heap_interval_matches= | Resolves active/parked stack claims and clips the heap end to the stack floor. | Reuse this ownership resolution and converge capacity and resume validation; do not add a competing whole-half resolver. |
+| =lib/_mem/heap-sections.inc: set_stack_msection= | Starts the stack cursor at one-past the active half. | Distinguish an empty decrement-before-store cursor from a directly dereferenceable word. |
+| =include/_gambit/memory_state.h.in: ___msect= | Uses a trailing =base[1]= array and size-dependent native allocation. | Qualify the effective GCC trailing-array contract or migrate layout with allocation-size, alignment and metadata consumers audited together. C23 selection alone is insufficient. |
+| =include/_gambit/stack_operations.h.in= | PUSH decrements before store; STK uses indexed access; ADJFP moves the cursor. | Check each operation's actual footprint. Do not turn a valid one-past PUSH cursor into blanket STK access authority. |
+
+=cursor_has_stack_room= can fall back to the lower bound alone after
+=___stack_adjust_fits= refuses. For an owned interval [8,16], an eight-word
+push from 16 fits and a nine-word push does not. A cursor at 17 passes the
+fallback comparison for nine words even though it is outside the owned
+interval. This is a predicate counterexample. Production reachability
+remains open.
+
+Crossing a logical half boundary inside the same allocated C array is an
+ownership failure; it is not automatically ISO C undefined behavior. Forming
+a pointer outside the complete array, subtracting unrelated pointers, or
+ordering unrelated allocations requires a separate language/ABI argument.
+Do not cast the result of an already-invalid subtraction to repair it.
+
+The public language basis is WG14 [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3096.pdf][N3096]],
+sections 6.2.4, 6.5.6 and 6.5.8 (working draft). GCC's
+[[https://gcc.gnu.org/onlinedocs/gcc/Code-Gen-Options.html][code-generation options]] distinguish signed-integer wrapping from pointer
+wrapping. Its [[https://gcc.gnu.org/onlinedocs/gcc/C-Dialect-Options.html][C dialect options]] describe trailing-array treatment. These
+references do not establish the current translation unit's effective ABI.
+No new flag or configuration is proposed here.
+
+* Complete adapter protocol
+
+1. Resolve a live owner-qualified section, active half and operation role.
+   A RootOrigin source read pin, execution-context write interval and
+   WorkerArena destination grant are distinct; W<R cannot derive a root
+   owner from the worker ordinal.
+2. Retain the existing no-safepoint execution authority while checking and
+   consuming the write group. A point/context equality check after copying
+   local cursors into the context is not an independent ownership proof.
+3. Compute the real writable end, including active/parked stack claims and
+   outstanding loans. Prefer owner-relative offsets from a qualified array
+   provider. A transitional raw-pointer adapter must explicitly justify
+   address mapping and lifetime; numeric containment alone is insufficient.
+4. Validate cursor and full extent using integers. Heap: lo<=cursor<=hi and
+   words<=hi-cursor. Downward stack: lo<=cursor<=hi and
+   words<=cursor-lo. Only then form the resulting pointer and perform the
+   specified stores, including alignment and final fields.
+5. Return Admit, NeedService or Invalid/Unknown. NeedService requires an
+   already scannable root view and backed handler entry. Invalid/Unknown
+   retains custody or takes bounded nonallocating failure; do not collect
+   an invalid raw frame or globally reject ADJFP in handler recovery.
+6. After service, settle the pure service hint before Scheme effects and
+   use actual returned/repaired locals. Re-resolve the interval and epoch;
+   do not replay saved hp/fp. A same-epoch rewind can remain in bounds.
+
+Null/no-section/zero-growth helper fast paths do not grant write authority.
+Bootstrap or scratch storage needs its own explicitly owned span. The
+implementation must identify such callers rather than blindly rejecting
+all no-section paths or treating them as successful publication.
+
+** Family 6 stack interval review
+
+The [[file:models/sysml/stress-gsi-stack-interval.sysml][stack interval route]]
+refines the existing =grant-extent= cut. Lean reuses =stackRange= to check
+the offset counterexample. Quint imports the existing publication protocol
+and distinguishes short space under a valid owner from lost interval
+authority before service or after refill. The model inputs of the earlier
+proof receipt remain byte-identical.
+
+Use the existing ASCENT review rules to join the route to its source and
+proof declarations. Execute this block from the workspace root with the
+OpenSysML SDK, an installed service selected by =OPENSYSML_BINARY= and
+its release as the first argument.
+The projection records declaration linkage. Source refinement and
+same-GSI execution require separate receipts.
+
+#+name: f6-stack-interval-projection
+#+begin_src python
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+from ascent import Engine
+import opensysml
+
+model = Path("dev/refactoring/modern-c/models/sysml/stress-gsi-stack-interval.sysml")
+rules = Path("dev/modeling/ascent/repair-driven-gc-smp.rules.scm")
+client = opensysml.connect(version=sys.argv[1])
+model_text = model.read_text()
+catalog = client.parse_sources([(str(model), model_text)], strict=True, strict_conformance=True)
+catalog.raise_for_errors()
+part = catalog.find("GambitStressGsiStackInterval::grantExtent")
+fields = ("family", "cut", "source", "anchor", "leanArtifact", "leanCheck",
+          "quintArtifact", "quintCheck", "sourceRefinement", "refinementScope",
+          "nativeGate", "nativeScope", "requiredBehavior", "nativeOracle")
+spec = {field: catalog.eval(f"{part.id}.{field}") for field in fields}
+assert spec["family"] == 6 and spec["cut"] == "grant-extent"
+
+paths = [model, rules, Path(spec["source"]), Path(spec["leanArtifact"]), Path(spec["quintArtifact"]),
+         Path(spec["leanArtifact"]).with_name("FrameContract.lean"),
+         Path(spec["quintArtifact"]).with_name("rest_frame_publication.qnt")]
+inputs = {str(path): path.read_bytes() for path in paths}
+assert inputs[str(model)] == model_text.encode()
+digests = {path: hashlib.sha256(raw).hexdigest() for path, raw in inputs.items()}
+source = spec["source"]
+anchor = spec["anchor"]
+assert anchor.encode() in inputs[source]
+source_row = ["f6-stack-interval-source", source, digests[source], anchor]
+symbols = []
+for language, declaration in (("lean", "theorem"), ("quint", "run")):
+    path, name = spec[f"{language}Artifact"], spec[f"{language}Check"]
+    assert f"{declaration} {name} ".encode() in inputs[path]
+    symbols.append([path, name, digests[path]])
+route = [spec["cut"], "stack-interval", "pre-spill", source_row[0],
+         *symbols[1][:2], *symbols[0][:2], "declarations-only"]
+facts = dict(sourceNeed=[source_row], sourceSeen=[source_row], routeNeed=[route], routeSeen=[route],
+             symbolNeed=symbols, symbolSeen=symbols,
+             sourceRefinementNeed=[[spec["sourceRefinement"], spec["refinementScope"]]],
+             sourceRefinementSeen=[], nativeNeed=[[spec["nativeGate"], spec["nativeScope"]]], nativeSeen=[])
+engine = Engine()
+try:
+    session = engine.open_sources(inputs[str(rules)].decode())
+    assert session.run(queries=["gap"])["complete"]
+
+    def query(data):
+        session.replace(data)
+        result = session.run(queries=["sourceLinked", "routeLinked", "gap", "candidate"])
+        assert result["complete"]
+        return {name: sorted(rows) for name, rows in result["relations"].items()}
+
+    relations = query(facts)
+    assert relations["routeLinked"] == [[spec["cut"]]] and not relations["candidate"]
+    assert relations["gap"] == sorted([[spec["sourceRefinement"]], [spec["nativeGate"]]])
+    stale = query({**facts, "sourceSeen": [[*source_row[:2], "0" * 64, anchor]]})
+    assert not stale["routeLinked"] and [source_row[0]] in stale["gap"]
+    missing = query({**facts, "symbolSeen": symbols[:1]})
+    assert not missing["routeLinked"] and [spec["cut"]] in missing["gap"]
+    wrong_scope = query({**facts, "nativeSeen": [[spec["nativeGate"], "formal-only"]]})
+    assert [spec["nativeGate"]] in wrong_scope["gap"] and not wrong_scope["candidate"]
+    print(json.dumps(dict(spec=spec, sourceDigests=digests, relations=relations,
+                          rejectedControls=["stale-source", "missing-quint", "wrong-native-scope"],
+                          runtimeAdmitted=False), indent=2))
+finally:
+    engine.close()
+#+end_src
+
+* Exclusive proof and acceptance ownership
+
+** Immutable emitted request shape
+:PROPERTIES:
+:CUSTOM_ID: emitted-request-shape
+:STATUS: SOURCE-REFINEMENT-OPEN
+:END:
+
+The emitter's =targ-expand-pending-write-group= mutates delayed stack/heap
+cells only while instruction, entry frame, fp and emitted-code length
+still match the saved plan. =targ-finish-write-group= clears that plan.
+At runtime, =___group_demand_arm='s =resume_query= branch checks point,
+context, activation, a nonzero stored attempt, cursor and epoch, but returns
+that attempt without comparing incoming =stack_words= or =heap_words= with
+the recorded values. =___group_demand_granted= also receives no extents.
+
+This is an unmet adapter premise, not an observed corrupting invocation.
+Two values of one source-level label are not evidence that different
+footprints actually reach that label in the current generated program.
+Close it by one of these complete routes:
+
+1. Demonstrate that the same immutable linked generation point has one
+   finalized stack/heap demand throughout the attempt: delayed cells are
+   frozen before output, no later patch rewrites that point, retry reaches
+   the same constants, and code/module lifetime prevents point reuse.
+   Include macro-selected alignment, boxing and raw spill resources in the
+   finalized demand. Do not infer this from matching saved cursors.
+2. Otherwise, treat the exact demand as part of request identity in the
+   existing service and reject mismatched replay before stores. Do not
+   enlarge a published request or silently overwrite its original demand.
+
+Reuse existing Quint =expandUnpublishedDemand= and
+=expansionAfterPublicationControlTest=: they distinguish prepublication
+plan expansion from changing a live request. No second temporal model
+or Lean lifetime theorem is needed. The source adapter must establish
+that finalized C operands implement that distinction. The returned stored
+attempt is a query result, not an independently supplied invocation identity;
+logical retry ownership must be established by the surrounding scope protocol.
+
+Same-producer falsifiers must include larger and smaller incoming demands
+at the same point/attempt after service, plus a changed code generation
+with reused label coordinates. Depending on the chosen route, demonstrate
+that those states are unreachable through the qualified emitter or are
+rejected before first mutation. An arbitrary C harness alone cannot prove
+production reachability. Keep root custody until replay is settled.
+
+** Proof and acceptance matrix
+
+| Owner | Obligation | Current evidence | Still required |
+|-------+------------+------------------+----------------|
+| Lean =FrameContract= | Integer bounds and store containment; one-past distinction; wrong-half/floor counterexamples. | =heapRangeEnd=, =heapRangeStore=, =stackRangePush= and four finite controls. | The C adapter must supply the true lo/hi/cursor and full extent. Lean does not supply pointer provenance or lifetime. |
+| Existing Quint =rest_frame_publication= | Ordered publication, retry/service identity, effect separation and late reuse histories. | Existing 32 histories retained without duplicating arithmetic. | Real C must refine the model's already-qualified room premise; a weak fits helper is not that premise. |
+| Source refinement | All producers use one authoritative interval and exact macro-expanded write footprint. | The six source boundaries above expose unmet preconditions. | Generated stores, section claims and no-section callers must be reconciled in the complete production chain. |
+| Same-GSI native A | Refusal, retry and physical ownership observations on one sealed producer. | No new native evidence in this review. | All controls below and the original p2-to-p1 family remain open. |
+
+Do not count source location, a model PASS or preprocessing success as C
+refinement. Do not add a per-word global lock or CAS merely to implement
+these bounds; reuse existing group execution and section ownership scopes.
+
+* Joint native negative controls and retirement
+
+| Control | Required observation before the first read/write |
+|---------+------------------------------------------------|
+| Cursor in inactive half, numerically inside the section | Reject without selecting that half from the cursor. |
+| Whole-half room but insufficient room below a parked/active stack floor | Zero mutation of the complete target interval and parameter cursor. |
+| delta greater than cursor-lo | Reject before forming fp-delta or entering an allocating failure loop. |
+| One-past stack start | PUSH may decrement and store if backed; direct STK(0) must not be authorized there. |
+| Retired/reused section or same-epoch cursor rewind | Lifetime/revision check rejects before dereference; numeric containment alone cannot pass. |
+| NeedService with GC or nested Scheme effect | Preserve roots; settle hint; reload actual repaired view; one delivery or one bounded refusal. |
+| R=3, W=2 and final-section contention | Retain each root owner independently; grant a writable physical interval only once. |
+
+Retire whole-half-only capacity acceptance, cursor-selected-half acceptance
+and saved-cursor replay only after all relevant callers use this adapter
+and same-producer tests cover the failures. Keep the official public names,
+workload, census, heap and 295/300-second budget. No performance percentage
+is claimed: potential savings are reuse of one interval resolution per
+write group; costs are extent arithmetic and any previously missing
+ownership synchronization. Measure dynamic checks, allocation throughput
+and peak reserved words on matching inputs before claiming net benefit.

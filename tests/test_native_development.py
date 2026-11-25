@@ -308,6 +308,43 @@ class NativeDevelopmentTests(unittest.TestCase):
             self.assertEqual((directory/'m4').resolve(),tools['m4'])
             self.assertEqual(str(tools['m4']),env['M4'])
 
+    def test_macro_generation_identity_excludes_flags_and_templates_only(self):
+        from gambit_smp.native_capabilities import macro_generation_identity
+        request=dict(inputs={'configure.ac':'a','lib/makefile.in':'t'},
+                     profile={'flags':['-O0']},environment={'M4':'chosen'},
+                     tools={name:{'path':name,'sha256':'x'} for name in ('m4','aclocal','autoconf','gcc')})
+        expected=macro_generation_identity(request)
+        changed=copy.deepcopy(request);changed['profile']['flags']=['-O1'];changed['inputs']['lib/makefile.in']='new'
+        self.assertEqual(expected,macro_generation_identity(changed))
+        for section,key in (('inputs','configure.ac'),('environment','M4'),('tools','m4')):
+            changed=copy.deepcopy(request);changed[section][key]='different'
+            self.assertNotEqual(expected,macro_generation_identity(changed))
+
+    def test_macro_generation_reuse_requires_completed_commands_and_current_scripts(self):
+        import hashlib,json
+        from gambit_smp.native_capabilities import macro_generation_identity,reusable_macro_generation
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp);tools={name:Path('/selected')/name for name in ('aclocal','autoconf','m4')}
+            request=dict(inputs={'configure.ac':'a'},tools={k:str(v) for k,v in tools.items()},environment={})
+            outputs={}
+            from gambit_smp.framework import digest
+            for name in ('configure','aclocal.m4'):
+                (source/name).write_text(name);outputs[name]=digest(source/name)
+            item=dict(identity=macro_generation_identity(request),outputs=outputs)
+            for stage,argv in (('aclocal',[str(tools['aclocal'])]),
+                               ('autoconf',[str(tools['autoconf']),'-v','-o','configure','configure.ac'])):
+                observed=dict(state='OBSERVED',stage=stage,exit=0,timeout=False,parentReaped=True,
+                              processGroupQuiescent=True,argv=argv,cwd=str(source))
+                raw=json.dumps(observed)
+                item[stage]=dict(receiptBytes=raw,receiptSha256=hashlib.sha256(raw.encode()).hexdigest(),commands=[observed])
+            proof=dict(macroGeneration=item)
+            self.assertTrue(reusable_macro_generation(proof,request,source,tools))
+            self.assertFalse(reusable_macro_generation({},request,source,tools))
+            changed=copy.deepcopy(proof);changed['macroGeneration']['aclocal']['receiptBytes']='{}'
+            with self.assertRaises(ValueError):reusable_macro_generation(changed,request,source,tools)
+            (source/'configure').write_text('unowned changed output')
+            self.assertFalse(reusable_macro_generation(proof,request,source,tools))
+
     def test_executor_assembles_real_dependencies_before_rejecting_an_unknown_artifact(self):
         from types import SimpleNamespace
         def unavailable(*args):
@@ -341,14 +378,36 @@ class NativeDevelopmentTests(unittest.TestCase):
 
     def test_internal_header_demand_does_not_admit_generated_or_generator_sources(self):
         from gambit_smp.native_development import native_source_kind
-        for name in ('include/_gambit/runtime_roles.h.in','include/_gambit/vm_state.h.in'):
+        for name in ('include/gambit.h.in','include/_gambit/runtime_roles.h.in','include/_gambit/vm_state.h.in'):
             self.assertEqual(native_source_kind(name),'native-header-template')
             validate(dict(self.args,nativeChanges=[name]),self.inputs)
-        for name in ('include/gambit.h','include/gambit.h.in','include/config.h.in',
+        for name in ('include/gambit.h','include/config.h.in',
                      'include/_gambit/../vm_state.h.in','include//_gambit/vm_state.h.in',
                      '/include/_gambit/vm_state.h.in','gsc/_t-c-1.scm'):
             with self.subTest(path=name), self.assertRaises(ValueError):
                 native_source_kind(name)
+
+    def test_flat_header_c_body_delta_preserves_all_configure_substitutions(self):
+        from types import SimpleNamespace
+        from gambit_smp.framework import digest
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);name='include/gambit.h.in'
+            target=root/'source'/name;incoming=root/'vendor/gambit'/name
+            for p in (target,incoming):p.parent.mkdir(parents=True,exist_ok=True)
+            target.write_text('#define CONFIG @CONF_VALUE@\n/* old C body */\n')
+            incoming.write_text('#define CONFIG @CONF_VALUE@\n/* shared C resolver */\n')
+            ctx=SimpleNamespace(root=root,bind=lambda paths:None)
+            delta=dict(files={name:dict(candidateSha256=digest(incoming))})
+            apply_native_delta(ctx,root/'source',delta)
+            self.assertEqual(target.read_bytes(),incoming.read_bytes())
+            accepted=target.read_bytes()
+            for text in ('#define CONFIG @ANOTHER_VALUE@\n',
+                         '#define CONFIG 0\n',
+                         '#define CONFIG @CONF_VALUE@ @CONF_VALUE@\n'):
+                incoming.write_text(text);delta['files'][name]['candidateSha256']=digest(incoming)
+                with self.assertRaisesRegex(ValueError,'cannot change configure substitutions'):
+                    apply_native_delta(ctx,root/'source',delta)
+                self.assertEqual(target.read_bytes(),accepted)
 
     def test_header_output_requires_complete_native_recompilation_and_declared_template(self):
         from gambit_smp.native_development import native_header_invalidation

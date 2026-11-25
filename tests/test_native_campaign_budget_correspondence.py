@@ -13,7 +13,7 @@ class NativeCampaignBudgetPolicyTests(unittest.TestCase):
     validation_domain = {"kind": "sealed-research", "budgetSeconds": 60, "workers": "auto", "processesPerWorker": 2}
 
     def setUp(self):
-        self.catalog = load_catalog(ROOT / "evidence/research/suite-review-rules.ss")
+        self.catalog = load_catalog(ROOT / "evidence/dsl/suite-review-rules.ss")
         self.facts = {
             "retry_marker": [[True]], "known_failure": [["old", "gsi"]],
             "selected_failure": [["old"]], "failure_category": [["old", "assertion"]],

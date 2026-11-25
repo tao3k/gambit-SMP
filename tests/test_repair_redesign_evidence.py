@@ -18,7 +18,7 @@ class RepairRedesignEvidenceTests(unittest.TestCase):
         "global-root-scan-before-resume": "source-composition-unbound"}
 
     def setUp(self):
-        self.path = ROOT / "evidence/research/repair-and-redesign/facts.json"
+        self.path = ROOT / ".cache/research/legacy-evidence/evidence/research/repair-and-redesign/facts.json"
         self.facts = json.loads(self.path.read_text())["facts"]
         self.inputs = {row[1]: row[2] for row in self.facts["source"]}
         self.inputs[str(self.path.relative_to(ROOT))] = digest(self.path)

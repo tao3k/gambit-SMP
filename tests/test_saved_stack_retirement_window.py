@@ -18,7 +18,7 @@ class SavedStackRetirementWindowTests(unittest.TestCase):
                 "compatibleCapPreservesAssignedFloor"))
 
     def test_same_candidate_obligations_survive_missing_evidence(self):
-        directory = ROOT / "evidence/research/host-root-publication"
+        directory = ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication"
         path = directory / "retirement-window-facts.json"
         facts = json.loads(path.read_text())["facts"]
         inputs = dict(json.loads((directory / "retirement-window.manifest.json").read_text())["contextInputs"])

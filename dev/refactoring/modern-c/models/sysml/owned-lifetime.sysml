@@ -1,5 +1,8 @@
 package GambitOwnedLifetime {
   private import ScalarValues::*;
+  attribute remoteAdmission:String="blocked: exact-head CI attribution and published-candidate regression remain open";
+  attribute remoteEvidence:String="evidence/research/retained/modern-c/owned-lifetime/ci-attribution.json";
+  attribute nextIntegrationAdmission:String="Request/service integration cannot claim completion from local lifecycle or matching historical failure signatures";
   ref part outcome=GambitModernCOutcomes::lifetime;
   attribute scope:String="One complete ownership replacement: rooted startup request, physical reservation, initialization and membership publication, writer/root/worker drain, owner-affine cleanup and unknown-join isolation. Keep shared multi-shot continuation and C portability. The selected private lifecycle control replaces the old resize-only owner; unrelated staged prototypes are excluded.";
   attribute stage:String="Complete22-obligation runtime delivery. The receipt and ASCENT admission own current closure; implementation, intermediate producer, shadow-link diagnostics and model checks alone do not grant a progress increment. Retain out-of-bounds argument and shared-status/barrier counterexamples.";

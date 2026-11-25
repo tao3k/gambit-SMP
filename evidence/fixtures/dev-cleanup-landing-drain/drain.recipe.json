@@ -1,0 +1,200 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-cleanup-landing-drain",
+  "scope": "Quint controls for one device cleanup wait, one outer completion landing, and one GC drain retirement cut: a returned wait is not yet restored, the outer catcher reloads registers before release, and a drain snapshot stays distinct from its seal. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 280,
+  "inputs": [
+    "models/build/device_cleanup_wait.qnt",
+    "models/build/outer_completion_landing.qnt",
+    "models/build/gc_drain_retirement_cut.qnt",
+    "models/build/gc_drain_cut_parameters.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-cleanup-landing-drain/binding.json",
+    "evidence/fixtures/dev-cleanup-landing-drain/observations.json",
+    "evidence/fixtures/dev-cleanup-landing-drain/drain.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "wait-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/build/device_cleanup_wait.qnt"
+      }
+    },
+    {
+      "id": "wait",
+      "capability": "quint.test",
+      "dependsOn": [
+        "wait-parse"
+      ],
+      "budgetSeconds": 80,
+      "arguments": {
+        "source": "models/build/device_cleanup_wait.qnt",
+        "parsed": "wait-parse",
+        "main": "device_cleanup_wait",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "completeTest",
+          "simultaneousReadyInterruptTest",
+          "interruptBeforeArmTest",
+          "partialRetryTest",
+          "unknownCustodyTest",
+          "unknownConsumedTest",
+          "childAfterExitTest",
+          "childUnknownTest",
+          "duplicateHookControlTest",
+          "missingContextControlTest",
+          "generationControlTest",
+          "droppedWakeControlTest",
+          "borrowIntoGcControlTest",
+          "missingParticipantControlTest",
+          "lostCreditControlTest",
+          "scannerGapControlTest",
+          "unknownExitControlTest",
+          "childVmCleanupControlTest",
+          "oppositeInterestTest",
+          "lostInterestControlTest",
+          "newRequestAfterRestoreTest",
+          "requestDuringGcTest"
+        ]
+      }
+    },
+    {
+      "id": "land-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/build/outer_completion_landing.qnt"
+      }
+    },
+    {
+      "id": "land",
+      "capability": "quint.test",
+      "dependsOn": [
+        "land-parse"
+      ],
+      "budgetSeconds": 80,
+      "arguments": {
+        "source": "models/build/outer_completion_landing.qnt",
+        "parsed": "land-parse",
+        "main": "outer_completion_landing",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "normalTest",
+          "exceptionalTest",
+          "nestedTest",
+          "multishotTest",
+          "rosterCustodyTest",
+          "earlyReleaseControlTest",
+          "wrongCatcherControlTest",
+          "markerSkippedControlTest",
+          "rosterSkippedControlTest",
+          "resurrectCatcherControlTest",
+          "capturedVmFreedControlTest"
+        ]
+      }
+    },
+    {
+      "id": "drain-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/build/gc_drain_retirement_cut.qnt"
+      }
+    },
+    {
+      "id": "drain",
+      "capability": "quint.test",
+      "dependsOn": [
+        "drain-parse"
+      ],
+      "budgetSeconds": 80,
+      "arguments": {
+        "source": "models/build/gc_drain_retirement_cut.qnt",
+        "parsed": "drain-parse",
+        "main": "gc_drain_retirement_cut",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "voidLeavesR2Test",
+          "registryLeavesR4Test",
+          "jobsNotRootCutTest",
+          "pollPreservesRootTest",
+          "bankClearRefilledTest",
+          "cacheClearBankRetainsTest",
+          "savedClearTransfersTest",
+          "snapshotRestoreTransfersTest",
+          "candidateEpilogueTest",
+          "candidateBatchTest",
+          "restoreThenRetireTest",
+          "saveThenRetireTest",
+          "captureDropStillDeniedTest",
+          "duplicateDeliveryTest",
+          "jobsAfterSealTest",
+          "retainedArtifactNoAdmissionTest",
+          "returnOnlyControlTest",
+          "emptyQueueControlTest",
+          "registryControlTest",
+          "jobsControlTest",
+          "cachedBankControlTest",
+          "bankCacheControlTest",
+          "savedControlTest",
+          "snapshotControlTest",
+          "restoredDestinationControlTest",
+          "captureControlTest",
+          "failureControlTest",
+          "liveRegisterControlTest",
+          "afterCutRestoreControlTest",
+          "staleIdentityControlTest",
+          "duplicateCommitControlTest",
+          "skippedNotNormalTest",
+          "manualNotGCTest",
+          "skippedReturnControlTest",
+          "manualTicketControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "wait-parse",
+        "wait",
+        "land-parse",
+        "land",
+        "drain-parse",
+        "drain"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-cleanup-landing-drain/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

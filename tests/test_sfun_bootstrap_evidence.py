@@ -8,7 +8,7 @@ from tests.support import published_digest
 
 class SfunBootstrapEvidenceTests(unittest.TestCase):
     def test_two_pass_inventory_flags_and_source_authority(self):
-        folder = ROOT / "evidence/source-results/fixtures/sfun-owned-unwind/two-pass-bootstrap"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/two-pass-bootstrap"
         archive = json.loads((folder / "archive.json").read_text())
         self.assertTrue(archive["archiveOnly"])
         for path, expected in archive["files"].items():

@@ -1,7 +1,7 @@
 # Gambit CI Through The Research Kernel
 
 The CI-specific dispatcher and module registry have been removed. Workflow jobs
-select data assets in `evidence/research/ci/*.recipe.json` and call the public
+select data assets in `tests/recipes/ci/*.recipe.json` and call the public
 `gambit-smp research` interface. They do not select a Python handler, provide
 arbitrary native argv, or make research/admission decisions.
 

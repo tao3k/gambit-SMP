@@ -11,7 +11,7 @@ class VectorArityCandidateTests(unittest.TestCase):
 
     def test_busy_delay_observation_is_not_stress_acceptance(self):
         from gambit_smp import recipes
-        path = "evidence/research/smp-threaded-vm-native-grid/vector-arity-busy-delay-observation.recipe.json"
+        path = ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/vector-arity-busy-delay-observation.recipe.json"
         recipes.load(ROOT, ROOT / path)
         recipe = self.read(path)
         source = next(step for step in recipe["steps"] if step["id"] == "source")
@@ -33,7 +33,7 @@ class VectorArityCandidateTests(unittest.TestCase):
         self.assertNotIn("c-declare", sample)
 
     def test_pending_join_campaign_keeps_corrected_errno_fixture_and_controls(self):
-        folder = "evidence/research/vm-registry-reader-lease/"
+        folder = ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/"
         old = self.read(folder + "pending-join-errno-native-recovery.recipe.json")
         current = self.read(folder + "vector-arity-pending-join-errno.recipe.json")
         self.assertEqual(old["budgetSeconds"], current["budgetSeconds"])
@@ -46,7 +46,7 @@ class VectorArityCandidateTests(unittest.TestCase):
 
     def test_root_fault_campaign_keeps_owner_recovery_and_original_whole_budget(self):
         from gambit_smp import recipes
-        folder = "evidence/research/vm-registry-reader-lease/"
+        folder = ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/"
         recipes.load(ROOT, ROOT / (folder + "vector-arity-root-sticky.recipe.json"))
         previous = self.read(folder + "vector-arity-pending-join-errno.recipe.json")
         current = self.read(folder + "vector-arity-root-sticky.recipe.json")
@@ -63,7 +63,7 @@ class VectorArityCandidateTests(unittest.TestCase):
 
     def test_terminal_observation_successor_only_adds_checks(self):
         from gambit_smp import recipes
-        folder = "evidence/research/vm-registry-reader-lease/"
+        folder = ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/"
         previous = self.read(folder + "vector-arity-root-sticky.recipe.json")
         current = self.read(folder + "vector-arity-root-terminal-observation.recipe.json")
         recipes.load(ROOT, ROOT / (folder + "vector-arity-root-terminal-observation.recipe.json"))
@@ -80,7 +80,7 @@ class VectorArityCandidateTests(unittest.TestCase):
 
     def test_constructor_fault_plan_preserves_model_domains_and_unsafe_policies(self):
         from gambit_smp import recipes
-        path = "evidence/research/vm-constructor-owned-rollback/vector-arity-runtime-sync.recipe.json"
+        path = ".cache/research/legacy-evidence/evidence/research/vm-constructor-owned-rollback/vector-arity-runtime-sync.recipe.json"
         recipes.load(ROOT, ROOT / path)
         recipe = self.read(path)
         source = next(step for step in recipe["steps"] if step["id"] == "source")
@@ -102,7 +102,7 @@ class VectorArityCandidateTests(unittest.TestCase):
         self.assertEqual(15, rows["memory-init-fixed"]["budgetSeconds"])
 
     def test_topology_population_review_keeps_native_workload_and_budgets(self):
-        folder = "evidence/research/vm-registry-reader-lease/"
+        folder = ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/"
         old = self.read(folder + "btq-retry-topology.recipe.json")
         current = self.read(folder + "vector-arity-topology.recipe.json")
         reviewed = self.read(folder + "vector-arity-topology-reviewed.recipe.json")
@@ -123,7 +123,7 @@ class VectorArityCandidateTests(unittest.TestCase):
                         <= set(select(reviewed)["dependsOn"]))
 
     def test_full_scope_pr_campaign_contains_all_declared_regressions(self):
-        folder = "evidence/research/smp-threaded-vm-native-grid/"
+        folder = ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/"
         full = self.read(folder + "vector-arity-pr-full-scope.recipe.json")
         declared = self.read(folder + "vector-arity-pr-interpreted.recipe.json")
         select = lambda recipe: next(s for s in recipe["steps"] if s["id"] == "pr-regressions-gsi")
@@ -135,7 +135,7 @@ class VectorArityCandidateTests(unittest.TestCase):
         self.assertEqual(300, full["budgetSeconds"])
 
     def test_independent_vm_successor_preserves_native_and_model_contracts(self):
-        folder = "evidence/research/vm-kernel-entry-lifecycle/"
+        folder = ".cache/research/legacy-evidence/evidence/research/vm-kernel-entry-lifecycle/"
         old = self.read(folder + "native.recipe.json")
         new = self.read(folder + "vector-arity-native.recipe.json")
         self.assertEqual(old["budgetSeconds"], new["budgetSeconds"])
@@ -158,7 +158,7 @@ class VectorArityCandidateTests(unittest.TestCase):
         self.assertEqual(new["patchSha256"], digest(ROOT / new["patch"]))
 
     def test_bootstrap_flags_and_budgets_not_relaxed(self):
-        folder = "evidence/research/vm-registry-reader-lease/"
+        folder = ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/"
         old = self.read(folder + "btq-retry-bootstrap.recipe.json")
         new = self.read(folder + "vector-arity-bootstrap.recipe.json")
         self.assertEqual(old["budgetSeconds"], new["budgetSeconds"])
@@ -181,7 +181,7 @@ class VectorArityCandidateTests(unittest.TestCase):
         self.assertIn("(test-equal 3 (##vector-inc! value 0 -2))", fixture)
 
     def test_complete_inventory_and_stress_workload_are_unchanged(self):
-        folder = "evidence/research/smp-threaded-vm-native-grid/"
+        folder = ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/"
         for suffix, step_name in (("interpreted", "native-gsi"), ("stress-interpreted", "stress-gsi")):
             before = self.read(folder + "btq-retry-" + suffix + ".recipe.json")
             after = self.read(folder + "vector-arity-" + suffix + ".recipe.json")
@@ -190,7 +190,7 @@ class VectorArityCandidateTests(unittest.TestCase):
             self.assertEqual(select(before), select(after))
 
     def test_pr_campaign_uses_locked_source_without_fixture_replacement(self):
-        recipe = self.read("evidence/research/smp-threaded-vm-native-grid/vector-arity-pr-interpreted.recipe.json")
+        recipe = self.read(".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/vector-arity-pr-interpreted.recipe.json")
         lock = self.read("evidence/fixtures/vector-increment-arity-parity/source.lock.json")
         case = next(step for step in recipe["steps"] if step["id"] == "pr-regressions-gsi")
         args = case["arguments"]
@@ -204,7 +204,7 @@ class VectorArityCandidateTests(unittest.TestCase):
         self.assertFalse(any(step["capability"] in {"gambit.seed-core", "gambit.bootstrap"} for step in recipe["steps"]))
 
     def test_pr_review_is_exact_projection_not_new_failure_claims(self):
-        folder = "evidence/research/smp-threaded-vm-native-grid/"
+        folder = ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/"
         original = self.read(folder + "btq-retry-gsi-intent.json")
         projection = self.read(folder + "vector-arity-pr-gsi-intent.json")
         expected = {"018-thread-interrupt", "018-write-shared", "018-table-search",
@@ -218,10 +218,10 @@ class VectorArityCandidateTests(unittest.TestCase):
         self.assertTrue(expected <= all_failures)
 
     def test_table_counterexample_keeps_original_bytes_and_case_budget(self):
-        folder = "evidence/research/smp-threaded-vm-native-grid/"
+        folder = ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/"
         intent = self.read(folder + "vector-arity-table-iteration-review-intent.json")
         recipe = self.read(folder + "vector-arity-table-iteration-reviewed.recipe.json")
-        prior = self.read("evidence/model-results/native-table-iteration-018-deny.json")
+        prior = self.read(".cache/research/legacy-evidence/evidence/model-results/native-table-iteration-018-deny.json")
         case = next(step for step in recipe["steps"] if step["id"] == "table-iteration-gsi")
         path = prior["selectedFiles"][0]
         self.assertEqual("current-producer-review-intent.v1", intent["schema"])
@@ -232,7 +232,7 @@ class VectorArityCandidateTests(unittest.TestCase):
         self.assertEqual(prior["extraFixtures"][path]["sha256"], fixture["sha256"])
         self.assertEqual(fixture["sha256"], digest(ROOT / fixture["source"]))
         entry = intent["failures"][0]
-        self.assertEqual(entry["receiptSha256"], digest(ROOT / "evidence/model-results/native-table-iteration-018-deny.json"))
+        self.assertEqual(entry["receiptSha256"], digest(ROOT / ".cache/research/legacy-evidence/evidence/model-results/native-table-iteration-018-deny.json"))
         self.assertEqual(prior["candidateReceiptSha256"], entry["baselineIdentity"]["sha256"])
         for claim in entry["claims"]:
             self.assertEqual(claim["evidence"]["sha256"], digest(ROOT / claim["evidence"]["path"]))

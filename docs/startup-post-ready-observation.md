@@ -19,7 +19,7 @@ The remaining wait is after READY returns; the exact physical lock/wait location
 is not established by these events.
 
 Portable native observations, identity, build record and event summary are in
-`evidence/source-results/fixtures/startup-collective-round-observation/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/startup-collective-round-observation/`.
 
 ## Diagnostic Failures Remain DENY
 

@@ -182,8 +182,8 @@ the intended invariant counterexample, with typed traces retained. TLC used
 These state counts are model coverage, not speedup measurements.
 
 Portable, log-digest-bound receipts and redacted logs are under
-`evidence/model-results/protocol-extensions/` and
-`evidence/model-results/configuration-model/`. The configuration campaign reused
+`.cache/research/legacy-evidence/evidence/model-results/protocol-extensions/` and
+`.cache/research/legacy-evidence/evidence/model-results/configuration-model/`. The configuration campaign reused
 its first accepted control after a converter-port conflict; no successful
 control was rerun to repair that infrastructure failure. Earlier failed attempts
 record a Quint initializer translation limitation, a sandboxed loopback bind

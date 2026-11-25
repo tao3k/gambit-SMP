@@ -72,7 +72,7 @@ weakened. The existing source-schedule Recipe was freshly run under this seal:
 `.data/source-schedule-fingerprint-uf-001`, 6.957272/90 seconds, all eight
 controls and terminal inference PASS. Its complete raw source-component
 observations are archived under
-`evidence/source-results/fixtures/sync-retirement-fingerprint-uf-001`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sync-retirement-fingerprint-uf-001`.
 The current correspondence selects that new receipt; the old 038 receipt and
 its exact SHA are retained in the historical list. This is mock component
 evidence, not a Gambit runtime or source-refinement result. A new complete

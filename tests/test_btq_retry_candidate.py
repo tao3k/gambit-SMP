@@ -22,7 +22,7 @@ class BtqRetryCandidateTests(unittest.TestCase):
         self.assertEqual(new["patchSha256"], digest(ROOT / new["patch"]))
 
     def test_full_native_inventory_and_budget_are_unchanged(self):
-        folder = "evidence/research/smp-threaded-vm-native-grid/"
+        folder = ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/"
         old = self.read(folder + "reporter-preservation-interpreted.recipe.json")
         new = self.read(folder + "btq-retry-interpreted.recipe.json")
         step = lambda recipe: next(row for row in recipe["steps"] if row["id"] == "native-gsi")
@@ -30,7 +30,7 @@ class BtqRetryCandidateTests(unittest.TestCase):
         self.assertEqual(old["budgetSeconds"], new["budgetSeconds"])
 
     def test_new_review_keeps_failure_and_original_baseline(self):
-        folder = "evidence/research/smp-threaded-vm-native-grid/"
+        folder = ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/"
         old = self.read(folder + "global-cleanup-gsi-intent.json")
         new = self.read(folder + "btq-retry-gsi-intent.json")
         lock = self.read("evidence/fixtures/btq-retry-sync-participation/source.lock.json")

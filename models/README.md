@@ -22,7 +22,7 @@ models. It is distinct from the proposed architecture's composition checks.
 elementary callback, saved-stack and sender/resource machines with actual
 marker-tail, root/work, join and external-release boundaries. Its
 [Lean companion](gambit/lean/RetirementExitHandoff.lean) and
-[validation](../evidence/research/retirement-exit-handoff/validation.md) include
+validation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/retirement-exit-handoff/validation.md`; unavailable in a clean checkout) include
 omission counterexamples and non-vacuous success/retention witnesses. Source
 refinement remains open and is exposed by the existing Scheme component.
 

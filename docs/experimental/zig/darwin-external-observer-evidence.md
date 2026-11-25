@@ -42,7 +42,7 @@ Links: [shipped dtruss](/usr/bin/dtruss),
 [fcntl manual](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/share/man/man2/fcntl.2),
 [spawn action manual](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/share/man/man3/posix_spawn_file_actions_adddup2.3),
 [ES message header](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/EndpointSecurity/ESMessage.h),
-[materialized Gambit spawn source](../../../../../.data/ci-source-patch-check/src/gambit/lib/os_io.c),
+materialized Gambit spawn source (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/lib/os_io.c`; unavailable in a clean checkout),
 [vendor fallback source](../../../vendor/gambit/lib/os_io.c),
 [previous supplemental ledger](darwin-supplemental-evidence.md),
 [historical invalid controls](../../../../../patches/gerbil-v19-darwin/receipts/d1510-object-request-cost.md).

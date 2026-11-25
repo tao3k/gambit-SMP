@@ -6,7 +6,7 @@ from gambit_smp.framework import ROOT, digest
 
 class PstateStandaloneInitializationTests(unittest.TestCase):
     def setUp(self):
-        self.old = ROOT / ("evidence/model-results/fixtures/vm-constructor-owned-rollback/"
+        self.old = ROOT / (".cache/research/legacy-evidence/evidence/model-results/fixtures/vm-constructor-owned-rollback/"
             "processor-publication-init-alias-denial/pstate_log_publication_rollback.qnt")
         self.current = (ROOT / "models/gambit/pstate_log_publication_rollback.qnt").read_text()
 

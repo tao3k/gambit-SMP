@@ -60,10 +60,15 @@ def bindings(root, receipt_path, archive):
             raise ValueError("only versioned source inputs can have historical bindings")
         if name in mapping or recorded_source_input(root, receipt_path, original, name) != row["sha256"]:
             raise ValueError("unique original receipt input required")
-        target = source_path(root, row["archive"])
-        if (not target.is_relative_to(root / "evidence/source-results")
+        # The manifest is maintained source; its authenticated archived bytes
+        # are an observation, not a Recipe source or permission to write cache.
+        target = relative(root, row["archive"])
+        if not target.is_file():
+            from gambit_smp.source_identity import SourceUnavailable
+            raise SourceUnavailable('historical source payload unavailable: '+row['archive'])
+        if (not target.is_relative_to(root / ".cache/research/legacy-evidence/evidence/source-results")
                 or (root / row["archive"]).is_symlink() or digest(target) != row["sha256"]):
-            raise ValueError("exact versioned historical source bytes required")
+            raise ValueError("exact authenticated historical source bytes required")
         mapping[name] = target
         paths.append(target)
     return {str(root / name): target for name, target in mapping.items()}, paths

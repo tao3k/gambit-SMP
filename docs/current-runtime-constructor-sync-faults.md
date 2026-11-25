@@ -53,10 +53,10 @@ remain required, and no bootstrap capability exists. They do not compile or
 execute the native fixture and do not discharge the lifecycle fault gate.
 The actual current-runtime Gambit reader also reads all three top-level forms;
 it does not evaluate the fixture or compile the embedded C. The explicit
-[prelaunch observation](../evidence/research/vm-constructor-owned-rollback/runtime-sync-prelaunch-review.json)
+prelaunch observation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/vm-constructor-owned-rollback/runtime-sync-prelaunch-review.json`; unavailable in a clean checkout)
 separates the pending proposal's identities and unaffected checks from absent
 native timing and acceptance evidence.
 
 References: [native fixture](../models/gambit/native/vm_constructor_sync_faults.scm),
-[recipe](../evidence/research/vm-constructor-owned-rollback/vector-arity-runtime-sync.recipe.json),
+recipe (local execution locator: `../.cache/research/legacy-evidence/evidence/research/vm-constructor-owned-rollback/vector-arity-runtime-sync.recipe.json`; unavailable in a clean checkout),
 [current coverage](vector-arity-current-native-coverage.md).

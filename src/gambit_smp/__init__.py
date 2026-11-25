@@ -15,11 +15,12 @@ CLI: gambit-smp trajectory clues --help (also python -m gambit_smp).
 from importlib import import_module
 
 __all__ = ["engine_api", "repository_clues"]
+_PUBLIC_MODULES = {"engine_api": "ascent_program", "repository_clues": "trajectory_exploration"}
 
 
 def __getattr__(name):
     # Preserve CLI --root selection before importing checkout-bound modules.
-    modules = {"engine_api": "ascent_program", "repository_clues": "trajectory_exploration"}
+    modules = _PUBLIC_MODULES
     if name not in modules:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     value = getattr(import_module(f"{__name__}.{modules[name]}"), name)

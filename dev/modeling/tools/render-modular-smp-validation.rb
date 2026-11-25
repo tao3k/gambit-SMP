@@ -24,7 +24,7 @@ d<<" }\n workflow -> seed\n seed -> suite\n suite -> bootstrap\n bootstrap -> ca
 d<<"evidence: \"SMP: immutable native receipts, byte streams, prior failures\"\nascent: \"ASCENT: exact identity, method and missing/conflicting evidence\"\nformal: \"Existing QNT schedules / Lean coherence: distinct owners, no duplicate models\"\nopen: \"Mailbox failure witness / physical worker retirement / five gates: OPEN\"\n"
 d<<"authority -> gambit.suite\nauthority -> gambit.cases\ngambit.cases -> evidence\nevidence -> ascent\nauthority -> ascent\nformal -> ascent: original obligations retained\nascent -> open: no module-only commit authority\n"
 File.write('dev/refactoring/modern-c/diagrams/modular-smp-validation.d2',d)
-e='evidence/research/modular-smp-bootstrap'; FileUtils.mkdir_p(e+'/records'); records={}
+e='.cache/research/legacy-evidence/evidence/research/modular-smp-bootstrap'; FileUtils.mkdir_p(e+'/records'); records={}
 retain=lambda do |p|
  next unless File.file?(p)
  h=sha.call(p); dest=e+'/records/'+h[0,16]+'-'+File.basename(p)

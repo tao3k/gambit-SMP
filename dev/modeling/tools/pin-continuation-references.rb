@@ -1,6 +1,6 @@
 require 'json';require 'digest';require 'fileutils';require 'open3'
 b='.cache/tasks/modern-c-frame-contract/cohort/control-references'
-e='evidence/research/continuation-segments';raise 'fresh lock required' if File.exist?(e+'/source.lock.json')
+e='.cache/research/legacy-evidence/evidence/research/continuation-segments';raise 'fresh lock required' if File.exist?(e+'/source.lock.json')
 FileUtils.mkdir_p(e+'/sources');sha=->p { Digest::SHA256.file(p).hexdigest }
 sources={
  'gambit'=>['vendor/gambit',%w[lib/_kernel.scm lib/_thread.scm lib/mem.c lib/c_intf.c lib/setup.c include/gambit.h.in gsc/_t-c-1.scm gsc/_t-c-2.scm gsc/_t-c-3.scm tests/frame-continuation-roots.scm]],
@@ -31,7 +31,7 @@ git=lambda do |dir,*args|
 end
 lock={scope:'Pinned research source excerpts and original papers; no third-party build or native acceptance',
  projects:{gambit:{head:git.call('vendor/gambit','rev-parse','HEAD'),branch:git.call('vendor/gambit','branch','--show-current'),
-   candidateLock:'evidence/research/modern-c-bootstrap/request-custody-source.lock.json',candidateLockSha256:sha.call('evidence/research/modern-c-bootstrap/request-custody-source.lock.json')},
+   candidateLock:'.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json',candidateLockSha256:sha.call('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json')},
    chez:{head:git.call('vendor/chez','rev-parse','HEAD')},
    guile:{release:File.read(b+'/guile/.tarball-version').strip,url:'https://ftp.gnu.org/gnu/guile/guile-3.0.11.tar.xz',
      retrievedFrom:'https://mirrors.kernel.org/gnu/guile/guile-3.0.11.tar.xz',archiveSha256:sha.call(b+'/guile-source.tar.xz'),archive:b+'/guile-source.tar.xz'}},

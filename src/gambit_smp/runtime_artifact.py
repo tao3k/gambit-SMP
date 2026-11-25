@@ -354,16 +354,7 @@ def import_steps(ctx):
         if isinstance(value, dict):
             return value == reference or any(consumes(item) for item in value.values())
         return isinstance(value, (list, tuple)) and any(consumes(item) for item in value)
-    def mutates_source(step):
-        args = step['arguments']
-        # The graph validator requires expectedSource to be this import's
-        # exact materialized candidate. expected_suite_inventory only reads
-        # its names; it neither projects bytes nor mutates source. Strip only
-        # that declared operand, never other aliases or unknown capabilities.
-        if step['capability'] == 'gambit.suite' and args.get('expectedSource') == reference:
-            args = {key: value for key, value in args.items() if key != 'expectedSource'}
-        return consumes(args)
-    if imports and any(step['capability'] != 'gambit.runtime-import' and mutates_source(step) for step in plan):
+    if imports and any(step['capability'] != 'gambit.runtime-import' and consumes(step['arguments']) for step in plan):
         raise ValueError('import source projection cannot serve a mutable source consumer')
     return imports
 
@@ -411,7 +402,7 @@ def prepare_stage_import(slot, path, ctx):
     if producer['engineId'] != reference['engineId']:
         raise ValueError('pinned producer generation identity changed')
     proof, header, rows, run = observe_stage_record(ctx.root, path, producer)
-    _, materialized = source_core_ancestry(rows)
+    configured, materialized = source_core_ancestry(rows)
     core = rows[-1]
     lock = materialized['arguments']['sourceLock']
     if (digest(source_path(ctx.root, lock)) != header['inputs'].get(lock)
@@ -461,6 +452,10 @@ def prepare_stage_import(slot, path, ctx):
         runtimeIdentity=runtime_identity, identityBytes=identity_bytes, producerBudgetSeconds=header['budgetSeconds'])
     generation = dict(kind='pinned-completed-stage', engineId=producer['engineId'],
         consumerEngineId=current['engineId'], runtimeAdmitted=False, resumptionAuthorized=False)
+    profile = configured["arguments"].get("buildProfile")
+    if profile is not None:
+        generation["configuration"] = dict(profileSha256=header["inputs"][profile],
+            profile=configured["buildProfile"], files=core["configurationFiles"])
     return runtime, value, generation, dict(managed=True, warm=True, mode='same-producer-workspace',
         workspace=str(runtime), sourceContentId=content_id(output['identity']), checkpointSha256=digest(path),
         makeScopePreflight=make_scope, copiedFiles=0)

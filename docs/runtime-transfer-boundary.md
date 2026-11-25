@@ -39,7 +39,7 @@ contract, not a prescription to add an epoch field to every native object.
 
 The reviewed input is not the baseline submodule. It is the 26-file overlay
 declared by
-`evidence/research/processor-interrupt-collective-wait/source.lock.json`
+`.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`
 (SHA-256 `7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b`),
 with cumulative patch
 `patches/fixtures/processor-interrupt-collective-wait-cumulative.patch`

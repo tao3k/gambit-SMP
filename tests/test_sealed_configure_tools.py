@@ -58,3 +58,19 @@ class SealedConfigureToolsTests(unittest.TestCase):
             tool.chmod(0o644)
             with self.assertRaisesRegex(ValueError, "sealed configure tool drift"):
                 configure_tool_bindings({"aclocal": row})
+
+    def test_sealed_m4_overrides_environment_and_rejects_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tool = Path(directory) / 'm4'
+            tool.write_bytes(b'#!/bin/sh\nexit 0\n')
+            tool.chmod(0o755)
+            row = {'path': str(tool), 'sha256': hashlib.sha256(tool.read_bytes()).hexdigest()}
+            with patch('gambit_smp.native_capabilities.sys.platform', 'linux'), \
+                    patch('gambit_smp.native_capabilities.shutil.which', return_value='/usr/bin/true'):
+                tools, environment = host_tools(Path('/usr/bin/true'), [{'capability': 'gambit.configure'}],
+                    {'PATH': '/usr/bin:/bin', 'M4': '/usr/bin/true'}, configure_bindings={'m4': row})
+            self.assertEqual(tools['m4'], tool.resolve())
+            self.assertEqual(environment['M4'], str(tool.resolve()))
+            tool.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError, 'sealed configure tool drift: m4'):
+                configure_tool_bindings({'m4': row})

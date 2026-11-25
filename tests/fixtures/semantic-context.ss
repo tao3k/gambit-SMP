@@ -1,0 +1,66 @@
+;;; Compare the actual source and generated-interface semantic boundaries.
+(import :gerbil/expander)
+(export verify-semantic-context verify-initialization-plan)
+(include "../../src/gambit_smp/gerbil_semantic_graph.ss")
+(include "../../src/gambit_smp/gerbil_library_order.ss")
+(include "../../src/gambit_smp/gerbil_initialization_view.ss")
+
+(def (verify-semantic-context source interface)
+  (displayln "SEMANTIC-CONTEXT-STAGE source-import")
+  ;; Match compile-module/order-modules: root import does not eval phase zero.
+  ;; Macro-phase activation remains the original expander's responsibility.
+  (let* ((source-ctx (import-module source #t #f))
+         (graph (semantic-context-graph source-ctx))
+         (port (open-output-string))
+         (_ (write graph port))
+         (data (call-with-input-string (get-output-string port) read))
+         (restored (semantic-context-restore data))
+         (id (symbol->string (expander-context-id source-ctx)))
+         ;; Ordering equivalence against the pinned old algorithm is owned by
+         ;; library-order's separate properties/source argument. Here keep the
+         ;; traversal fixed and vary only the real semantic representation.
+         (expected-source (order-modules [id] (lambda (_) source-ctx)))
+         (actual (order-modules [id] (lambda (_) restored)))
+         (_ (displayln "SEMANTIC-CONTEXT-STAGE interface-import"))
+         (interface-ctx (import-module interface #t #f))
+         (expected-interface (order-modules [id] (lambda (_) interface-ctx)))
+         (projected (order-modules [id] (lambda (_) (initialization-graph-view (initialization-graph-project graph))) initialization-graph-operations)))
+    (unless (equal? graph data) (error "graph write/read changed data" id))
+    (unless (equal? graph (semantic-context-graph restored))
+      (error "graph write/read changed identity or phase" id))
+    (unless (equal? expected-source actual)
+      (error "graph consumer changed source initialization order" id))
+    (unless (equal? projected actual) (error "initialization projection changed real source order" id))
+    (unless (equal? expected-interface actual)
+      (write ["SOURCE-INTERFACE-COUNTEREXAMPLE" id expected-interface actual])
+      (newline)
+      (error "source graph is not the generated-interface graph" id))
+    (displayln "SEMANTIC-CONTEXT-INTERFACE-PASS " id " modules=" (length actual))))
+
+;;; Exercise the installed library traversal and installed credential reader,
+;;; not a test resolver. The caller supplies only issuer-validated root IDs.
+(def (verify-initialization-plan script driver modules)
+  (displayln "INITIALIZATION-PLAN-STAGE library-definitions") (force-output)
+  (eval `(include ,script))
+  (displayln "INITIALIZATION-PLAN-STAGE credential-provider") (force-output)
+  (import-module driver #t #t)
+  (displayln "INITIALIZATION-PLAN-STAGE issued-data") (force-output)
+  (let ((order (eval 'order-modules))
+        (resolve (eval 'initialization-graph-resolve))
+        (operations (eval 'initialization-graph-operations))
+        (json (eval 'gxc#compile-product-json)))
+    (def (globals)
+      (##symbol-table-foldl
+       (lambda (n sym) (if (##global-var? sym) (+ n 1) n)) 0))
+    (let* ((before (globals))
+           (ordered (order modules
+                      (lambda (id)
+                        (displayln "INITIALIZATION-PLAN-ROOT " id) (force-output)
+                        (resolve id)) operations))
+           (after (globals)))
+      (display "INITIALIZATION-PLAN ")
+      (json [(length modules) (length ordered) before after] (current-output-port))
+      (newline)
+      (unless (= before after)
+        (error "data planning allocated native global cells" before after))
+      (displayln "INITIALIZATION-PLAN-PASS"))))

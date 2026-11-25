@@ -24,6 +24,8 @@ from pathlib import Path
 
 MODEL = "grok-4.7"
 REASONING_EFFORT = "high"
+DEFAULT_TURN_BUDGET = 10
+MAX_TURN_BUDGET = 15
 
 
 def metadata_routes(parser, prefix):
@@ -47,7 +49,7 @@ class Launch:
     authorization: str
     resume: str | None = None
     scripts: tuple[str, ...] = ()
-    max_turns: int = 45
+    max_turns: int = DEFAULT_TURN_BUDGET
     task: str | None = None
     query_request: str | None = "query.ss"
     query_root: Path | None = None
@@ -182,8 +184,8 @@ class Launch:
             raise ValueError("prompt must belong to the owner directory")
         if not self.authorization.strip():
             raise ValueError("record the applicable user authorization reference")
-        if not 1 <= self.max_turns <= 200:
-            raise ValueError("max-turns must be in 1..200")
+        if not 1 <= self.max_turns <= MAX_TURN_BUDGET:
+            raise ValueError(f"max-turns must be in 1..{MAX_TURN_BUDGET}")
         argv = ["grok", "--cwd", str(checkout), "--model", MODEL,
                 "--reasoning-effort", REASONING_EFFORT,
                 "--permission-mode", "dontAsk", "--no-plan", "--no-subagents",
@@ -300,7 +302,15 @@ def terminal_deliveries(path):
     return list(completed.values())
 
 
-def run(launch, *, execute=False, wall_seconds=1800):
+def run(launch, *, execute=False, wall_seconds=1800, acp=False):
+    if wall_seconds <= 0:
+        raise ValueError('positive Grok supervisor budget required')
+    if acp and launch.adopt_binding_sha256 is not None:
+        raise ValueError('ACP session adoption is not supported')
+    if execute and acp:
+        from gambit_smp.grok_live import permission_boundary_verified
+        if not permission_boundary_verified(launch):
+            raise ValueError('ACP live execution disabled: provider read permissions are not verified')
     if execute:
         if os.environ.get('GAMBIT_SMP_TASK_PROCESS'):
             raise ValueError('provider sessions require the work-item execution owner; maintenance processes run bounded tools')
@@ -320,11 +330,18 @@ def run(launch, *, execute=False, wall_seconds=1800):
             from gambit_smp.task_broker import serve
             broker=nullcontext() if os.environ.get("GAMBIT_SMP_TASK_SOCKET") else serve(launch.workspace,launch.task,os.environ["GAMBIT_SMP_TASK_RUN"],int(os.environ["GAMBIT_SMP_TASK_LOCK_FD"]))
             with broker:
-                result = _run(launch, execute=True, wall_seconds=wall_seconds)
+                if acp:
+                    from gambit_smp.grok_live import run as run_acp
+                    result = run_acp(launch, wall_seconds=wall_seconds)
+                else:
+                    result = _run(launch, execute=True, wall_seconds=wall_seconds)
             value["exit"] = result["exit"]
             if not result.get("sessionCompleted"):value["execution"]="interrupted"
             return result
-    return _run(launch, execute=False, wall_seconds=wall_seconds)
+    result = _run(launch, execute=False, wall_seconds=wall_seconds)
+    if acp:
+        result['transport'] = 'acp'
+    return result
 
 
 def _run(launch, *, execute=False, wall_seconds=1800):
@@ -475,7 +492,10 @@ def main():
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--task", required=True, help="stable campaign ID shared with Codex")
     parser.add_argument("--owner", required=True)
-    parser.add_argument("--prompt-file", type=Path, required=True)
+    parser.add_argument("--prompt-file", type=Path)
+    parser.add_argument("--interject-file", type=Path,
+                        help="send an instruction to the currently bound ACP session")
+    parser.add_argument("--interjection-id", help="UUID identifying this instruction")
     parser.add_argument("--authorization", required=True,
                         help="reference to existing user consent; does not grant approval")
     parser.add_argument("--resume")
@@ -483,15 +503,42 @@ def main():
                         help="explicitly enroll the requested existing session; preserve this exact prior binding and require provider confirmation")
     parser.add_argument("--script", action="append", default=[],
                         help="sealed task program key; repeat for each exact grant")
-    parser.add_argument("--max-turns", type=int, default=45)
+    parser.add_argument("--max-turns", type=int, default=DEFAULT_TURN_BUDGET,
+                        help=f"turn budget for this launch (default %(default)s, max {MAX_TURN_BUDGET})")
     parser.add_argument("--wall-seconds", type=float, default=1800,
                         help="Grok supervisor budget, never a native acceptance timeout")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--acp", action="store_true", help="use a live ACP provider session")
     args = parser.parse_args()
+    if args.interject_file:
+        if args.prompt_file or args.resume or args.script or args.execute or args.acp or args.adopt_binding_sha256:
+            parser.error("interjection cannot launch or resume a provider")
+        from gambit_smp.grok_control import send
+        from gambit_smp.workspace import bounded, identifier, paths
+        root = args.workspace.resolve(strict=True)
+        task = identifier(args.task)
+        owner = identifier(args.owner)
+        _, cache, _ = paths(root, task)
+        owned = bounded(root, (cache / 'agents' / owner).relative_to(root))
+        instruction = args.interject_file.resolve(strict=True)
+        if not instruction.is_relative_to(owned.resolve(strict=True)):
+            raise ValueError('instruction must belong to the owner directory')
+        descriptor = bounded(root, '.state/provider-control/' + task + '/' + owner + '.json')
+        metadata = json.loads(descriptor.read_text())
+        task_state = json.loads(paths(root, task)[0].read_text())
+        if task_state.get('execution') != 'running' or task_state.get('run') != metadata.get('run'):
+            raise ValueError('ACP control is not bound to the running task')
+        result = send(descriptor, task=task, owner=owner, run=metadata['run'],
+                      session=metadata['sessionId'], authorization=args.authorization,
+                      message_id=args.interjection_id or str(uuid.uuid4()), text=instruction.read_text())
+        print(json.dumps(result, indent=2))
+        return 0 if result['status'] == 'queued' else 1
+    if not args.prompt_file or args.interjection_id:
+        parser.error('provider launch requires --prompt-file; instruction IDs are for interjection only')
     launch = Launch(args.workspace, args.owner, args.prompt_file, args.authorization,
                     args.resume, tuple(args.script), args.max_turns, args.task,
                     adopt_binding_sha256=args.adopt_binding_sha256)
-    result = run(launch, execute=args.execute, wall_seconds=args.wall_seconds)
+    result = run(launch, execute=args.execute, wall_seconds=args.wall_seconds, acp=args.acp)
     public = result
     if args.execute:
         public = {key: result.get(key) for key in ('task', 'attempt', 'exit', 'seconds', 'completion',

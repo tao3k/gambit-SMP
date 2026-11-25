@@ -36,7 +36,7 @@ real intermediate move. Earlier two-GC content tests remain unchanged.
 
 The exact identity was checked after execution. Portable fixture, identity,
 logs and generated summary are under
-`evidence/source-results/fixtures/interrupt-queue-payload-relocation/native-diagnostic`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-queue-payload-relocation/native-diagnostic`.
 The compiled test includes an explicit nonzero failure exit, and the observer
 requires the final marker plus the expected exit and no timeout.
 

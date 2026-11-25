@@ -7,12 +7,12 @@ from gambit_smp.native_archive import validate
 
 class BootstrapSyncEvidenceTests(unittest.TestCase):
     def test_exact_mode_and_file_coverage_on_rebuilt_artifacts(self):
-        name = "evidence/source-results/fixtures/sfun-owned-unwind/bootstrap-sync-suite/archive.json"
+        name = ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/bootstrap-sync-suite/archive.json"
         validate(ROOT, name)
         folder = (ROOT / name).parent
         receipt = json.loads((folder / "receipt.json").read_text())
         candidate = json.loads((folder / "identity.json").read_text())
-        rebuilt = json.loads((ROOT / "evidence/source-results/fixtures/sfun-owned-unwind/two-pass-bootstrap/candidate.json").read_text())
+        rebuilt = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/two-pass-bootstrap/candidate.json").read_text())
         for field in ("binarySha256", "gscSha256", "librarySha256"):
             self.assertEqual(candidate[field], rebuilt[field])
         self.assertEqual(receipt["candidateReceiptSha256"], digest(folder / "identity.json"))

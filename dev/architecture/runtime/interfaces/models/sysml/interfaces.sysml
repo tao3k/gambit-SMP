@@ -2,6 +2,40 @@
 package GambitRuntimeInterfaces {
     private import ScalarValues::*;
 
+    /* One specification vocabulary for the existing composition interfaces.
+     * These fields describe proof obligations and impose no runtime layout. */
+    part def InterfaceContract {
+        attribute identityScope : String;
+        attribute callerRequires : String;
+        attribute supplierEnsures : String;
+        attribute frameCondition : String;
+        attribute environmentAssumption : String;
+        attribute interferenceGuarantee : String;
+        attribute invalidation : String;
+        attribute failureCustody : String;
+        attribute progressObligation : String;
+        attribute synchronization : String;
+        attribute sourceObligation : String;
+        attribute modelObligation : String;
+        attribute nativeObligation : String;
+        attribute status : String;
+    }
+    part def AllocationGrantState {
+        attribute ownerMatches : Boolean;
+        attribute backingLive : Boolean;
+        attribute cursorInside : Boolean;
+        attribute footprintCovered : Boolean;
+        attribute preparatoryBacking : Boolean;
+        attribute currentView : Boolean;
+        attribute grantPublished : Boolean;
+    }
+    requirement def AllocationGrantLaw {
+        subject grant : AllocationGrantState;
+        require constraint { not grant.grantPublished or
+            (grant.ownerMatches and grant.backingLive and grant.cursorInside and
+             grant.footprintCovered and grant.preparatoryBacking and grant.currentView) }
+    }
+
     /* Logical comparison scopes, not a selected runtime memory layout. */
     part def CollectionScope {
         attribute vmId : Integer;

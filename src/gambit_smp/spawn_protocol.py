@@ -209,11 +209,27 @@ def reconcile(root,row):
             if file.exists():
                 event=json.loads(file.read_text())
                 if event['token']!=row['token'] or event['birth']!=birth:raise ValueError('spawn event birth mismatch')
-        current=process(birth['process']['pid']) if birth['bootId']==boot_id() else None
+        try:
+            current=process(birth['process']['pid']) if birth['bootId']==boot_id() else None
+        except PermissionError:
+            # The pid was reused by a process this user cannot inspect.
+            # Our own children remain readable, so this is not their birth.
+            current=None
         if same_birth(birth['process'],current):raise ValueError('spawn process still alive')
         from gambit_smp.task_processes import observe_group
+        from gambit_smp.process_identity import pids
         group=observe_group(birth['process']['pgid'])
-        if group['result']!='absent':raise ValueError('spawn process group not quiescent')
+        if group['result']!='absent':
+            # A reused process-group id can belong to another user's process.
+            # Only a member whose kernel birth matches this spawn is still ours.
+            owned=False
+            for pid in pids(pgid=birth['process']['pgid']):
+                try:info=process(pid)
+                except PermissionError:info=None
+                if same_birth(birth['process'],info):
+                    owned=True
+                    break
+            if owned:raise ValueError('spawn process group not quiescent')
         cancelled=not (directory/'exec-intent.json').exists() or (directory/'exec-error.json').exists()
         return dict(result='cancelled-before-exec' if cancelled else 'exited-exec-outcome-unclaimed',
                     birth=birth,groupObservation=group,targetExecuted=False if cancelled else None,

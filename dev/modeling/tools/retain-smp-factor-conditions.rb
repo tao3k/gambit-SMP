@@ -1,5 +1,5 @@
 require 'json'; require 'digest'; require 'fileutils'
-b=ARGV.fetch(0); out=ARGV.fetch(1); e='evidence/research/smp-factor-conditions'
+b=ARGV.fetch(0); out=ARGV.fetch(1); e='.cache/research/legacy-evidence/evidence/research/smp-factor-conditions'
 raise 'fresh archive required' if File.exist?(e)
 sha=->p { Digest::SHA256.file(p).hexdigest }
 m=JSON.parse(File.read(b+'/native-projection.json')); a=JSON.parse(File.read(out+'/receipt.json'))
@@ -8,7 +8,7 @@ raise 'model/policy drift' unless a['projectionSha256']==sha.call(b+'/native-pro
 raise 'wrong actual closure' unless a['scenarios']['current']['relations']['smpBlocked'].size==8 && a['scenarios']['current']['relations']['smpSupplied'].empty?
 raise 'overclaim' unless a['scenarios'].values.all? { |s| s['relations']['smpModernReady'].empty? }
 raise 'adapter/formal drift' unless sha.call(a['adapterReceipt'])==a['adapterReceiptSha256'] && sha.call(a['formalReceipt'])==a['formalReceiptSha256']
-alias_validation='evidence/research/frame-alias-contract/validation.json'
+alias_validation='.cache/research/legacy-evidence/evidence/research/frame-alias-contract/validation.json'
 alias_archive=JSON.parse(File.read(alias_validation))
 raise 'inconsistent alias identity' unless alias_archive['sourceDigest']==a['sourceDigest'] && alias_archive['profileSha256']==a['profileSha256']
 audit=JSON.parse(File.read(File.dirname(a['adapterReceipt'])+'/source-witnesses.json'))
@@ -29,7 +29,7 @@ paths+=%w[
  dev/modeling/tools/check-smp-factor-conditions.rb
  dev/modeling/tools/render-smp-factor-conditions.rb
  dev/modeling/tools/retain-smp-factor-conditions.rb
- evidence/research/modern-c-bootstrap/request-custody-source.lock.json
+ .cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json
  evidence/fixtures/gerbil-bazel-build-profile/profile.json
 ]
 paths+=[m['gateLedger'],m['priorEvidence'],alias_validation,a['adapterReceipt'],a['formalReceipt']]

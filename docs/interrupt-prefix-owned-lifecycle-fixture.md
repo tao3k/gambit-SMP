@@ -16,7 +16,7 @@ Global cleanup owns that prefix, including the early OS/memory failure path.
 ## Actual Observations
 
 The portable receipt summary is
-`evidence/source-results/fixtures/interrupt-prefix-owned-lifecycle/observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-prefix-owned-lifecycle/observation.json`.
 It hashes recipes, source locks, overlays, harnesses and sealed execution
 receipts without publishing host paths.
 

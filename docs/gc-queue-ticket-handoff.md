@@ -48,7 +48,7 @@ complete native suites, Gerbil/package correctness or performance gates.
 
 Candidate 017's interpretation passes in 1.727 seconds, while compilation still
 times out at 20.007 seconds. Its portable receipt is
-`evidence/model-results/native-queue-acquire-clean-host-timeout.json`; status
+`.cache/research/legacy-evidence/evidence/model-results/native-queue-acquire-clean-host-timeout.json`; status
 remains DENY. A valid same-binary 15-second observation places 11 workers in
 `mark_reachable_from_marked` condition-variable waits and the remaining worker
 in `barrier_sync_op`. This is distinct from the diagnostic-lock contention in

@@ -3,7 +3,7 @@
 package GambitSmpFactorConditions {
   private import ScalarValues::*;
   attribute gateLedger:String="docs/smp-twelve-gate-research-map.md";
-  attribute priorEvidence:String="evidence/research/modern-c-bootstrap/architecture-causal-validation.json";
+  attribute priorEvidence:String=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/architecture-causal-validation.json";
   part def Factor {
     ref part argument:GambitCausalArchitecture::Argument;
     attribute id:String; attribute scope:String; attribute mechanism:String;

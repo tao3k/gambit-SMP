@@ -53,7 +53,7 @@ package GambitNativeDescriptor {
         attribute :>> semanticOwner = "Scheme owns identity, ordering, binding meaning and effects";
         attribute :>> nativeOwner = "Encoder emits bounded tables and typed relocation kinds";
         attribute :>> invariant = "Counts equal complete table extents; every reference resolves within the accepted image/domain; order and supplied prefix preserved";
-        attribute :>> sourceRefs = "vendor/gambit/include/gambit.h.in:11877-11901; vendor/gambit/lib/setup.c:1620-1737; vendor/gambit/gsc/_t-c-1.scm:2194-2244";
+        attribute :>> sourceRefs = "vendor/gambit/include/_gambit/module_state.h.in:3-29; vendor/gambit/lib/setup.c:1620-1737; vendor/gambit/gsc/_t-c-1.scm:2194-2244";
     }
     part descriptorField2 : DescriptorField {
         attribute :>> fieldId = "MS-INSTANCE";
@@ -80,7 +80,7 @@ package GambitNativeDescriptor {
         attribute :>> semanticOwner = "Scheme consumes generated target constraints without duplicating constants";
         attribute :>> nativeOwner = "One target-layout description generates encoder and decoder; C compiler validates ordinary struct layout";
         attribute :>> invariant = "Internal size transform is applied exactly once; 32-bit map chunks compose correctly on 32/64-bit words; bounds and no shift overflow required";
-        attribute :>> sourceRefs = "vendor/gambit/gsc/_t-c-1.scm:206-218; vendor/gambit/gsc/_t-c-3.scm:489-532; vendor/gambit/include/gambit.h.in:9208-9324; vendor/gambit/include/gambit.h.in:11775-11819";
+        attribute :>> sourceRefs = "vendor/gambit/gsc/_t-c-1.scm:206-218; vendor/gambit/gsc/_t-c-3.scm:489-532; vendor/gambit/include/_gambit/module_generation.h.in:1043-1177; vendor/gambit/include/_gambit/label_types.h.in:1-43";
     }
     part descriptorField5 : DescriptorField {
         attribute :>> fieldId = "FS-CUSTODY";
@@ -122,7 +122,7 @@ package GambitNativeDescriptor {
         attribute :>> routeId = "MC-LABEL";
         attribute :>> producer = "FrameLayout and host mapping";
         attribute :>> consumer = "setup_module_fixup label/host/OFD setup";
-        attribute :>> sourceRefs = "vendor/gambit/lib/setup.c:1740-1844; vendor/gambit/include/gambit.h.in:11836-11868";
+        attribute :>> sourceRefs = "vendor/gambit/lib/setup.c:1964-2054; vendor/gambit/include/_gambit/label_types.h.in:1-43";
         attribute :>> observation = "Host function queried for label values; OFD cursor advances using actual fs and target words";
         attribute :>> requiredChange = "Resolve PointId and descriptors into one image-owned mapping; freeze metadata after preparation; raw label identity stays behind an adapter until all readers migrate";
         attribute :>> retirementGate = "No old DEF_LBL_RET/DEF_OFD producer or implicit sequential OFD consumer remains after all roots/control readers migrate";

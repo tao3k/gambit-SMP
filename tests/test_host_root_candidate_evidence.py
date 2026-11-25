@@ -28,7 +28,7 @@ class HostRootCandidateEvidenceTests(unittest.TestCase):
                 "emptyPublicQueuesStillNeedProducerLifetime"))
 
     def test_current_source_bindings_do_not_grant_complete_census(self):
-        path = ROOT / "evidence/research/host-root-publication/candidate-facts.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication/candidate-facts.json"
         facts = json.loads(path.read_text())["facts"]
         inputs = {row[1]: row[2] for row in facts["source"]}
         inputs[str(path.relative_to(ROOT))] = digest(path)

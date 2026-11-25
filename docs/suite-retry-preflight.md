@@ -43,7 +43,7 @@ receipt records `runtimeExecuted: false`. This is an execution-gate negative
 control, not another attempt to compile the known failing file.
 
 The source-bound gate receipt and comparison are archived as
-`evidence/model-results/suite-retry-preflight-026-bound-deny.json` and
+`.cache/research/legacy-evidence/evidence/model-results/suite-retry-preflight-026-bound-deny.json` and
 `suite-retry-preflight-026-bound-details.json`. Earlier attempt 002 receipts
 remain separately archived; raw attempt 001 exception context remains local.
 No Gambit runtime code was changed.

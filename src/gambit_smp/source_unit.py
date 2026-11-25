@@ -140,7 +140,7 @@ def vm_actlog_abort_unit(args, compiler, environment, version):
         include.write_text(block)
         if args.native_runtime_root:
             from gambit_smp.runtime_identity import check
-            identity_path = ROOT / "evidence/source-results/source031-native-gc-fixtures/identity.json"
+            identity_path = ROOT / ".cache/research/legacy-evidence/evidence/source-results/source031-native-gc-fixtures/identity.json"
             identity = json.loads(identity_path.read_text())
             runtime = args.native_runtime_root.resolve()
             check(runtime, identity)

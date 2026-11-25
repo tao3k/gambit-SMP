@@ -51,7 +51,7 @@ seconds** (whole observation 298.9214069590016 seconds), with phases one
 through four each observed twice. The actual from-scratch command took
 144.15465704200324 seconds, exited zero, and was reaped and quiescent. The
 exported producer reference is
-`evidence/research/vm-registry-reader-lease/reporter-preservation-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/reporter-preservation-completed-producer.json`.
 
 The complete interpreted recipe then passed **379/379 files and 9/9 groups**
 in **58.831643083001836 seconds** (whole observation 59.30163545799587

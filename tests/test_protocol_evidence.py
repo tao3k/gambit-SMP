@@ -14,8 +14,8 @@ from tests.support import protocol_fixture
 
 class ProtocolEvidenceTests(unittest.TestCase):
     def test_budget_ledger_parent_is_registered_without_admission(self):
-        manifest_name = "evidence/research/continuation-retained-seed-bootstrap/budget-ledger-contract.json"
-        receipt_name = "evidence/model-results/research/checkpoint-budget-ledger/receipt.json"
+        manifest_name = ".cache/research/legacy-evidence/evidence/research/continuation-retained-seed-bootstrap/budget-ledger-contract.json"
+        receipt_name = ".cache/research/legacy-evidence/evidence/model-results/research/checkpoint-budget-ledger/receipt.json"
         manifest = json.loads((ROOT / manifest_name).read_text())
         parent = manifest["cases"][0]
         self.assertTrue(parent["registrationOnly"])
@@ -26,13 +26,13 @@ class ProtocolEvidenceTests(unittest.TestCase):
         self.assertEqual(rows["protocol_composes"], [])
         self.assertEqual(bound["models/gambit/checkpoint_budget_ledger.qnt"],
                          digest(ROOT / "models/gambit/checkpoint_budget_ledger.qnt"))
-        child = json.loads((ROOT / "evidence/research/continuation-retained-seed-bootstrap/charged-consumption-contract.json").read_text())
+        child = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/continuation-retained-seed-bootstrap/charged-consumption-contract.json").read_text())
         self.assertEqual(child["cases"][0]["composes"], [parent["id"]])
         self.assertIn((manifest_name, receipt_name), evidence.load_bundles(ROOT))
 
     def test_log_processor_composition_has_real_control_and_complete_check(self):
         manifest = json.loads((ROOT / "evidence/fixtures/pstate-log-owned-rollback/processor-log-contract.json").read_text())
-        receipt = ROOT / "evidence/model-results/fixtures/pstate-log-owned-rollback/processor-log-contract/receipt.json"
+        receipt = ROOT / ".cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-log-owned-rollback/processor-log-contract/receipt.json"
         rows = evidence.checked_rows(ROOT, manifest, receipt)[0][1]
         old = next(row for row in rows if row["variant"] == "old")
         positive = next(row for row in rows if row["variant"] == "protocol")
@@ -44,7 +44,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
 
     def test_vm_constructor_composition_has_complete_state_and_source_closure(self):
         manifest_name = "evidence/vm-constructor-rollback-composition.json"
-        receipt_name = "evidence/model-results/fixtures/pstate-log-owned-rollback/vm-constructor-contract/receipt.json"
+        receipt_name = ".cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-log-owned-rollback/vm-constructor-contract/receipt.json"
         manifest = json.loads((ROOT / manifest_name).read_text())
         rows = evidence.checked_rows(ROOT, manifest, ROOT / receipt_name)[0][1]
         self.assertEqual(4, len(rows))
@@ -81,7 +81,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
 
     def test_portable_proof_rejects_changed_dependency_snapshot(self):
         import shutil
-        name = "evidence/model-results/fixtures/pstate-log-owned-rollback/vm-constructor-contract/receipt.json"
+        name = ".cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-log-owned-rollback/vm-constructor-contract/receipt.json"
         manifest = json.loads((ROOT / "evidence/vm-constructor-rollback-composition.json").read_text())
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "proof"
@@ -91,7 +91,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
                 evidence.checked_rows(ROOT, manifest, target / "receipt.json")
 
     def test_delayed_log_cleanup_violates_return_even_before_final_leak(self):
-        directory = ROOT / "evidence/model-results/pstate-log-return-handoff-source032"
+        directory = ROOT / ".cache/research/legacy-evidence/evidence/model-results/pstate-log-return-handoff-source032"
         trace = json.loads((directory /
             "pstate_log_rollback_composition-old-returnOwnershipSafe.trace.json").read_text())
         state = trace["states"][-1]
@@ -103,7 +103,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
 
     def test_previous_log_composition_receipt_does_not_prove_stronger_model(self):
         manifest = json.loads((ROOT / "evidence/pstate-log-rollback-composition.json").read_text())
-        receipt = ROOT / "evidence/model-results/pstate-log-rollback-composition/receipt.json"
+        receipt = ROOT / ".cache/research/legacy-evidence/evidence/model-results/pstate-log-rollback-composition/receipt.json"
         with self.assertRaises(ValueError):
             evidence.checked_rows(ROOT, manifest, receipt)
 
@@ -120,7 +120,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
 
     def test_pstate_composition_binds_import_and_selected_transition(self):
         manifest = json.loads((ROOT / "evidence/pstate-failure-composition.json").read_text())
-        path = ROOT / "evidence/model-results/pstate-failure-composition/receipt.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/model-results/pstate-failure-composition/receipt.json"
         rows = evidence.checked_rows(ROOT, manifest, path)
         self.assertEqual(4, len(rows[0][1]))
         positive = next(row for row in rows[0][1] if row["variant"] == "protocol")
@@ -367,7 +367,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
         manifest = verify.load_manifest(ROOT / name)
         case = manifest["cases"][0]
         self.assertEqual([("protocol", "guardSound", "init")], verify.model_checks(case))
-        receipt = "evidence/model-results/continuation-origin-model/receipt.json"
+        receipt = ".cache/research/legacy-evidence/evidence/model-results/continuation-origin-model/receipt.json"
         with protocol_fixture(ROOT, name, receipt) as (root, context, saved):
             rows = evidence.checked_rows(root, context, saved)
             self.assertEqual("protocol", rows[0][1][0]["variant"])

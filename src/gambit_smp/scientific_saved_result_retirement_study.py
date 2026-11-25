@@ -1,0 +1,227 @@
+"""Research artifacts only: native SysML -> ASCENT / typed QNT IR -> Lean."""
+from gambit_smp.research_flow import projected_fields as _study_fields
+from gambit_smp.research_flow import study_workspace as _study_workspace
+from gambit_smp.research_flow import write_text as _study_write_text
+import copy
+import hashlib
+import json
+import re
+import shutil
+from pathlib import Path
+
+class ScientificLibrary:
+
+    def __init__(_science, context):
+        _science.context = context
+        _science._study_fields = _study_fields
+        _science._study_workspace = _study_workspace
+        _science._study_write_text = _study_write_text
+        _science.copy = copy
+        _science.hashlib = hashlib
+        _science.json = json
+        _science.re = re
+        _science.shutil = shutil
+        _science.Path = Path
+        _science.ROOT = _science.context.root
+        _science.BASE = _science.ROOT / 'dev/refactoring/modern-c'
+        _science.LEAN = '/Users/guangtao/.elan/toolchains/leanprover--lean4---v4.35.0/bin/lean'
+        _science.GROUPS = [('source', 16, ['key', 'path', 'needle', 'limit']), ('obligation', 7, ['key', 'status', 'condition']), ('route', 22, ['actionName', 'lemma', 'source', 'obligation']), ('gain', 5, ['key', 'saved', 'added', 'condition', 'status']), ('issuer', 5, ['key', 'source', 'signature', 'gap']), ('consumer', 8, ['key', 'source', 'access', 'lifetime', 'limit']), ('edge', 8, ['fromNode', 'toNode', 'contract'])]
+        _science.helper = _science.context.library('size_family_hold_balance_study')
+        _science.process_profile = _science.helper.process_profile
+
+    def sha(_science, path):
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+    def rel(_science, path):
+        return str(Path(path).relative_to(_science.ROOT))
+
+    def save(_science, path, value):
+        _study_write_text(Path(path), json.dumps(value, indent=2) + '\n')
+
+    def analyze(_science):
+        from ascent import Engine
+        _study_workspace('CACHE').mkdir(parents=True, exist_ok=True)
+        _study_workspace('OUT').mkdir(parents=True, exist_ok=True)
+        model = _science.BASE / 'models/sysml/saved-result-retirement.sysml'
+        qnt = _science.BASE / 'models/quint/saved_result_retirement.qnt'
+        ast = _science.BASE / 'models/lean/SavedResultRetirementAst.lean'
+        proof = _science.BASE / 'models/lean/SavedResultRetirement.lean'
+        projector = _science.ROOT / 'src/gambit_smp/scientific_saved_result_retirement_projection.py'
+        dsl = _science.ROOT / 'dev/modeling/ascent/saved-result-retirement.rules.scm'
+        parent = _science.ROOT / '.cache/tasks/future-frame-commit/runs/research/callback-producer/input.json'
+        bound = [model, qnt, ast, proof, projector, dsl, Path(str(_science.context.root / 'src/gambit_smp/scientific_saved_result_retirement_study.py')), _science.ROOT / 'src/gambit_smp/scientific_chunk_capacity_charge_projection.py', _science.ROOT / 'src/gambit_smp/scientific_size_family_hold_balance_study.py']
+        bindings = {_science.rel(f): _science.sha(f) for f in bound}
+        keys = [(g, i, f, 'GambitSavedResultRetirement::' + g + str(i) + '.' + f) for g, n, fs in _science.GROUPS for i in range(n) for f in fs]
+        field_expressions = []
+        for *_, expr in keys:
+            field_expressions.append(expr)
+        raw = _study_fields(_science.ROOT, None, 'saved-result-retirement', field_expressions, ordered=True, models=[str(model)])
+        vals = raw['orderedValues']
+        assert len(vals) == len(keys)
+        projection = {}
+        for (g, i, f, _), v in zip(keys, vals, strict=True):
+            projection.setdefault(g, {}).setdefault(i, {})[f] = v
+        p = {g: list(rows.values()) for g, rows in projection.items()}
+        _science.save(_study_workspace('CACHE') / 'projection.json', p)
+        sources = []
+        for row in p['source']:
+            f = _science.ROOT / row['path']
+            text = f.read_text()
+            assert row['needle'] in text, row
+            digest = _science.sha(f)
+            bindings[row['path']] = digest
+            _study_write_text(_study_workspace('CACHE') / ('source-' + digest + '.txt'), text)
+            sources.append(dict(**row, sha256=digest, lines=[text.count('\n', 0, m.start()) + 1 for m in re.finditer(re.escape(row['needle']), text)]))
+        _science.save(_study_workspace('CACHE') / 'source-witnesses.json', sources)
+        ledger = _science.ROOT / '.cache/research/legacy-evidence/evidence/research/tcl-source-borrow/pinned-tcl-sources.json'
+        pinned = json.loads(ledger.read_text())
+        bindings[_science.rel(ledger)] = _science.sha(ledger)
+        assert pinned['commit'] == 'cbf86d62348d6b052e1961b4df995960fb21545f'
+        verified = []
+        for row in pinned['records']:
+            f = _science.ROOT / row['capturePath']
+            data = f.read_bytes()
+            assert _science.sha(f) == row['sha256']
+            blob = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\x00' + data).hexdigest()
+            assert blob == row['gitBlobSha1']
+            bindings[_science.rel(f)] = _science.sha(f)
+            verified.append(dict(path=_science.rel(f), sha256=_science.sha(f), gitBlobSha1=blob))
+        _science.save(_study_workspace('CACHE') / 'pinned-tcl-verification.json', dict(commit=pinned['commit'], records=verified, loadedBinaryQualified=False))
+        capture = _science.ROOT / 'evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic'
+        captured = [f for f in sorted(capture.iterdir()) if f.is_file() and f.suffix in ['.c', '.h', '.decls']]
+        for f in captured:
+            bindings[_science.rel(f)] = _science.sha(f)
+        inventory = _science.context.command('holder-inventory', ['rg', '-n', 'Tcl_(Save|Restore|Discard)(InterpState|Result)|Tcl_SavedResult|TclSubstParse', str(capture), '-g', '*.c', '-g', '*.h', '-g', '*.decls'], policy=_science.process_profile)
+        _science.save(_study_workspace('CACHE') / 'holder-inventory.json', dict(capturedFiles={_science.rel(f): _science.sha(f) for f in captured}, matches=inventory.splitlines(), partialCapture=True, allAliasesOrExternalCallersClosed=False, legacyDirectCallWitnessFound=False, indirectSubstProducerDefinitionCaptured=False))
+        paper = _science.ROOT / 'evidence/research/source-references/feeley-sfp/8bb2fae8ae4b54d3a86206596f90e9cf73da39846af0f39244a476074cf81ed4.txt'
+        assert _science.sha(paper) == paper.stem
+        bindings[_science.rel(paper)] = _science.sha(paper)
+        previous = json.loads(parent.read_text())
+        parent_ast = _science.BASE / 'models/lean/CallbackProducerAst.lean'
+        assert _science.sha(parent_ast) == previous['sourceBindings'][_science.rel(parent_ast)]
+        assert _science.sha(_science.LEAN) == previous['leanBinarySha256']
+        bindings[_science.rel(parent_ast)] = _science.sha(parent_ast)
+        _science.context.command('typecheck', ['quint', 'typecheck', str(qnt), '--out', str(_study_workspace('CACHE') / 'typed-ir.json')], policy=_science.process_profile)
+        ir = json.loads((_study_workspace('CACHE') / 'typed-ir.json').read_text())
+        pr = _science.context.library('saved_result_retirement_projection')
+        generated, receipt = pr.generate(ir)
+        assert ast.read_text() == generated
+        controls = {}
+        for case in ['binding', 'field', 'roster', 'expression']:
+            bad = copy.deepcopy(ir)
+            ds = {d['name']: d for d in bad['modules'][0]['declarations']}
+            if case == 'binding':
+                bad['table'][str(receipt['stateReferences'][0][0])]['id'] = -1
+            if case == 'field':
+                ds['State']['type']['fields']['fields'][0]['fieldType']['kind'] = 'bool'
+            if case == 'roster':
+                ds['step']['expr']['args'].pop(0)
+            if case == 'expression':
+                ds['safe']['expr']['opcode'] = 'unsupported'
+            try:
+                pr.generate(bad)
+            except (AssertionError, KeyError):
+                controls[case] = 'rejected'
+            else:
+                raise AssertionError(case)
+        _science.save(_study_workspace('CACHE') / 'projection.json', dict(**receipt, controls=controls, irSha256=_science.sha(_study_workspace('CACHE') / 'typed-ir.json')))
+        for name in ['CallbackProducerAst', 'SavedResultRetirementAst', 'SavedResultRetirement']:
+            source = _science.BASE / 'models/lean' / (name + '.lean')
+            assert not re.search('\\bsorry\\b|\\baxiom\\s', source.read_text())
+            _science.context.command('lean-' + name, ['env', 'LEAN_PATH=' + str(_study_workspace('CACHE')), _science.LEAN, '-o', str(_study_workspace('CACHE') / (name + '.olean')), str(source)], policy=_science.process_profile)
+        actions = pr.SPEC['actions']
+        lemmas = ['SavedResultRetirement.' + n for n in re.findall('^theorem (\\w+)', proof.read_text(), re.M)]
+        assert len(p['route']) == len(actions)
+        assert {r['actionName'] for r in p['route']} == set(actions)
+        assert all((r['lemma'] in lemmas for r in p['route']))
+        _science.context.command('histories', ['quint', 'test', str(qnt), '--backend', 'typescript', '--match', 'Test$', '--max-samples', '1', '--seed', '953'], policy=_science.process_profile)
+        _science.context.command('samples', ['quint', 'run', str(qnt), '--backend', 'typescript', '--init', 'init', '--invariant', 'safe', '--max-samples', '500', '--max-steps', '80', '--seed', '953', '--verbosity', '1'], policy=_science.process_profile)
+        negatives = {'restore-during-unknown': (['saveA', 'installB', 'beginRestore', 'loseB'], 'commitRestoreGuard witness'), 'newer-C-not-settled': (['saveA', 'installB', 'beginRestore', 'reenterPublishC', 'ackB'], 'commitRestoreGuard witness'), 'discard-retry-unknown': (['saveA', 'beginDiscard', 'loseA'], 'beginDiscardGuard witness'), 'restore-retry-unknown': (['saveA', 'installB', 'beginRestore', 'loseB'], 'beginRestoreGuard witness'), 'done-not-results': (['completeFirst', 'closeObserverGate'], 'closeIssuerGuard witness'), 'reader-outlives-close': (['saveA', 'installB', 'beginRestore', 'ackB', 'commitRestore', 'beginRestoredRelease', 'ackA', 'lookupRecord', 'completeFirst', 'closeObserverGate', 'closeIssuer'], 'retireRecordGuard witness'), 'issuer-still-open': (['saveA', 'installB', 'beginRestore', 'ackB', 'commitRestore', 'beginRestoredRelease', 'ackA', 'completeFirst', 'closeObserverGate'], 'retireRecordGuard witness'), 'late-lookup': (['saveA', 'installB', 'beginRestore', 'ackB', 'commitRestore', 'beginRestoredRelease', 'ackA', 'completeFirst', 'closeObserverGate', 'closeIssuer', 'retireRecord'], 'lookupRecordGuard witness'), 'old-ACK-after-reuse': (['saveA', 'installB', 'beginRestore', 'ackB', 'commitRestore', 'beginRestoredRelease', 'ackA', 'completeFirst', 'closeObserverGate', 'closeIssuer', 'retireRecord', 'reuseSlot'], 'completeFirstGuard witness')}
+        for case, (seq, goal) in negatives.items():
+            expr = 'initial'
+            defs = ['initial']
+            guard_checks = []
+            for a in seq:
+                guard_checks.append('example : ' + a + 'Guard (' + expr + ') := by simp [' + ','.join([a + 'Guard'] + defs) + ']')
+                expr = a + 'Next (' + expr + ')'
+                defs.append(a + 'Next')
+            simp = ','.join(['Safe', 'witness'] + defs + [a + 'Guard' for a in actions])
+            text = 'import SavedResultRetirement\nopen SavedResultRetirementAst\ndef witness : State := ' + expr + '\n' + '\n'.join(guard_checks) + '\nexample : Safe witness := by simp [' + simp + ']\nexample : ¬ (' + goal + ') := by simp [' + simp + ']\n'
+            f = _study_workspace('CACHE') / (case + '-original.lean')
+            _study_write_text(f, text)
+            _science.context.command(case + '-original', ['env', 'LEAN_PATH=' + str(_study_workspace('CACHE')), _science.LEAN, str(f)], policy=_science.process_profile)
+            f = _study_workspace('CACHE') / (case + '-negative.lean')
+            _study_write_text(f, text + 'example : ' + goal + ' := by simp [' + simp + ']\n')
+            result = _science.context.command(case + '-negative', ['env', 'LEAN_PATH=' + str(_study_workspace('CACHE')), _science.LEAN, str(f)], expected=1, policy=_science.process_profile)
+            assert result.count('error:') == 1
+
+        def rows(group):
+            return [list(row.values()) for row in p[group]]
+        src = [[r['key'], r['path'], r['sha256'], r['needle']] for r in sources]
+        results = {}
+        engine = Engine()
+        try:
+            session = engine.open_sources(dsl.read_text())
+            assert session.run(queries=['blocked'])['complete']
+            for case in ['current', 'synthetic-all', 'stale-source', 'missing-lemma', 'wrong-issuer', 'wrong-route', 'done-as-grace', 'restore-as-set-result']:
+                seen = copy.deepcopy(src)
+                ls = [[l] for l in lemmas]
+                issuers = rows('issuer')
+                routes = rows('route')
+                consumers = rows('consumer')
+                qualified = rows('obligation')
+                if case == 'current':
+                    qualified = [r for r in qualified if r[1] != 'unresolved']
+                if case == 'stale-source':
+                    seen[0][2] = 'stale'
+                if case == 'missing-lemma':
+                    ls.remove(['SavedResultRetirement.retireRecordPreserves'])
+                if case == 'wrong-issuer':
+                    issuers[0][2] = 'claim success itself protects all earlier metadata loads'
+                if case == 'wrong-route':
+                    routes[0][1] = 'SavedResultRetirement.retireRecordPreserves'
+                if case == 'done-as-grace':
+                    issuers[3][2] = 'done means all observer pointers have disappeared'
+                if case == 'restore-as-set-result':
+                    consumers[5][2] = 'Restore publishes saved A before old current B callback'
+                session.replace(dict(sourceNeed=src, sourceSeen=seen, obligation=rows('obligation'), qualified=qualified, actionName=[[a] for a in actions], lemmaName=ls, routeNeed=rows('route'), routeSeen=routes, issuerNeed=rows('issuer'), issuerSeen=issuers, consumerNeed=rows('consumer'), consumerSeen=consumers))
+                result = session.run(queries=['blocked', 'candidate', 'routeLinked', 'issuerLinked', 'consumerLinked'])
+                assert result['complete']
+                results[case] = result['relations']
+        finally:
+            engine.close()
+        assert [k for k, r in results.items() if r['candidate']] == ['synthetic-all']
+        _science.save(_study_workspace('CACHE') / 'ascent-results.json', dict(results=results, syntheticIsNotNativeEvidence=True))
+        lines = ['#+TITLE: Saved-result retirement — benefit, issuer and closure matrix', '#+SETUPFILE: ../../modeling/org/setup.org', '#+LANGUAGE: en', '#+PROPERTY: header-args :eval never', '', '* RESEARCH Native SysML projection', ':PROPERTIES:', ':AUTHORITY: GambitSavedResultRetirement', ':END:', 'Safety-model closure does not certify native caller coverage, C23 execution or performance.']
+        for group in ['gain', 'consumer', 'issuer', 'obligation', 'route', 'source']:
+            fs = list(p[group][0])
+            lines += ['', '** ' + group.capitalize(), '', '| ' + ' | '.join(fs) + ' |', '|' + '+'.join(('---' for _ in fs)) + '|']
+            lines += ['| ' + ' | '.join((str(row[f]).replace('|', ' / ') for f in fs)) + ' |' for row in p[group]]
+        matrix = _science.BASE / 'saved-result-retirement-matrix.org'
+        _study_write_text(matrix, '\n'.join(lines) + '\n')
+        d2 = _science.BASE / 'diagrams/saved-result-retirement.d2'
+        _study_write_text(d2, 'direction: down\ntitle: "C23 saved results: restore escrow and completion-record retirement"\n' + '\n'.join((json.dumps(r['fromNode']) + ' -> ' + json.dumps(r['toNode']) + ': ' + json.dumps(r['contract']) for r in p['edge'])) + '\n')
+        _science.context.command('d2', ['d2', '--layout', 'elk', str(d2), str(d2.with_suffix('.svg'))], policy=_science.process_profile)
+        checks = dict(sourceAnchors=len(sources), fields=len(pr.SPEC['fields']), actions=len(actions), histories=6, samples=500, maxSteps=80, seed=953, leanTheorems=len(lemmas), stepInduction=True, guardedActualDomainJoin=True, fullProductSimulation=False, typedIrNegativeControls=len(controls), reachableAdmissionCounterexamples=len(negatives), ascentScenarios=len(results), externalReaderClosure=False, domainReaderClosure=False, faultRecoveryImplemented=False, landingIdentityIsPremise=True, storageReceiptIsPremise=True, loadedTclQualified=False, c23Refinement=False, nativeAdmission=False, runtimeImplementation=False, nativeTests=False, nativeCompilerOrPreprocessorRun=False, performanceTests=False, nativePathsRetired=0, unresolved=[r['key'] for r in p['obligation'] if r['status'] == 'unresolved'])
+        _science.save(_study_workspace('OUT') / 'checks.json', dict(checks, validationComplete=False))
+        org = (_science.ROOT / '.cache/research/legacy-evidence/evidence/research/iter-compiler-service/check-org.el').read_text()
+        org = org.replace('dev/architecture/toolchain/iter-compiler-service-design.org', 'dev/refactoring/modern-c/saved-result-retirement-design.org').replace('dev/architecture/toolchain/iter-compiler-service-matrix.org', 'dev/refactoring/modern-c/saved-result-retirement-matrix.org').replace('dev/architecture/toolchain/index.org', 'dev/refactoring/modern-c/index.org')
+        _study_write_text(_study_workspace('CACHE') / 'check-org.el', org)
+        _science.context.command('org', ['emacs', '--batch', '-Q', '--load', str(_study_workspace('CACHE') / 'check-org.el')], policy=_science.process_profile)
+        for f in [_science.BASE / 'saved-result-retirement-design.org', matrix, _science.BASE / 'index.org', _science.BASE / 'runtime-blueprint.org', d2, d2.with_suffix('.svg')]:
+            bindings[_science.rel(f)] = _science.sha(f)
+        assert all((_science.sha(_science.ROOT / f) == h for f, h in bindings.items()))
+        _science.save(_study_workspace('CACHE') / 'input.json', dict(sourceBindings=bindings, leanBinarySha256=_science.sha(_science.LEAN), parentInputSha256=_science.sha(parent), runtimeClaim=False))
+        checks['validationComplete'] = True
+        _science.save(_study_workspace('CACHE') / 'checks.json', checks)
+        for f in _study_workspace('CACHE').rglob('*'):
+            if f.is_file():
+                target = _study_workspace('OUT') / f.relative_to(_study_workspace('CACHE'))
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(f, target)
+        _science.save(_study_workspace('OUT') / 'artifacts.json', {_science.rel(f): _science.sha(f) for f in _study_workspace('OUT').rglob('*') if f.is_file() and f.name != 'artifacts.json'})
+        print(json.dumps(checks, indent=2))
+
+# Preserved scientific source notes (in original order).
+# Local retained paper; no new Internet or native program execution.
+# Bind the actual previous provider AST; do not substitute a toy provider model.

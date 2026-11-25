@@ -11,8 +11,8 @@ image-bound configuration also records O1, RTS optimization, GCC options,
 inline jumps, dynamic clib and trusted C tail calls.
 
 Authoritative old inputs:
-- `evidence/source-results/fixtures/thread-completion-contract/numeric-compiler-phase-history/compiler-invocation.json`
-- `evidence/source-results/fixtures/thread-completion-contract/balanced-compiled-suite-history/compiler-configuration.json`
+- `.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/numeric-compiler-phase-history/compiler-invocation.json`
+- `.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/balanced-compiled-suite-history/compiler-configuration.json`
 
 The latter is an embedded configuration projection, not a recovered executed
 command; that distinction remains unchanged. The current source lock and

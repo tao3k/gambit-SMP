@@ -731,5 +731,75 @@ class EvidenceViewTests(unittest.TestCase):
                 validate_recorded_cases(changed)
 
 
+class ResumptionAdmissionPublicationTests(unittest.TestCase):
+    view = 'evidence/scenarios/modern-c/resumption-admission-contract.view.json'
+
+    def test_current_contract_separates_formal_support_from_native_qualification(self):
+        from gambit_smp import repository_clues
+        response = repository_clues(ROOT, bindings=[('scope', 'dev-resumption-admission-contract')],
+                                    display_bytes=20000)
+        brief = response['brief']
+        self.assertTrue(brief['evaluationComplete'])
+        self.assertTrue(brief['presentationComplete'])
+        families = {row['claim']: row for row in brief['families']}
+        expected = {'modern-c-resumption-admission-formal-controls-recorded': 'support',
+                    'modern-c-resumption-admission-native-qualification-established': 'counter'}
+        self.assertEqual(set(expected), set(families))
+        for claim, polarity in expected.items():
+            rows = families[claim]['observations']
+            self.assertEqual([polarity], [row['polarity'] for row in rows])
+            self.assertEqual(['false'], rows[0]['factors']['runtime-admitted'])
+            self.assertEqual(['5/12'], rows[0]['factors']['aggregate-progress'])
+
+    def test_current_generator_or_adapter_change_invalidates_the_view(self):
+        from gambit_smp.evidence_views import ReferenceUnavailable
+        document = json.loads((ROOT / self.view).read_text())
+        paths = [ROOT / row['path'] for row in document['references']]
+        self.assertIn(ROOT / 'vendor/gambit/gsc/_t-c-2.scm', paths)
+        self.assertIn(ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-c-entry-arrival-adapter.json', paths)
+        macro_paths = [ROOT / 'vendor/gambit/include/_gambit/object_access.h.in',
+                       ROOT / 'vendor/gambit/include/_gambit/value_types.h.in',
+                       ROOT / 'vendor/gambit/gsc/_t-c-1.scm',
+                       ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-gcc-numeric-macros.txt']
+        macro_paths += [ROOT / 'dev/refactoring/modern-c/allocation-intervals.org',
+                        ROOT / 'vendor/gambit/lib/_mem/heap-sections.inc',
+                        ROOT / 'vendor/gambit/include/_gambit/memory_state.h.in',
+                        ROOT / 'vendor/gambit/include/_gambit/stack_operations.h.in']
+        macro_paths += [ROOT / 'src/gambit_smp/recipes.py',
+                        ROOT / 'tests/test_recipes.py',
+                        ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-gradual-compiler-memory-guard.json']
+        macro_paths += [ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-gcc-point-context.json']
+        macro_paths += [ROOT / 'dev/refactoring/modern-c/host-placement.org',
+                        ROOT / 'vendor/gambit/lib/_num.scm']
+        macro_paths += [ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-ordered-stress-identity-control.json',
+                        ROOT / 'tests/test_stress_inventory.py',
+                        ROOT / 'vendor/gambit/tests/unit-tests/06-thread/tfib_stress.scm']
+        macro_paths += [ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-host-ra-projection-review.json',
+                        ROOT / 'vendor/gambit/gsc/_env.scm']
+        macro_paths += [ROOT / 'dev/refactoring/modern-c/models/quint/numeric_host_admission.qnt',
+                        ROOT / 'dev/refactoring/modern-c/models/lean/NumericHostSpan.lean',
+                        ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-numeric-host-admission.json']
+        for path in macro_paths:
+            self.assertIn(path, paths)
+        read_bytes = Path.read_bytes
+        for changed in [ROOT / 'vendor/gambit/gsc/_t-c-2.scm',
+                        ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-c-entry-arrival-adapter.json',
+                        *macro_paths]:
+            with self.subTest(changed=changed), patch.object(
+                    Path, 'read_bytes', lambda path: b'changed' if path == changed else read_bytes(path)):
+                with self.assertRaises(ReferenceUnavailable):
+                    load(ROOT, self.view)
+
+    def test_current_publication_uses_repository_references(self):
+        document = json.loads((ROOT / self.view).read_text())
+        roles = json.loads((ROOT / 'evidence/research/retained/modern-c/stress-gsi/dev-c-host-scope-projection.json').read_text())['roles']
+        unrecorded = [role for role in roles if role['consumerSourceMatches'] is None]
+        self.assertTrue(unrecorded, 'the historical receipt omitted an actual consumer')
+        self.assertTrue(all(not role['nativeSourceMatches'] and not role['hostQualified'] for role in unrecorded))
+        self.assertTrue(all(role['countPeriod'].startswith('Historical') for role in roles))
+        for row in document['references']:
+            self.assertNotIn(Path(row['path']).parts[0], ('.cache', '.data'))
+
+
 if __name__ == "__main__":
     unittest.main()

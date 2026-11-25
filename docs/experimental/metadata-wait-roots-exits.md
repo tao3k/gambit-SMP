@@ -17,7 +17,7 @@ synchronous operations, call Scheme, or take an unresolved registry lock.
 No specific lock, new public API, root-stack ABI or runtime patch is selected.
 
 Gambit authority is baseline `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`
-plus the [locked overlay](../../evidence/research/processor-interrupt-collective-wait/source.lock.json)
+plus the locked overlay (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout)
 (SHA-256 `7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b`).
 All Gambit line references below refer to that overlay. It includes `lib/mem.h`;
 the candidate digest is `9bc0e1c5be068e94b1f4b73df74b9c434a02c176f4a3b9eecf2beb7f58f59c84`,

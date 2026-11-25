@@ -23,7 +23,7 @@ archive inputs; later changes require revalidation.
 
 ## Proof Boundary
 
-[`gc-source-wait-composed-obligations/receipt.json`](../evidence/model-results/gc-source-wait-composed-obligations/receipt.json)
+`gc-source-wait-composed-obligations/receipt.json` (local execution locator: `../.cache/research/legacy-evidence/evidence/model-results/gc-source-wait-composed-obligations/receipt.json`; unavailable in a clean checkout)
 reports `symbolicObligationsComplete=true`. It deliberately retains
 `accepted=false`, `inductiveSafetyAdmitted=false`, `solverCoverageProved=false`
 and no temporal/runtime/release admission. This is structural composition of
@@ -43,8 +43,8 @@ inherit the old result merely because an action name matches.
 
 ```sh
 python -m gambit_smp.induction_reuse \
-  --baseline evidence/model-results/gc-induction-cartesian-contract-ir/receipt.json \
-  --delta evidence/model-results/gc-source-wait-new-action-induction/receipt.json \
+  --baseline .cache/research/legacy-evidence/evidence/model-results/gc-induction-cartesian-contract-ir/receipt.json \
+  --delta .cache/research/legacy-evidence/evidence/model-results/gc-source-wait-new-action-induction/receipt.json \
   --manifest evidence/gc-source-wait-induction.json \
   --out .data/gc-source-wait-composition-reproduction
 ```

@@ -10,7 +10,7 @@ counterexamples in 7.058, 7.069 and 6.780 seconds respectively.
 
 Portable checker artifacts, imported-model snapshots, logs and traces were
 published and revalidated by the existing publisher under
-`evidence/model-results/research/interrupt-delivery-gc-roots`.
+`.cache/research/legacy-evidence/evidence/model-results/research/interrupt-delivery-gc-roots`.
 This is bounded projection evidence, not runtime or release admission.
 
 Source inspection gives an important negative finding: pinned

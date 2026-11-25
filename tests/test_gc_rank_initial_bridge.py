@@ -8,7 +8,7 @@ from tests.support import published_digest
 
 
 class GcRankInitialBridgeTests(unittest.TestCase):
-    base = ROOT / "evidence/model-results/gc-rank-initial-bridge"
+    base = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-rank-initial-bridge"
 
     def receipt(self, name):
         return json.loads((self.base / name / "receipt.json").read_text())

@@ -30,7 +30,7 @@ The existing verification framework took 23.036 seconds. Individual checks
 took 11.288, 11.447, 5.794 and 5.747 seconds, each below the unchanged
 15-second cap. Concurrency was host-auto, not a model CPU constant.
 The portable receipt, logs and counterexamples are in
-`evidence/model-results/fixtures/public-cleanup-resource-ownership/retirement-composition/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/public-cleanup-resource-ownership/retirement-composition/`.
 The registered bundle binds the immutable parent source lock and patch.
 
 The source successor rejects processor counts other than one and nonzero

@@ -14,7 +14,7 @@ from gambit_smp.ascent_program import engine_api, load_catalog, query
 
 
 ARCHIVE = "tests/fixtures/historical-bootstrap/bootstrap-second-core-history"
-ORIGINAL = "evidence/model-results/bootstrap-018-deny.json"
+ORIGINAL = ".cache/research/legacy-evidence/evidence/model-results/bootstrap-018-deny.json"
 PAIRS = [("status", "/status", "/status"), ("exit", "/exit", "/steps/0/exit"),
          ("timeout", "/timeout", "/steps/0/timeout"),
          ("duration", "/seconds", "/steps/0/seconds"),
@@ -98,7 +98,7 @@ class HistoricalObservationPolicyTests(unittest.TestCase):
     validation_domain = {"kind": "sealed-research", "budgetSeconds": 60, "workers": "auto", "processesPerWorker": 2}
 
     def setUp(self):
-        self.catalog = load_catalog(ROOT / "evidence/research/suite-review-rules.ss")
+        self.catalog = load_catalog(ROOT / "evidence/dsl/suite-review-rules.ss")
         self.facts = {
             "retry_marker": [[True]], "known_failure": [["old", "bootstrap"]], "selected_failure": [["old"]],
             "failure_category": [["old", "budget"]], "review_present": [["old"]], "campaign_bound": [["old"]],

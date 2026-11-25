@@ -1,0 +1,210 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "still-reservation-gc-epilogue",
+  "scope": "Source-bound P1 check of still reservation and movable rearm after resize. No native seed, module emission or runtime admission.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "evidence/dsl/c-bounded-contract.ss",
+    "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+    "tests/contracts/allocation-grant/still-reservation/gc-epilogue/check.recipe.json",
+    "tests/contracts/allocation-grant/still-reservation/gc-epilogue/harness.c",
+    "vendor/gambit/lib/_mem/allocation-limits.inc",
+    "vendor/gambit/lib/_mem/capacity-resize.inc",
+    "vendor/gambit/lib/_mem/collection-round.inc",
+    "vendor/gambit/lib/mem.h",
+    "vendor/gambit/lib/collector.h",
+    "tests/contracts/allocation-grant/still-reservation/gc-epilogue/baseline-epilogue.inc"
+  ],
+  "steps": [
+    {
+      "id": "baseline-epilogue",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "contract": "allocation-grant/still-reservation",
+        "branch": "gc-epilogue",
+        "interface": "AllocationGrant",
+        "harness": "tests/contracts/allocation-grant/still-reservation/gc-epilogue/harness.c",
+        "function": "still_reservation_contract",
+        "sources": [
+          "tests/contracts/allocation-grant/still-reservation/gc-epilogue/harness.c",
+          "vendor/gambit/lib/_mem/allocation-limits.inc",
+          "vendor/gambit/lib/_mem/capacity-resize.inc",
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/lib/collector.h",
+          "tests/contracts/allocation-grant/still-reservation/gc-epilogue/baseline-epilogue.inc"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-geometry.inc",
+            "begin": "#define ___MAX_NB_PARMS",
+            "end": "#define ___MAX_STILL_DEFERRED"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/capacity-resize.inc",
+            "target": "resize.inc",
+            "begin": "___HIDDEN ___BOOL resize_heap",
+            "end": "/* End internal memory fragment. */"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/allocation-limits.inc",
+            "target": "publish.inc",
+            "begin": "static void publish_bumped_heap_limit(",
+            "end": "/* The current section cannot hold this heap group."
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/allocation-limits.inc",
+            "target": "rearm.inc",
+            "begin": "static void rearm_tag(",
+            "end": "int ___heap_continue_on_free_section("
+          },
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "caller-overflow.inc",
+            "begin": "static inline int ___gc_caller_overflow",
+            "end": "/* The first refund changes the account."
+          },
+          {
+            "source": "tests/contracts/allocation-grant/still-reservation/gc-epilogue/baseline-epilogue.inc",
+            "target": "epilogue.inc",
+            "begin": "  ___ACTLOG_END_PS();\n\n  /*",
+            "end": "\n}"
+          }
+        ],
+        "unwind": 24,
+        "scope": "Gambit resize accounting and GC return run together with movable rearm and publication. A still rollback must stay refused even with usable movable space. Zero-word GC may recover.",
+        "assumptions": [
+          "LP64 without handles, one active owner after completed copying, and an unlimited configured heap. The initial census and the policy's section target and free-space estimates are fixture inputs.",
+          "The provider starts with four mapped sections and either supplies or refuses the resize target of five. One existing eligible next half is available to the movable rearm independently of that resize. The fixture provides the selected full half, not the allocator's claim algorithm.",
+          "Backings are disjoint native-sized halves. Their soft limits are computed by the actual publication code. The fixture independently varies room already available, resize backing, reserve availability, and a zero- or seven-word still request.",
+          "The early plan-refusal return, OS still allocation, concurrent ownership and seed/module reachability are outside this epilogue cut. Diagnostic I/O is summarized."
+        ],
+        "assertions": [
+          "resize.no-fatal-overflow-in-recoverable-cases",
+          "resize.observe-real-refusal",
+          "resize.charge-or-rollback-once",
+          "epilogue.movable-interval-usable-with-reserve",
+          "epilogue.zero-word-recovers",
+          "epilogue.still-rollback-stays-refused",
+          "epilogue.still-grant-preserves-charge"
+        ],
+        "options": [
+          "--drop-unused-functions",
+          "--slice-formula"
+        ]
+      }
+    },
+    {
+      "id": "gc-epilogue",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "contract": "allocation-grant/still-reservation",
+        "branch": "gc-epilogue",
+        "interface": "AllocationGrant",
+        "harness": "tests/contracts/allocation-grant/still-reservation/gc-epilogue/harness.c",
+        "function": "still_reservation_contract",
+        "sources": [
+          "tests/contracts/allocation-grant/still-reservation/gc-epilogue/harness.c",
+          "vendor/gambit/lib/_mem/allocation-limits.inc",
+          "vendor/gambit/lib/_mem/capacity-resize.inc",
+          "vendor/gambit/lib/_mem/collection-round.inc",
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/lib/collector.h"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-geometry.inc",
+            "begin": "#define ___MAX_NB_PARMS",
+            "end": "#define ___MAX_STILL_DEFERRED"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/capacity-resize.inc",
+            "target": "resize.inc",
+            "begin": "___HIDDEN ___BOOL resize_heap",
+            "end": "/* End internal memory fragment. */"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/allocation-limits.inc",
+            "target": "publish.inc",
+            "begin": "static void publish_bumped_heap_limit(",
+            "end": "/* The current section cannot hold this heap group."
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/allocation-limits.inc",
+            "target": "rearm.inc",
+            "begin": "static void rearm_tag(",
+            "end": "int ___heap_continue_on_free_section("
+          },
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "caller-overflow.inc",
+            "begin": "static inline int ___gc_caller_overflow",
+            "end": "/* The first refund changes the account."
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/collection-round.inc",
+            "target": "epilogue.inc",
+            "begin": "  ___ACTLOG_END_PS();\n\n  /*",
+            "end": "\n}\n\n\n/* End internal memory fragment. */"
+          }
+        ],
+        "unwind": 24,
+        "scope": "Gambit resize accounting and GC return run together with movable rearm and publication. A still rollback must stay refused even with usable movable space. Zero-word GC may recover.",
+        "assumptions": [
+          "LP64 without handles, one active owner after completed copying, and an unlimited configured heap. The initial census and the policy's section target and free-space estimates are fixture inputs.",
+          "The provider starts with four mapped sections and either supplies or refuses the resize target of five. One existing eligible next half is available to the movable rearm independently of that resize. The fixture provides the selected full half, not the allocator's claim algorithm.",
+          "Backings are disjoint native-sized halves. Their soft limits are computed by the actual publication code. The fixture independently varies room already available, resize backing, reserve availability, and a zero- or seven-word still request.",
+          "The early plan-refusal return, OS still allocation, concurrent ownership and seed/module reachability are outside this epilogue cut. Diagnostic I/O is summarized."
+        ],
+        "assertions": [
+          "resize.no-fatal-overflow-in-recoverable-cases",
+          "resize.observe-real-refusal",
+          "resize.charge-or-rollback-once",
+          "epilogue.movable-interval-usable-with-reserve",
+          "epilogue.zero-word-recovers",
+          "epilogue.still-rollback-stays-refused",
+          "epilogue.still-grant-preserves-charge"
+        ],
+        "options": [
+          "--drop-unused-functions",
+          "--slice-formula"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "baseline-epilogue",
+        "gc-epilogue"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+        "queries": {
+          "missing": "missing_boundary",
+          "repairs": "repair_needed",
+          "verified": "verified",
+          "unresolved": "unresolved",
+          "sources": "bound_source",
+          "assumptions": "assumption"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "repairs",
+          "verified",
+          "unresolved",
+          "sources",
+          "assumptions"
+        ]
+      }
+    }
+  ]
+}

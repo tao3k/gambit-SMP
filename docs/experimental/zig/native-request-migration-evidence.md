@@ -29,7 +29,7 @@ not an unmodified upstream claim. Prior runtime/overlay evidence is separate.
 Direct source entry links: [configuration producer](../../../vendor/gambit/configure.ac),
 [configured driver](../../../vendor/gambit/bin/gambuild-C.unix.in),
 [Gambit native dispatch](../../../vendor/gambit/gsc/_gsclib.scm),
-[materialized Gerbil driver](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss).
+materialized Gerbil driver (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss`; unavailable in a clean checkout).
 The final link depends on the local source tree; hashes identify actual bytes.
 
 | Input | SHA-256 |

@@ -1,5 +1,8 @@
 # Project Interface
 
+Use English for Git-maintained prose, comments, model and diagram labels, and
+evidence descriptions.
+
 Use the single `gambit-smp` dispatcher and one stable task ID across Codex/Grok: `gambit-smp --task TASK COMMAND`
 or the `workspace` supervisor. Task artifacts belong in `.cache/tasks/TASK/`;
 explicit Git worktrees belong in `.data/worktrees/TASK/`.
@@ -37,6 +40,10 @@ permissions. The request is caller-authored data, not a pre-existing catalog.
 
 `research --help` describes durable execution checkpoints and source-bound
 Recipes; `research --read RUN` inspects retained stages without rerunning them.
+A trailing Scheme request, or `-` to read it from stdin, selects named
+read-only evidence reviews. Use bindings for a single review or a caller
+selector to compose several. Each review independently verifies its
+selected receipt and evidence identities.
 Registered build products accept source deltas under their lease; this replaces
 the current build generation without erasing historical receipts. Direct producer
 edits are different from managed updates. Build-profile paths are configuration

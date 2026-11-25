@@ -11,6 +11,25 @@ from gambit_smp import recipes
 
 
 class FingerprintPlanTests(unittest.TestCase):
+    def test_historical_source_is_revision_bound_and_digest_checked(self):
+        import hashlib
+        from gambit_smp import research_audit as audit
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "vendor").mkdir()
+            record = {"schema": "gambit-historical-source.v1", "repository": "vendor",
+                      "revision": "a" * 40, "file": "include/header.h",
+                      "sha256": hashlib.sha256(b"original").hexdigest()}
+            with patch("gambit_smp.task_processes.check_output", return_value=b"original") as read:
+                self.assertEqual(b"original", audit.historical_source(root, record))
+                self.assertEqual("a" * 40 + ":include/header.h", read.call_args.args[0][-1])
+                with self.assertRaisesRegex(ValueError, "digest mismatch"):
+                    audit.historical_source(root, {**record, "sha256": "0" * 64})
+                with self.assertRaisesRegex(ValueError, "fixed historical"):
+                    audit.historical_source(root, {**record, "revision": "HEAD"})
+                with self.assertRaisesRegex(ValueError, "outside repository"):
+                    audit.historical_source(root, {**record, "file": "../header.h"})
+
     def test_finalization_reports_all_drift_without_admitting_any(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -43,25 +62,6 @@ class FingerprintPlanTests(unittest.TestCase):
                     self.assertFalse(result["stable"])
                     self.assertEqual("artifact", result["failures"][0]["kind"])
 
-    def test_historical_source_is_revision_bound_and_digest_checked(self):
-        import hashlib
-        from gambit_smp import research_audit as audit
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "vendor").mkdir()
-            record = {"schema": "gambit-historical-source.v1", "repository": "vendor",
-                      "revision": "a" * 40, "file": "include/header.h",
-                      "sha256": hashlib.sha256(b"original").hexdigest()}
-            with patch("gambit_smp.task_processes.check_output", return_value=b"original") as read:
-                self.assertEqual(b"original", audit.historical_source(root, record))
-                self.assertEqual("a" * 40 + ":include/header.h", read.call_args.args[0][-1])
-                with self.assertRaisesRegex(ValueError, "digest mismatch"):
-                    audit.historical_source(root, {**record, "sha256": "0" * 64})
-                with self.assertRaisesRegex(ValueError, "fixed historical"):
-                    audit.historical_source(root, {**record, "revision": "HEAD"})
-                with self.assertRaisesRegex(ValueError, "outside repository"):
-                    audit.historical_source(root, {**record, "file": "../header.h"})
-
     def test_same_size_same_timestamp_change_is_not_cached(self):
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / "source"
@@ -88,12 +88,52 @@ class FingerprintPlanTests(unittest.TestCase):
 
 
 class ProcessCheckpointTests(unittest.TestCase):
+    def test_exact_json_bytes_retain_duplicate_and_nonfinite_rejection(self):
+        self.assertEqual({'producer': 'one'}, recipes.decode_json(b'{"producer":"one"}'))
+        for raw in [b'{"producer":1,"producer":2}', b'{"peak":NaN}',
+                    b'{"peak":Infinity}', b'{"peak":-Infinity}', b'"\xff"']:
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                recipes.decode_json(raw)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.ctx = recipes.ExecutionContext(self.root, self.root, self.root, {},
             time.monotonic() + 5, {}, {}, {})
+
+    def test_resource_stop_is_not_success_even_with_zero_exit(self):
+        from gambit_smp.process_observation import Observation
+        self.ctx.receipt['engine'] = 'mocked-observation-transport'
+        observed = Observation('partial', '', 0, False, .1, 7, 'start', 'end', True,
+                               peak_group_rss_bytes=65, rss_limit_exceeded=True)
+        with patch('gambit_smp.process_observation.capture', return_value=observed) as capture:
+            with self.assertRaisesRegex(ValueError, 'RSS limit'):
+                self.ctx.require('compile', ['gcc'], self.root, 2, rss_limit_bytes=64)
+        self.assertEqual(64, capture.call_args.kwargs['rss_limit_bytes'])
+        row = recipes.read_json(self.root / 'compile.process.json')
+        self.assertEqual('OBSERVED', row['state'])
+        self.assertEqual(0, row['exit'])
+        self.assertTrue(row['rssLimitExceeded'])
+        self.assertFalse(row['timeout'])
+        self.assertFalse(row['runtimeAdmitted'])
+        self.assertEqual('partial', (self.root / 'compile.stdout').read_text())
+
+    def test_resource_receipt_matches_boundary_sampling_mode(self):
+        from gambit_smp.process_observation import Observation
+        self.ctx.receipt['engine'] = 'mocked-observation-transport'
+        observed = Observation('ok', '', 0, False, .1, 7, 'start', 'end', True,
+                               peak_group_rss_bytes=20)
+        for name, boundary, interval in [('plain', None, .25),
+                                         ('boundary', lambda *_: None, .05)]:
+            with self.subTest(name=name), patch('gambit_smp.process_observation.capture',
+                                               return_value=observed):
+                self.assertEqual('ok', self.ctx.require(name, ['gcc'], self.root, 2,
+                                                       rss_limit_bytes=64, boundary=boundary))
+            row = recipes.read_json(self.root / (name + '.process.json'))
+            self.assertEqual(interval, row['rssSamplingIntervalSeconds'])
+            self.assertFalse(row['rssObservationIsHardCap'])
+            self.assertFalse(row['rssLimitExceeded'])
 
     def test_observation_survives_without_final_recipe_receipt(self):
         with patch.object(recipes, "execute", return_value=(70, "compiler failure", False, 0.1)):
@@ -126,6 +166,17 @@ class ProcessCheckpointTests(unittest.TestCase):
         self.assertEqual(-9, record["exit"])
         self.assertLessEqual(record["effectiveBudgetSeconds"], 2)
 
+    def test_dispatch_records_real_python_bodies_without_implying_child_success(self):
+        with patch.object(recipes, "execute", return_value=(70, "failure", False, 0.1)):
+            self.ctx.run("dispatch", ["gcc"], self.root, 2)
+        row=recipes.read_json(self.root/"dispatch.process.json")
+        self.assertEqual(row['dispatch']['callee'],'gambit_smp.recipes.ExecutionContext.run')
+        self.assertEqual(row['dispatch']['calleeSha256'],recipes.digest(Path(recipes.__file__)))
+        self.assertEqual(row['dispatch']['caller'],__name__+'.ProcessCheckpointTests.test_dispatch_records_real_python_bodies_without_implying_child_success')
+        self.assertEqual(row['dispatch']['callerSha256'],recipes.digest(Path(__file__)))
+        self.assertEqual(row['exit'],70)
+        self.assertFalse(row['runtimeAdmitted'])
+
 
 class QuintImportedInventoryTests(unittest.TestCase):
     def test_qualified_names_remain_strict_identifiers(self):
@@ -156,11 +207,11 @@ class QuintImportedInventoryTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, "cyclic or missing"):
                 recipes.quint_test_inventory(self.fixture({"kind": "import", "protoName": name}), "main")
 
-    def test_nested_aliases_preserve_names(self):
+    def test_nested_import_runs_are_not_outer_entries(self):
         ir = self.fixture({"kind": "import", "protoName": "middle", "qualifiedName": "M"})
         ir["modules"].append({"name": "middle", "declarations": [
             {"kind": "import", "protoName": "base", "qualifiedName": "B"}]})
-        self.assertEqual(["M::B::baseTest", "ownTest"], recipes.quint_test_inventory(ir, "main"))
+        self.assertEqual(["ownTest"], recipes.quint_test_inventory(ir, "main"))
 
 
 class RecipeTests(unittest.TestCase):

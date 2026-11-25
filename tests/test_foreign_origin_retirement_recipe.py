@@ -8,7 +8,7 @@ from gambit_smp import recipes
 
 class ForeignOriginRetirementRecipeTests(unittest.TestCase):
     def setUp(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/foreign-origin-retirement-admission.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/foreign-origin-retirement-admission.recipe.json"
         recipes.load(ROOT, path)
         self.recipe = json.loads(path.read_text())
 
@@ -28,7 +28,7 @@ class ForeignOriginRetirementRecipeTests(unittest.TestCase):
         self.assertEqual({"missing": []}, steps["verdict"]["arguments"]["expected"])
 
     def test_word_bounds_refinement_is_model_only_and_keeps_controls(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/foreign-origin-word-bounds.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/foreign-origin-word-bounds.recipe.json"
         recipes.load(ROOT, path)
         recipe = json.loads(path.read_text())
         self.assertEqual(300, recipe["budgetSeconds"])
@@ -42,7 +42,7 @@ class ForeignOriginRetirementRecipeTests(unittest.TestCase):
                          set(verdict["dependsOn"]))
 
     def test_vm_teardown_composition_keeps_negative_controls_and_full_inventory(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/foreign-origin-vm-teardown.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/foreign-origin-vm-teardown.recipe.json"
         recipes.load(ROOT, path)
         recipe = json.loads(path.read_text())
         self.assertEqual(300, recipe["budgetSeconds"])

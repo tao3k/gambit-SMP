@@ -1,7 +1,7 @@
 # Complete the catalogue-bound negative control by lowering static ground facts
 # to native relation data. No framework bound, inference rule or tuple changes.
 require 'json';require 'digest';require 'open3'
-e='evidence/research/modern-c-bootstrap';path=e+'/request-custody-admission.json';j=JSON.parse(File.read(path));raise 'eight prior scenarios required' unless j['scenarios'].size==8
+e='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap';path=e+'/request-custody-admission.json';j=JSON.parse(File.read(path));raise 'eight prior scenarios required' unless j['scenarios'].size==8
 history=e+'/request-custody-history/'+j.fetch('claim').split(':').last;old=history+'/all-scopes-with-failure.request.scm';raw=File.read(old);encoded=raw[/\(selector ("(?:\\.|[^"\\])*")\)/m,1];raise 'selector carrier' unless encoded
 body=JSON.parse(encoded);rows=body.lines.select{|l|l.start_with?('(copyObservedFact ')};raise '44 exact observation tuples required' unless rows.size==44
 kept=body.lines.reject{|l|l.start_with?('(copyObservedFact ')}.join

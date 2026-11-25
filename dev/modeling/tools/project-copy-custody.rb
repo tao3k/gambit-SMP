@@ -14,6 +14,6 @@ File.read(sys).scan(/part\s+(\w+)\s*:\s*Benefit\s*\{/).flatten.each_with_index d
  %w[id eliminated added bound gate].each{|a|queries<<["benefits.#{i}.#{a}","#{ns}::#{n}.#{a}"]}
 end
 File.write(r+'/native-queries.tsv',queries.map{|x|x.join("\t")}.join("\n")+"\n")
-inputs=File.readlines('evidence/research/modern-c-bootstrap/resize-sysml-inputs.txt',chomp:true)+[sys]
+inputs=File.readlines('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-sysml-inputs.txt',chomp:true)+[sys]
 File.write(r+'/native-model-inputs.txt',inputs.uniq.join("\n")+"\n")
 File.write(r+'/read-native.sh',File.read('dev/modeling/tools/read-vm-resize-native.sh').sub('r=.cache/tasks/modern-c-frame-contract/cohort/resize-model',"r=#{r}"))

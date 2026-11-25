@@ -13,7 +13,7 @@ internal generated/runtime ABI changes are permitted. No performance improvement
 is claimed.
 
 Gambit baseline is `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882` plus the
-[source lock](../../evidence/research/processor-interrupt-collective-wait/source.lock.json)
+source lock (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout)
 and its cumulative patch. The lock digest is
 `7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b`;
 candidate line references below refer to that overlay, not a cache directory.

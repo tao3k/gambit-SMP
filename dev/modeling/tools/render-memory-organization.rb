@@ -51,7 +51,7 @@ d<<"formal: \"Existing QNT schedules + Lean coherence: reused; no duplicated mod
 d<<"open: \"Bootstrap / Scheme GC + multi-shot control / five commit gates: OPEN\"\n"
 d<<"model -> driver\ndriver -> modules: inclusion order preserved\nmodules -> proof\nmodel -> ascent\nproof -> ascent\nformal -> open\nascent -> open: structural acceptance cannot supply runtime acceptance\n"
 File.write('dev/refactoring/modern-c/diagrams/memory-organization.d2',d)
-e='evidence/research/memory-organization'; FileUtils.mkdir_p(e+'/records')
+e='.cache/research/legacy-evidence/evidence/research/memory-organization'; FileUtils.mkdir_p(e+'/records')
 Zlib::GzipWriter.open(e+'/records/mem-before.c.gz') { |g| g.mtime=0; g.write(File.binread(split+'/mem-before.c')) }
 records={}
 copy=lambda do |p|

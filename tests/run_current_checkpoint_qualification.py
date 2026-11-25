@@ -22,7 +22,7 @@ from gambit_smp.suite_primitives import (
 
 RUNTIME = ROOT / ".cache/processor-interrupt-collective-wait/runtime-retirement-native-01/candidate-runtime"
 SUITE_IDENTITY = RUNTIME.parent / "suite-identity.json"
-ACCEPTED_RECEIPT = ROOT / "evidence/source-results/runtime-retirement/receipt.json"
+ACCEPTED_RECEIPT = ROOT / ".cache/research/legacy-evidence/evidence/source-results/runtime-retirement/receipt.json"
 ENV_RECEIPT = ROOT / ".cache/current-checkpoint-environment-01/receipt.json"
 ENV_PROBE = ROOT / ".cache/current-checkpoint-environment-01/probe.log"
 OLD_PREFLIGHT = ROOT / ".cache/processor-interrupt-collective-wait/runtime-retirement-full-gsi-02/retry-preflight.json"
@@ -479,7 +479,7 @@ LIFECYCLE_RUNS = (
 )
 LIFECYCLE_STDOUT = "LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n"
 MILESTONE_PATH = Path("docs/smp-threaded-vm-milestone.md")
-REVIEW_PATH = Path("evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md")
+REVIEW_PATH = Path(".cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md")
 # Darwin EINVAL. A detached join returns this and the thread is no longer joinable.
 _EINVAL = 22
 

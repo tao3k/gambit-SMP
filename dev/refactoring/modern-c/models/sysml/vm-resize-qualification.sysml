@@ -1,7 +1,7 @@
 package GambitVMResizeQualification {
   private import ScalarValues::*;
   private import GambitVMResizeTransaction::*;
-  attribute sourceLock:String = "evidence/research/modern-c-bootstrap/resize-ownership-source.lock.json";
+  attribute sourceLock:String = ".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-ownership-source.lock.json";
   attribute profile:String = "evidence/fixtures/gerbil-bazel-build-profile/profile.json";
   attribute runtimeAdmitted:Boolean = false;
   part def Need {
@@ -29,19 +29,19 @@ package GambitVMResizeQualification {
   }
   part markerIdentity:Need { ref part :>> component=retirement;
     attribute :>> id="VQ-BODY"; attribute :>> method="native-focused";
-    attribute :>> artifact="evidence/research/modern-c-bootstrap/resize-fixture.scm";
+    attribute :>> artifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-fixture.scm";
     attribute :>> scope="actual movable startup closure, GC, retire, reuse and GC";
     attribute :>> evidenceClass="native-caller"; attribute :>> check="two successful grow/retire cycles and natural shutdown";
   }
   part faultControl:Need { ref part :>> component=failure;
     attribute :>> id="VQ-FAULT"; attribute :>> method="native-fault";
-    attribute :>> artifact="evidence/research/modern-c-bootstrap/resize-fault-calibration.c";
+    attribute :>> artifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-fault-calibration.c";
     attribute :>> scope="independent injection calibration plus allocation/create rollback and unknown join custody";
     attribute :>> evidenceClass="native-fault-control"; attribute :>> check="calibration exact counts; known failures refund; unknown join retains root/grant and refuses reuse; intentional safety exit is not natural shutdown";
   }
   part bootstrap:Need { ref part :>> component=census;
     attribute :>> id="VQ-BOOTSTRAP"; attribute :>> method="native-bootstrap";
-    attribute :>> artifact="evidence/research/modern-c-bootstrap/resize-ownership-bootstrap.recipe.json";
+    attribute :>> artifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-ownership-bootstrap.recipe.json";
     attribute :>> scope="exact Bazel O1/O3 profile, all generated products, full official two-pass bootstrap";
     attribute :>> evidenceClass="native-bootstrap"; attribute :>> check="all 51 products and each phase1..4 twice; original budgets; no old runtime linkage";
   }

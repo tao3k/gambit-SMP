@@ -50,7 +50,7 @@ enabled. This is a model predicate defect, not evidence of a new source deadlock
 The corrected invariant requires the root to be waiting in a generation without
 a published reply before diagnosing a new unmatched collective. The failed
 attempt, original model bytes, logs and checker identity are archived at
-`evidence/model-results/fixtures/startup-sync-flag-handoff/notification-windows-published-reply-misclassification`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/startup-sync-flag-handoff/notification-windows-published-reply-misclassification`.
 That archive is non-admitted and is not registered as a checked protocol.
 
 ## Exhaustive result
@@ -62,7 +62,7 @@ passes with 516 distinct / 846 generated states. The checks took 21.713 and
 the framework's detected host capacity and memory budget, not a fixed count.
 
 The portable positive/control receipt is
-`evidence/model-results/fixtures/startup-sync-flag-handoff/notification-windows-contract/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/startup-sync-flag-handoff/notification-windows-contract/receipt.json`.
 It is registered in the Datalog bundle registry. This is finite protocol evidence,
 not runtime or release admission. It strengthens the prior atomic-round model;
 it does not replace the broader open source/GC/lifecycle requirements.

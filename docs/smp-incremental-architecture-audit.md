@@ -62,7 +62,7 @@ manifests. No second registry or workflow engine is introduced.
 - Gambit vendor revision: `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`.
 - Chez reference revision: `41d5ffca7a07cbfc8807e719dedcc70ed74811cd`.
 - Current tracked collective-wait source lock:
-  `evidence/research/processor-interrupt-collective-wait/source.lock.json`,
+  `.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`,
   SHA-256 `7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b`.
 - Its cumulative patch:
   `patches/fixtures/processor-interrupt-collective-wait-cumulative.patch`,
@@ -95,7 +95,7 @@ The results in this table are recorded evidence, not newly executed campaigns.
 | [Lean supplement](lean-work-accounting-obligation.md), `WorkAccounting.lean`, `ResearchFunnel.lean` | Conditional work-accounting/resource algebra and separate research-evidence properties are represented as assets. | WorkAccounting requires producer lifetime, exact active count and empty-queue premises; QNT projection equivalence is not established. | Repository docs retain WorkAccounting as unqualified. No Lean capability implementation was found in the inspected Python driver; retaining `.lean` inputs alone is not elaboration or proof admission. Research-funnel proofs do not prove GC. |
 
 The root/cohort receipt was also read back without running the checker:
-`evidence/model-results/fixtures/scheduler-retry-sync-participation/shared-root-cohort/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/scheduler-retry-sync-participation/shared-root-cohort/receipt.json`.
 It records accepted controls and stable context; its model SHA matches the
 present tracked model (`15313faed88ea318f5be67d7e22e8e505f568fd79fec1a4f7c3a3136e8c9cfb8`).
 This verifies that particular record-to-model identity, not all current source

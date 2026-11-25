@@ -29,8 +29,12 @@ module hash_index_owner {
   action ownedRebuild=all{not(s.frozen),not(s.reader),not(s.building),s.debt or s.addressDebt,
     s'={...s,debt:false,addressDebt:false,looked:false,layout:1-s.layout,
       placement:if(s.scheme) s.semantic else s.address}}
-  action lookup=all{not(s.frozen),not(s.debt),not(s.building),
-    s'={...s,looked:true,linear:not(s.scheme) and s.addressDebt}}
+  // linear means address-independent fallback is available, not that every
+  // lookup executes it. A successful ordinary probe is also a pure read.
+  // Native reconstruction debt can be read through this fallback; Scheme
+  // reconstruction still needs the semantic hash owner before lookup.
+  action lookup=all{not(s.frozen),not(s.scheme) or not(s.debt),not(s.building),
+    s'={...s,looked:true,linear:not(s.scheme) and (s.addressDebt or s.debt)}}
   action beginRead=all{not(s.frozen),not(s.reader),not(s.debt),not(s.building),
     s'={...s,reader:true,readLayout:s.layout,cursor:0,seen:Set(),duplicate:false}}
   action visit=all{s.reader,not(s.frozen),s.cursor<2,
@@ -55,14 +59,16 @@ module hash_index_owner {
     s.scheme implies not(s.addressDebt),
     not(s.debt) and not(s.addressDebt) implies
       s.placement==(if(s.scheme)s.semantic else s.address),
-    s.looked implies all{not(s.frozen),not(s.debt),
-      s.addressDebt implies s.linear,
+    s.looked implies all{not(s.frozen),s.scheme implies not(s.debt),
+      s.addressDebt or (not(s.scheme) and s.debt) implies s.linear,
       not(s.linear) implies s.placement==(if(s.scheme)s.semantic else s.address)}}
   action check=all{safe,s'=s}
   run schemeSurvivesGCTest=init.then(s'=fresh(true)).then(freeze).then(relocate)
     .then(resume).then(lookup).then(check)
   run nativeDeferredReadTest=init.then(s'=fresh(false)).then(freeze).then(relocate)
     .then(resume).then(lookup).expect(safe and s.linear and s.addressDebt)
+  run nativeDeserializeReadTest=init.then(s'=fresh(false)).then(deserialize)
+    .then(lookup).expect(safe and s.linear and s.debt and not(s.addressDebt))
   run nativeWriterRebuildTest=init.then(s'=fresh(false)).then(freeze).then(relocate)
     .then(resume).then(ownedRebuild).then(lookup)
     .expect(safe and not(s.linear) and not(s.addressDebt))

@@ -20,7 +20,7 @@ class FrozenTraceHistoryBindingsTest(unittest.TestCase):
             self.assertTrue(snapshots)
             for snapshot in snapshots:
                 self.assertTrue(
-                    snapshot.startswith("evidence/model-results/frozen-trace-predecessors/" + case + "-"))
+                    snapshot.startswith(".cache/research/legacy-evidence/evidence/model-results/frozen-trace-predecessors/" + case + "-"))
         names = current | {row[0] for row in historical}
         self.assertNotIn("predicate_lock_retry_rooting", names)
 

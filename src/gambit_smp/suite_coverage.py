@@ -354,6 +354,131 @@ def require_pr_smp_evidence(root, receipt):
                     raise ValueError("compiled PR group did not execute its original GSC runner")
 
 
+def require_stress_smp_evidence(root, receipt):
+    """Require one unchanged interpreted stress campaign, including both populations.
+
+    Diagnostic projections and successful individual files cannot extend the
+    accepted prefix. This is an implementation-evidence check, not a QNT or
+    Lean proof and not an assertion that the fixed budget is achievable.
+    """
+    import hashlib
+    from gambit_smp.task_processes import check_output
+
+    folder = Path("evidence/research/retained/modern-c/stress-gsi")
+    if receipt.get("family") != "stress-gsi" or receipt.get("mode") != "gsi":
+        raise ValueError("stress acceptance requires the interpreted stress family")
+    reference = receipt["nativeReference"]
+    raw, _ = _load_smp_evidence(root, reference["path"], reference["sha256"])
+    if raw.get("complete") is not True or any(receipt.get(k) != v for k, v in raw.items()):
+        raise ValueError("stress acceptance requires one complete raw campaign")
+    manifest, _ = _load_smp_evidence(root, folder / "manifest.json", receipt["manifestSha256"])
+    binding, _ = _load_smp_evidence(root, folder / "model-binding.json", receipt["modelBindingSha256"])
+    spec, cases = manifest["spec"], manifest["cases"]
+    if (binding.get("complete") is not True or binding.get("diagnostics") != []
+            or binding.get("manifestMatched") is not True or binding["spec"] != spec
+            or binding["cases"] != cases or binding["modelInputs"] != manifest["modelInputs"]):
+        raise ValueError("stress population needs its strict SDK binding")
+    for name, expected in manifest["modelInputs"].items():
+        if digest(root / name) != expected:
+            raise ValueError("stress model input changed")
+    original, _ = _load_smp_evidence(root, spec["originalSuite"],
+                                    manifest["originalReferences"][spec["originalSuite"]])
+    steps = [s for s in original["steps"] if s["capability"] == "gambit.suite"]
+    if len(steps) != 1:
+        raise ValueError("one original whole stress recipe required")
+    suite = steps[0]
+    args = suite["arguments"]
+    expected = sorted(args["expectedFiles"])
+    if (original["budgetSeconds"] != spec["wholeSeconds"] or "timeoutPolicy" in original
+            or suite["budgetSeconds"] != spec["wholeSeconds"]
+            or (args["mode"], args["inventory"], args["regime"], args["selection"])
+               != ("gsi", "stress", "whole-parallel", ["."])
+            or sorted(c["target"] for c in cases) != expected
+            or len(expected) != len(set(expected))):
+        raise ValueError("stress manifest differs from the original whole recipe")
+    if (receipt["wholeBudgetSeconds"] != spec["wholeSeconds"]
+            or receipt["innerBudgetSeconds"] != spec["innerSeconds"]
+            or type(receipt["seconds"]) not in {int, float}
+            or not 0 < receipt["seconds"] <= spec["innerSeconds"]
+            or any(receipt.get(k) is not False for k in
+                   ("heapRaised", "waitExtended", "observationsSpliced"))):
+        raise ValueError("stress campaign changed the original fixed resource boundary")
+    bootstrap, _ = _load_smp_evidence(root,
+        "evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-bootstrap.json")
+    if ((spec["mode"], spec["inventory"]) != ("gsi", "stress")
+            or spec["canonicalTree"] != bootstrap["sourceTree"]
+            or spec["producer"] != bootstrap["producerSha256"]
+            or spec["profile"] != bootstrap["profileSha256"]
+            or (receipt["sourceTree"], receipt["profileSha256"], receipt["producerSha256"])
+            != (bootstrap["sourceTree"], spec["profile"], bootstrap["producerSha256"])
+            or receipt["runtimeArtifacts"] != bootstrap["artifacts"]):
+        raise ValueError("stress campaign lacks its exact accepted producer")
+    # Authenticate every copied input, not just the four selected leaf files.
+    for name, expected_hash in receipt["testInputFiles"].items():
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts or not path.parts:
+            raise ValueError("stress input path escapes its original source")
+        data = check_output(["git", "-C", root / "vendor/gambit", "show",
+                             bootstrap["baseRevision"] + ":tests/" + name], timeout=10)
+        if hashlib.sha256(data).hexdigest() != expected_hash:
+            raise ValueError("stress input differs from its original producer source")
+    if not {"run-unit-tests.scm", "unit-tests/#.scm", "unit-tests/06-thread/#.scm"}.issubset(
+            receipt["testInputFiles"]):
+        raise ValueError("original stress runner or assertion include chain is missing")
+    for case in cases:
+        if (case["kind"] != "original-stress" or case["seconds"] != 0
+                or case["source"] != "vendor/gambit/tests/unit-tests/" + case["target"]
+                or receipt["testInputFiles"].get("unit-tests/" + case["target"]) != case["sha256"]):
+            raise ValueError("stress fixture was projected, omitted or given a different guard")
+    populations = list(map(int, spec["processors"].split(";")))
+    jobs = {int(k): int(v) for k, v in (s.split(":") for s in spec["jobs"].split(";"))}
+    if [r["processors"] for r in receipt["topologies"]] != populations:
+        raise ValueError("stress requires every ordered processor population")
+    for run in receipt["topologies"]:
+        population = run["processors"]
+        request = run.get("request")
+        if (run.get("complete") is not True or not request
+                or run["jobs"] != jobs[population]
+                or (request["mode"], request["inventory"], request["regime"])
+                   != ("gsi", "stress", "whole-parallel")
+                or request["processors"] != population or request["jobs"] != jobs[population]
+                or request["selection"] != expected or request["expectedFiles"] != expected
+                or request["fileBudgetSeconds"] != {}
+                or set(request) - {"runtime", "identity", "mode", "inventory", "regime", "selection",
+                                   "expectedFiles", "processors", "jobs", "fileBudgetSeconds"}):
+            raise ValueError("stress topology is incomplete or its original workload changed")
+        if ([p["role"] for p in run["probes"]] != ["runner", "fixture"]
+                or any(p.get("complete") is not True or p.get("exit") != 0
+                       or p.get("timeout") is not False or p.get("expected") != n
+                       or p.get("observed") != "PROCESSORS:" + str(n)
+                       or not 0 < p["seconds"] <= 10
+                       for p, n in zip(run["probes"], (1, population)))):
+            raise ValueError("stress requires actual runner and fixture topology probes")
+        rows = run["observations"]
+        if (sorted(n for row in rows for n in row["files"]) != expected
+                or any(row.get("accepted") is not True or row.get("exit") != 0
+                       or row.get("timeout") is not False
+                       or sorted(row.get("observedFiles", [])) != sorted(row["files"]) for row in rows)):
+            raise ValueError("stress requires every original file to finish in each population")
+        for row in rows:
+            stage = f"suite-{row['batch']}-{row['shard']}"
+            commands = [p for p in receipt["processes"]
+                        if p.get("topology") == population and p.get("stage") == stage]
+            if len(commands) != 1:
+                raise ValueError("stress group lacks its unique original runner command")
+            command = commands[0]
+            argv = command.get("argv", [])
+            if (len(argv) < 4 or Path(argv[0]).name != "gsi" or argv[2:] !=
+                    ["-f", "run-unit-tests.scm", "-gsi", "-stress",
+                     *["unit-tests/" + name for name in row["files"]]]
+                    or command.get("exit") != 0 or command.get("timeout") is not False
+                    or command.get("parentReaped") is not True
+                    or command.get("processGroupQuiescent") is not True
+                    or not 0 < command.get("seconds", 0) <=
+                       command.get("effectiveBudgetSeconds", 0) <= spec["innerSeconds"]):
+                raise ValueError("stress group did not complete its original interpreted invocation")
+
+
 def accepted_smp_status(root):
     """Report the recorded milestone from its own bound evidence period."""
     root = Path(root).resolve()
@@ -501,6 +626,8 @@ def accepted_smp_progress(root, baseline_path, candidate_path, previous=None):
             if receipt.get("family") != family:
                 raise ValueError("accepted PR receipt belongs to another family")
             require_pr_smp_evidence(root, receipt)
+        if family == "stress-gsi":
+            require_stress_smp_evidence(root, receipt)
         references[family] = identity
 
     return dict(origin=origin, originPassed=baseline["passed"], accepted=accepted,

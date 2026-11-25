@@ -43,7 +43,7 @@ The isolated core build uses the parent's actual GNU GCC configuration with
 SMP, multiple VMs and multiple threaded VMs enabled. The host-adaptive plan
 requested a shared make/compiler budget and a 180-second whole-core cap.
 The result was DENY: exit -9 and timeout at 180.018733 seconds. The retained
-observation is `evidence/source-results/fixtures/thread-migration-destination-metadata/core-build.json`.
+observation is `.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-migration-destination-metadata/core-build.json`.
 An inherited runtime identity is not valid after source/layout changes; no
 native tests were run against this incomplete build.
 

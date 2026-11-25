@@ -3,7 +3,7 @@ model=ARGV.fetch(0); m=JSON.parse(File.read(model)); sha=->p { Digest::SHA256.fi
 catalog_only=ARGV[1]=='--catalog-only'
 cases_only=ARGV[1]=='--cases-only'
 unless catalog_only
-e='evidence/research/modular-smp-bootstrap'; FileUtils.mkdir_p(e+'/model')
+e='.cache/research/legacy-evidence/evidence/research/modular-smp-bootstrap'; FileUtils.mkdir_p(e+'/model')
 FileUtils.cp(model,e+'/model/native-projection.json'); FileUtils.cp(File.dirname(model)+'/native-metadata.json',e+'/model/native-metadata.json')
 plan=m.merge('modelSha256'=>sha.call('dev/refactoring/modern-c/models/sysml/modular-smp-validation.sysml'),'nativeProjectionSha256'=>sha.call(model))
 File.write(e+'/ci-plan.json',JSON.pretty_generate(plan)+"\n")

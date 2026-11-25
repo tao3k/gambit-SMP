@@ -9,8 +9,8 @@ from gambit_smp import induction_reuse as reuse
 from gambit_smp.framework import ROOT
 
 
-BASE = "evidence/model-results/gc-induction-cartesian-contract-ir/receipt.json"
-DELTA = "evidence/model-results/gc-source-wait-new-action-induction/receipt.json"
+BASE = ".cache/research/legacy-evidence/evidence/model-results/gc-induction-cartesian-contract-ir/receipt.json"
+DELTA = ".cache/research/legacy-evidence/evidence/model-results/gc-source-wait-new-action-induction/receipt.json"
 MANIFEST = "evidence/gc-source-wait-induction.json"
 
 

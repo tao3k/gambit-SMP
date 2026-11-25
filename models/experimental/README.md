@@ -26,14 +26,14 @@ deferred deletion, ordinary external deletion, recursive relock, false depth
 authority and premature storage reclamation. [Source contracts and Recipe](../../docs/experimental/root-registry-retirement.md)
 separate registry topology, live slot storage, value-update policy and trusted
 scanner effects. It is not permission for arbitrary callbacks or new concurrent
-RC operations. [Qualification](../../evidence/research/root-registry-retirement/validation.md)
+RC operations. Qualification (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/root-registry-retirement/validation.md`; unavailable in a clean checkout)
 also records the participant recheck after the test adapter was shared.
 The same model now has a separate global-scan/resume projection: domain entry
 ownership and local-root completion do not release global-root scanning.
 Its omission control and post-scan mutation witness do not model a write barrier,
 same-slot writer synchronization or physical relocation. Earlier receipts remain
 bound to their earlier model hashes.
-[Scan-phase continuation](../../evidence/research/root-registry-retirement/scan-phase-validation.md)
+Scan-phase continuation (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/root-registry-retirement/scan-phase-validation.md`; unavailable in a clean checkout)
 records the checked revision and preserves the typed-set assertion failure.
 
 ## Retirement Handoff
@@ -48,7 +48,7 @@ records the checked revision and preserves the typed-set assertion failure.
   treating OS return or runtime restoration as completion of a wait call.
 - [Scope, source correspondence and results](../../docs/experimental/retirement-handoff-model.md)
   distinguish proposed root/handler protocols from observed implementation.
-- [Declarative Evidence](../../evidence/research/retirement-handoff/facts.json)
+- Declarative Evidence (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/retirement-handoff/facts.json`; unavailable in a clean checkout)
   uses the existing parallel-GC Scheme relations, with no native `satisfies`.
 
 Run the explicit campaign from the repository root:

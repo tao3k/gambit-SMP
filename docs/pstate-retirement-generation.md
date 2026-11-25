@@ -64,5 +64,5 @@ Campaign `pstate-retirement-generation-001` found all four expected negative
 counterexamples. Positive safety and temporal progress completed in 17.076 seconds:
 59 distinct states, 94 generated, zero queued. Model/source/paper context remained
 stable; workers were detected from the host. Portable hash-bound logs and traces
-are in `evidence/model-results/pstate-retirement-generation/`. Native execution
+are in `.cache/research/legacy-evidence/evidence/model-results/pstate-retirement-generation/`. Native execution
 was not run; runtime and release admission remain false.

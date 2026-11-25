@@ -2,7 +2,7 @@ package GambitCopyCustody {
   private import ScalarValues::*;
   attribute runtimeAdmitted:Boolean=false;
   attribute commitAdmitted:Boolean=false;
-  attribute sourceLock:String="evidence/research/modern-c-bootstrap/request-custody-source.lock.json";
+  attribute sourceLock:String=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json";
   part def Contract {
     attribute id:String; attribute cSource:String; attribute invariant:String;
     attribute quint:String; attribute lean:String; attribute open:String; attribute sourceScope:String;
@@ -11,7 +11,7 @@ package GambitCopyCustody {
   part frozenCensus:Contract {
     attribute :>> id="COPY-FROZEN";
     attribute :>> sourceScope="C-simulation:COPY-FROZEN";
-    attribute :>> nativeMethod="native-bootstrap"; attribute :>> nativeArtifact="evidence/research/modern-c-bootstrap/request-custody-hosted-bootstrap.recipe.json"; attribute :>> nativeClass="native-bootstrap"; attribute :>> nativeScope="51 generated products and full two-pass bootstrap; not a universal packing proof";
+    attribute :>> nativeMethod="native-bootstrap"; attribute :>> nativeArtifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-hosted-bootstrap.recipe.json"; attribute :>> nativeClass="native-bootstrap"; attribute :>> nativeScope="51 generated products and full two-pass bootstrap; not a universal packing proof";
     attribute :>> cSource="mem.c setup_stack_heap_vmstate; ___garbage_collect_pstate";
     attribute :>> invariant="Every participant flushes fp/hp, freezes roots, then closes the old-set barrier before the source census or any parity flip. The census counts allocated words, not live words. Two initial destination intervals per participant are necessary, not sufficient.";
     attribute :>> quint="copy_custody.freeze; copy_custody.plan";
@@ -31,7 +31,7 @@ package GambitCopyCustody {
   part abortDomain:Contract {
     attribute :>> id="ABORT-ISOLATION";
     attribute :>> sourceScope="C-simulation:ABORT-ISOLATION";
-    attribute :>> nativeMethod="native-fault"; attribute :>> nativeArtifact="evidence/research/modern-c-bootstrap/entry-custody-isolation-multi.scm"; attribute :>> nativeClass="native-fault-control"; attribute :>> nativeScope="three healthy members finish three collections while an unpublished native actor stays held and join is unknown; safety exit only";
+    attribute :>> nativeMethod="native-fault"; attribute :>> nativeArtifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/entry-custody-isolation-multi.scm"; attribute :>> nativeClass="native-fault-control"; attribute :>> nativeScope="three healthy members finish three collections while an unpublished native actor stays held and join is unknown; safety exit only";
     attribute :>> cSource="setup.c start_processor_execution; ___vm_resize_pstate; os_thread.c start_pthread_thread; mem.c ___isolate_aborted_resize";
     attribute :>> invariant="An immutable ABORT permit is independent of join. All contexts initialized, no unknown create, no RUN permit, no allocated movable/still/RC payload, and no activation marker allow heap claims to detach. Native record, gate and descriptors remain retained and cannot be reused. The retained request thunk is scanned by worker zero.";
     attribute :>> quint="copy_custody.abort; copy_custody.unknownJoin; copy_custody.isolate; copy_custody.collectHealthy";
@@ -53,11 +53,11 @@ package GambitCopyCustody {
     attribute :>> id="FRAME-ACCESS";
     attribute :>> sourceScope="C-simulation:FRAME-ACCESS";
     attribute :>> nativeMethod="native-whole"; attribute :>> nativeArtifact="vendor/gambit/tests/frame-continuation-roots.scm"; attribute :>> nativeClass="native-whole"; attribute :>> nativeScope="p11 compiler/host runtime, multi-shot continuation and wide roots; frame-domain serialization and ordinary/link partition; not arbitrary FFI writer admission";
-    attribute :>> cSource="mem.c acquire_frame_access; release_frame_access; mark_captured_continuation_locked; mark_captured_continuation; mark_continuation; mark_frame; scan; ___frame_ordinary_root_begin";
-    attribute :>> invariant="Initial captured-link read, stack-root repair, stack-to-heap construction and destination frame-link access share one acquire/release domain. Ordinary root runs exclude the structural link without writing FAL; heap-frame link repair is explicit. READY covers raw payload, while frame access gates semantic link completion. Queue gates are released before frame access.";
+    attribute :>> cSource="mem.c acquire_frame_access; release_frame_access; mark_captured_continuation_locked; mark_captured_continuation; mark_continuation; mark_frame; scan; ___frame_ordinary_root_begin; ___restore_stack_break_frame";
+    attribute :>> invariant="Initial captured-link read, stack-root repair, stack-to-heap construction and destination frame-link access share one acquire/release domain. Census and copying admit the old half, claim and frame extent before reading return, forwarding or break slots. Active scans bind the context and logical break. Parking retains the producer's exact top and break for the recorded segment and undo. Older suffixes outside it still use physical bounds. Ordinary root runs exclude the structural link without writing FAL; heap-frame link repair is explicit. Queue gates are released before frame access.";
     attribute :>> quint="copy_custody.acquireConstructor; copy_custody.beginFrameChain; copy_custody.publishFrameRaw; copy_custody.repairFrameLink; copy_custody.releaseFrameAccess; copy_custody.acquireScanner; copy_custody.scanOrdinaryFrame";
     attribute :>> lean="Gambit.CopyCustody.ordinaryRootsExcludeLink; Gambit.CopyCustody.frameGateExcludesSecondRole";
-    attribute :>> open="VM-wide serialization may reduce root-scan parallelism. Actual C pointer/root-map refinement, active-stack versus captured-segment separation, module metadata lifetime and unmanaged FFI writers remain premises. New-stack restoration is private until final resumption barrier; arbitrary failed-worker takeover is not admitted.";
+    attribute :>> open="The mutator break fallback resolves the section under the allocation lock and holds the section gate through claim and source reads and link updates. A live foreign claim can be consumed. Older raw suffixes outside the recorded span still need logical authority. Measure the additional lock cost separately. Actual pointer/root-map refinement, module metadata lifetime and unmanaged FFI writers remain premises.";
   }
   part copyReservation:Contract {
     attribute :>> id="COPY-RESERVATION";
@@ -86,10 +86,10 @@ package GambitCopyCustody {
     attribute :>> sourceScope="C-simulation:STARTUP-ACTIVATION";
     attribute :>> quintArtifact="dev/refactoring/modern-c/models/quint/startup_custody.qnt";
     attribute :>> leanArtifact="dev/refactoring/modern-c/models/lean/StartupCustody.lean";
-    attribute :>> nativeMethod="native-startup"; attribute :>> nativeArtifact="evidence/research/modern-c-bootstrap/entry-custody-managed.scm"; attribute :>> nativeClass="native-managed-startup"; attribute :>> nativeScope="same 25-second external watchdog; explicit generation and Scheme scheduler-ready receipt, ordinary and failed allocation/create cases; no yield count used as readiness";
-    attribute :>> cSource="setup.c current_vm_resize_request; start_processor_execution; ___run; include/gambit.h.in ___startup_ready; ___startup_load";
-    attribute :>> invariant="Publication authorizes native entry but not Scheme initialization. Immutable per-activation generation binds PUBLISHED to NATIVE to SCHEME to READY. Managed waits hold no native lock, have a complete C-FFI root origin and service pending synchronous GC. Asynchronous callbacks retain publication semantics and cannot be silently upgraded to managed readiness.";
-    attribute :>> quint="startup_custody.publish; startup_custody.enterNative; startup_custody.enterScheme; startup_custody.ready; startup_custody.waitForReady; startup_custody.serviceGC; startup_custody.consumeReceipt";
+    attribute :>> nativeMethod="native-startup"; attribute :>> nativeArtifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/entry-custody-managed.scm"; attribute :>> nativeClass="native-managed-startup"; attribute :>> nativeScope="same 25-second external watchdog; explicit generation and Scheme scheduler-ready receipt, ordinary and failed allocation/create cases; no yield count used as readiness";
+    attribute :>> cSource="lib/setup.c current_vm_resize_request; barrier_sync_op; run_startup_root; ___startup_ready; ___startup_ready_status; lib/_kernel.scm ##current-vm-resize-ready; lib/_thread.scm ##startup-processor!";
+    attribute :>> invariant="Publication authorizes native entry before Scheme initialization. The rooted Scheme activation acknowledges only its own launch generation. The membership epoch names the set for a managed waiter and changes on grow and shrink. The Scheme wait holds no native lock and remains interruptible for synchronous GC. Asynchronous callbacks retain publication semantics. Rejected or unknown readiness leaves ownership in custody until an independently qualified close.";
+    attribute :>> quint="startup_custody.publish; startup_custody.enterNative; startup_custody.enterScheme; startup_custody.ready; startup_custody.waitForReady; startup_custody.serviceGC; startup_custody.consumeReceipt; startup_custody.startupRejected; startup_custody.startupUnknown";
     attribute :>> lean="Gambit.StartupCustody.publicationDoesNotImplyReadiness; Gambit.StartupCustody.yieldCountDoesNotProveReadiness; Gambit.StartupCustody.receiptNeedsExactGeneration";
     attribute :>> open="Original 10000-yield failure did not record which wait failed; bounded diagnostic passes do not reconstruct its execution. Current source controls and scheduling-sensitive collision fixture must qualify independently. Fair OS scheduling and full C/FFI root refinement remain premises. Managed readiness is an explicit contract for callbacks that acknowledge scheduler initialization. Concurrent non-combining resize requests must not keep a movable thunk only in sync-op C copies across another request GC; this is outside the single-request native fixture.";
   }
@@ -98,7 +98,7 @@ package GambitCopyCustody {
     attribute :>> sourceScope="C-simulation:STARTUP-REUSE";
     attribute :>> quintArtifact="dev/refactoring/modern-c/models/quint/startup_custody.qnt";
     attribute :>> leanArtifact="dev/refactoring/modern-c/models/lean/StartupCustody.lean";
-    attribute :>> nativeMethod="native-startup"; attribute :>> nativeArtifact="evidence/research/modern-c-bootstrap/entry-custody-managed.scm"; attribute :>> nativeClass="native-managed-startup"; attribute :>> nativeScope="known rollback and repeated slot reuse; query generation, READY before retirement, successful join before CLOSED; unknown join remains retained";
+    attribute :>> nativeMethod="native-startup"; attribute :>> nativeArtifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/entry-custody-managed.scm"; attribute :>> nativeClass="native-managed-startup"; attribute :>> nativeScope="known rollback and repeated slot reuse; query generation, READY before retirement, successful join before CLOSED; unknown join remains retained";
     attribute :>> cSource="mem.c ___reserve_vm_resize; ___rollback_vm_resize; ___can_retire_pstate; setup.c ___vm_resize_pstate; ___setup_vmstate";
     attribute :>> invariant="A new reservation requires EMPTY plus NONE or known CLOSED, never a numerical thread handle or elapsed yield count. Retirement requires exact-generation READY and external-root admission. STOPPING does not mean CLOSED; only known join or known never-created rollback may authorize CLOSED and metadata reuse. Unknown native results retain slot and source-root custody.";
     attribute :>> quint="startup_custody.stop; startup_custody.joinKnown; startup_custody.joinUnknown; startup_custody.reserveNext; startup_custody.rejectLate";
@@ -134,7 +134,7 @@ package GambitCopyCustody {
   part casRefundControl:Contract {
     attribute :>> id="CAS-REFUND-CONTROL";
     attribute :>> sourceScope="C-simulation:CAS-REFUND-CONTROL";
-    attribute :>> nativeMethod="native-collision"; attribute :>> nativeArtifact="evidence/research/modern-c-bootstrap/entry-custody-collision.scm"; attribute :>> nativeClass="native-collision-control"; attribute :>> nativeScope="separately linked real mem.c with compile-time scheduling controls, two actual GC workers and real forwarding CAS; no injected outcome, no uninstrumented race-frequency or 32-bit claim";
+    attribute :>> nativeMethod="native-collision"; attribute :>> nativeArtifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/entry-custody-collision.scm"; attribute :>> nativeClass="native-collision-control"; attribute :>> nativeScope="separately linked real mem.c with compile-time scheduling controls, two actual GC workers and real forwarding CAS; no injected outcome, no uninstrumented race-frequency or 32-bit claim";
     attribute :>> cSource="mem.c reserve_copy; cancel_copy; commit_copy; mark_array; ___GC_COPY_CONTROL; ___GC_ROOT_CONTROL";
     attribute :>> invariant="Two workers reserve disjoint real intervals and reach the same source-header CAS with the same old header. Exactly one actual CAS loses and cancels the entire unpublished private grant; its cursor returns to begin, it publishes no object and charges no copied words. The winner initializes and commits one object; roots agree and payload remains intact.";
     attribute :>> quint="copy_custody.reservePrivateCopy; copy_custody.loseForwarding; copy_custody.winForwarding; copy_custody.initializeReserved; copy_custody.commitReservation";
@@ -193,7 +193,7 @@ package GambitCopyCustody {
     attribute :>> sourceScope="C-simulation:RESIZE-SOURCES";
     attribute :>> quintArtifact="dev/refactoring/modern-c/models/quint/resize_sources.qnt";
     attribute :>> leanArtifact="dev/refactoring/modern-c/models/lean/ResizeSources.lean";
-    attribute :>> nativeMethod="native-request"; attribute :>> nativeArtifact="evidence/research/modern-c-bootstrap/request-custody-concurrent.scm"; attribute :>> nativeClass="native-request-custody"; attribute :>> nativeScope="qualification-only scheduling of two real requests and actual GC, source-cell relocation and selection reload, same-origin rejection; no arbitrary owner-death proof";
+    attribute :>> nativeMethod="native-request"; attribute :>> nativeArtifact=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-concurrent.scm"; attribute :>> nativeClass="native-request-custody"; attribute :>> nativeScope="qualification-only scheduling of two real requests and actual GC, source-cell relocation and selection reload, same-origin rejection; no arbitrary owner-death proof";
     attribute :>> cSource="setup.c current_vm_resize_request; execute_sync_op; execute_sync_op_loop; ___cleanup_vmstate; ___cleanup; mem.c mark_vm_scmobj; ___can_retire_pstate; include/gambit.h.in ___resize_request_root";
     attribute :>> invariant="A fixed VM origin root publishes before the sync tree transports its bounded serial token. Worker zero scans every slot regardless of membership. Selection reloads the relocated cell before transferring to the resize ledger; only consumed plus drained transport authorizes source ACK. Unknown unwind retains the slot, excludes retirement and prevents clean setup. Serial exhaustion refuses admission, and same-origin reentry cannot overwrite an outer root.";
     attribute :>> quint="resize_sources.register; resize_sources.freeze; resize_sources.collect; resize_sources.selectRequest; resize_sources.reload; resize_sources.complete; resize_sources.drain; resize_sources.ack; resize_sources.unknown; resize_sources.rejectReentry; resize_sources.rejectLate";

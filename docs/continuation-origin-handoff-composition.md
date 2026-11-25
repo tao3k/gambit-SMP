@@ -28,7 +28,7 @@ with the original 15-second per-check cap. The campaign took 20.016 seconds.
 | Delayed publication no-stall and progress | Exhausted, passed | 2,160 | 6.546 |
 
 Portable checked receipts and model/log snapshots are under
-`evidence/model-results/fixtures/public-vm-retirement-composition/continuation-composition`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/public-vm-retirement-composition/continuation-composition`.
 The publisher validated the input hashes. No native gate is closed: cumulative
 completion stays **3/12**, with latest-source requalification pending.
 

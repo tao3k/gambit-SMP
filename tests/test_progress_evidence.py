@@ -14,7 +14,7 @@ class ProgressEvidenceTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        name = "evidence/model-results/model-progress/sync_resource_users"
+        name = ".cache/research/legacy-evidence/evidence/model-results/model-progress/sync_resource_users"
         source = evidence.ROOT / name
         self.destination = self.root / name
         shutil.copytree(source, self.destination)

@@ -46,7 +46,7 @@ checks are not exhaustive or temporal proofs.
 The first TLC check using `enabled(step)` reached `Starting` but provided no
 state counts before its unchanged 90-second budget. Its source snapshot and
 DENY are retained in
-`evidence/model-results/fixtures/startup-gc-stage-observation/enabled-check-timeout`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/startup-gc-stage-observation/enabled-check-timeout`.
 A distinct explicit-predicate check then failed its 10-second `quint --version`
 preflight. Neither denial is reclassified as a protocol counterexample or green
 model; no checker budget was increased.
@@ -59,7 +59,7 @@ Both generation/failure negative controls were observed in the Rust backend;
 the fixed design found no invariant violation in 80 samples of up to 20 steps.
 The GC-lock fixed design also found no violation under the same bounded limits.
 These receipts are retained under
-`evidence/model-results/fixtures/startup-gc-stage-observation/bounded-design-controls`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/startup-gc-stage-observation/bounded-design-controls`.
 They are deliberately not registered as exhaustive `protocol_checked` facts.
 
 ## Required Source Refinement
@@ -81,8 +81,8 @@ They are deliberately not registered as exhaustive `protocol_checked` facts.
 ## Durable References
 
 Stack/disassembly binding:
-`evidence/source-results/fixtures/collective-resize-heap-guard/stack-observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/collective-resize-heap-guard/stack-observation.json`.
 Diagnostic source/native binding:
-`evidence/source-results/fixtures/startup-gc-request-observation/observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/startup-gc-request-observation/observation.json`.
 Models, diagnostic overlays and source locks live in the repository. Python
 framework/provider code was not changed. Runtime/release admission remains false.

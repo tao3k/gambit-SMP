@@ -36,7 +36,7 @@ in the manifest rather than being inferred from the positive check.
 
 Model: `models/gambit/foreign_origin_owner_retirement.qnt`.
 Manifest: `evidence/fixtures/foreign-origin-lease-admission/owner-retirement-contract.json`.
-Portable current binding: `evidence/model-results/fixtures/foreign-origin-lease-admission/owner-retirement-bundle-binding/receipt.json`.
+Portable current binding: `.cache/research/legacy-evidence/evidence/model-results/fixtures/foreign-origin-lease-admission/owner-retirement-bundle-binding/receipt.json`.
 
 The existing `gambit-smp verify` and `publish-protocol` interfaces ran without
 Python implementation changes. The manifest binds the source lock, candidate

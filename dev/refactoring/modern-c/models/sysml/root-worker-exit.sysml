@@ -14,7 +14,7 @@ package GambitRootWorkerExit {
     ref part :>> component=sourceRequest;
     attribute :>> id="capacity-publication";
     attribute :>> model="dev/refactoring/modern-c/models/quint/round_capacity.qnt";
-    attribute :>> result="evidence/research/capacity-admission/protocol-closure/receipt.json";
+    attribute :>> result=".cache/research/legacy-evidence/evidence/research/capacity-admission/protocol-closure/receipt.json";
     attribute :>> actions="freeze; discover; closeCensus; reserveAt; acknowledge; publishPlan; flip; refuse; observe; returnRefused; unknownResult; retain";
     attribute :>> cMap="freeze -> collection-round.inc participant ROOTS_FROZEN and barrier. Actual census/packing/common-refusal adapters remain absent; current setup_stack_heap_vmstate still flips before a complete plan. Existing return overflow is not returnRefused refinement";
     attribute :>> qntDuty="Finite interleavings: deduplicate discovery, no publication before complete census and acknowledgements, one decision observed by all three participants before flip or refused return, no refused/unknown flip, no early return";
@@ -29,7 +29,7 @@ package GambitRootWorkerExit {
     ref part :>> component=rootAdmission;
     attribute :>> id="sfun-writer-publication";
     attribute :>> model="models/gambit/host_roots_contract.qnt";
-    attribute :>> result="evidence/research/capacity-admission/protocol-closure/receipt.json";
+    attribute :>> result=".cache/research/legacy-evidence/evidence/research/capacity-admission/protocol-closure/receipt.json";
     attribute :>> actions="protect; acquireWriter; convert; releaseWriter; closeWriters; freeze; acquire; relocate; reload; allocateMarker; storeArgument; enter; leave; release";
     attribute :>> cMap="protect -> begin_sfun and alloc_rc_roots; acquireWriter/storeArgument/releaseWriter -> context gate in store_rc_root and call_sfun batch; closeWriters -> close_rc_roots invocation; freeze -> ROOTS_FROZEN barrier; acquire/relocate -> mark_rc plus mark_array; reload -> bank input flag and post-marker batch reload; release -> end_sfun known exit";
     attribute :>> qntDuty="Finite interleavings of root registration before collecting conversion, writer drain before frozen scan, pre-marker GC and reload, nested activation, closed-entry refusal and known-exit release. closing is a close request, not proof that an already admitted writer stopped";
@@ -49,7 +49,7 @@ package GambitRootWorkerExit {
     ref part :>> component=hashLayout;
     attribute :>> id="hash-layout-ownership";
     attribute :>> model="dev/refactoring/modern-c/models/quint/hash_index_owner.qnt";
-    attribute :>> result="evidence/research/hash-layout/protocol-closure/receipt.json";
+    attribute :>> result=".cache/research/legacy-evidence/evidence/research/hash-layout/protocol-closure/receipt.json";
     attribute :>> actions="beginRead; visit; finishRead; freeze; relocate; repairStable; resume; lookup; ownedRebuild; deserialize";
     attribute :>> cMap="Scheme owns physical traversal cursor; collector repairs references and records actual movement without permutation; native pure read preserves slots and address debt; exclusive mutator rebuilds before set/delete/union-find. Scheme explicit deserialize debt remains independent";
     attribute :>> qntDuty="Existing hash_index_owner extended with cursor, layout and address debt: GC/lookup interleavings preserve exact visits; old eager rebuild can duplicate a key despite correct hash placement. One reader, two keys, two addresses/layouts; no concurrent writer or liveness claim";
@@ -202,7 +202,7 @@ package GambitRootWorkerExit {
     attribute :>> failure="Do not replace the successful context until Make phases and generated-source checks complete. Failed configuration/build leaves the previous context accountable, so a retry cannot forget changed flags or headers. No source clean/copy or runtime completion is inferred from context metadata";
     attribute :>> benefit="Remove repeated full native recompilation caused only by the presence of relocation metadata. Actual new archive membership, header/tool/flag changes or a performed move still invalidate conservatively; unknown partial object completion remains separate work";
   }
-  attribute sourceLock:String="evidence/research/root-worker-exit/source.lock.json";
+  attribute sourceLock:String=".cache/research/legacy-evidence/evidence/research/root-worker-exit/source.lock.json";
   attribute upstreamCommit:String="9e6f6742c4d9e9915ee8af0dcb7d97cf1f836116";
   attribute upstreamUrl:String="https://github.com/erlang/otp.git";
   part def Replacement {

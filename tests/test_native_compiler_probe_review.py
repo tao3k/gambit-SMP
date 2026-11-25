@@ -24,7 +24,7 @@ class CompilerProbeTransportTests(unittest.TestCase):
         return compiler_probe_failure(self.receipt if receipt is None else receipt, path, file, mode)
 
     def test_actual_canonical_failure_projects_without_synthetic_results(self):
-        receipt = json.loads((ROOT / "evidence/model-results/native-compiler-cost-num-021-deny.json").read_text())
+        receipt = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/model-results/native-compiler-cost-num-021-deny.json").read_text())
         self.assertNotIn("results", receipt)
         self.assertEqual("c-to-dynamic-module",
                          self.phase(receipt, file="03-number/_num.scm"))

@@ -34,7 +34,7 @@ states (143 generated, zero queued), passed safety and completed temporal
 progress checking in 4.266 seconds. Control checks took 4.426, 4.431 and 4.044
 seconds, under unchanged 30-second caps with host-derived concurrency.
 Portable receipts, logs and traces are in
-`evidence/model-results/pstate-failure-composition/`.
+`.cache/research/legacy-evidence/evidence/model-results/pstate-failure-composition/`.
 
 The initial draft was rejected by the parser for an imported initializer name
 collision, then by typechecking for a heterogeneous fairness set. The final

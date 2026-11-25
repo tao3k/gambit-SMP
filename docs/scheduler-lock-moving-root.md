@@ -72,7 +72,7 @@ separate fixture; the timeout is not overwritten or relabeled.
 
 Portable evidence is in the `moving-root-observer-lock-denial` and
 `moving-root-unlocked-observer` subdirectories of
-`evidence/source-results/fixtures/scheduler-retry-sync-participation/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/scheduler-retry-sync-participation/`.
 These are diagnostics, not sealed full-suite, bootstrap, Gerbil or release
 admission. Physical tracing/copying refinement, collective error handling and
 root/phase/retirement composition remain open.
@@ -104,7 +104,7 @@ total population, which is selected from available host CPUs. The original
 
 The new manifest and model receipt are
 `evidence/fixtures/scheduler-retry-sync-participation/shared-root-cohort-contract.json`
-and `evidence/model-results/fixtures/scheduler-retry-sync-participation/shared-root-cohort/receipt.json`.
+and `.cache/research/legacy-evidence/evidence/model-results/fixtures/scheduler-retry-sync-participation/shared-root-cohort/receipt.json`.
 Native observations are separately bound under the source-results
 `shared-root-cohort` directory. These remain diagnostics, not full-suite
 admission; earlier models and failures are preserved rather than upgraded.

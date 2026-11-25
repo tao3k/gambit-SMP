@@ -7,7 +7,7 @@ over 48 distinct states, 87 generated and zero queued. Three controls found
 required callback-root, early-success and lost-exception counterexamples.
 The complete campaign took 13.330 seconds under unchanged 90-second check
 budgets. Portable validated model evidence is at
-`evidence/model-results/research/interrupt-callback-gc-exit`.
+`.cache/research/legacy-evidence/evidence/model-results/research/interrupt-callback-gc-exit`.
 
 The current thread-completion candidate compiled the corresponding native
 fixture in 1.310 seconds and ran both normal and exceptional callback cases
@@ -32,7 +32,7 @@ identity was rechecked after execution.
 ## Boundary
 
 Portable native fixture, logs, identity and summary are at
-`evidence/source-results/fixtures/interrupt-callback-gc-exit/native-diagnostic`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-callback-gc-exit/native-diagnostic`.
 The summary binds the corresponding checked model receipt, but does not infer
 source refinement from matching names or passing processes. No Python producer
 or runtime source repair was introduced.

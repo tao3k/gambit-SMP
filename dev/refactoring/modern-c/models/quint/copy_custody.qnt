@@ -10,7 +10,7 @@ module copy_custody {
     drainedChunks:Set[int],closedChunks:Set[int],chunkTakes:Set[int],takeCount:int,
     frameOwner:int,frameRaw:bool,frameOpen:bool,linkReady:bool,ordinarySeen:Set[int],staleFrameRead:bool,
     reservationState:int,activeCharge:int,reservedCharge:int,refundedCharge:int,committedCharge:int,
-    reservationInitialized:bool,unknownHeld:bool}
+    reservationInitialized:bool,unknownHeld:bool,rootRevisits:Set[int],rootVisitCount:int}
   var s:S
   pure val empty:S={frozen:false,planned:false,forwarded:Set(),payload:Set(),
     tailPending:Set(),tailDone:Set(),queued:Set(),claimed:Set(),scanned:Set(),
@@ -20,7 +20,7 @@ module copy_custody {
     heldChunks:Set(0),drainedChunks:Set(),closedChunks:Set(),chunkTakes:Set(),takeCount:0,
     frameOwner:-1,frameRaw:false,frameOpen:false,linkReady:false,ordinarySeen:Set(),staleFrameRead:false,
     reservationState:0,activeCharge:0,reservedCharge:0,refundedCharge:0,committedCharge:0,
-    reservationInitialized:false,unknownHeld:false}
+    reservationInitialized:false,unknownHeld:false,rootRevisits:Set(),rootVisitCount:0}
   action init={s'=empty}
   action freeze=all{not(s.frozen),s'={...s,frozen:true}}
   action plan=all{s.frozen,s.capacity>=objects.size(),s'={...s,planned:true}}
@@ -48,6 +48,11 @@ module copy_custody {
   action observeDuplicate=all{s.claimed!=Set(),
     nondet o=s.claimed.oneOf();
     s'={...s,duplicates:s.duplicates+1,lastDuplicate:o}}
+  // A root may already hold its canonical destination before payload/queue
+  // completion. Revisit transfers no copy, scan or first-field Tail authority.
+  action revisitDestination=all{s.forwarded!=Set(),
+    nondet o=s.forwarded.oneOf();
+    s'={...s,rootRevisits:s.rootRevisits.union(Set(o)),rootVisitCount:s.rootVisitCount+1}}
   action abort=all{not(s.entered),s'={...s,abortPublished:true}}
   action unknownJoin={s'={...s,joinUnknown:true}}
   action unknownCreate=all{not(s.abortPublished),s'={...s,knownCreate:false}}
@@ -97,12 +102,13 @@ module copy_custody {
     s'={...s,reservationState:0,activeCharge:0,committedCharge:s.committedCharge+s.activeCharge}}
   action unknownReservation=all{s.reservationState==1,
     s'={...s,reservationState:3,unknownHeld:true}}
-  action step=any{freeze,plan,forward,initializeCopy,publish,completeTail,claim,scan,observeDuplicate,
+  action step=any{freeze,plan,forward,initializeCopy,publish,completeTail,claim,scan,observeDuplicate,revisitDestination,
     abort,unknownJoin,unknownCreate,isolate,collectHealthy,closePrivate,closeHeld,takeChunk,
     selectFrontier,drainChunk,acquireConstructor,beginFrameChain,publishFrameRaw,repairFrameLink,
     releaseFrameAccess,acquireScanner,scanOrdinaryFrame,reservePrivateCopy,loseForwarding,
     winForwarding,initializeReserved,commitReservation,unknownReservation,s'=s}
   val safe=all{
+    s.rootRevisits.subseteq(s.forwarded),s.rootVisitCount>=s.rootRevisits.size(),
     s.copied==s.forwarded.size(),s.copied<=objects.size(),
     s.planned implies s.capacity>=objects.size(),
     s.payload.subseteq(s.forwarded),s.queued.subseteq(s.payload),
@@ -168,6 +174,14 @@ module copy_custody {
   action publishHeldAgain={s'={...empty,queuedChunks:Set(0)}}
   action duplicateChunkTake={s'={...empty,takeCount:2,chunkTakes:Set(0)}}
   action recopyTospace={s'={...empty,forwarded:Set(0),tailPending:Set(0),copied:2}}
+  run revisitBeforePayloadTest=init.then(freeze).then(plan).then(forward).then(revisitDestination)
+    .expect(safe and s.copied==1 and s.payload==Set() and s.tailPending==s.forwarded)
+  run repeatedDestinationKeepsTailTest=init.then(freeze).then(plan).then(forward)
+    .then(initializeCopy).then(revisitDestination).then(revisitDestination)
+    .expect(safe and s.copied==1 and s.rootVisitCount==2 and s.tailDone==Set())
+  run revisitAfterScanCreatesNoTaskTest=init.then(freeze).then(plan).then(forward)
+    .then(initializeCopy).then(publish).then(claim).then(scan).then(revisitDestination)
+    .expect(safe and s.copied==1 and s.scanCount==1 and s.tailPending==s.forwarded)
   action duplicateScan={s'={...empty,scanCount:2,scanned:Set(0)}}
   action isolateUnknownCreate={s'={...empty,abortPublished:true,knownCreate:false,
     joinUnknown:true,isolated:true}}

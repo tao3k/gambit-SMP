@@ -1,5 +1,5 @@
 require 'json';require 'digest';require 'fileutils';require 'open3'
-e='evidence/research/continuation-segments';b='.cache/tasks/modern-c-frame-contract/cohort'
+e='.cache/research/legacy-evidence/evidence/research/continuation-segments';b='.cache/tasks/modern-c-frame-contract/cohort'
 dest=e+'/records';manifest=e+'/validation.json'
 raise 'fresh publication required' if File.exist?(manifest)||File.exist?(dest)
 sha=->p { Digest::SHA256.file(p).hexdigest }
@@ -46,8 +46,8 @@ paths+=%w[
  dev/modeling/tools/check-continuation-segments.rb
  dev/modeling/tools/qualify-continuation-segments.rb
  dev/modeling/tools/retain-continuation-segments.rb
- evidence/research/continuation-segments/source.lock.json
- evidence/research/modern-c-bootstrap/architecture-causal-validation.json
+ .cache/research/legacy-evidence/evidence/research/continuation-segments/source.lock.json
+ .cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/architecture-causal-validation.json
 ]
 FileUtils.mkdir_p(dest)
 records=paths.uniq.sort.to_h do |p|

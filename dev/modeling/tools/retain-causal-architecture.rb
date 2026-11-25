@@ -1,7 +1,7 @@
 require 'json';require 'digest';require 'fileutils';require 'open3'
 sha=->p { Digest::SHA256.file(p).hexdigest }
 cache='.cache/tasks/modern-c-frame-contract/cohort'
-e='evidence/research/modern-c-bootstrap'
+e='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap'
 target=e+'/architecture-causal-records'
 manifest=e+'/architecture-causal-validation.json'
 raise 'fresh publication required' if File.exist?(target) || File.exist?(manifest)

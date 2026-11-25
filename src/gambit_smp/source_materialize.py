@@ -13,7 +13,7 @@ import tarfile
 import tempfile
 
 from gambit_smp.framework import ROOT, apply_untracked_patch, digest, relative
-from gambit_smp.source_capabilities import source_name, source_file, validate_source_lock, verify_source_base
+from gambit_smp.source_capabilities import source_name, source_file, validate_source_lock, verify_source_base, modular_header_files
 
 LOCK = ROOT / "evidence/runtime-source.lock.json"
 FILES = ("lib/mem.c", "lib/setup.c", "include/gambit.h.in")
@@ -27,6 +27,67 @@ def revision(checkout):
                                    text=True, timeout=10).strip()
 
 
+def tracked_change_names(payload):
+    """Names from `git diff --name-only -z HEAD`. Empty payload means no delta."""
+    if isinstance(payload, str):
+        payload = payload.encode()
+    if not isinstance(payload, (bytes, bytearray)):
+        raise ValueError("tracked change listing required")
+    names = []
+    for part in payload.split(b"\0"):
+        if not part:
+            continue
+        name = part.decode()
+        source_name(name)
+        if name not in names:
+            names.append(name)
+    return tuple(names)
+
+
+def tracked_changes(checkout):
+    """Tracked paths whose worktree bytes differ from the current REV."""
+    payload = _task_check_output(
+        ["git", "-C", str(checkout), "diff", "--name-only", "-z", "HEAD"], timeout=30)
+    return tracked_change_names(payload)
+
+
+def overlay_tracked_files(checkout, source, lock, names):
+    """Copy current tracked changes that the lock does not already name.
+
+    Files named by the lock must still match their candidate hash. The copy
+    is the current worktree bytes at this REV. It does not admit a runtime.
+    """
+    expected = lock.get("worktreeFiles")
+    if not isinstance(expected, dict):
+        raise ValueError("tracked worktree inventory required")
+    copied = {}
+    for name in names:
+        source_name(name)
+        if name in lock["files"]:
+            if digest(source_file(checkout, name)) != lock["files"][name]["candidateSha256"]:
+                raise ValueError("tracked source differs from the locked candidate: " + name)
+            continue
+        origin = source_file(checkout, name)
+        payload = origin.read_bytes()
+        observed = digest(origin)
+        if expected.get(name) != observed:
+            raise ValueError("tracked source is not the locked worktree file: " + name)
+        target = source
+        for part in name.split("/"):
+            target = target / part
+            if target.is_symlink():
+                raise ValueError("source file cannot traverse a symlink")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+        if digest(target) != observed or origin.read_bytes() != payload:
+            raise ValueError("tracked source changed during materialization")
+        copied[name] = observed
+    missing = [name for name in expected if name not in copied]
+    if missing:
+        raise ValueError("tracked source missing from the current REV: " + missing[0])
+    return copied
+
+
 def export(checkout, candidate, lock_path, patch_path, files=FILES, *, overlay=None):
     if lock_path.exists() or patch_path.exists():
         raise ValueError("refusing to overwrite source lock or snapshot overlay")
@@ -38,6 +99,8 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES, *, overlay=N
     selected = set(files)
     if not selected or len(selected) != len(files):
         raise ValueError("nonempty unique source snapshot files required")
+    if 'include/gambit.h.in' in selected:
+        selected.update(modular_header_files(candidate))
     for name in selected:
         source_name(name)
     if overlay is not None:
@@ -165,79 +228,23 @@ def _materialize(lock_path, out, *, root=None):
         observed = {name: digest(source_file(source, name)) for name in lock["files"]}
         if any(observed[name] != row["candidateSha256"] for name, row in lock["files"].items()):
             raise ValueError("materialized source differs from candidate slice")
+        worktree = {}
+        if lock.get("trackWorktree") is True:
+            if head_before != lock["revision"]:
+                raise ValueError("source lock REV is not the current vendor HEAD")
+            worktree = overlay_tracked_files(checkout, source, lock, tracked_changes(checkout))
         if (digest(patch) != lock["patchSha256"] or revision(checkout) != head_before or
                 digest(lock_path) != lock_hash):
             raise ValueError("source inputs changed during materialization")
         record = {"schema": "gambit-source-materialization.v1",
                   "sourceLockSha256": lock_hash, "revision": lock["revision"],
                   "files": observed, "status": "source-slice-reproduced",
+                  "worktreeChanges": worktree,
                   "configuredToolchainReproduced": False,
                   "runtimeAdmitted": False, "releaseAdmitted": False}
         (source / "materialization.json").write_text(json.dumps(record, indent=2) + "\n")
         source.rename(out)
     return record
-
-
-def source_binding(root, lock, name):
-    """Exact regular-file binding in the locked tree; None proves absence."""
-    source_name(name)
-    checkout = relative(root, lock['submodule'])
-    entry = _task_check_output(['git', '-C', str(checkout), 'ls-tree', '-z',
-                                lock['revision'], '--', name], timeout=10)
-    if not entry:
-        return None
-    metadata, observed = entry.rstrip(b'\0').split(b'\t', 1)
-    mode, kind, _ = metadata.split()
-    if observed.decode() != name or mode not in (b'100644', b'100755') or kind != b'blob':
-        raise ValueError('locked source must be an exact regular file')
-    from gambit_smp.source_identity import git_source
-    return git_source(root, lock['submodule'], lock['revision'], name)
-
-
-def audit_slice(lock_path, *, root=None):
-    """Check only selected original bytes and the existing exact patch contract.
-
-    This is not materialization, checkout proof, bootstrap or runtime admission.
-    No whole source archive is extracted and no output source tree is published.
-    """
-    root = ROOT if root is None else Path(root).resolve()
-    from gambit_smp.recipes import read_json, source_path
-    from gambit_smp.source_identity import read_source
-    lock = read_json(lock_path); validate_source_lock(lock)
-    lock_hash = digest(lock_path); patch = source_path(root, lock['patch'])
-    patch_bytes = patch.read_bytes()
-    if hashlib.sha256(patch_bytes).hexdigest() != lock['patchSha256']:
-        raise ValueError('source revision or snapshot overlay drift')
-    bindings, absent = {}, []
-    with tempfile.TemporaryDirectory(prefix='gambit-selected-source-audit-') as temporary:
-        selected = Path(temporary)
-        for name, row in lock['files'].items():
-            identity = source_binding(root, lock, name)
-            if row['baseSha256'] is None:
-                if identity is not None:
-                    raise ValueError('new source path must be absent from pinned archive')
-                absent.append(name)
-            else:
-                if identity is None or identity['sha256'] != row['baseSha256']:
-                    raise ValueError('archived base source differs from lock')
-                bindings[lock['submodule']+'/'+name] = identity
-                target = selected/name; target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(read_source(root, identity))
-            verify_source_base(selected, name, row)
-        apply_untracked_patch(selected, patch_bytes, set(lock['files']),
-                              new_files=set(absent), preserve_whitespace=True)
-        observed = {name: digest(source_file(selected, name)) for name in lock['files']}
-        if any(observed[name] != row['candidateSha256'] for name, row in lock['files'].items()):
-            raise ValueError('materialized source differs from candidate slice')
-    if digest(lock_path) != lock_hash or patch.read_bytes() != patch_bytes:
-        raise ValueError('source inputs changed during selected audit')
-    for identity in bindings.values():
-        if hashlib.sha256(read_source(root, identity)).hexdigest() != identity['sha256']:
-            raise ValueError('locked source object drift during audit')
-    return dict(files=observed, sourceBindings=bindings, absentPaths=absent,
-                proofKind='immutable-selected-source', checkoutChecked=False,
-                fullSourceArchives=0, configuredToolchainReproduced=False,
-                runtimeAdmitted=False, releaseAdmitted=False)
 
 
 @contextmanager
@@ -275,12 +282,23 @@ def main():
                         help="apply a delta to selected candidate bytes in isolation before export; producer stays unchanged")
     parser.add_argument("--file", action="append",
                         help="explicit regular source files; new paths require absence in the pinned revision")
+    parser.add_argument("--binding", type=Path,
+                        help="JSON {\"files\": [\"relative/path\", ...]} selecting the snapshot inventory")
     args = parser.parse_args()
+    files = args.file
+    if args.binding:
+        if files:
+            parser.error("--binding replaces a repeated --file list")
+        document = json.loads(args.binding.read_text())
+        files = document.get("files") if isinstance(document, dict) else None
+        if (not isinstance(files, list) or not files or len(files) != len(set(files))
+                or any(not isinstance(name, str) for name in files)):
+            parser.error("--binding requires a nonempty unique files array")
     if args.export_candidate:
-        if not args.patch or args.out or (args.overlay and not args.file):
-            parser.error("export requires --patch and no --out; --overlay requires explicit --file inventory")
+        if not args.patch or args.out or (args.overlay and not files):
+            parser.error("export requires --patch and no --out; --overlay requires an explicit file inventory")
         export(ROOT / "vendor/gambit", args.export_candidate, args.lock, args.patch,
-               args.file or FILES, overlay=args.overlay)
+               files or FILES, overlay=args.overlay)
         print("SOURCE-SNAPSHOT-EXPORTED")
     else:
         if not args.out or args.patch or args.file or args.overlay:

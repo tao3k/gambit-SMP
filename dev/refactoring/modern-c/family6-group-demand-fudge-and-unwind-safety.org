@@ -1,0 +1,132 @@
+#+TITLE: Family 6 write-group fudge reserve, unframe coordinate safety, and in-section soft-limit extension
+#+PROPERTY: TASK modern-c-frame-contract
+
+* Scope and problem statement
+
+During native Gate 2 (`native-frame`) and Family A (`Checklist 6--9`) verification
+of the `family6-local-admit` candidate, three coupled runtime/compiler contracts
+in `vendor/gambit/gsc/_t-c-2.scm` and `vendor/gambit/lib/_mem/allocation-limits.inc`
+required fundamental source-level closure:
+
+1. *Emitter procedure-name representation (`gsc/_t-c-2.scm`)*:
+   `pcontext-name` is already a Scheme string on C-backend label contexts rather
+   than a symbol. Unchecked `symbol->string` read the string header word as a
+   symbol name slot, emitting corrupted `___GATE2_OPEN` / `___GATE2_ENTER` names
+   for internal procedures such as `##comp-do` (`F6-20-7`). Checked selection
+   (`string?` vs `symbol?`) preserves exact procedure identity across both `gsc`
+   and `gsi`.
+
+2. *Mutator stack fudge reserve (`allocation-limits.inc`)*:
+   `___group_demand_local_admit` and `group_footprint_fits` previously admitted
+   mutator stack write-groups down to the physical base `lo = alloc_stack_limit`
+   without reserving `[lo, lo + ___MSECTION_FUDGE)` for `handler_stack_limit`'s
+   internal-return spill frame (`___handler_spill_backed`) and `___group_demand_before`
+   (which requires `fp` on the old side of `ps->context->stack_limit`). Defining
+   `mutator_stack_adjust_fits` against `lo + ___MSECTION_FUDGE` and accounting
+   for `pending_stack->stack_words` in `___stack_limit` ensures phase-1 entry
+   occurs while the handler spill reserve remains backed.
+
+3. *Post-service unframe coordinate preservation and nested service frames (`allocation-limits.inc`)*:
+   `___group_demand_after` executes inside `handler_stack_limit` before both the
+   unconditional tail call to `##interrupt-handler` and the `internal_return`
+   epilogue. Publishing `ps->context->fp` (`handler_fp`) and transitioning
+   `d->phase = 2` inside `___group_demand_after` caused two failures:
+   - `___gate2_unwound` in `internal_return` (`d->phase == 1`) was bypassed;
+   - `___group_demand_resume_view` overwrote the unwound caller `*fp` with the
+     stale `handler_fp` (matching the counterexample in `rest_frame_publication.qnt`:
+     `gate2HandlerCursorReinjectionIsRefusedTest`).
+   Keeping `d->phase = 1` with `d->resume_query = 1` in `___group_demand_after`,
+   admitting fitting nested frames (`##interrupt-handler`) with zero attempt via
+   `group_demand_local_room` without disturbing `slot`, and upgrading `d->phase`
+   from `1` to `2` at the actual unwound caller cursor inside `___group_demand_arm`
+   eliminates cursor reinjection while preserving once-only retry semantics.
+
+4. *In-section soft-heap-limit extension and pre-fudge tail retention (`bump_heap_section_for_demand`)*:
+   `prepare_mem_pstate` initializes `ps->heap_limit` to the minimum of the poll
+   quota (`avail / 4`) and `alloc_heap_limit - ___MSECTION_FUDGE`. Calling
+   `next_heap_msection` whenever `hp + heap_words > ps->heap_limit` abandoned
+   partially used sections in two distinct situations:
+   - when `(alloc_heap_limit - hp) - ___MSECTION_FUDGE >= heap_words` (poll quota
+     below `soft`), where `publish_bumped_heap_limit` extends `ps->heap_limit`
+     in-place with zero service attempt;
+   - when `hp < alloc_heap_limit - ___MSECTION_FUDGE` (`___rest_observation_room > 0`)
+     and `hp + heap_words <= alloc_heap_limit`, where returning `0` from
+     `bump_heap_section_for_demand` lets `___group_demand_arm` issue a tracked
+     in-section `phase == 2` fudge grant so Family A physical-boundary and
+     cross-break probes (`Checklist 6--7`, `reach(target)`) consume the exact
+     pre-fudge tail down to `target` without prematurely jumping to a fresh
+     `56,315`-word section.
+
+5. *`c-lambda` entry frame isolation (`targ-scan-c-procedure` in `gsc/_t-c-2.scm`)*:
+   `targ-scan-procedure` previously left `targ-proc-exit-frame` populated from the
+   preceding Scheme procedure in the compilation unit, and `targ-scan-c-procedure`
+   copied `(set! targ-proc-entry-frame targ-proc-exit-frame)` before emitting the
+   `c-lambda` host entry's `targ-admit-write-group`. For `c-lambda` procedures
+   emitted at module tail (such as `_nonstd#0..3` in `lib/_nonstd.c`), this
+   synthesized `___IFD(___RETI, 0, 5, ...)` (`cfs = 0, link = 5` fallback slot)
+   instead of `link = 0` (`___R0`). Once `mutator_stack_adjust_fits` reserved
+   `___MSECTION_FUDGE` on the stack, Pass 2 `gsc-boot` entering `_nonstd#0..3`
+   invoked `___stack_limit`, whose frame-transfer loop read `B[-6]` instead of
+   `B[-1]` (`caller_ra`) and faulted on `frame_count == 2`. Constructing a
+   dedicated `c-entry-frame` directly from `(targ-label-info arity #f)` (`pc-fs`
+   stacked parameters plus live `pcontext-map` registers including `ret-var` in
+   `R0`) and resetting per-procedure frame/demand state in `targ-scan-procedure`
+   guarantees `link = align(pc-fs)` (`R0`) and exact root bitmaps for every
+   `c-lambda`.
+
+6. *Dirty unboxed-flonum flush budget conservation (`targ-fp-cache-dirty-count` and `targ-fp-cache-write-if-dirty` in `gsc/_t-c-2.scm`)*:
+   `targ-fp-cache-size` stores the high-water capacity of the unboxed flonum cache
+   vector rather than the count of active dirty entries, and
+   `targ-fp-cache-write-if-dirty` cleared `(vector-set! x 1 #f)` *after*
+   `targ-fp-cache-write` added `targ-flonum-space` to `targ-proc-heap-reserved`.
+   During `targ-update-fr` (e.g. in `##bignum.*`, `##display-gc-report`, and
+   `##flonum->exact-int`), each boxed flonum inflated `targ-group-heap-words` by an
+   extra `6` words above the open group's budget, splitting the write-group into a
+   new `___GATE2_OPEN` while an unpublished `___SET_STK(1, ...)` word sat above
+   `___fp`. Counting active dirty entries via `targ-fp-cache-dirty-count`, clearing
+   the dirty flag before `targ-fp-cache-write`, and publishing backed entry slots
+   at the start of `targ-update-fr` strictly conserves
+   `targ-proc-heap-reserved + dirty * targ-flonum-space` and eliminates mid-flush
+   write-group splits.
+
+7. *Thread-local collector section-lookup caches under parallel GC (`copy-reservations.inc`, `copy-planning.inc`, `movable-sections.inc`)*:
+   `change_object_scan_state` (`scan_state_section`, `scan_state_base`,
+   `scan_state_offset`, `scan_state_epoch`), `census_claim` (`census_section`,
+   `census_base`, `census_offset`, `census_epoch`), and `find_msection`
+   (`msection_find_cache[4096]`) previously stored mutable lookup memoization in
+   process-global `static` variables without `_Thread_local` isolation. Under `p2`
+   parallel collection (`nw == 2` in `rest-9-ordinary-race` and Checklist 10 SMP
+   stress), concurrent collector workers raced on `scan_state_base` and
+   `scan_state_section`, flipping the 2-bit `GC_SCAN_OWNED` / `GC_SCAN_DONE` bitmap
+   at another worker's section offset and aborting with
+   `GC scan owner lost before completion`. Qualifying all per-worker section caches
+   as `static _Thread_local` and using acquire/release atomics on
+   `msection_find_gen` eliminates cross-worker bitmap aliasing and struct tearing.
+
+8. *Rest-handler lifecycle-gated collection, one-word-short auto-watch, and Phase-1/Phase-3 observation hooks (`lib/_kernel.scm`, `rc-allocation.inc`, `heap-sections.inc`)*:
+   - Guarding the pre-GC `___rest_extend_interval` shortcut in `handler_get_rest`
+     and `handler_get_key_rest` with `!___lifecycle_gc_admitted(___ps)` ensures
+     early pre-GC bootstrap can still extend sections while runtime rest shortages
+     always enter `___rest_root_window` -> `___rest_caller_chain` ->
+     `___garbage_collect` before post-GC `___rest_extend_interval` (restoring
+     Checklist 7 cross-break custody pins and Checklist 8 moving-GC root repair).
+   - Teaching `___rest_planted_short()` (`rc-allocation.inc`) to recognize
+     `rest_observation_auto_watch == 1` (`GAMBIT_REST_OBSERVATION_WATCH=physical-one-short`)
+     restores cut-9 refusal on Checklist 6 one-word-short probes without disturbing
+     un-armed calls.
+   - Restoring `___rest_observation_note_saved_fp` / `___rest_observation_note_return_fp`
+     around `___garbage_collect`, `___rest_observation_exact_granted` prior to
+     `___PUSH(rest_param_list)` / `___ADJFP(-j)`, `___rest_observation_note_body`
+     at handler exit, and evaluating `rest_section_contest_cap` before `max_heap == 0`
+     section-array growth in `___rest_extend_interval` restores exact Phase-1
+     snapshots, Phase-3 parent coordinates (`reloaded = 1`), and Checklist 9
+     single-winner section-contest caps.
+
+* Formal verification linkage
+
+| Layer | Artifact | Verified properties |
+|-------+----------+---------------------|
+| Quint | `dev/refactoring/modern-c/models/quint/rest_frame_publication.qnt` | `mutatorStackFudgeReserveProtectsHandlerSpillTest`, `softHeapPollExtendsInPlaceBeforeSectionBumpTest`, `cLambdaFreshEntryFramePreventsStaleLinkTest`, `dirtyFlonumFlushConservesGroupHeapBudgetTest`, `smpParallelWorkerScanCacheIsolationTest`, `restShortageLifecycleAndObservationOrderTest`, `gate2HandlerCursorReinjectionIsRefusedTest`, `settledServiceAllowsNestedInterruptTest` |
+| Lean 4 | `dev/refactoring/modern-c/models/lean/FrameContract.lean` | `mutatorFudgeReserveProtectsHandlerSpill`, `mutatorFudgeFitStaysAboveFloor`, `inSectionSoftExtensionPreservesHardReserve`, `preFudgeShortageFitsInActiveSection`, `dirtyFlonumFlushConservesHeapWords`, `cLambdaEntryLinkSelectsSavedReturnRegister`, `threadLocalSectionCacheIsolatesWorkers`, `admittedRestShortageCollectsBeforeExtend`, `exactCutBeforeStagingPreservesPairWindow` |
+| CBMC | `tests/contracts/allocation-grant/group-demand/local-admission/check.recipe.json` | Scenarios 0--15 projected verbatim from `vendor/gambit/lib/_mem/allocation-limits.inc` (`local.stack-fudge-reserve-triggers-shortage`, `local.after-service-preserves-phase1-until-unframe`, `local.nested-fitting-group-preserves-pending-slot`, `local.unwound-retry-arms-phase2-at-caller-fp`, `local.soft-poll-extends-in-section-before-bump`, `local.pre-fudge-tail-keeps-active-section`, `local.pre-fudge-tail-commits-cleanly`) |
+| Native Gate 2 | `evidence/fixtures/dev-family6-engineering/gate2-workloads/f6-20-{1..7}.scm` | Complete 5/5 native-frame obligations (`oldFrameBacking`, `savedHandlerFp`, `unwoundCallerFp`, `firstWrite`, `noCommittedReplay`) across all seven 20-word write-group sites (`F6-20-1`..`F6-20-6` in `gsc/gsc`, `F6-20-7` at `##comp-do` entry group `(20,8)` in `gsi/gsi`) |

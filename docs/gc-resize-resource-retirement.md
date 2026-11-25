@@ -56,7 +56,7 @@ Campaign002 parameterizes population 2..5, every legal retained prefix, and
 every scanner/queue-owner pair, including self/local, remote, retained non-root
 and retired scanners. The reviewed initializer has 170 configurations. The
 current portable bundle is
-`evidence/model-results/gc-resize-resource-retirement-roles-model/`.
+`.cache/research/legacy-evidence/evidence/model-results/gc-resize-resource-retirement-roles-model/`.
 
 Three independent controls reject destroying sync resources at fast child exit,
 using queue emptiness as GC completion, and treating joins alone as storage

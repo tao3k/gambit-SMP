@@ -114,7 +114,8 @@ def adopt_reviewed_view(root,declaration,review_name):
             if previous['pointer']!=row['pointer']:raise ValueError('existing reference pointer changed')
         else:locator=dict(path=row['path'],sha256=row['sha256'])
         if 'identity' in row:locator=dict(path=row['path'],sha256=row['sha256'],identity=row['identity'])
-        refs.append(dict(id=row['id'],source=locator,pointer=row['pointer']))
+        refs.append(dict(id=row['id'],source=locator,pointer=row['pointer'],
+                         **{key:row[key] for key in ('origin','validator','ranges','context') if key in row}))
     updated=dict(schema=spec['schema'],output=spec['output'],view={key:value for key,value in view.items() if key!='references'},references=refs)
     with lease(root,'evidence-view-publication'):
         if source.read_bytes()!=original or output.read_bytes()!=raw or digest(review_file)!=review_sha:raise ValueError('semantic update changed during import')
@@ -137,6 +138,7 @@ def generator_sources():
 def materialize(root,declaration,*,expected_view_sha):
     """Reviewed facts are inputs; file bytes, imports and bindings are produced."""
     root=Path(root).resolve(strict=True);source=source_path(root,declaration)
+    generator_sha=digest(Path(__file__));generator_inputs=generator_sources()
     source_sha=digest(source);spec=json.loads(source.read_text())
     if set(spec)!={'schema','output','view','references'} or spec['schema']!='ascent.evidence-view-source.v1':
         raise ValueError('reviewed Evidence source declaration required')
@@ -147,14 +149,17 @@ def materialize(root,declaration,*,expected_view_sha):
     if previous_sha!=expected_view_sha:raise ValueError('view publication identity changed')
     view=dict(spec['view']);references=[];inputs={declaration:source_sha};imports=[];seen=set()
     for row in spec['references']:
-        if set(row)!={'id','source','pointer'} or row['id'] in seen:raise ValueError('unique declared reference required')
+        if (not {'id','source','pointer'} <= set(row)
+                or set(row)-{'id','source','pointer','origin','validator','ranges','context'}
+                or row['id'] in seen):raise ValueError('unique declared reference required')
         seen.add(row['id']);locator=row['source'];expected=locator['sha256']
         if set(locator)=={'path','sha256','identity'}:
             from gambit_smp.source_identity import read_source
             if hashlib.sha256(read_source(root,locator['identity'])).hexdigest()!=expected:raise ValueError('reviewed identity changed')
             path=locator['path']
         elif set(locator)=={'path','sha256'}:
-            original=source_path(root,locator['path'])
+            original=(relative(root,locator['path']) if row.get('origin')=='observed-artifact'
+                      else source_path(root,locator['path']))
             if digest(original)!=expected:raise ValueError('reviewed source changed: '+locator['path'])
             path=locator['path'];inputs[path]=expected
         elif set(locator)=={'repository','revision','path','sha256','patchSha256'}:
@@ -182,7 +187,8 @@ def materialize(root,declaration,*,expected_view_sha):
             imports.append(dict(reference=row['id'],repository=locator['repository'],revision=revision,
                                 originalPath=name.as_posix(),sha256=expected,identity=retained))
         else:raise ValueError('explicit repository or Git import source required')
-        reference=dict(id=row['id'],path=path,sha256=expected,pointer=row['pointer'])
+        reference=dict(id=row['id'],path=path,sha256=expected,pointer=row['pointer'],
+                       **{key:row[key] for key in ('origin','validator','ranges','context') if key in row})
         if 'identity' in locator:
             reference['identity']=locator['identity']
         elif 'repository' in locator:
@@ -201,6 +207,8 @@ def materialize(root,declaration,*,expected_view_sha):
         if digest(source)!=source_sha or any(digest(Path(p))!=sha for p,sha in packet['inputs'].items()):
             raise ValueError('Evidence inputs changed during generation')
         with lease(root,'evidence-view-publication'):
+            if digest(Path(__file__))!=generator_sha or generator_sources()!=generator_inputs:
+                raise ValueError('Evidence generator changed during publication')
             from gambit_smp.source_identity import reference_bytes
             for reference in references:
                 if 'identity' in reference and hashlib.sha256(reference_bytes(root,reference)).hexdigest()!=reference['sha256']:raise ValueError('immutable source changed during publication')
@@ -220,7 +228,7 @@ def materialize(root,declaration,*,expected_view_sha):
             if binding==output:binding=output.with_name(output.name+'.binding.json')
             write(binding,dict(schema='ascent.generated-view-binding.v1',declaration=declaration,
                   declarationSha256=source_sha,output=spec['output'],outputSha256=digest(output),
-                  generator='src/gambit_smp/view_materialize.py',generatorSha256=digest(Path(__file__)),generatorSources=generator_sources(),
+                  generator='src/gambit_smp/view_materialize.py',generatorSha256=generator_sha,generatorSources=generator_inputs,
                   imports=imports,engineIdentitySha256=hashlib.sha256(json.dumps(identity,sort_keys=True,default=str).encode()).hexdigest(),
                   engineEvaluated=True,runtimeAdmitted=False))
         bound=dict(packet['inputs']);bound.pop(str(stage),None);bound[str(output)]=digest(output)

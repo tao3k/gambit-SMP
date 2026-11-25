@@ -19,7 +19,7 @@ This completes the discussion-level package boundary, not implementation/native
 qualification. Runtime source/patches, TLS, bootstrap, stress tests and the other
 lane's checkpoints are untouched. Source authority is still the reviewed Gambit
 baseline `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882` plus its existing
-[locked overlay](../../evidence/research/processor-interrupt-collective-wait/source.lock.json).
+locked overlay (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout).
 Do not silently treat this overlay as the other lane's latest repaired source.
 
 ## Concrete Producer Transaction

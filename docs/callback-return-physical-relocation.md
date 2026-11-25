@@ -39,7 +39,7 @@ The earlier compile failed because the C predicate macro required its standard
 `___temp` scratch local. Its receipt, exact prior fixture snapshot and log remain
 in `physical-relocation-fixture-compile-denial`; it is not a runtime denial or
 an admitted result. The successful observations are in
-`evidence/source-results/fixtures/callback-return-owned-result/physical-relocation-controls`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/callback-return-owned-result/physical-relocation-controls`.
 
 ## Generated Root Map
 

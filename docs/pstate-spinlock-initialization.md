@@ -26,7 +26,7 @@ states respectively; these are search counts, not shortest-trace lengths.
 The checked candidate explores 80 distinct states, 114 generated, 0 queued in
 30.903 seconds and passes safety plus weak-fair progress. Campaign
 `.data/pstate-spin-model-001` retained stable source/model/framework inputs.
-Portable evidence: `evidence/model-results/pstate-spinlock-initialization-model/`.
+Portable evidence: `.cache/research/legacy-evidence/evidence/model-results/pstate-spinlock-initialization-model/`.
 
 ## Composition Still Required
 

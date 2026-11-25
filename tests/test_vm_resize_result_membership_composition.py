@@ -9,7 +9,7 @@ from gambit_smp.verify_protocols import load_manifest
 
 class ResizeResultMembershipCompositionTests(unittest.TestCase):
     base = "evidence/fixtures/interrupt-prefix-owned-lifecycle/"
-    receipt = "evidence/model-results/fixtures/interrupt-prefix-owned-lifecycle/resize-result-membership-design-contract/receipt.json"
+    receipt = ".cache/research/legacy-evidence/evidence/model-results/fixtures/interrupt-prefix-owned-lifecycle/resize-result-membership-design-contract/receipt.json"
 
     def test_complete_model_and_datalog_binding_preserve_native_boundary(self):
         path = self.base + "resize-result-membership-design-contract.json"
@@ -60,7 +60,7 @@ class ResizeResultMembershipCompositionTests(unittest.TestCase):
             "resize-result-membership-type-name-deny",
         )
         for name in names:
-            directory = ROOT / "evidence/model-results/fixtures/interrupt-prefix-owned-lifecycle" / name
+            directory = ROOT / ".cache/research/legacy-evidence/evidence/model-results/fixtures/interrupt-prefix-owned-lifecycle" / name
             saved = json.loads((directory / "receipt.json").read_text())
             self.assertFalse(saved["accepted"], name)
             self.assertFalse(saved["runtimeAdmitted"], name)

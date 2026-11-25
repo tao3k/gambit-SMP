@@ -53,7 +53,7 @@ negative control. Source and model changes require new receipt identities.
 ## Initial Results
 
 Raw logs and process/input receipts are retained under
-`../../../evidence/model-results/gc-contract-initial`. Campaign 001 failed
+`../../../.cache/research/legacy-evidence/evidence/model-results/gc-contract-initial`. Campaign 001 failed
 because the sandbox prevented the verifier's server from binding a local port;
 none of those failures counts as an invariant counterexample. Campaign 002
 used approved local-server access and the TLC backend, with the same 60-second
@@ -67,7 +67,7 @@ These results establish only the declared finite contract, not either runtime.
 
 ## Parallel Protocol Results
 
-`evidence/model-results/gc-parallel-contracts` retains all campaigns. Sequential
+`.cache/research/legacy-evidence/evidence/model-results/gc-parallel-contracts` retains all campaigns. Sequential
 campaign 001 exhausted the original whole 60-second cap and left controls
 unexecuted: DENY is preserved. Campaign 002 changed verifier scheduling to two
 isolated process lanes without changing model inputs or the whole cap. All 13

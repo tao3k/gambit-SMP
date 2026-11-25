@@ -1,0 +1,964 @@
+{
+  "sourceTree": "8f7fd9879eb31bef88d17b3b1dea05669c474501",
+  "baseRevision": "3d42cc5b8604d184a3e4edbac2a09a93ea88c994",
+  "baselineRevision": "3d42cc5b8604d184a3e4edbac2a09a93ea88c994",
+  "profileSha256": "884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69",
+  "workloadText": ";;; Paired workload: identical file for old and new embedded GSI.\n;;; Composed mode uses the already-present processor-placement helper.\n;;; No imports or runtime headers; -f suppresses user initialization.\n(define count 4096)\n(define composed?\n  (or (member \"--composed\" (cdr (command-line)))\n      (getenv \"GAMBIT_REQUEST_COST_COMPOSED\" #f)))\n(define caller (current-thread))\n(define caller-processor (processor-id (current-processor)))\n(define target-start-processor #f)\n(define callbacks 0)\n(define resumed 0)\n(define crossed 0)\n(define latencies (make-f64vector count 0.0))\n(define (request-value i)\n  (if composed?\n      (let ((resume #f))\n        (if (not (eq? (current-thread) target)) (error \"request logical target\" i))\n        (set! callbacks (+ callbacks 1))\n        (if (not (= caller-processor (processor-id (current-processor))))\n            (set! crossed (+ crossed 1)))\n        (let ((turn (call-with-current-continuation\n                     (lambda (k) (set! resume k) 0))))\n          (if (< turn 2)\n              (begin (set! resumed (+ resumed 1)) (resume (+ turn 1)))\n              (let ((payload (vector i (cons i i))))\n                (thread-send caller payload)\n                payload))))\n      i))\n(define gate (make-mutex))\n(define changed (make-condition-variable))\n(define ready #f)\n(define finished #f)\n(define target\n  ((if (and composed? (getenv \"GAMBIT_REQUEST_COST_PLACE_TARGET\" #f)\n            (> (##current-vm-processor-count) 1))\n       (lambda (thread) (##thread-start-on! 1 thread))\n       thread-start!)\n   (make-thread\n    (lambda ()\n      (set! target-start-processor (processor-id (current-processor)))\n      (mutex-lock! gate)\n      (set! ready #t)\n      (condition-variable-signal! changed)\n      (let wait ()\n        (if (not finished)\n            (begin (mutex-unlock! gate changed 5) (mutex-lock! gate) (wait))))\n      (mutex-unlock! gate)))))\n(mutex-lock! gate)\n(let wait ()\n  (if (not ready)\n      (begin (mutex-unlock! gate changed 5) (mutex-lock! gate) (wait))))\n(mutex-unlock! gate)\n(write\n (cons 'REQUEST-SERVICE-COST\n       (##exec-stats\n        (lambda ()\n          (let loop ((i 0))\n            (if (= i count)\n                i\n                (let* ((start (time->seconds (current-time)))\n                       (n (thread-interrupt! target (lambda () (request-value i)))))\n                  (f64vector-set! latencies i (- (time->seconds (current-time)) start))\n                  (if composed?\n                      (begin\n                        (if (= (modulo i 256) 0) (##gc))\n                        (let ((message (thread-receive)))\n                          (if (not (and (eq? message n) (= (vector-ref n 0) i)\n                                        (= (car (vector-ref n 1)) i)))\n                              (error \"composed request/mailbox result\" i n))))\n                      (if (not (= i n)) (error \"request cost result\" i n)))\n                  (loop (+ i 1)))))))))\n(newline)\n(mutex-lock! gate)\n(set! finished #t)\n(condition-variable-signal! changed)\n(mutex-unlock! gate)\n(if (eq? (thread-join! target 5 'timeout) 'timeout) (error \"cost target not drained\"))\n\n(if composed?\n    (begin\n      ;; Logical target identity is the contract. Scheduler migration may move\n      ;; a parked target to the caller's processor; physical affinity is not.\n      (if (not (and (= callbacks count) (= resumed (* 2 count))\n                    (<= 0 crossed count)))\n          (error \"composed delivery/placement counts\" callbacks resumed crossed))\n      (write (list 'REQUEST-SERVICE-TOPOLOGY caller-processor target-start-processor crossed callbacks resumed))\n      (newline)\n      (write (list 'REQUEST-SERVICE-LATENCIES latencies))\n      (newline)\n      (display \"REQUEST-SERVICE-COMPOSED-PASS count=4096 resumes=8192 explicit-gc=16 mailbox-identity drained\\n\")))\n",
+  "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+  "workloadIsSeparateInput": true,
+  "environment": {
+    "GAMBIT_REQUEST_COST_COMPOSED": "1",
+    "GAMBIT_REQUEST_COST_PLACE_TARGET": null
+  },
+  "samples": [
+    {
+      "role": "baseline",
+      "processors": 1,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.14399233298900072,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10338304,
+        "peakMemoryFootprint": 7405928,
+        "realSeconds": 0.06,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 2.193450927734375e-05
+      },
+      "runtimeSha256": "4bdc7dff1bf4bb573838c17fa63f1bb72e6b6034497ae875dfaab52bee9d312e",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "f3ea417d1a55bc9141aa0191f1bf95276cf5afa21df04af26e20ac42ba51be33",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.016251087188720703,
+      "stdoutSha256": "0606309f4f09266b838a069de0b405e4873c538d0e282f3681fb10383018725b",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.14399233298900072,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "candidate",
+      "processors": 1,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.14713054201274645,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10371072,
+        "peakMemoryFootprint": 7373136,
+        "realSeconds": 0.06,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 3.0040740966796875e-05
+      },
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "4902d66b26ab9388de6a31ac29d3304071933495b4fd3ce49d1685ee0b234710",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.015815019607543945,
+      "stdoutSha256": "320bd42afe4e8c557a32686bcb5547e583743e0aefa03501e1c888e220522c6b",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.14713054201274645,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "candidate",
+      "processors": 1,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.13035199999285396,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10354688,
+        "peakMemoryFootprint": 7356752,
+        "realSeconds": 0.05,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 1.7881393432617188e-05
+      },
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "ecc87639f21d994a33443a9002b09981a64be5f5b880c607236a127e68fe5ba0",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.014826059341430664,
+      "stdoutSha256": "12e2a4abfaedfc74f43c5f04c6f0d727dfd3a1fb342be1055e4ca04c1c2e8ddd",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.13035199999285396,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "baseline",
+      "processors": 1,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.1310632909880951,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10272768,
+        "peakMemoryFootprint": 7323984,
+        "realSeconds": 0.05,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 1.4066696166992188e-05
+      },
+      "runtimeSha256": "4bdc7dff1bf4bb573838c17fa63f1bb72e6b6034497ae875dfaab52bee9d312e",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "b0d2f2bccfe74f66a606115cca9e9106a03cb8c3edfdda2edb2dbf27ba150d2a",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.015587091445922852,
+      "stdoutSha256": "329387599fa0a42ac8b7d02fcf4f1d949d2183f45d25425bb1e49eb21aaa207e",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.1310632909880951,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "baseline",
+      "processors": 1,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.13344575000519399,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10272768,
+        "peakMemoryFootprint": 7323984,
+        "realSeconds": 0.05,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 1.71661376953125e-05
+      },
+      "runtimeSha256": "4bdc7dff1bf4bb573838c17fa63f1bb72e6b6034497ae875dfaab52bee9d312e",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "b31acdcc153c1c7cef4a99a4a2d9e873074339cb4df1986f4abfb6fadb3d8252",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.016284942626953125,
+      "stdoutSha256": "34e9f9bbe6015f8c43b81f7532eb4ae148e0497c637950bd5e7226861ef73f64",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.13344575000519399,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "candidate",
+      "processors": 1,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.1345690000016475,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10371072,
+        "peakMemoryFootprint": 7389544,
+        "realSeconds": 0.05,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 9.059906005859375e-06
+      },
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "a4eb92d8b5cc8e2097099c5484887842d970820ebfd00656ee3794ce7d113375",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.01528310775756836,
+      "stdoutSha256": "7569f6a9df3cc42791a62f6612a94ef06cf2aa1cd2bbe5b9fb4435d228980f96",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.1345690000016475,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "candidate",
+      "processors": 1,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.13359029199637007,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10338304,
+        "peakMemoryFootprint": 7340368,
+        "realSeconds": 0.05,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 3.0994415283203125e-05
+      },
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "9dac514d93fec6c2b64bab0a16df6f8eed42ebc6781c0d2c876c1f2e0a97c616",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.015374898910522461,
+      "stdoutSha256": "cded13b7bbc4ca07d0acbf7915446185bf69fc144f9c6ee9df5e9af1926e01ae",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.13359029199637007,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "baseline",
+      "processors": 1,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.13167691700800788,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10272768,
+        "peakMemoryFootprint": 7323984,
+        "realSeconds": 0.05,
+        "userSeconds": 0.05,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 1.0967254638671875e-05
+      },
+      "runtimeSha256": "4bdc7dff1bf4bb573838c17fa63f1bb72e6b6034497ae875dfaab52bee9d312e",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "a636b7c4456cf82ea662f258ad4c29f6edd76ccd485b2dc876f09e5140f07f5a",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.0156710147857666,
+      "stdoutSha256": "ad29af81b0cb8ff407931dc2a25eb3efb660004affc04886f8e4cf3c8c0bda32",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.13167691700800788,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "baseline",
+      "processors": 2,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.1759907500090776,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 9912320,
+        "peakMemoryFootprint": 6979920,
+        "realSeconds": 0.09,
+        "userSeconds": 0.1,
+        "systemSeconds": 0.01,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 4.0531158447265625e-06,
+        "p99Seconds": 5.0067901611328125e-06,
+        "maxSeconds": 0.00010800361633300781
+      },
+      "runtimeSha256": "4bdc7dff1bf4bb573838c17fa63f1bb72e6b6034497ae875dfaab52bee9d312e",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "c9fff76d296f3448af149ac98ec71ca065569e83413756d6edb04a195796a324",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.02721405029296875,
+      "stdoutSha256": "a8b50a020ee1ef1418026544074076b4f5ec260a9ff3321964562d41c68fa2ec",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.1759907500090776,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "candidate",
+      "processors": 2,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.14126483400468715,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 9994240,
+        "peakMemoryFootprint": 7045504,
+        "realSeconds": 0.06,
+        "userSeconds": 0.07,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 2.09808349609375e-05
+      },
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "5643e4b8b52cad437ef66d6d123bff8c2ace63f7a8ec444cfa00ade6849e05fc",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.01476907730102539,
+      "stdoutSha256": "e50a2eca76877737b3a0b42510495ba85755171d732200c0f53e11cc49e0bfb2",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.14126483400468715,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "candidate",
+      "processors": 2,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.1369085000042105,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 9945088,
+        "peakMemoryFootprint": 6963536,
+        "realSeconds": 0.06,
+        "userSeconds": 0.07,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 1.0967254638671875e-05
+      },
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "350c7339a1f65b34d7ca08fdd2bc5b7c7d00bd464da5729e7489c00b29cb434a",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.01468801498413086,
+      "stdoutSha256": "91f0d16f2f9aab62c7d5ecf1c2129a81fb04e5238769d2dd52ff1a70054fa46e",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.1369085000042105,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "baseline",
+      "processors": 2,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.14434295799583197,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10813440,
+        "peakMemoryFootprint": 7897448,
+        "realSeconds": 0.06,
+        "userSeconds": 0.07,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 3.0994415283203125e-06,
+        "maxSeconds": 1.6927719116210938e-05
+      },
+      "runtimeSha256": "4bdc7dff1bf4bb573838c17fa63f1bb72e6b6034497ae875dfaab52bee9d312e",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "d0feaf5a9a243045d85e8a0592bc55c791025740d4c9822c1bc7b0f526dfe7ec",
+      "topology": [
+        "0",
+        "0",
+        "770",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.016633987426757812,
+      "stdoutSha256": "b22d596922766b5db4e0606a2c4763f7611612a62156d8c404aafd50c7bd6134",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.14434295799583197,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "baseline",
+      "processors": 2,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.1462377080024453,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10846208,
+        "peakMemoryFootprint": 7930216,
+        "realSeconds": 0.07,
+        "userSeconds": 0.08,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 1.0013580322265625e-05
+      },
+      "runtimeSha256": "4bdc7dff1bf4bb573838c17fa63f1bb72e6b6034497ae875dfaab52bee9d312e",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "db5eec70cb5a67cdadc6d94d6f778cf093a649ea342c78ef6907a81312be7058",
+      "topology": [
+        "0",
+        "0",
+        "1024",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.018106937408447266,
+      "stdoutSha256": "cec5543cf6274db6e96f0c8e08d163e3d6cf3d4101c268792a200f5288155932",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.1462377080024453,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "candidate",
+      "processors": 2,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.13984600000549108,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 9945088,
+        "peakMemoryFootprint": 6963536,
+        "realSeconds": 0.06,
+        "userSeconds": 0.07,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 1.1920928955078125e-05
+      },
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "783c11f59fb830a48b4a93e5ff5c5c9599b8598c5bac57d512f066352edee98a",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.014702796936035156,
+      "stdoutSha256": "4e786e68572a5e193bf69405266218221ac74e69e97a35ab64ef159c076b3720",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.13984600000549108,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "candidate",
+      "processors": 2,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.13749741698848084,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 9945088,
+        "peakMemoryFootprint": 6963536,
+        "realSeconds": 0.06,
+        "userSeconds": 0.07,
+        "systemSeconds": 0.0,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maxSeconds": 2.5987625122070312e-05
+      },
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "636d9c673ac7f2595b1f872c070c4aef7f58295e357ef68f019a42df46fa0bf0",
+      "topology": [
+        "0",
+        "0",
+        "0",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.015043020248413086,
+      "stdoutSha256": "f657b4fdde714684697bf342fe57cc7218b35930fa7e0458184c017ccfef3486",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.13749741698848084,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    },
+    {
+      "role": "baseline",
+      "processors": 2,
+      "exit": 0,
+      "timeout": false,
+      "wallSeconds": 0.16125266699236818,
+      "accepted": true,
+      "metrics": {
+        "maximumResidentSetSize": 10846208,
+        "peakMemoryFootprint": 7930216,
+        "realSeconds": 0.08,
+        "userSeconds": 0.08,
+        "systemSeconds": 0.01,
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 3.814697265625e-06,
+        "maxSeconds": 2.8848648071289062e-05
+      },
+      "runtimeSha256": "4bdc7dff1bf4bb573838c17fa63f1bb72e6b6034497ae875dfaab52bee9d312e",
+      "workloadSha256": "e52dd0f25ffc9c80585b43dfbe39fd91e6575841e7f351ffb2031933e05ceb50",
+      "usageSha256": "5da5b63c5a9ce5f5b662f8003e2a377481cd12d1ba192ef7fe3a0b861bd1827b",
+      "topology": [
+        "0",
+        "0",
+        "753",
+        "4096",
+        "8192"
+      ],
+      "bodySeconds": 0.024118900299072266,
+      "stdoutSha256": "df4a9880600e9c8b9a8db62d939a0ef85e568089ab379a18a642a2d629f61a3c",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.16125266699236818,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      }
+    }
+  ],
+  "summary": [
+    {
+      "role": "baseline",
+      "processors": 1,
+      "samples": 4,
+      "accepted": 4,
+      "median": {
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maximumResidentSetSize": 10272768.0,
+        "peakMemoryFootprint": 7323984.0
+      },
+      "bodySecondsMedian": 0.015961050987243652
+    },
+    {
+      "role": "candidate",
+      "processors": 1,
+      "samples": 4,
+      "accepted": 4,
+      "median": {
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maximumResidentSetSize": 10362880.0,
+        "peakMemoryFootprint": 7364944.0
+      },
+      "bodySecondsMedian": 0.01532900333404541
+    },
+    {
+      "role": "baseline",
+      "processors": 2,
+      "samples": 4,
+      "accepted": 4,
+      "median": {
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 3.4570693969726562e-06,
+        "maximumResidentSetSize": 10829824.0,
+        "peakMemoryFootprint": 7913832.0
+      },
+      "bodySecondsMedian": 0.021112918853759766
+    },
+    {
+      "role": "candidate",
+      "processors": 2,
+      "samples": 4,
+      "accepted": 4,
+      "median": {
+        "p50Seconds": 9.5367431640625e-07,
+        "p95Seconds": 2.1457672119140625e-06,
+        "p99Seconds": 2.1457672119140625e-06,
+        "maximumResidentSetSize": 9945088.0,
+        "peakMemoryFootprint": 6963536.0
+      },
+      "bodySecondsMedian": 0.014735937118530273
+    }
+  ],
+  "measurementComplete": true,
+  "pairedComparableTopologies": [
+    1,
+    2
+  ],
+  "units": {
+    "latency": "seconds; median of per-run quantiles",
+    "memory": "unconverted Darwin time-l native high-water units"
+  },
+  "boundary": "Default scheduler placement; p2 is a two-processor population and GC observation, not a guarantee of per-request cross-processor execution. Four accepted samples per role/topology. Source/flags/cwd fixed. Small interpreted workload, no significance or whole compiled-Gerbil release claim. Explicit-placement failure control stays separate in release-observations.json; no failed baseline ratio.",
+  "runtimeAdmitted": false,
+  "quantities": {
+    "baseline-p1-p99Seconds": {
+      "value": 2.1457672119140625e-06,
+      "unit": "s",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/baseline-p1-p99Seconds"
+      }
+    },
+    "baseline-p1-maximumResidentSetSize": {
+      "value": 10272768.0,
+      "unit": "Darwin-native-RSS-unit",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/baseline-p1-maximumResidentSetSize"
+      }
+    },
+    "baseline-p1-peakMemoryFootprint": {
+      "value": 7323984.0,
+      "unit": "Darwin-native-footprint-unit",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/baseline-p1-peakMemoryFootprint"
+      }
+    },
+    "candidate-p1-p99Seconds": {
+      "value": 2.1457672119140625e-06,
+      "unit": "s",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/candidate-p1-p99Seconds"
+      }
+    },
+    "candidate-p1-maximumResidentSetSize": {
+      "value": 10362880.0,
+      "unit": "Darwin-native-RSS-unit",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/candidate-p1-maximumResidentSetSize"
+      }
+    },
+    "candidate-p1-peakMemoryFootprint": {
+      "value": 7364944.0,
+      "unit": "Darwin-native-footprint-unit",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/candidate-p1-peakMemoryFootprint"
+      }
+    },
+    "baseline-p2-p99Seconds": {
+      "value": 3.4570693969726562e-06,
+      "unit": "s",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/baseline-p2-p99Seconds"
+      }
+    },
+    "baseline-p2-maximumResidentSetSize": {
+      "value": 10829824.0,
+      "unit": "Darwin-native-RSS-unit",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/baseline-p2-maximumResidentSetSize"
+      }
+    },
+    "baseline-p2-peakMemoryFootprint": {
+      "value": 7913832.0,
+      "unit": "Darwin-native-footprint-unit",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/baseline-p2-peakMemoryFootprint"
+      }
+    },
+    "candidate-p2-p99Seconds": {
+      "value": 2.1457672119140625e-06,
+      "unit": "s",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/candidate-p2-p99Seconds"
+      }
+    },
+    "candidate-p2-maximumResidentSetSize": {
+      "value": 9945088.0,
+      "unit": "Darwin-native-RSS-unit",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/candidate-p2-maximumResidentSetSize"
+      }
+    },
+    "candidate-p2-peakMemoryFootprint": {
+      "value": 6963536.0,
+      "unit": "Darwin-native-footprint-unit",
+      "samples": 4,
+      "origin": {
+        "path": "evidence/research/retained/modern-c/request-product/release-matched.json",
+        "pointer": "/summaryMeasurements/candidate-p2-peakMemoryFootprint"
+      }
+    }
+  },
+  "summaryMeasurements": {
+    "baseline-p1-p99Seconds": {
+      "value": 2.1457672119140625e-06,
+      "unit": "s",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        0,
+        3,
+        4,
+        7
+      ]
+    },
+    "baseline-p1-maximumResidentSetSize": {
+      "value": 10272768.0,
+      "unit": "Darwin-native-RSS-unit",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        0,
+        3,
+        4,
+        7
+      ]
+    },
+    "baseline-p1-peakMemoryFootprint": {
+      "value": 7323984.0,
+      "unit": "Darwin-native-footprint-unit",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        0,
+        3,
+        4,
+        7
+      ]
+    },
+    "candidate-p1-p99Seconds": {
+      "value": 2.1457672119140625e-06,
+      "unit": "s",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        1,
+        2,
+        5,
+        6
+      ]
+    },
+    "candidate-p1-maximumResidentSetSize": {
+      "value": 10362880.0,
+      "unit": "Darwin-native-RSS-unit",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        1,
+        2,
+        5,
+        6
+      ]
+    },
+    "candidate-p1-peakMemoryFootprint": {
+      "value": 7364944.0,
+      "unit": "Darwin-native-footprint-unit",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        1,
+        2,
+        5,
+        6
+      ]
+    },
+    "baseline-p2-p99Seconds": {
+      "value": 3.4570693969726562e-06,
+      "unit": "s",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        8,
+        11,
+        12,
+        15
+      ]
+    },
+    "baseline-p2-maximumResidentSetSize": {
+      "value": 10829824.0,
+      "unit": "Darwin-native-RSS-unit",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        8,
+        11,
+        12,
+        15
+      ]
+    },
+    "baseline-p2-peakMemoryFootprint": {
+      "value": 7913832.0,
+      "unit": "Darwin-native-footprint-unit",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        8,
+        11,
+        12,
+        15
+      ]
+    },
+    "candidate-p2-p99Seconds": {
+      "value": 2.1457672119140625e-06,
+      "unit": "s",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        9,
+        10,
+        13,
+        14
+      ]
+    },
+    "candidate-p2-maximumResidentSetSize": {
+      "value": 9945088.0,
+      "unit": "Darwin-native-RSS-unit",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        9,
+        10,
+        13,
+        14
+      ]
+    },
+    "candidate-p2-peakMemoryFootprint": {
+      "value": 6963536.0,
+      "unit": "Darwin-native-footprint-unit",
+      "samples": 4,
+      "aggregation": "median of accepted per-role/per-topology process observations",
+      "sampleIndices": [
+        9,
+        10,
+        13,
+        14
+      ]
+    }
+  }
+}

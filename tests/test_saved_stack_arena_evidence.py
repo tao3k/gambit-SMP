@@ -17,7 +17,7 @@ class SavedStackArenaEvidenceTests(unittest.TestCase):
                 "perBorrowerDischargeAllowsReuse"))
 
     def test_existing_guarantees_and_unproved_composition_stay_distinct(self):
-        path = ROOT / "evidence/research/host-root-publication/arena-facts.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication/arena-facts.json"
         facts = json.loads(path.read_text())["facts"]
         inputs = {row[1]: row[2] for row in facts["source"]}
         inputs[str(path.relative_to(ROOT))] = digest(path)

@@ -7,8 +7,8 @@ from gambit_smp.protocol_evidence import bundle_facts
 
 
 BASE = "evidence/fixtures/callback-return-owned-result"
-RESULTS = "evidence/model-results/fixtures/callback-return-owned-result"
-SOURCE_RESULTS = "evidence/source-results/fixtures/callback-return-owned-result"
+RESULTS = ".cache/research/legacy-evidence/evidence/model-results/fixtures/callback-return-owned-result"
+SOURCE_RESULTS = ".cache/research/legacy-evidence/evidence/source-results/fixtures/callback-return-owned-result"
 
 
 class ForeignCallProtocolTests(unittest.TestCase):

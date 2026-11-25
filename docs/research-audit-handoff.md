@@ -41,7 +41,7 @@ equality predicates. Candidate 018 already has three successful rounds:
 
 These are inherited receipts, not new measurements by this audit. See
 `gc-postcopy-headroom.md` and
-`evidence/model-results/native-postcopy-decode-host-pass.json`,
+`.cache/research/legacy-evidence/evidence/model-results/native-postcopy-decode-host-pass.json`,
 `native-postcopy-decode-host-repeat1-pass.json`, and
 `native-postcopy-decode-host-repeat2-pass.json` in the same directory.
 They bind the fixture and the 018 binary identities. They do not automatically
@@ -195,8 +195,8 @@ The subsequent audit implemented three new protocol models and the eight-way
 build-configuration model. See `protocol-extension-validation.md` for source
 mapping, finite bounds, 15 retained counterexamples and all four positive
 safety/temporal results. Portable receipts live in
-`evidence/model-results/protocol-extensions/` and
-`evidence/model-results/configuration-model/`.
+`.cache/research/legacy-evidence/evidence/model-results/protocol-extensions/` and
+`.cache/research/legacy-evidence/evidence/model-results/configuration-model/`.
 
 `research_audit.py` now reports four `protocol_verified` models and zero
 `protocol_remaining` entries for this extension set. This closes the specified

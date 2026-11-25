@@ -63,4 +63,4 @@ References: [current coverage](vector-arity-current-native-coverage.md),
 [milestone requirements](smp-threaded-vm-milestone.md),
 [retention model](../models/gambit/vm_registry_failed_join_retention.qnt),
 [global preflight model](../models/gambit/vm_registry_global_cleanup_preflight.qnt),
-[reproducible recipe](../evidence/research/vm-registry-reader-lease/vector-arity-pending-join-errno.recipe.json).
+reproducible recipe (local execution locator: `../.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/vector-arity-pending-join-errno.recipe.json`; unavailable in a clean checkout).

@@ -7,7 +7,7 @@ from gambit_smp.native_archive import validate
 
 class AbandonedResultStateNativeTests(unittest.TestCase):
     def test_rebuilt_runtime_and_complete_selected_native_matrix(self):
-        folder = ROOT / "evidence/source-results/fixtures/abandoned-result-state"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state"
         summary = json.loads((folder / "sealed-source-core-summary.json").read_text())
         self.assertEqual(summary["outcome"], "PASS")
         self.assertEqual(summary["observedParentExit"], 0)

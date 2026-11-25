@@ -64,7 +64,7 @@ tool execution denied. Maintainer compilation and runtime are separate claims.
 ## Qualification Boundary
 
 All raw successes and failures are retained under
-evidence/library/rust-consumer-050 and the corresponding local graph directories.
+.cache/research/legacy-evidence/evidence/library/rust-consumer-050 and the corresponding local graph directories.
 The malformed structured-value test datum, failed investigation lowering and
 compiler error were retained, then corrected by actual source/test changes.
 

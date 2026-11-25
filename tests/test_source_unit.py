@@ -80,7 +80,7 @@ class SourceUnitTests(unittest.TestCase):
                 source_binding.checked_negate_header_hash(source)
     def test_mark_mock_macro_projection_rejects_different_representation(self):
         from gambit_smp.check_gambit import ROOT
-        receipt = json.loads((ROOT / "evidence/model-results/mark-array-source-unit.json").read_text())
+        receipt = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/model-results/mark-array-source-unit.json").read_text())
         macros = receipt["representation"]["selectedMacros"]
         text = "\n".join("#define " + name + " " + value for name, value in macros.items())
         self.assertEqual(macros, source_unit.mark_representation(text))

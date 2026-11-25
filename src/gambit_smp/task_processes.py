@@ -28,9 +28,12 @@ def recorder():
             row['workspaces']=fields.get('workspaces',[])
             if fields.get('spawnProtocol'):row['spawnProtocol']=fields['spawnProtocol']
         else:row.update(fields)
-        if event=='started':row['pgid']=fields['pid']
+        if event=='started':
+            row['pgid']=fields['pid']
+            row['sessionProtocol']='birth-anchored-posix-session'
         if event in {'finished','interrupted'} and row.get('pgid'):
             row['groupObservation']=observe_group(row['pgid'])
+            row['sessionObservation']=observe_session(row['pgid'])
         write(target,row)
     record.root=root
     record.spawn_root=bounded(root,str((Path(current['output'])/'outputs/process-starts').relative_to(root)))
@@ -93,9 +96,29 @@ def check(root,task,*,process=None,all_processes=False,run=None):
             raise ValueError('unresolved spawn journal; explicit process reconciliation required')
         if row.get('pgid') and row.get('groupObservation',{}).get('result')!='absent':
             observation=observe_group(row['pgid'])
+            if observation['result']=='unverifiable':
+                from gambit_smp.process_identity import pids, process, same_birth
+                birth=(row.get('birth') or {}).get('process')
+                owned=False
+                if birth:
+                    for pid in pids(pgid=row['pgid']):
+                        try: info=process(pid)
+                        except PermissionError: info=None
+                        if same_birth(birth, info):
+                            owned=True
+                            break
+                if not owned:
+                    observation=dict(observation, result='absent', recycledIdentity=True)
             if observation['result']!='absent':raise ValueError('task child process group still present')
             from gambit_smp.workspace import write
             row['groupObservation']=observation;write(path,row)
+        if (row.get('sessionProtocol')=='birth-anchored-posix-session'
+                and row.get('sessionObservation',{}).get('result')!='absent'):
+            observation=observe_session(row['pgid'])
+            if observation['result']!='absent':
+                raise ValueError('task child POSIX session still present or unknown')
+            from gambit_smp.workspace import write
+            row['sessionObservation']=observation;write(path,row)
         observed.append(row['token'])
     return observed
 
@@ -107,6 +130,153 @@ def observe_group(pgid):
     except ProcessLookupError:result.update(result='absent',kernelError='ESRCH')
     except PermissionError:result.update(result='unverifiable',kernelError='EPERM')
     else:result['result']='present'
+    return result
+
+
+def observe_session(sid):
+    from gambit_smp.workspace import now
+    from gambit_smp.process_observation import probe_session
+    state=probe_session(sid)
+    return dict(sid=sid,method='kernel-uid-census-getsid',observedAt=now().isoformat(),
+                result={True:'absent',False:'present',None:'unverifiable'}[state])
+
+
+def memory_sample(root,task,run,*,footprint=False,root_group=None):
+    """Registered nested sessions share one RSS budget, never one budget each."""
+    from gambit_smp.workspace import bounded,identifier
+    from gambit_smp.process_identity import groups_memory,boot_id,process,same_birth
+    from gambit_smp.process_identity import CensusChanged
+    restarts=[]
+    # A child may enter its registered session while the kernel census runs.
+    # Re-read the journal as well as the kernel; never accept a partial sample.
+    for attempt in range(3):
+        groups={root_group} if root_group is not None else set()
+        sessions={}
+        rows=[]
+        directory=bounded(root,'.state/task-processes/'+identifier(task)+'/'+identifier(run))
+        for path in directory.glob('*.json'):
+            row=json.loads(path.read_text())
+            if row.get('task')!=task or row.get('run')!=run:
+                raise ValueError('process journal execution mismatch')
+            if (row.get('groupObservation') or {}).get('result')=='absent':continue
+            if row.get('pgid') is None:continue  # Target cannot pass the birth barrier yet.
+            if row.get('birth',{}).get('bootId')!=boot_id():
+                raise ValueError('resource census boot identity mismatch')
+            rows.append(row)
+        if root_group is not None:
+            descendants={root_group}
+            while True:
+                expanded=descendants|{
+                    row['pgid'] for row in rows
+                    if row.get('spawnProtocol',{}).get('parent',{}).get('pgid') in descendants
+                }
+                if expanded==descendants:break
+                descendants=expanded
+            rows=[row for row in rows if row['pgid'] in descendants]
+        for row in rows:
+            groups.add(row['pgid'])
+            birth=row.get('birth',{}).get('process',{})
+            current=process(row['pgid'])
+            if same_birth(birth,current):
+                try:
+                    if os.getsid(row['pgid'])==row['pgid']:sessions[row['pgid']]=birth
+                except ProcessLookupError:pass
+        options={'footprint':True} if footprint else {}
+        if sessions:options['sessions']=sessions
+        try:
+            sample=groups_memory(groups,**options)
+        except CensusChanged as error:
+            restarts.append(error.observation)
+            if attempt==2:raise
+            continue
+        if root_group is not None:sample['pgid']=root_group
+        if restarts:sample['censusRestarts']=restarts
+        return sample
+
+def stop_run(root,task,run,*,anchors=(),root_group=None):
+    """Stop only authenticated groups registered to this exact execution.
+
+    Unknown/reused births are retained as unresolved, never signalled by PID
+    alone. A dead leader needs a surviving birth-attested resource member.
+    """
+    import signal
+    from gambit_smp.workspace import bounded,identifier
+    from gambit_smp.process_identity import process,same_birth,boot_id
+    directory=bounded(root,'.state/task-processes/'+identifier(task)+'/'+identifier(run))
+    result=dict(stopped=[],unresolved=[])
+    registered={}
+    for path in directory.glob('*.json'):
+        row=json.loads(path.read_text())
+        if row.get('task')==task and row.get('run')==run and row.get('pgid'):
+            registered[row['pgid']]=row
+    if root_group is not None:
+        if root_group not in registered:
+            result['unresolved'].append(dict(pgid=root_group, error='nested root group is not registered'))
+            return result
+        # Nested executions borrow the task lease. Their cleanup must not
+        # signal the provider or other work already using that same run.
+        descendants = {root_group}
+        while True:
+            expanded = descendants | {
+                group for group, row in registered.items()
+                if row.get('spawnProtocol', {}).get('parent', {}).get('pgid') in descendants
+            }
+            if expanded == descendants:
+                break
+            descendants = expanded
+        registered = {group: row for group, row in registered.items() if group in descendants}
+    # GNU timeout may create another process group inside an owned session.
+    # Only a live birth observed in that session authorizes its group; a bare
+    # numeric SID or an unregistered detached session never grants permission.
+    for anchor in anchors:
+        identity=anchor.get('process',{});group=identity.get('pgid')
+        sid=anchor.get('sessionId');owner=registered.get(sid,{})
+        if not sid or group in registered:continue
+        if root_group is not None and sid not in registered:continue
+        try:
+            birth=owner.get('birth',{})
+            if (birth.get('bootId')!=boot_id()
+                    or birth.get('process')!=anchor.get('sessionOwnerBirth')):
+                raise ValueError('nested session owner identity mismatch')
+            current=process(identity['pid'])
+            if current is None:continue
+            if not same_birth(identity,current) or current['pgid']!=group or os.getsid(identity['pid'])!=sid:
+                raise ValueError('nested session member birth or membership changed')
+            try:os.killpg(group,signal.SIGKILL)
+            except ProcessLookupError:pass
+            result['stopped'].append(dict(token=owner['token'],pgid=group,sessionId=sid))
+        except Exception as error:
+            result['unresolved'].append(dict(sessionId=sid,pgid=group,error=str(error)))
+    for path in directory.glob('*.json'):
+        try:
+            row=json.loads(path.read_text());group=row.get('pgid')
+            if group is None:
+                if row.get('event')=='planned':raise ValueError('unresolved planned process birth')
+                continue
+            if root_group is not None and group not in registered:
+                continue
+            if row.get('task')!=task or row.get('run')!=run:
+                raise ValueError('process journal execution mismatch')
+            if (row.get('groupObservation') or {}).get('result')=='absent':continue
+            if observe_group(group)['result']=='absent':continue
+            birth=row.get('birth',{})
+            if birth.get('bootId')!=boot_id():
+                raise ValueError('process group boot identity mismatch')
+            identities=[birth.get('process',{})]+[
+                item.get('process',{}) for item in row.get('resourceSample',{}).get('members',[])]+[
+                item.get('process',{}) for item in anchors]
+            verified=False
+            for identity in identities:
+                if identity.get('pgid')!=group or not identity.get('pid'):continue
+                current=process(identity['pid'])
+                if current and current['pgid']==group and same_birth(identity,current):
+                    verified=True;break
+            if not verified:raise ValueError('no live birth anchor for registered group')
+            try:os.killpg(group,signal.SIGKILL)
+            except ProcessLookupError:pass
+            result['stopped'].append(dict(token=row['token'],pgid=group))
+        except Exception as error:
+            result['unresolved'].append(dict(record=str(path),error=str(error)))
     return result
 
 

@@ -1,0 +1,209 @@
+#+TITLE: Managed higher-order symkey views and continuation lifetime
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: QUALIFYING | PUBLISHED
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %42ITEM(Responsibility) %AUDIT_NUMBER(Audit item) %STATUS(State)
+
+* QUALIFYING 3.4.1 Callback-safe fold view :refactoring:roots:audit:
+:PROPERTIES:
+:CUSTOM_ID: ROOT-VIEWS-FOLD
+:AUDIT_NUMBER: 3.4.1
+:PARENT_ITEM: ROOT-VIEWS / 3.4
+:BASE: 92d70198edffa835c3ca3c5e1c618fe649cacfdf
+:AUTHORITY: GambitSymkeyViews
+:SOURCE: models/sysml/symkey-views.sysml
+:STATUS: QUALIFYING
+:END:
+
+[[file:models/sysml/delivery-plan.sysml][The delivery SysML]] owns thirteen numbered top-level audit items: the
+existing nine runtime stages and four engineering support lanes. This leaf is
+item3.4.1 within still-open3.4 ROOT-VIEWS. A published leaf cannot mark its parent
+or the entire ROOTS stage complete. ROOTS currently has three scoped closed
+groups and three remaining groups. The separate SMP twelve-family acceptance
+table is neither this plan's numbering nor a percentage inferred from its REVs.
+
+** Concrete failure and responsibility replacement
+
+The92d native interner correctly serializes each individual lookup/rehash.
+The Scheme fold still carries a bucket-vector alias between user callbacks.
+Rehash rewrites permanent symbols' intrusive NEXT links. A callback that interns
+enough names can therefore change the remaining traversal even on one processor.
+A mutex around each native insertion cannot make that Scheme control lifetime
+own a stable topology; a mutex held over callbacks would deadlock reentrant
+interning and span arbitrary GC, exceptions and continuation escape.
+
+The new boundary copies canonical identities into one Scheme-managed vector
+before the first callback. The native service owns capture; ordinary Scheme
+frames own traversal and GC/continuation lifetime. No bucket or NEXT is read
+after entering user code. This replaces one complete higher-order fold
+responsibility, not every raw private-table reader.
+
+** Actual producers, aliases and consumers
+
+| Source in selected vendor tree | Actual behavior / disposition |
+|--------------------------------+-------------------------------|
+| =lib/_mem/symbols.inc= native interner | Existing gate serializes PERM names/nodes, count, bucket/NEXT and rehash; unchanged92d transaction |
+| =lib/_mem/symbols.inc:___symkey_table_view= | New query/copy service; no allocator, Scheme callback or GC; no write on count mismatch |
+| =lib/mem.h= | One private C declaration consumed by generated kernel; no public layout/function-table field or alternate namespace |
+| =lib/_kernel.scm:##symkey-table-view= | Scheme allocates/root-protects destination and retries changed count; ordinary vector ownership, no native escrow |
+| =lib/_kernel.scm:##symkey-table-foldl= | Only source C-target caller is symbol-table-foldl; private third argument becomes flat view, not legacy buckets |
+| =lib/_kernel.scm:##symbol-table-foldl= | Retains official name/callback/result interface; captures before callback and traverses the private view |
+| =lib/_kernel.scm:##global-var-table-foldl= | Uses symbol fold; boundness/value checks remain at their existing callback-time locations, not a snapshot of binding values |
+| =lib/_repl.scm:##env-info= | Real global-variable fold consumer; callback filtering, lookup and Scheme effects preserved |
+| =lib/_univlib.scm= | Separate universal-target fold; no C bucket/NEXT contract is transplanted into it |
+| =lib/_geiser/_geiser.scm= | Raw getter plus symbol field2 walk; remains OPEN under3.4 |
+| =doc/checkdoc.scm= | Raw bucket vector/NEXT walk; remains OPEN under3.4 |
+| =tests/run-unit-tests.scm; tests/test10.scm= | Official raw-table metadata consumers; unchanged assertions/manifests/names; migration remains OPEN rather than rewriting their oracle to pass this leaf |
+
+Raw =##symbol-table= and =##keyword-table= still expose their existing private
+representation. Their aliases, arbitrary =##vector-ref= field access and external
+private callers are not admitted by this leaf. Native diagnostics/debug profiles
+and full source/FFI/lifetime census also remain open. A new private flat-view
+primitive is functional ownership, not a parallel native namespace.
+
+** Capture, publication and failure contract
+
+#+NAME: view-capture-cuts
+| Cut | Owner and invariant | Failure / unknown disposition |
+|-----+---------------------+-------------------------------|
+| Query | Existing registry gate reads valid permanent table/count N | Error uses existing heap-error protocol; no destination/native resource |
+| Allocate | Scheme constructs vector[N] outside gate and roots it through generated frames | Allocation may GC or escape; no native lock/buffer/root registration to clean up |
+| Copy preflight | Under gate compare current count with vector length | Mismatch returns new count, writes zero cells; Scheme retries with a new private vector |
+| Copy | Gate excludes native NEXT/count/rehash writers; copy exactly N identities in existing descending-bucket order | Bound/type/count inconsistency returns error; partially filled vector remains unpublished ordinary Scheme state |
+| Deliver view | Scheme returns vector only on successful matching count | Native retains no view pointer, permit or record after return |
+| Callback / resume | Managed frame and captured continuation retain view; no registry lock held | Exceptions/nonlocal escape use existing Scheme unwind/GC; multi-shot resumption shares that same view |
+
+The copy service does not secretly collect. Holding its gate delays competing
+native writers and GC polling for O(bucket count+N) work. Under infinitely
+growing registration, query/allocate/copy may retry indefinitely; finite completion
+requires a stable-size interval. No timeout/heap increase or liveness theorem
+is inferred. Arbitrary death inside the existing registry critical section is
+still outside the native service admission.
+
+The view is isolated from registry writes, not universally immutable. Intentional
+mutation through a caller-owned vector alias changes that private Scheme object
+and cannot rewrite the registry. The higher-order entry does not expose its local
+vector to its callback. Reflective frame mutation/arbitrary concurrent alias
+writers remain explicit ROOT-WRITERS premises rather than being silently forbidden
+by changing Gambit's shared-object semantics.
+
+** Conditional refinement and falsifiers
+
+1. With92d canonical native publication and exclusive gate ownership, the table
+   has N permanent entries. Matching-capacity copy either visits exactly N valid
+   subtype identities and succeeds, or refuses publication. It preserves the
+   old traversal's order at capture, before callbacks run.
+2. A changed count is checked before the first store. Thus abandoned destination
+   storage is still initialized Scheme memory; no retry duplicates a registry
+   insertion or acquires an extra native owner.
+3. After capture, native rehash cannot access the managed vector. The fold's
+   next identity is read from that vector rather than an intrusive global NEXT.
+   A callback-triggered grow may change the registry but not the entry set of
+   the suspended fold.
+4. Existing compiler/frame/GC rules root the ordinary vector. Capturing inside
+   a callback retains its frame once; multiple resumes reuse the heap view.
+   Existing dynamic-wind transitions remain intact. The claim assumes sound
+   ordinary Scheme frame/root consumers and does not prove the whole collector.
+5. A normal callback exception, nested fold or nonlocal escape has no native
+   capture resource to drain. This is a consequence of ending native ownership
+   before arbitrary Scheme control, not a new FFI cleanup guard.
+
+Falsifiers: destination changes on size refusal; duplicate/missing/noncanonical
+identity; later rehash changes a retained view; a resumed fold sees new membership;
+incorrect dynamic-wind counts; callback escape prevents the next registry call.
+The PBT suite must exercise these through actual Scheme/C, not a second simulator.
+
+** Disjoint model duties
+
+| Layer | Applicable duty | Excluded inference |
+|-------+-----------------+--------------------|
+| Native SysML | Source/caller contract, item3.4.1 and parent3.4, thirteen-item audit and explicit retirement/needs | Filenames do not prove actual coverage |
+| ASCENT | Actual typed gate/evidence joins, required/unique ordinal coverage, dependencies, stale/missing rejection | A correct count does not make a runtime complete |
+| Existing QNT =root_dispatch= | Unchanged RootTask/source freeze/lease histories | No duplicated view/callback/continuation machine |
+| Existing Lean =RuntimeRoles= | Conditional cell/census/current-address laws | No duplicate QNT scheduling proof or automatic proof of this concrete C copy |
+| Source/native | Count/preflight/bijection, compiler root placement, callback/multi-shot/GC behavior | Finite PBT cannot prove every weak-memory schedule or arbitrary raw writer |
+
+The LLM is the ambient reviewer of this mapping; it is not another proof oracle.
+
+** Tests and per-REV gates
+
+- [X] Exact selected Scheme/C source, complete bootstrap200.128s/core82.034s
+  on the same cache/profile. Later test-only corrections reused that producer
+  with zero core generation/compilation stages executed.
+- [X] Seed997:296 actual actions over12 histories plus mandatory prefix;
+  capture, alias write, GC, intern, grow, fold, native count change and callback
+  exception. Mandatory trace observes6 GCs and2 continuation resumptions.
+- [X] Compiled92d predecessor fold control: captured6297 identities but visited2020
+  after callback growth.13 actions shrink to1,21 trials, deletion-one-minimal;
+  the same action passes against current code.
+- [X] No-write-on-refusal uses actual two native interning actors between query
+  and copy. A deliberate in-range C store on refusal is rejected, shrinks13 to1
+  in7 trials and passes when replayed against unmodified C. Independent existing
+  C foreach supplies the reference identity set.
+- [X] GSI408/40876.649s and complete remaining official Make104.531s, including
+  map/multi-shot, moving anchors, frame/RC/root controls and test8/test9. Previous
+  globals13.552s, startup/unknown join/early drain5.095s and interner12.480s pass.
+- [X] Native SysML/D2, typed3.4.1→3.4 parent check, concrete ASCENT ordinal/
+  dependency/current-source acceptance controls. Existing QNT10 trajectories
+  and10000 samples/64 steps pass; unchanged QNT receipt reused at final metadata
+  validation; Lean unchanged/not rerun.
+- [X] Preserve133 pending prototype paths and every other staged entry; all
+  five gates/21 controls pass with reviewed commit body. First raw-index-change
+  refusal remains recorded; unchanged HEAD, staged semantic entries and full
+  working diff were independently verified before a fresh strict admission.
+
+The predecessor control is a compiled old Scheme algorithm calling actual
+registry/rehash/GC functions, not an observation mutation and not an entire old
+bootstrap. A single generated adversarial-fold action contains real callback and
+growth operations; shrinking it to one action would not mean one C instruction
+or a globally minimal OS interleaving.
+
+The real Gambit reader independently confirms that its parameters/body AST is
+the92d kernel function's AST; only the function definition name and localized
+kernel-equivalent compiler declarations differ. This is source fidelity, not
+an assertion that the entire predecessor compiler/runtime was rebuilt.
+
+Retained failures are part of the record. The first C build used a VECTORP
+macro without its implicit compiler temporary and failed before admission;
+the corrected explicit type check passed full requalification. Failed bootstrap
+removed binaries behind eight existing internal script symlinks; strict known-link
+lease admission and independently preserved seed artifacts restored only that
+owned state. New test entry initially omitted the existing Make runtime directory
+options and failed; it now uses the original root-task recipe verbatim. The old
+fold control initially lacked kernel's extended-binding declaration and treated
+c-code as an unbound procedure; its corrected local declaration affects only the
+control. Strict SysML also rejected a fixed inherited lane override/member-name
+collision; default-value and distinct part-name corrections passed. No failed
+attempt is counted as a native or model pass.
+
+** Benefit / added-overhead matrix
+
+| Dimension | Retired work / correctness benefit | Real added cost / condition |
+|-----------+------------------------------------+-----------------------------|
+| Callback traversal | Live bucket/NEXT alias no longer survives arbitrary Scheme code | One snapshot pass O(bucket count+N) before callback |
+| Registry exclusion | No gate held while invoking f, GC, exception or continuation | Capture serializes native interning for its copy duration |
+| Root lifetime | Normal Scheme vector/frame ownership replaces implicit registry-layout lifetime | N managed words plus normal header per completed capture |
+| Multi-shot control | One captured fold keeps the same identity set over repeated resumes | Separate retained folds cost sum(N_i); one continuation's resumes share one view |
+| Failure | No native buffer/lease/root record needs unwind or retry refund | Managed allocation/retry churn; no completion bound under unbounded growth |
+| Permanent memory | No extra permanent table/name/node allocation from capture | Old/new registry tables retain their existing92d lifetime policy |
+| ABI and tooling | Existing C/Scheme names, Make/profile/CI and official test inventory stay | One private C declaration and generated kernel cohort rebuild |
+| Net gain | Correct higher-order/control behavior under real rehash | No throughput, tail-latency or physical-peak improvement claimed |
+
+** Mandatory architectural answers and next cut
+
+This is fundamental for the selected fold because ownership follows the
+*semantic execution lifetime*: registry capture ends before callbacks, while
+Scheme-managed state covers suspended and multiply resumed control. Per-store
+patches, extra heap and longer waiting cannot give a live intrusive chain that
+property. The old loop must disappear from production, not remain as a fallback.
+
+Gambit's shared canonical identities and multi-shot continuation are amplified:
+an extensible native registry can coexist with a retained higher-order computation
+without imposing one-shot effects or isolated actor heaps. It remains a bounded
+foundation, not proof of independent W/R workers or repaired SMP stress capacity.
+
+Next under3.4: raw getters and their actual aliases/consumers need an explicit
+owned-view or refusal contract; then lifetime/source census composes with3.5
+writers and3.6 complete root union. Items4--9 cannot infer their premises from
+this leaf; items10--13 retain their own engineering-support qualification.

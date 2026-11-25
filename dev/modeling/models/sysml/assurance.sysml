@@ -50,6 +50,51 @@ package GambitAssuranceRelations {
         attribute :>> scope = "Derived model/source/receipt associations; journal scope selected by the caller task";
         attribute :>> admissionBoundary = "Hypotheses only; source identity is not model truth, native observation or execution authority";
     }
+    part publicationReasoning : ReasoningProjection {
+        attribute :>> projectionId = "research-publication";
+        attribute :>> sourceModel = "dev/modeling/models/sysml/research-storage.sysml";
+        attribute :>> selectorPath = "evidence/dsl/research-publication.ss";
+        attribute :>> requestPath = "tests/recipes/framework-contracts/research-policy.recipe.json";
+        attribute :>> exports = "gitAllowed; gitRejected";
+        attribute :>> scope = "Native SysML class policy to Python staged-byte classification and ASCENT declared-class consistency; no duplicate QNT or Lean obligation";
+        attribute :>> admissionBoundary = "Git admission is not proof truth, current source qualification or native acceptance; unclassified files are refused";
+    }
+    part researchFlowReasoning : ReasoningProjection {
+        attribute :>> projectionId = "research-producer-consumer-flow";
+        attribute :>> sourceModel = "dev/modeling/models/sysml/research-storage.sysml";
+        attribute :>> selectorPath = "evidence/dsl/research-flow.ss";
+        attribute :>> requestPath = "tests/recipes/framework-contracts/research-policy.recipe.json";
+        attribute :>> exports = "ready; unavailable; blocked; accepted; unresolved; writerAdmitted; writerBlocked";
+        attribute :>> scope = "Maintained required source closure, exact historical reference availability and fresh-run writer admission; syntax inventory does not close native effects";
+        attribute :>> admissionBoundary = "Source-only checkout functional is distinct from evidence available; missing/changed/unresolved evidence never becomes accepted by an exit-zero alone";
+    }
+    part sourceContractReasoning : ReasoningProjection {
+        attribute :>> projectionId = "framework-source-contracts";
+        attribute :>> sourceModel = "dev/modeling/models/sysml/research-contracts.sysml";
+        attribute :>> selectorPath = "evidence/dsl/observation-contract.ss";
+        attribute :>> requestPath = "tests/recipes/framework-contracts/source-contracts.recipe.json";
+        attribute :>> exports = "MissingCase; UnknownCase; DuplicateCase; MissingField; WrongField; ExtraField";
+        attribute :>> scope = "Native SysML projection and bounded modular-header/Make source correspondence in existing Recipe lifecycle; no duplicate QNT/Lean obligation";
+        attribute :>> admissionBoundary = "A matched migration delta preserves the prior Make-policy defect as denied; not C ABI, runtime, Make execution or performance acceptance";
+    }
+    part sysmlServiceReasoning : ReasoningProjection {
+        attribute :>> projectionId = "managed-sysml-service";
+        attribute :>> sourceModel = "dev/modeling/models/sysml/research-service.sysml";
+        attribute :>> selectorPath = "evidence/dsl/sysml-service.ss";
+        attribute :>> requestPath = "tests/recipes/framework-contracts/service-entry.json";
+        attribute :>> exports = "sdk_qualified; sdk_denied";
+        attribute :>> scope = "Observed task-owned service lifecycle, sealed provider and request identity; contradictory rows refuse";
+        attribute :>> admissionBoundary = "No OS theorem or native runtime acceptance; QNT interleavings and Lean semantic refinement remain exclusive separate duties";
+    }
+    part architectureViewReasoning : ReasoningProjection {
+        attribute :>> projectionId = "shared-structural-views";
+        attribute :>> sourceModel = "dev/modeling/models/sysml/research-service.sysml";
+        attribute :>> selectorPath = "evidence/dsl/observation-contract.ss";
+        attribute :>> requestPath = "tests/recipes/framework-contracts/architecture-views.recipe.json";
+        attribute :>> exports = "Exact matched view status only after managed projection and source checks; timeout or invalid source does not publish";
+        attribute :>> scope = "Conditional renderer relocation; finite structural fixture and AST controls; full DEV transport and source correspondence remain open";
+        attribute :>> admissionBoundary = "No runtime/GC/whole-proof acceptance; no duplicate QNT or Lean obligations; missing models/evidence refuse";
+    }
     part def FormalModelSet {
         attribute modelSetId : String;
         attribute ownerPath : String;
@@ -79,7 +124,7 @@ package GambitAssuranceRelations {
         attribute :>> quintSymbols = "initNoChange; initLeaf; initMacro; reuse; start; finish; publish; invalidate; cancel; discard; step; safe; noChangeWork; PopulationNodes; populationDeps; selectedInjection; inventoryAcyclic; initCut; beginCut; observeInput; sealCut; publishCut; worldWrite; cutPublicationSafe; smallDeps; boundaryDeps; selectedGraphExact; phasesRelated; boundaryReady; boundarySignature; frozenBoundary; reusableReceipt; commonIdentity; cConsumerEquivalent; linkerConsumerEquivalent; sameLengthIsInsufficient; bytesWellFormed; linkEligible; linkCutoff; cCutoff; failureBlocks; malformedBlocks; frameDatum; frameShape; scalarPayloadShape; shallowPairCounterexample; valueStable; rootEligible; valueEligible; mutate; relocate; rawReloadNeeded; missingRootBlocks; mutationBlocks; scriptText; scriptSelection; firstScript; emptyTextWins; falseDoesNotClear; sourceBorrowEligible; payloadWriteBlocks; fullLinkEquivalent; sameResultIsInsufficient; issue; failAcquire; readable; revoke; returnPin; cleanupAck; resume; rootGrant; unknownWriter; payloadWrite; liveBorrowSafe; noReleasedRootWithPins; positiveWork; oldWork; newWork; parallelLatencyLowerBound";
         attribute :>> leanSource = "models/build/IncrementalBuild.lean";
         attribute :>> leanSymbols = "unaffectedDependency; emptyChangeHasNoAffected; reuseMatchesClean; projectionCutoff; validNoOpWork; budgetStepPreserves; budgetTracePreserves; returnedCreditCannotIncrease; agreementOnSmallerCut; completeCutCanGrow; affectedEdgeExtension; immutableReadExtendsTrace; receiptReuseMatchesClean; allConsumerCutoff; projectedStepPreserves; adaptiveTraceReplay; adaptiveOutputUnique; receiptBackedAdaptiveReuse; selectedIndexInjective; selectedEdgesExact; fullReadyProjects; selectedAndBoundaryReady; fullBudgetBoundsSelected; changedBoundaryRejectsFrozen; relationalTraceSafety; concreteSafetyFromRefinement; capabilityCoverageAppend; uncoveredCapabilityRejects; observationEqualityReflection; factorizationSufficient; scalarSummariesLoseOrder; byteEncodingInjective; framedAtomInjective; atomTagsSeparate; admittedCodecInjective; cleanConsumerCutoff; nonSuccessCannotIssue; reflectedFailureExcluded; readDatumFrameAppend; recursiveRoundtrip; recursiveEncodingInjective; decodeWholeEncoded; trailingTokensRejected; shortFrameRejected; emptyDatumRejected; emptyPairFrameRejected; canonicalNameIdentity; uninternedNameCollision; changedReachableValueRejects; logicalRelocationPreservesAdmission; rawAddressCopyCanBecomeStale; directSelfPairRefused; admissionNeedsRootCoverage; schemeReadbackConsumerReflection; equalEndpointsPermitDifferentRead; equalStringTreesCanLoseIdentity; scriptFalseRetainsPrevious; scriptEmptyTextWins; scriptFoldAppend; scriptTrailingFalseRetains; scriptFirstMatchWins; malformedLatestRemainsVisible; singletonScriptEncodingReflects; untouchedPayloadPreservesView; sameReturnedPathCanChangeDiagnostics; abortCanRetainPartialWrite; scriptFullObservationCongruence; scriptPropertyReflection; issuedReceiptReadable; revokeRejectsOldReceipt; revokePreservesCustody; livePinBlocksWriter; returnPinKeepsCleanupDebt; freshEntryRejectsOldReceipt; unknownWriterRejectsRead; cleanupDebtBlocksDelivery; staleCleanupCannotClear; cleanupAckIdempotent; sameExtentMutationRejects; freshEntryHasDistinctToken; positiveDevelopmentWork; coordinatorWithoutRemovedWork";
-        attribute :>> evidenceReport = "evidence/research/script-view-lifecycle-darwin/formal-results.json";
+        attribute :>> evidenceReport = ".cache/research/legacy-evidence/evidence/research/script-view-lifecycle-darwin/formal-results.json";
         attribute :>> scope = "Stable-view issuer/revoke/pin/cleanup/reentry ledger and Darwin development-work accounting; actual writer, continuation, C memory, root, I/O and performance refinement remain open";
         attribute :>> obligationIds = "BF-BUILD-CUT; BF-BUILD-BUDGET";
     }

@@ -2,7 +2,40 @@
 from decimal import Decimal, localcontext
 import hashlib
 import json
+import math
 from pathlib import Path
+
+
+def histogram_quantiles(histogram, expected_count):
+    """Recompute latency quantiles from retained exact-value frequencies.
+
+    Frequencies preserve the distribution without retaining request order.
+    This validates arithmetic, not process provenance or runtime acceptance.
+    """
+    if type(expected_count) is not int or expected_count < 1 or not histogram:
+        raise ValueError("nonempty latency population required")
+    previous, total = -1.0, 0
+    for row in histogram:
+        value, count = row['seconds'], row['count']
+        if (type(value) not in (int, float) or not math.isfinite(value)
+                or value < 0 or value <= previous
+                or type(count) is not int or count < 1):
+            raise ValueError("ordered finite latency frequencies required")
+        previous, total = value, total + count
+    if total != expected_count:
+        raise ValueError("latency population differs from workload count")
+
+    def at(rank):
+        accumulated = 0
+        for row in histogram:
+            accumulated += row['count']
+            if accumulated >= rank:
+                return row['seconds']
+        raise ValueError("missing latency rank")
+
+    return dict(p50Seconds=(at((total + 1) // 2) + at(total // 2 + 1)) / 2,
+                p95Seconds=at(math.ceil(.95 * total)),
+                p99Seconds=at(math.ceil(.99 * total)))
 
 
 def _digest(path):
@@ -176,53 +209,6 @@ def normalize_matrix(root, matrix, source, fields, kinds, *, efficiency_policy=N
     return normalized
 
 
-
-def benefit_admission(matrix, *, integration=False):
-    """A favorable row never offsets a measured regression in another row.
-
-    Input is the source-verified normalized matrix, not a caller's narrative.
-    This conservative publication gate establishes neither causality nor a
-    statistically stable speedup. Unmeasured/control/structural rows cannot
-    supply positive measured benefit for a runtime integration.
-    """
-    positive = [row['id'] for row in matrix['rows']
-                if row['outcome'] == 'observed-improvement']
-    regressions = [row['id'] for row in matrix['rows']
-                   if row['outcome'] == 'observed-regression']
-    reasons = (['measured-regression'] if regressions else [])
-    if integration and not positive:
-        reasons.append('positive-benefit-unproven')
-    efficiency = matrix.get("efficiency", {"claim": "foundation"})
-    if efficiency["claim"] == "efficiency-upgrade":
-        reasons.extend(efficiency.get("reasons", []))
-        if not efficiency.get("benchmarkQualified"):
-            reasons.append("efficiency-upgrade-unproven")
-        if not positive:
-            reasons.append("positive-efficiency-benefit-unproven")
-    return dict(admitted=not reasons, positiveRows=positive,
-                regressionRows=regressions, reasons=reasons)
-
-
-
-def render_matrix(matrix):
-    def cell(value):
-        if value is None:
-            return "unmeasured"
-        return str(value).replace("|", "\\|").replace("\n", "<br>")
-    lines = ["", "REV benefit/cost matrix", "",
-             "| Metric / kind | Baseline | Candidate | Unit | N base/candidate | Delta % | Interpretation | Workload / method / limit | Evidence |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
-    for row in matrix["rows"]:
-        values = [row["metric"]+" / "+row["kind"], row["baseline_value"],
-                  row["candidate_value"], row["unit"],
-                  str(row["baseline_samples"])+"/"+str(row["candidate_samples"]),
-                  row["delta_percent"], row["outcome"], row["workload"]+"; "+row["method"]+"; "+row["limitation"], ", ".join(sorted(row["evidenceSha256"]))]
-        lines.append("| "+" | ".join(map(cell, values))+" |")
-    lines += ["", "Numbers are scoped observations or source accounting; sample counts, workloads,",
-              "methods, limits and evidence digests are retained in the bound audit JSON.",
-              "Control timings and structural benefits do not establish a runtime speedup."]
-    return "\n".join(lines)
-
 def efficiency_evidence(root, matrix, source, policy, file):
     """Qualify a declared benchmark population, not an attractive metric label."""
     request = matrix["input"]
@@ -316,3 +302,49 @@ def efficiency_evidence(root, matrix, source, policy, file):
         result["reasons"].append("fixed-work-ledger-missing")
     result["benchmarkQualified"] = not result["reasons"]
     return result
+
+
+def benefit_admission(matrix, *, integration=False):
+    """A favorable row never offsets a measured regression in another row.
+
+    Input is the source-verified normalized matrix, not a caller's narrative.
+    This conservative publication gate establishes neither causality nor a
+    statistically stable speedup. Unmeasured/control/structural rows cannot
+    supply positive measured benefit for a runtime integration.
+    """
+    positive = [row['id'] for row in matrix['rows']
+                if row['outcome'] == 'observed-improvement']
+    regressions = [row['id'] for row in matrix['rows']
+                   if row['outcome'] == 'observed-regression']
+    reasons = (['measured-regression'] if regressions else [])
+    if integration and not positive:
+        reasons.append('positive-benefit-unproven')
+    efficiency = matrix.get("efficiency", {"claim": "foundation"})
+    if efficiency["claim"] == "efficiency-upgrade":
+        reasons.extend(efficiency.get("reasons", []))
+        if not efficiency.get("benchmarkQualified"):
+            reasons.append("efficiency-upgrade-unproven")
+        if not positive:
+            reasons.append("positive-efficiency-benefit-unproven")
+    return dict(admitted=not reasons, positiveRows=positive,
+                regressionRows=regressions, reasons=reasons)
+
+
+def render_matrix(matrix):
+    def cell(value):
+        if value is None:
+            return "unmeasured"
+        return str(value).replace("|", "\\|").replace("\n", "<br>")
+    lines = ["", "REV benefit/cost matrix", "",
+             "| Metric / kind | Baseline | Candidate | Unit | N base/candidate | Delta % | Interpretation | Workload / method / limit | Evidence |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for row in matrix["rows"]:
+        values = [row["metric"]+" / "+row["kind"], row["baseline_value"],
+                  row["candidate_value"], row["unit"],
+                  str(row["baseline_samples"])+"/"+str(row["candidate_samples"]),
+                  row["delta_percent"], row["outcome"], row["workload"]+"; "+row["method"]+"; "+row["limitation"], ", ".join(sorted(row["evidenceSha256"]))]
+        lines.append("| "+" | ".join(map(cell, values))+" |")
+    lines += ["", "Numbers are scoped observations or source accounting; sample counts, workloads,",
+              "methods, limits and evidence digests are retained in the bound audit JSON.",
+              "Control timings and structural benefits do not establish a runtime speedup."]
+    return "\n".join(lines)

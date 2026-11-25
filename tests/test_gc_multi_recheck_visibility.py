@@ -7,7 +7,7 @@ from gambit_smp.protocol_evidence import bundle_facts
 
 
 MANIFEST = "evidence/fixtures/sfun-owned-unwind/multi-recheck-visibility-contract.json"
-FOLDER = "evidence/model-results/fixtures/sfun-owned-unwind/multi-recheck-visibility"
+FOLDER = ".cache/research/legacy-evidence/evidence/model-results/fixtures/sfun-owned-unwind/multi-recheck-visibility"
 
 
 class MultiRecheckVisibilityTests(unittest.TestCase):

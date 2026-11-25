@@ -129,7 +129,7 @@ sanitizer. The failed receipt is preserved; the successful command uses
 The source-correspondence audit also exposed an obsolete source-unit executor
 binding. The original eight source-fragment checks were actually rerun with
 the unchanged source lock and current executor. The new semantic receipt is
-`evidence/source-results/fixtures/sync-retirement-lock-binding/receipt.json`;
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sync-retirement-lock-binding/receipt.json`;
 the old receipt remains untouched. Source correspondence now validates 14
 bound inputs locally. This is not complete graph export or native GC proof.
 
@@ -140,7 +140,7 @@ actual thread-object relocation from an assumed collector transition, preserves
 a held-lock observer timeout, and records the remaining collective-error path.
 
 Portable records are under
-`evidence/source-results/fixtures/scheduler-retry-sync-participation/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/scheduler-retry-sync-participation/`.
 The source-core Recipe performs fresh materialization, GNU configuration,
 seed build, full regeneration and native rule terminal under the existing
 420-second total budget. Local observations cannot qualify its new binary.

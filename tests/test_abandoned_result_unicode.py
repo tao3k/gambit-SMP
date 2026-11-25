@@ -6,7 +6,7 @@ from gambit_smp.framework import ROOT, digest
 
 class AbandonedResultUnicodeTests(unittest.TestCase):
     def test_new_bootstrap_artifact_scalar_equivalence_is_bound(self):
-        folder = ROOT / "evidence/source-results/fixtures/abandoned-result-state/unicode-scalar-bootstrap"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/unicode-scalar-bootstrap"
         archive = json.loads((folder / "archive.json").read_text())
         for name, expected in archive["files"].items():
             self.assertEqual(digest(folder / name), expected)
@@ -30,7 +30,7 @@ class AbandonedResultUnicodeTests(unittest.TestCase):
                 self.assertFalse(stage["observation"]["timeout"])
                 self.assertTrue(stage["observation"]["group_quiescent"])
         self.assertEqual(len(receipt["observations"]), 2)
-        bootstrap = ROOT / "evidence/source-results/fixtures/abandoned-result-state/two-pass-bootstrap/candidate.json"
+        bootstrap = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/two-pass-bootstrap/candidate.json"
         self.assertEqual(digest(folder / "bootstrap-identity.json"), digest(bootstrap))
         self.assertEqual(receipt["adapterSha256"], digest(folder / "unicode_campaign.py"))
         self.assertEqual(receipt["fixtureSha256"], digest(folder / "unicode_scalar_semantics.scm"))

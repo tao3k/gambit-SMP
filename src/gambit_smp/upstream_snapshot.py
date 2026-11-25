@@ -157,7 +157,9 @@ def export_triage(cache, target):
         snapshot_path = target / f"pr-{number}-snapshot.json"
         saved = json.loads(snapshot_path.read_text()) if snapshot_path.exists() else None
         footprint["headBound"] = footprint_bound(row, footprint["files"], saved)
-        overlap = sorted({f["file"] for f in footprint["files"]} & CRITICAL_SOURCE)
+        overlap = sorted({f["file"] for f in footprint["files"]
+                          if f['file'] in CRITICAL_SOURCE
+                          or f['file'].startswith('include/_gambit/') and f['file'].endswith('.h.in')})
         if number in included:
             disposition = "catalog-included"
             reason = "exact-head snapshot; model and native acceptance tracked separately"

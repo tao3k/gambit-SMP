@@ -32,7 +32,7 @@ class PublishedEvidenceTests(unittest.TestCase):
         for name, record in manifest['records'].items():
             with self.subTest(path=name):
                 self.assertIn(name, tracked)
-                self.assertTrue(name.startswith(('evidence/model-results/', 'evidence/source-results/')))
+                self.assertTrue(name.startswith(('.cache/research/legacy-evidence/evidence/model-results/', '.cache/research/legacy-evidence/evidence/source-results/')))
                 self.assertFalse(set(Path(name).parts) & {'.data', '.cache', '..'})
                 path = ROOT / name
                 self.assertEqual(path.resolve(strict=True), path)

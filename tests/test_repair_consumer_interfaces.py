@@ -15,9 +15,9 @@ from tests import test_host_root_publication_evidence as contracts
 class RepairConsumerInterfaceTests(unittest.TestCase):
     def test_published_model_controls_have_complete_checked_closures(self):
         from gambit_smp.protocol_evidence import checked_rows, bundle_facts
-        imports_name = "evidence/research/host-root-publication/imports.manifest.json"
+        imports_name = ".cache/research/legacy-evidence/evidence/research/host-root-publication/imports.manifest.json"
         imports = json.loads((ROOT / imports_name).read_text())
-        declaration_receipt = "evidence/model-results/current-repair-consumer-interfaces/imports-declaration-only/receipt.json"
+        declaration_receipt = ".cache/research/legacy-evidence/evidence/model-results/current-repair-consumer-interfaces/imports-declaration-only/receipt.json"
         self.assertFalse((ROOT / declaration_receipt).exists())
         self.assertTrue(all(c["registrationOnly"] for c in imports["cases"]))
         imported, _ = bundle_facts(ROOT, imports_name, declaration_receipt)
@@ -27,15 +27,15 @@ class RepairConsumerInterfaceTests(unittest.TestCase):
                  ("last-access", "last-access-declaration-bound", 4))
         for manifest_name, receipt_name, count in pairs:
             with self.subTest(model=manifest_name):
-                manifest = json.loads((ROOT / "evidence/research/host-root-publication" /
+                manifest = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication" /
                     (manifest_name + ".manifest.json")).read_text())
-                receipt = ROOT / "evidence/model-results/current-repair-consumer-interfaces" / receipt_name / "receipt.json"
+                receipt = ROOT / ".cache/research/legacy-evidence/evidence/model-results/current-repair-consumer-interfaces" / receipt_name / "receipt.json"
                 rows = checked_rows(ROOT, manifest, receipt)
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(len(rows[0][1]), count)
                 self.assertTrue(all(row["accepted"] for row in rows[0][1]))
                 projected, _ = bundle_facts(ROOT,
-                    "evidence/research/host-root-publication/" + manifest_name + ".manifest.json",
+                    ".cache/research/legacy-evidence/evidence/research/host-root-publication/" + manifest_name + ".manifest.json",
                     str(receipt.relative_to(ROOT)))
                 self.assertEqual(projected["protocol_checked"], [(manifest["cases"][0]["id"], digest(receipt))])
                 self.assertTrue(projected["protocol_composes"])

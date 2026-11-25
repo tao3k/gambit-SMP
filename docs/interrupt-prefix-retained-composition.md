@@ -38,7 +38,7 @@ unchanged 90-second per-check budget and automatic control capacity.
 The active manifest and portable receipt are:
 
 - `evidence/fixtures/sync-slot-retained-resources/interrupt-prefix-design-contract.json`
-- `evidence/model-results/fixtures/sync-slot-retained-resources/interrupt-prefix-early-global-contract/receipt.json`
+- `.cache/research/legacy-evidence/evidence/model-results/fixtures/sync-slot-retained-resources/interrupt-prefix-early-global-contract/receipt.json`
 
 The earlier 158-state composition omitted early global OS failure; its exact
 receipt remains historical and is not the registered active bundle. Three

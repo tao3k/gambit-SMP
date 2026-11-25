@@ -15,7 +15,7 @@ admission-prefix QNT, public-FFI fixture and conditional Lean accounting; Grok
 reviewed them rather than authoring a C repair or running the native tests.
 The current source already contains the audited prefix unwind. No duplicate C
 patch or repeated bootstrap is introduced. See the
-[source-bound record](../evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md).
+source-bound record (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md`; unavailable in a clean checkout).
 
 Grok's first audit exposed nontransferable constructor-model receipts and the
 prohibited RTLD_NEXT fixture. Its second audit limited the new native result to
@@ -405,7 +405,7 @@ files (whole 65.528 s); original GSI stress did not pass (whole 310.178 s): two
 interrupt files passed, TFIB timed out, and terminate was not executed. Complete
 GSI/PR again timed out on pipe (whole 321.182 s; 369 passed, 10 not executed).
 The exact portable observations and remaining six obligations are in
-`evidence/research/pipe-predicate-sync-participation/qualification-status.md`.
+`.cache/research/legacy-evidence/evidence/research/pipe-predicate-sync-participation/qualification-status.md`.
 This is partial native qualification, not a release patch or SMP full pass.
 
 The later Grok counter-audit used a source-identity Clue query as its first tool

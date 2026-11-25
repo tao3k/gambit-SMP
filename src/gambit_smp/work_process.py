@@ -120,6 +120,7 @@ def collect(root,task,process,*,today=None,opened=None):
     from gambit_smp import workspace as w
     from gambit_smp.task_processes import check
     from gambit_smp.storage_retention import inspect,archive_records,remove_tree
+    from gambit_smp.task_dependencies import protected
     cutoff=(today or w.now().date())-timedelta(days=1);removed=[]
     record,cache=paths(root,task,process)
     with lease(root,task,process):
@@ -132,7 +133,11 @@ def collect(root,task,process,*,today=None,opened=None):
             if row['state']=='running' or (row['state']=='interrupted' and not row.get('reconciliation')):continue
             if datetime.fromisoformat(row['endedAt']).astimezone(w.ZONE).date()>=cutoff:continue
             output=cache/'runs'/row['run']
-            if not output.exists() or w.referenced(output,occupied):continue
+            # Most maintenance invocations produce no run directory. Do not
+            # repeatedly parse the global dependency registry for absent data.
+            if not output.exists():continue
+            if protected(root,output):continue
+            if w.referenced(output,occupied):continue
             if inspect(output,cutoff)['blocked']:continue
             row['archivedRecords']=archive_records(root,output);w.write(target,row)
             remove_tree(output);row['outputRemovedAt']=w.now().isoformat();w.write(target,row);removed.append(row['run'])
@@ -140,6 +145,7 @@ def collect(root,task,process,*,today=None,opened=None):
     history=w.bounded(root,'.state/work-process-history/'+task+'/'+process)
     for descriptor in history.glob('*.json'):
         row=json.loads(descriptor.read_text());path=Path(row['path'])
+        if protected(root,path):continue
         if datetime.fromisoformat(row['closedAt']).astimezone(w.ZONE).date()>=cutoff or not path.exists():continue
         with lease(root,task,process):
             check(root,task,process=process)

@@ -178,23 +178,12 @@ class RevisionSubmission:
                      env=environment or self.environment, input=data,
                      capture_output=True, timeout=30)
         if result.returncode:
-            raise ValueError((result.stderr or result.stdout).decode(errors="replace"))
+            # merge-file -p writes the entire conflicted source to stdout.
+            # It is not a diagnostic or a documentary evidence payload.
+            detail = result.stderr or (result.stdout if arguments[0] != "merge-file" else b"")
+            raise ValueError(detail[:2500].decode(errors="replace") or
+                             "git " + arguments[0] + " exited " + str(result.returncode))
         return result.stdout
-
-    def index_identity(self):
-        """Git proposal state, excluding refreshable filesystem stat metadata.
-
-        Preserve stages/blobs/modes, assume/skip flags, intent-to-add behavior
-        and resolve-undo entries. Git parses its own index representation.
-        """
-        commands = {
-            'entriesAndFlags': ('ls-files', '--stage', '-v', '-z'),
-            'intent': ('diff', '--cached', '--raw', '-z', '--ita-invisible-in-index', self.base),
-            'resolveUndo': ('ls-files', '--resolve-undo', '-z'),
-        }
-        return content_digest({key: hashlib.sha256(self.git(*argv)).hexdigest()
-                               for key, argv in commands.items()})
-
 
     def check_native(self):
         if self.native.get("qualificationKind") == "independent-smp-first-three":
@@ -213,6 +202,20 @@ class RevisionSubmission:
                 if digest(self.workspace / path) != expected:
                     raise ValueError("native source/artifact drift: " + name)
 
+    def index_identity(self):
+        """Git proposal state, excluding refreshable filesystem stat metadata.
+
+        Preserve stages/blobs/modes, assume/skip flags, intent-to-add behavior
+        and resolve-undo entries. Git parses its own index representation.
+        """
+        commands = {
+            'entriesAndFlags': ('ls-files', '--stage', '-v', '-z'),
+            'intent': ('diff', '--cached', '--raw', '-z', '--ita-invisible-in-index', self.base),
+            'resolveUndo': ('ls-files', '--resolve-undo', '-z'),
+        }
+        return content_digest({key: hashlib.sha256(self.git(*argv)).hexdigest()
+                               for key, argv in commands.items()})
+
     def stage_qualified_changes(self, paths, *, plan_only=False):
         """Apply an incoming source delta without staging unrelated research.
 
@@ -226,6 +229,7 @@ class RevisionSubmission:
         old = archive_sources(self.git("archive", base))
         index_before = self.git("ls-files", "--stage", "-z")
         plans = []
+        self.staging_conflicts = []
 
         def merge(current, original, incoming, name, role):
             if current == original or current == incoming:
@@ -246,6 +250,16 @@ class RevisionSubmission:
             except ValueError as error:
                 raise ValueError("pending source merge conflict: " + name) from error
 
+        def planned_merge(current, original, incoming, name, role):
+            try:
+                return merge(current, original, incoming, name, role)
+            except ValueError as error:
+                sha = lambda value: hashlib.sha256(value).hexdigest() if value is not None else None
+                self.staging_conflicts.append(dict(path=name, role=role,
+                    currentSha256=sha(current), originalSha256=sha(original),
+                    incomingSha256=sha(incoming), reason=str(error)))
+                return None
+
         for name in paths:
             path = Path(name)
             if path.is_absolute() or ".." in path.parts:
@@ -261,9 +275,12 @@ class RevisionSubmission:
             mode = row.split()[0] if row else "100644"
             generated = name in self.native.get("generatedArtifacts", {})
             plans.append((name, current, staged,
-                          current if generated else merge(current, original, incoming, name, "working"),
-                          incoming if generated else merge(staged, original, incoming, name, "index"),
+                          current if generated else planned_merge(current, original, incoming, name, "working"),
+                          incoming if generated else planned_merge(staged, original, incoming, name, "index"),
                           mode, generated, bool(row)))
+        if self.staging_conflicts:
+            names = list(dict.fromkeys(row["path"] for row in self.staging_conflicts))
+            raise ValueError("pending source merge conflict: " + ", ".join(names))
         # No conflict or collision can leave half an applied source merge.
         for name, current, staged, working, selected, mode, generated, tracked in plans:
             target = self.repository / name
@@ -460,7 +477,6 @@ class RevisionSubmission:
         write_json(self.evidence / "source.json", self.source)
         return self.source
 
-
     def source_archive(self, revision):
         if not self.framework_support:
             return archive_sources(self.git("archive", revision))
@@ -557,7 +573,6 @@ class RevisionSubmission:
         write_json(self.evidence / "model-contract.json", dict(inputs=self.model_inputs,
                    values=self.values, nativeOutputSha256=digest(self.storage / "sysml.stdout")))
         return self.values
-
 
     def delivery_contract(self):
         """Bind a complete integration or a strictly non-runtime support cut.
@@ -721,7 +736,6 @@ class RevisionSubmission:
             delivery=delivery))
         return digest(self.audit_path)
 
-
     def audit_comment(self, expected_digest):
         if not getattr(self, "audit_path", None) or digest(self.audit_path) != expected_digest:
             raise ValueError("reviewed REV audit changed after admission")
@@ -760,7 +774,6 @@ class RevisionSubmission:
                   render_matrix(report["matrix"])]
         return "\n".join(lines) + "\n"
 
-
     def check_custody(self):
         self.check_native()
         if self.git("rev-parse", "HEAD").decode().strip() != self.base:
@@ -774,7 +787,6 @@ class RevisionSubmission:
         for name, expected in self.model_inputs.items():
             if digest(self.root / name) != expected:
                 raise ValueError("model changed after projection")
-
 
     def admit(self):
         """Evaluate the shared policy; absence/staleness controls use real rules."""
@@ -986,7 +998,6 @@ class RevisionSubmission:
         write_json(self.evidence / "admission.json", self.admission)
         return self.admission
 
-
     def commit(self, message, admission):
         if (admission is not getattr(self, "admission", None)
                 or admission.get("commitAdmitted") is not True or admission.get("tree") != self.tree):
@@ -1057,3 +1068,132 @@ class RevisionSubmission:
             result["mergeParent"] = self.merge_parent
         write_json(self.evidence / "revision.json", result)
         return result
+
+
+def integration_scope(root, acceptance, unit, required, boundary):
+    """Bind the exact admission population before passing facts to ASCENT.
+
+    SysML pins the case evidence; callers cannot extend a delivery by appending
+    a related failing test, or shrink it by omitting an inconvenient case.
+    This checks custody and scope, not the truth of source/native premises.
+    """
+    root = Path(root).resolve()
+    path = Path(boundary['caseEvidence'])
+    if (path.is_absolute() or '..' in path.parts or '.cache' in path.parts
+            or not (root / path).is_file()
+            or not (root / path).resolve().is_relative_to(root)):
+        raise ValueError('repository-owned boundary case evidence required')
+    if digest(root / path) != boundary['caseEvidenceSha256']:
+        raise ValueError('model-pinned boundary case evidence changed')
+    packet = json.loads((root / path).read_text())
+    if any(packet.get(k) != acceptance[k] for k in ('sourceTree', 'profileSha256')):
+        raise ValueError('boundary cases belong to another source/profile period')
+    cases = packet.get('cases', [])
+    names = [case.get('id') for case in cases]
+    if (not names or any(not isinstance(name, str) or not name for name in names)
+            or len(names) != len(set(names))
+            or any(case.get('role') not in ('execution', 'compilation', 'historical-counterexample')
+                   for case in cases)):
+        raise ValueError('unique typed boundary cases required')
+    supporting = {case['id'] for case in cases if case['role'] != 'historical-counterexample'}
+    if supporting & set(required):
+        raise ValueError('native cases and integration requirements must be distinct')
+    permitted = supporting | set(required)
+    facts = acceptance['facts']
+    if (facts.get('deliveryUnit') != [[unit, 'revision']]
+            or facts.get('deliveryContext') != [[packet['sourceTree'], packet['profileSha256']]]
+            or facts.get('deliveryDepends')
+            or any(owner != unit for owner, _ in facts['deliveryRequiresAcceptance'])):
+        raise ValueError('model-owned integration context required; no injected delivery graph')
+    dependencies = [family for owner, family in acceptance['facts']['deliveryRequiresAcceptance']
+                    if owner == unit]
+    if len(dependencies) != len(set(dependencies)) or set(dependencies) != permitted:
+        raise ValueError('exact model-owned delivery boundary required; '
+                         'missing=' + repr(sorted(permitted - set(dependencies))) +
+                         ', extra=' + repr(sorted(set(dependencies) - permitted)))
+    contract = dict(unit=unit, sourceTree=packet['sourceTree'],
+                    profileSha256=packet['profileSha256'], model=boundary,
+                    requirements=sorted(required), supportingCases=sorted(supporting),
+                    historicalCases=sorted(set(names) - supporting),
+                    evidence=dict(path=str(path), sha256=digest(root / path)))
+    return dict(contract, sha256=content_digest(contract), runtimeAdmitted=False)
+
+
+def integration_report(root, acceptance, binding, namespace):
+    """Project the complete model-owned unit and infer its current obligations.
+
+    This is an audit projection, not an executor or native admission. Supplied
+    cached answers are ignored; semantic premises still need independent review.
+    """
+    from gambit_smp.ascent_program import engine_api, evaluate, load_catalog
+    root = Path(root)
+    evidence = acceptance.get('integration', {}).get('evidence', {})
+    references = {}
+    for role, name in evidence.items():
+        path = Path(name)
+        if path.is_absolute() or '..' in path.parts or not (root / path).is_file():
+            raise ValueError('repository-owned integration evidence required')
+        json.loads((root / path).read_text())
+        references[role] = dict(path=name, sha256=digest(root / path))
+    for name, expected in binding['inputs'].items():
+        path = Path(name)
+        if path.is_absolute() or '..' in path.parts or digest(root / path) != expected:
+            raise ValueError('current integration model input required')
+    tool = shutil.which(os.environ.get('SYSML', 'sysml'))
+    if not tool:
+        raise ValueError('native SysML tool required')
+
+    def project(names):
+        argv = [tool, *binding['mode']]
+        for name in names:
+            argv += ['-e', namespace + '::' + name]
+        result = run(argv + list(binding['inputs']), cwd=root,
+                     capture_output=True, text=True, timeout=60)
+        if result.returncode:
+            raise ValueError('native integration projection failed')
+        data = json.loads(result.stdout)
+        values = [json.loads(line[4:]) for line in data['output'] if line.startswith('  = ')]
+        if data['exit'] or len(values) != len(names):
+            raise ValueError('complete native integration projection required')
+        return dict(zip(names, values))
+
+    unit = project(['result.id', 'requiredAcceptanceParts'])
+    parts = unit['requiredAcceptanceParts'].split(';')
+    if not parts or len(set(parts)) != len(parts) or any(not re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*', p) for p in parts):
+        raise ValueError('unique model-owned acceptance parts required')
+    values = project([p + '.' + field for p in parts
+                      for field in ['familyId', 'reason', 'component.path']])
+    required = [values[p + '.familyId'] for p in parts]
+    if len(set(required)) != len(required) or set(required) != set(acceptance['requiredFamilies']):
+        raise ValueError('cannot drop or invent model-owned integration requirements')
+    facts = acceptance['facts']
+    subject = [acceptance['sourceTree'], acceptance['profileSha256']]
+    if facts['acceptanceSource'] != [subject] or [unit['result.id'], 'revision'] not in facts['deliveryUnit']:
+        raise ValueError('integration unit/source differs from the acceptance context')
+    boundary_names = ['replacement', 'caseEvidence', 'caseEvidenceSha256',
+                      'exclusions', 'extensionRule', 'failureRule']
+    boundary_values = project(['boundary.' + name for name in boundary_names] + ['boundary.result.id'])
+    if boundary_values['boundary.result.id'] != unit['result.id']:
+        raise ValueError('boundary belongs to another integration result')
+    boundary = {name: boundary_values['boundary.' + name] for name in boundary_names}
+    if any(not isinstance(value, str) or not value for value in boundary.values()):
+        raise ValueError('complete native delivery boundary required')
+    scope = integration_scope(root, acceptance, unit['result.id'], required, boundary)
+    policy = Path(acceptance['policy'])
+    if policy.is_absolute() or '..' in policy.parts or digest(root / policy) != acceptance['policySha256']:
+        raise ValueError('current integration policy required')
+    with engine_api() as (engine, _):
+        answers, explanation = evaluate(engine, facts, load_catalog(root / policy),
+            dict(closed='acceptanceClosed', open='acceptanceOpen', ready='deliveryReady', blocked='deliveryBlocked'))
+    closed = {row[0] for row in answers['closed']}
+    rows = [dict(component=p, family=values[p + '.familyId'],
+                 status='CLOSED' if values[p + '.familyId'] in closed else 'OPEN',
+                 reason=values[p + '.reason'], source=values[p + '.component.path']) for p in parts]
+    if any(row['status'] != 'CLOSED' for row in rows) and any(row[0] == unit['result.id'] for row in answers['ready']):
+        raise ValueError('inferred readiness contradicts the complete integration contract')
+    return dict(unit=unit['result.id'], sourceTree=subject[0], profileSha256=subject[1],
+                requirements=rows, ready=any(row[0] == unit['result.id'] for row in answers['ready']),
+                factsSha256=content_digest(facts), modelInputs=binding['inputs'],
+                nativeInference=explanation, answers=answers, evidence=evidence,
+                evidenceIdentities=references, deliveryScope=scope, runtimeAdmitted=False,
+                boundary='Complete native SysML selection and real ASCENT inference; premise truth and native completion are separate evidence')

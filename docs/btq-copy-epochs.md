@@ -58,7 +58,7 @@ The integer-cell recipe completed in 54.632 seconds. The positive check generate
 147,127 states, exhausted 22,961 distinct states with an empty queue, and passed
 safety plus weak-fair completion. All five controls produced decoded invariant
 counterexamples. The portable result is
-`evidence/source-results/compiled-stress-failure/copy-epochs-model.json`.
+`.cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/copy-epochs-model.json`.
 The registered `btq-copy-epochs` Evidence view retains both source-refinement
 requirements and the actual native DENY. Removing the model context must not
 remove the native failure or alter those open source requirements.

@@ -5,7 +5,7 @@ package GambitContinuationSegments {
   private import ScalarValues::*;
   ref part scheduleResponsibility=GambitVerificationResponsibilities::quint;
   ref part dataResponsibility=GambitVerificationResponsibilities::lean;
-  attribute sourceLock:String="evidence/research/continuation-segments/source.lock.json";
+  attribute sourceLock:String=".cache/research/legacy-evidence/evidence/research/continuation-segments/source.lock.json";
   attribute runtimeAdmitted:Boolean=false;
   attribute commitAdmitted:Boolean=false;
   part def Facet {
@@ -115,7 +115,7 @@ package GambitContinuationSegments {
   }
   part writers:Obligation {
     attribute :>> id="CS-WRITERS"; attribute :>> semanticKey="source/all-frame-denv-root-writers"; attribute :>> owner="source";
-    attribute :>> artifact="evidence/research/continuation-segments/source.lock.json"; attribute :>> declaration="writerInventory";
+    attribute :>> artifact=".cache/research/legacy-evidence/evidence/research/continuation-segments/source.lock.json"; attribute :>> declaration="writerInventory";
     attribute :>> scope="Actual frame/continuation/denv setters, GC repair, restoration, serializer and FFI stores obey publication and remembered-root policy";
     attribute :>> limitation="OPEN; selected real setters are identified, not every indirect/native writer closed";
   }
@@ -127,7 +127,7 @@ package GambitContinuationSegments {
   }
   part promptSemantics:Obligation {
     attribute :>> id="CS-PROMPTS"; attribute :>> semanticKey="semantics/delimiter-composition-and-handler-context"; attribute :>> owner="source";
-    attribute :>> artifact="evidence/research/continuation-segments/source.lock.json"; attribute :>> declaration="PromptSpec";
+    attribute :>> artifact=".cache/research/legacy-evidence/evidence/research/continuation-segments/source.lock.json"; attribute :>> declaration="PromptSpec";
     attribute :>> scope="Specify actual operator family and its joint call/cc, dynamic-wind, dynamic binding and exception observations";
     attribute :>> limitation="OPEN; QNT only qualifies matching-tag/escape/borrow admission, not production prompt semantics";
   }

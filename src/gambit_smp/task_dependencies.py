@@ -5,6 +5,7 @@ Registration does not execute scripts, move checkpoints or admit native recovery
 import json
 import os
 from pathlib import Path
+from contextlib import nullcontext
 
 from gambit_smp.workspace import bounded, paths, lease, write, now, referenced
 
@@ -61,7 +62,11 @@ def protected(root, path):
 def adopt(root, task, relatives, *, default=False):
     """Register physical identities without touching a byte of the live trees."""
     root = Path(root).resolve(strict=True)
-    with lease(root, "storage-retention"), lease(root, task):
+    from gambit_smp.workspace import inherited_lease
+    # Native checkpoint writers already hold the actual task lease. Opening
+    # another descriptor for that same flock would reject our own owner.
+    task_lease = nullcontext() if inherited_lease(root, task) is not None else lease(root, task)
+    with lease(root, "storage-retention"), task_lease:
         record = json.loads(paths(root, task)[0].read_text())
         if record['state'] != 'open':
             raise ValueError('open task required')
@@ -90,8 +95,14 @@ def adopt(root, task, relatives, *, default=False):
         return previous
 
 
-def release(root, task, relatives):
-    """Explicitly relinquish recovery pins after quiescence, preserving history."""
+def release(root, task, relatives, *, source_disposal=None):
+    """Explicitly relinquish recovery pins after quiescence, preserving history.
+
+    Source-only disposal may retain a device-number mismatch as historical
+    uncertainty when the inode is unchanged and exact recovery bytes verify.
+    It never rebinds active identities or admits those bytes for native reuse.
+    Unselected pins and operational stores are not released by this path.
+    """
     from gambit_smp.workspace import active_paths, pending
     with lease(root, 'storage-retention'), lease(root, task):
         if pending(root):
@@ -103,14 +114,51 @@ def release(root, task, relatives):
         rows = {row['path']: row for row in value['paths']}
         if not names <= rows.keys():
             raise ValueError('unknown dependency pin')
-        dependencies(root, task)  # Replacement or missing bytes require reconciliation.
+        disposal={row['path']:row for row in (source_disposal or [])}
+        if source_disposal is not None and set(disposal)!=names:
+            raise ValueError('source disposal review must match the exact requested paths')
         for name in names:
-            if referenced(bounded(root, name), occupied):
+            source=bounded(root,name)
+            if referenced(source, occupied):
                 raise ValueError('dependency still occupied')
+            try:st=source.stat()
+            except FileNotFoundError as error:
+                raise ValueError('registered dependency identity changed: '+name) from error
+            actual=[st.st_dev,st.st_ino]
+            if source_disposal is None:
+                if actual!=rows[name]['identity']:raise ValueError('registered dependency identity changed: '+name)
+            else:
+                import hashlib
+                proof=disposal[name]
+                recovery=proof.get('recovery',[])
+                source_roots=[bounded(root,r['source']) for r in recovery
+                              if r.get('sourceSnapshot') or r.get('bundle')]
+                if (not name.startswith('.cache/') or not proof.get('metadataStable')
+                        or proof.get('observedIdentity')!=actual or proof.get('registeredIdentity')!=rows[name]['identity']
+                        or rows[name]['identity'][1]!=st.st_ino or st.st_dev!=Path(root).stat().st_dev
+                        or not any((p==source or p.is_relative_to(source)) and (p/'.git').exists() for p in source_roots)):
+                    raise ValueError('source disposal physical identity or recovery scope differs')
+                def archives(value):
+                    if isinstance(value,dict):
+                        if {'path','sha256','bytes'}<=value.keys():yield value
+                        else:
+                            for item in value.values():yield from archives(item)
+                    elif isinstance(value,list):
+                        for item in value:yield from archives(item)
+                if not recovery or not any(r.get('sourceSnapshot') or r.get('bundle') for r in recovery):
+                    raise ValueError('source disposal lacks recoverable source bytes')
+                for archive in archives(recovery):
+                    if not archive['path'].startswith('.state/storage/retired-sources/'):
+                        raise ValueError('source recovery archive outside custody store')
+                    file=bounded(root,archive['path'])
+                    if file.stat().st_size!=archive['bytes'] or hashlib.sha256(file.read_bytes()).hexdigest()!=archive['sha256']:
+                        raise ValueError('source recovery archive changed')
         released = value.setdefault('released', [])
         for name in sorted(names):
             row = rows.pop(name)
-            released.append(dict(row, releasedAt=now().isoformat()))
+            released.append(dict(row, releasedAt=now().isoformat(),
+                                 **(dict(sourceDisposal=disposal[name],reuseAdmitted=False)
+                                    if source_disposal is not None else {})))
         value['paths'] = list(rows.values())
         write(target, value)
         return value

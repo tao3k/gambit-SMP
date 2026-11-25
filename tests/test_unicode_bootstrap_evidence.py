@@ -6,7 +6,7 @@ from gambit_smp.framework import ROOT, digest
 
 class UnicodeBootstrapEvidenceTests(unittest.TestCase):
     def test_full_scalar_observation_and_typed_controls(self):
-        folder = ROOT / "evidence/source-results/fixtures/sfun-owned-unwind/unicode-scalar-bootstrap"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/unicode-scalar-bootstrap"
         archive = json.loads((folder / "archive.json").read_text())
         for name, expected in archive["files"].items():
             self.assertEqual(digest(folder / name), expected)

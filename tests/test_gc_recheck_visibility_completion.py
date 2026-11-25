@@ -8,7 +8,7 @@ from gambit_smp.source_materialize import locked_source
 
 
 MANIFEST = "evidence/fixtures/sfun-owned-unwind/recheck-visibility-contract.json"
-RECEIPT = "evidence/model-results/fixtures/sfun-owned-unwind/recheck-visibility-registered/receipt.json"
+RECEIPT = ".cache/research/legacy-evidence/evidence/model-results/fixtures/sfun-owned-unwind/recheck-visibility-registered/receipt.json"
 
 
 class RecheckVisibilityCompletionTests(unittest.TestCase):

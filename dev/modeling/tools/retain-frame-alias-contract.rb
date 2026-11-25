@@ -1,5 +1,5 @@
 require 'json';require 'digest';require 'fileutils'
-b=ARGV.fetch(0);out=ARGV.fetch(1);e='evidence/research/frame-alias-contract'
+b=ARGV.fetch(0);out=ARGV.fetch(1);e='.cache/research/legacy-evidence/evidence/research/frame-alias-contract'
 raise 'fresh archive required' if File.exist?(e)
 sha=->p { Digest::SHA256.file(p).hexdigest }
 m=JSON.parse(File.read(b+'/native-projection.json'));a=JSON.parse(File.read(out+'/receipt.json'))
@@ -35,7 +35,7 @@ paths+=%w[
  dev/modeling/tools/check-frame-alias-contract.rb
  dev/modeling/tools/render-frame-alias-contract.rb
  dev/modeling/tools/retain-frame-alias-contract.rb
- evidence/research/modern-c-bootstrap/request-custody-source.lock.json
+ .cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json
 ]
 raise 'missing retained input' unless paths.all? { |p| File.file?(p) }
 FileUtils.mkdir_p(e+'/records')

@@ -1,0 +1,665 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-cbmc-copy-plan",
+  "scope": "Bounded source-level C contract observations only. Four copy-plan boundaries. No core/Grok execution or native admission; Family 6 remains 5/12 with 295/300 unchanged.",
+  "budgetSeconds": 360,
+  "inputs": [
+    "evidence/dsl/c-bounded-contract.ss",
+    "evidence/fixtures/dev-cbmc-copy-plan/check.recipe.json",
+    "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+    "tests/contracts/allocation-grant/copy-capacity/byte-budget/harness.c",
+    "tests/contracts/allocation-grant/copy-capacity/integer-overflow/harness.c",
+    "tests/contracts/allocation-grant/copy-certificate/valid-demand/harness.c",
+    "tests/contracts/allocation-grant/plan-refusal/cleanup/harness.c",
+    "tests/contracts/allocation-grant/section-growth/no-growth/harness.c",
+    "tests/contracts/allocation-grant/section-growth/partial-failure/harness.c",
+    "tests/contracts/allocation-grant/section-growth/single-section/harness.c",
+    "tests/contracts/allocation-grant/section-storage/claim-geometry/harness.c",
+    "tests/contracts/allocation-grant/support/capacity-environment.h",
+    "tests/contracts/allocation-grant/support/growth-fixture.h",
+    "tests/contracts/allocation-grant/support/lp64.h",
+    "tests/contracts/allocation-grant/support/section-storage.h",
+    "vendor/gambit/include/_gambit/memory_state.h.in",
+    "vendor/gambit/include/_gambit/object_access.h.in",
+    "vendor/gambit/lib/_mem/copy-planning.inc",
+    "vendor/gambit/lib/_mem/movable-sections.inc",
+    "vendor/gambit/lib/_mem/section-claim.inc",
+    "vendor/gambit/lib/collector.h",
+    "vendor/gambit/lib/mem.h"
+  ],
+  "steps": [
+    {
+      "id": "certificate",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/copy-certificate/valid-demand/harness.c",
+        "function": "certificate_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/collector.h",
+          "tests/contracts/allocation-grant/copy-certificate/valid-demand/harness.c",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "vendor/gambit/include/_gambit/object_access.h.in"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "certificate.inc",
+            "begin": "static inline int ___gc_copy_section_bound",
+            "end": "static inline int ___gc_copy_plan_fits"
+          }
+        ],
+        "unwind": 24,
+        "scope": "Certificate machine arithmetic and output frame; packing-algorithm soundness remains open.",
+        "assumptions": [
+          "LP64 signed 64-bit sizes, 32-bit int, 8-byte words.",
+          "Workers 1..8, capacity 1..65536, small payload <=16*capacity, large requests <=16, chunk 1..255."
+        ],
+        "contract": "allocation-grant/copy-certificate",
+        "branch": "valid-demand",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "certificate.failure-preserves-output",
+          "certificate.reserves-every-worker",
+          "certificate.large-request-reservation"
+        ]
+      }
+    },
+    {
+      "id": "capacity",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/copy-capacity/byte-budget/harness.c",
+        "function": "capacity_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/collector.h",
+          "vendor/gambit/lib/_mem/copy-planning.inc",
+          "tests/contracts/allocation-grant/copy-capacity/byte-budget/harness.c",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "tests/contracts/allocation-grant/support/capacity-environment.h",
+          "vendor/gambit/include/_gambit/object_access.h.in"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "fits.inc",
+            "begin": "static inline int ___gc_copy_plan_fits",
+            "end": "typedef struct ___collector_worker_struct"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/copy-planning.inc",
+            "target": "capacity.inc",
+            "begin": "  if(the_msections==0 || !___gc_copy_plan_fits(n,k,the_msections->nb_sections)) {",
+            "end": "  section=the_msections->head;"
+          }
+        ],
+        "unwind": 24,
+        "scope": "Exact planner capacity/growth block, byte limit and still custody.",
+        "assumptions": [
+          "LP64; roots 1..8, copies 1..32, mapped pool roots..40.",
+          "Resize callee summary permits failure/partial growth, preserves old count; actual resize is a separate boundary.",
+          "max_heap is bytes, section size and still usage are words; original configured limit is not widened.",
+          "The incoming mapped pool plus still usage already fits any configured nonzero byte limit."
+        ],
+        "contract": "allocation-grant/copy-capacity",
+        "branch": "byte-budget",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "capacity.success-covers-roots-and-copies",
+          "capacity.growth-respects-byte-limit-and-still-custody"
+        ]
+      }
+    },
+    {
+      "id": "capacity-overflow",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/copy-capacity/integer-overflow/harness.c",
+        "function": "capacity_overflow_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/collector.h",
+          "vendor/gambit/lib/_mem/copy-planning.inc",
+          "tests/contracts/allocation-grant/copy-capacity/integer-overflow/harness.c",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "tests/contracts/allocation-grant/support/capacity-environment.h",
+          "vendor/gambit/include/_gambit/object_access.h.in"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "fits.inc",
+            "begin": "static inline int ___gc_copy_plan_fits",
+            "end": "typedef struct ___collector_worker_struct"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/copy-planning.inc",
+            "target": "capacity.inc",
+            "begin": "  if(the_msections==0 || !___gc_copy_plan_fits(n,k,the_msections->nb_sections)) {",
+            "end": "  section=the_msections->head;"
+          }
+        ],
+        "unwind": 24,
+        "scope": "Planner need=n+k machine integer overflow.",
+        "assumptions": [
+          "LP64; roots 1..8, positive copies over the full int range, no max_heap limit.",
+          "Resize is a callee summary, not an asserted successful allocation."
+        ],
+        "contract": "allocation-grant/copy-capacity",
+        "branch": "integer-overflow",
+        "interface": "AllocationGrant",
+        "assertions": []
+      }
+    },
+    {
+      "id": "geometry",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/section-storage/claim-geometry/harness.c",
+        "function": "section_geometry_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/_mem/movable-sections.inc",
+          "vendor/gambit/lib/_mem/section-claim.inc",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "vendor/gambit/include/_gambit/object_access.h.in",
+          "tests/contracts/allocation-grant/section-storage/claim-geometry/harness.c",
+          "tests/contracts/allocation-grant/support/section-storage.h"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/movable-sections.inc",
+            "target": "claim-initialize.inc",
+            "begin": "          *section_claim_at(s,0)=(section_claim){0};",
+            "end": "          s->copy_gate=0;"
+          }
+        ],
+        "unwind": 4,
+        "scope": "Actual native section extent, claim addresses, write footprints and arbitrary payload/bitmap/raw-map preservation under full-size typed storage.",
+        "assumptions": [
+          "LP64, full original section size and actual vendor layout/claim definitions.",
+          "Fresh allocation is typed with its exact physical storage layout; no extent or source store is changed.",
+          "Arbitrary payload/bitmap and raw-map indices range over their complete native arrays."
+        ],
+        "contract": "allocation-grant/section-storage",
+        "branch": "claim-geometry",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "geometry.full-physical-extent",
+          "geometry.native-claim-addresses",
+          "geometry.complete-claim-spans-writable",
+          "geometry.claims-disjoint-and-adjacent",
+          "geometry.actual-claim-initialization",
+          "geometry.claim-stores-preserve-header-payload-bitmap-and-raw-maps"
+        ],
+        "options": [
+          "--drop-unused-functions",
+          "--slice-formula",
+          "--arrays-uf-always"
+        ],
+        "verbosity": 10
+      }
+    },
+    {
+      "id": "no-growth",
+      "capability": "c.cbmc",
+      "dependsOn": [
+        "geometry"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/section-growth/no-growth/harness.c",
+        "function": "no_growth_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/_mem/movable-sections.inc",
+          "vendor/gambit/lib/_mem/section-claim.inc",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "vendor/gambit/include/_gambit/object_access.h.in",
+          "tests/contracts/allocation-grant/support/section-storage.h",
+          "tests/contracts/allocation-grant/section-growth/no-growth/harness.c",
+          "tests/contracts/allocation-grant/support/growth-fixture.h"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/movable-sections.inc",
+            "target": "find-section.inc",
+            "begin": "___HIDDEN int find_msection",
+            "end": "/*\n * 'adjust_msections"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/movable-sections.inc",
+            "target": "resize.inc",
+            "begin": "___HIDDEN void adjust_msections",
+            "end": "/*\n * 'free_msections"
+          }
+        ],
+        "unwind": 4,
+        "scope": "Actual full find_msection/adjust_msections source; complete finite demand partition, target 1, with all allocation failures and full native extents.",
+        "assumptions": [
+          "LP64; actual section layout and claim initialization included.",
+          "Contraction, metadata-capacity growth, parallel callers and OS alignment are separate obligations.",
+          "The source-bound claim-geometry verification is a required discharged premise.",
+          "___ALLOC_MEM_UP is undefined, matching the descending address-index branch selected here.",
+          "The allocator contract supplies up to two fresh disjoint full-size typed sections or nondeterministic failure at either request. It implements no resize/list algorithm.",
+          "Valid one-section caller state, exact demand 1 of the original complete domain {1,2,3}, metadata capacity 7."
+        ],
+        "contract": "allocation-grant/section-growth",
+        "branch": "no-growth",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "resize.full-native-allocation-request",
+          "resize.request-count-within-original-growth-bound",
+          "resize.prepared-grants-are-fresh-and-disjoint",
+          "resize.caller-demand-in-original-domain",
+          "resize.partial-failure-retains-old-count",
+          "resize.every-granted-section-published-once",
+          "resize.retains-old-section-and-payload",
+          "resize.list-endpoints-consistent",
+          "resize.bidirectional-links",
+          "resize.published-count-matches-list",
+          "resize.address-index-position-consistent",
+          "resize.descending-address-index"
+        ],
+        "options": [
+          "--drop-unused-functions",
+          "--slice-formula"
+        ],
+        "requires": [
+          "geometry"
+        ],
+        "verbosity": 10,
+        "solver": "z3"
+      }
+    },
+    {
+      "id": "one-section",
+      "capability": "c.cbmc",
+      "dependsOn": [
+        "geometry"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/section-growth/single-section/harness.c",
+        "function": "one_section_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/_mem/movable-sections.inc",
+          "vendor/gambit/lib/_mem/section-claim.inc",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "vendor/gambit/include/_gambit/object_access.h.in",
+          "tests/contracts/allocation-grant/support/section-storage.h",
+          "tests/contracts/allocation-grant/section-growth/single-section/harness.c",
+          "tests/contracts/allocation-grant/support/growth-fixture.h"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/movable-sections.inc",
+            "target": "find-section.inc",
+            "begin": "___HIDDEN int find_msection",
+            "end": "/*\n * 'adjust_msections"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/movable-sections.inc",
+            "target": "resize.inc",
+            "begin": "___HIDDEN void adjust_msections",
+            "end": "/*\n * 'free_msections"
+          }
+        ],
+        "unwind": 4,
+        "scope": "Actual full find_msection/adjust_msections source; complete finite demand partition, target 2, with all allocation failures and full native extents.",
+        "assumptions": [
+          "LP64; actual section layout and claim initialization included.",
+          "Contraction, metadata-capacity growth, parallel callers and OS alignment are separate obligations.",
+          "The source-bound claim-geometry verification is a required discharged premise.",
+          "___ALLOC_MEM_UP is undefined, matching the descending address-index branch selected here.",
+          "The allocator contract supplies up to two fresh disjoint full-size typed sections or nondeterministic failure at either request. It implements no resize/list algorithm.",
+          "Valid one-section caller state, exact demand 2 of the original complete domain {1,2,3}, metadata capacity 7."
+        ],
+        "contract": "allocation-grant/section-growth",
+        "branch": "single-section",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "resize.full-native-allocation-request",
+          "resize.request-count-within-original-growth-bound",
+          "resize.prepared-grants-are-fresh-and-disjoint",
+          "resize.caller-demand-in-original-domain",
+          "resize.partial-failure-retains-old-count",
+          "resize.every-granted-section-published-once",
+          "resize.retains-old-section-and-payload",
+          "resize.list-endpoints-consistent",
+          "resize.bidirectional-links",
+          "resize.published-count-matches-list",
+          "resize.address-index-position-consistent",
+          "resize.descending-address-index"
+        ],
+        "options": [
+          "--drop-unused-functions",
+          "--slice-formula"
+        ],
+        "requires": [
+          "geometry"
+        ],
+        "verbosity": 10,
+        "solver": "z3"
+      }
+    },
+    {
+      "id": "resize",
+      "capability": "c.cbmc",
+      "dependsOn": [
+        "geometry"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/section-growth/partial-failure/harness.c",
+        "function": "partial_failure_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/_mem/movable-sections.inc",
+          "vendor/gambit/lib/_mem/section-claim.inc",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "vendor/gambit/include/_gambit/object_access.h.in",
+          "tests/contracts/allocation-grant/support/section-storage.h",
+          "tests/contracts/allocation-grant/section-growth/partial-failure/harness.c",
+          "tests/contracts/allocation-grant/support/growth-fixture.h"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/movable-sections.inc",
+            "target": "find-section.inc",
+            "begin": "___HIDDEN int find_msection",
+            "end": "/*\n * 'adjust_msections"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/movable-sections.inc",
+            "target": "resize.inc",
+            "begin": "___HIDDEN void adjust_msections",
+            "end": "/*\n * 'free_msections"
+          }
+        ],
+        "unwind": 4,
+        "scope": "Actual full find_msection/adjust_msections source; complete finite demand partition, target 3, with all allocation failures and full native extents.",
+        "assumptions": [
+          "LP64; actual section layout and claim initialization included.",
+          "Contraction, metadata-capacity growth, parallel callers and OS alignment are separate obligations.",
+          "The source-bound claim-geometry verification is a required discharged premise.",
+          "___ALLOC_MEM_UP is undefined, matching the descending address-index branch selected here.",
+          "The allocator contract supplies up to two fresh disjoint full-size typed sections or nondeterministic failure at either request. It implements no resize/list algorithm.",
+          "Valid one-section caller state, exact demand 3 of the original complete domain {1,2,3}, metadata capacity 7."
+        ],
+        "contract": "allocation-grant/section-growth",
+        "branch": "partial-failure",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "resize.full-native-allocation-request",
+          "resize.request-count-within-original-growth-bound",
+          "resize.prepared-grants-are-fresh-and-disjoint",
+          "resize.caller-demand-in-original-domain",
+          "resize.partial-failure-retains-old-count",
+          "resize.every-granted-section-published-once",
+          "resize.retains-old-section-and-payload",
+          "resize.list-endpoints-consistent",
+          "resize.bidirectional-links",
+          "resize.published-count-matches-list",
+          "resize.address-index-position-consistent",
+          "resize.descending-address-index"
+        ],
+        "options": [
+          "--drop-unused-functions",
+          "--slice-formula"
+        ],
+        "requires": [
+          "geometry"
+        ],
+        "verbosity": 10,
+        "solver": "z3"
+      }
+    },
+    {
+      "id": "refusal",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/plan-refusal/cleanup/harness.c",
+        "function": "refusal_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/collector.h",
+          "vendor/gambit/lib/_mem/copy-planning.inc",
+          "tests/contracts/allocation-grant/plan-refusal/cleanup/harness.c",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "vendor/gambit/include/_gambit/object_access.h.in"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "census.inc",
+            "begin": "enum ___gc_plan_state {",
+            "end": "/* Two sufficient"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/copy-planning.inc",
+            "target": "refusal.inc",
+            "begin": "refuse:\n  work->census=0;",
+            "end": "<EOF>"
+          }
+        ],
+        "unwind": 24,
+        "scope": "Actual shared refusal epilogue cleanup, decision and measured-demand custody.",
+        "assumptions": [
+          "LP64; a live completed census with two queued slots and no unsettled replacement.",
+          "Predecessor branch conditions, census traversal and first-cause persistence are outside this epilogue cut."
+        ],
+        "contract": "allocation-grant/plan-refusal",
+        "branch": "cleanup",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "refusal.publishes-refused-decision",
+          "refusal.detaches-temporary-census-owner",
+          "refusal.retains-owned-storage",
+          "refusal.retains-measured-demand",
+          "refusal.clears-traversal-cursors"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "certificate",
+        "capacity",
+        "capacity-overflow",
+        "geometry",
+        "no-growth",
+        "one-section",
+        "resize",
+        "refusal"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+        "queries": {
+          "missing": "missing_boundary",
+          "repairs": "repair_needed",
+          "verified": "verified",
+          "unresolved": "unresolved",
+          "sources": "bound_source",
+          "assumptions": "assumption"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "repairs",
+          "verified",
+          "unresolved",
+          "sources",
+          "assumptions"
+        ]
+      }
+    }
+  ]
+}

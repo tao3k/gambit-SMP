@@ -1,5 +1,15 @@
 module checkpoint_dependency_recovery {
   import interrupted_producer_recovery as R from "./interrupted_producer_recovery"
+  // Nested D::R names are not a Quint reference. These names are the same instance.
+  action resetProducer = all { R::s' = R::initial(false, false, false, false) }
+  action keepProducer = all { R::s' = R::s }
+  action producerStart = R::start
+  action producerFinish = R::finish
+  action producerCommit = R::commit
+  action producerInterrupt = R::interrupt
+  action producerElapsed = R::elapsed
+  val producer = R::s
+  val producerAdmissible = R::admissible
   // Two dependent checkpoints are protocol actors, not a CPU allocation.
   type Dependency = { present: bool, valid: bool, cycle: bool, bypass: bool }
   var dependency: Dependency

@@ -17,7 +17,7 @@ def check_schedule(saved, root):
             or saved.get("compile", {}).get("timeout") is not False):
         raise ValueError("source-unit compile evidence missing")
     answers, inputs, _ = evaluate(root,
-        "evidence/research/source-schedule-revalidation/observations.json", saved["results"])
+        ".cache/research/legacy-evidence/evidence/research/source-schedule-revalidation/observations.json", saved["results"])
     if any(answers.values()):
         raise ValueError("source schedule observation contract rejected: " +
                          ",".join(name for name, rows in answers.items() if rows))

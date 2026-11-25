@@ -1,0 +1,42 @@
+{
+  "baseRevision": "3d42cc5b8604d184a3e4edbac2a09a93ea88c994",
+  "sourceTree": "8f7fd9879eb31bef88d17b3b1dea05669c474501",
+  "profileSha256": "884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69",
+  "rawSample": {
+    "path": "evidence/research/retained/modern-c/request-product/gerbil-gxi-gc-sample.txt",
+    "sha256": "80f9afbd080048751288c8a9e48308e216cdd5758c3cf6e964168f97a40a96db",
+    "requestedDurationSeconds": 1,
+    "targetPid": 97678,
+    "tool": "/usr/bin/sample",
+    "toolSha256": "ed3ced2ccf4356983defbe1ab715dbf8febee07fd1fb48ecee37a324c2f61bfe",
+    "command": [
+      "sample",
+      "97678",
+      "1",
+      "-file",
+      "gxi-sample.txt"
+    ]
+  },
+  "sourceComparison": {
+    "path": "lib/_mem/copy-planning.inc",
+    "function": "census_claim",
+    "baselineAndCandidateBodyEqual": true,
+    "baselineAndExecutedSdkBodyEqual": true,
+    "bodySha256": "f1de42112c5df39e013c3760b7a38460b4ca67ae27e69aac3fce9ad6dc4727c4",
+    "body": "___HIDDEN int census_claim(___collector_worker *work, ___WORD *source,\n                          ___SIZE_TS span, ___SIZE_TS request, int frame)\n{\n  ___processor_state ___ps=work->carrier;\n  ___gc_census *c=work->census;\n  int i=find_msection(the_msections,source);\n  ___SIZE_TS at,j,half=___MSECTION_SIZE>>1;\n  ___msection *section;\n  ___WORD *bits;\n  if(c->failed) return 0;\n  if(i<0 || i>=the_msections->nb_sections || span<1 || request<1) goto invalid;\n  section=the_msections->sections[i];\n  { ___UWORD address=___CAST(___UWORD,source);\n    ___UWORD base=___CAST(___UWORD,section->base+c->source_offset);\n    if(address<base || address-base>=half*___WS || (address-base)%___WS) goto invalid;\n    at=(address-base)/___WS;\n  }\n  if(span>half-at || request>half-3) goto invalid;\n  bits=section->base+___MSECTION_SIZE;\n  { int shift=2*(at%(___WORD_WIDTH/2));\n    int old=(___CAST(___UWORD,bits[at/(___WORD_WIDTH/2)])>>shift)&3;\n    if(old==(frame?2:3)) return 0;\n    if(old) goto invalid;\n  }\n  /* Full source intervals, not only pointer keys, must be disjoint. This\n   * detects a frame/header inside another object's extent before copying. */\n  for(j=at;j<at+span;j++) {\n    int shift=2*(j%(___WORD_WIDTH/2));\n    if((___CAST(___UWORD,bits[j/(___WORD_WIDTH/2)])>>shift)&3) goto invalid;\n  }\n  for(j=at;j<at+span;j++) {\n    int shift=2*(j%(___WORD_WIDTH/2));\n    bits[j/(___WORD_WIDTH/2)]|=___CAST(___WORD,___CAST(___UWORD,j==at?(frame?2:3):1)<<shift);\n  }\n  if(!census_checked_add(&c->source_words,span) ||\n     !census_checked_add(&c->destination_words,request)) goto invalid;\n  if(request>c->largest_request)c->largest_request=request;\n  if(request>(___MSECTION_SIZE>>1)-___MSECTION_FUDGE-3) ++c->large_count;\n  else {\n    if(!census_checked_add(&c->small_words,request)) goto invalid;\n    if(request>c->small_max)c->small_max=request;\n  }\n  if(frame)++c->frames;else ++c->objects;\n  return 1;\ninvalid:\n  c->failed=1;return 0;\n}\n\n"
+  },
+  "observed": {
+    "physicalFootprintDisplay": "2.6G",
+    "peakPhysicalFootprintDisplay": "2.6G",
+    "hotSymbols": [
+      "scan",
+      "mark_array",
+      "census_claim",
+      "census_enqueue",
+      "___garbage_collect_pstate"
+    ]
+  },
+  "causality": "UNRESOLVED. A one-second diagnostic shows collector work at this point, not a whole-stage GC percentage, proof of nontermination, exact RSS or complete baseline attribution. The shared function body does not prove equal root populations or all surrounding collector behavior. The raw sampling command is observational, not registered process-result acceptance.",
+  "runtimeAdmitted": false,
+  "wholeProduct": false
+}

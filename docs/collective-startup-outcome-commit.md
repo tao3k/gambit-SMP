@@ -7,7 +7,7 @@ zero-byte objects left by a killed compiler. Its single-processor startup
 passed in 0.065 seconds, but host-auto parallel startup timed out at 30.046
 seconds with no output. Neither is full runtime admission. Their portable
 observations and exact runtime identity are under
-`evidence/source-results/fixtures/header-consumer-dependencies/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/header-consumer-dependencies/`.
 
 Source audit found a real gap in the earlier collective-ack abstraction:
 it required a terminal collective round before old members returned, while
@@ -27,7 +27,7 @@ The source-bound exhaustive contract is the authoritative model acceptance gate.
 Both old controls were reproduced with five distinct states each. The fixed
 contract exhausted eight distinct states (ten generated) and passed safety and
 temporal completion. The published receipt is
-`evidence/model-results/fixtures/collective-startup-outcome-commit/publication-round-contract/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/collective-startup-outcome-commit/publication-round-contract/receipt.json`.
 Datalog records one finite `protocol_checked`, two controls, four source
 locations and five open obligations; it does not record native acceptance.
 

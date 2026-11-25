@@ -1,0 +1,330 @@
+--- a/lib/_mem/allocation-limits.inc
++++ b/lib/_mem/allocation-limits.inc
+@@ -54,6 +54,7 @@
+        */
+ 
+       ___msection *prev_stack_msection = stack_msection;
++      ___WORD *prev_alloc_stack_limit = alloc_stack_limit;
+       ___WORD *prev_alloc_stack_start = alloc_stack_start;
+       ___WORD *prev_alloc_stack_ptr = alloc_stack_ptr;
+       ___WORD *prev_stack_break = ___ps->context->stack_break;
+@@ -65,17 +66,11 @@
+        * Get a new stack msection.
+        */
+ 
+-      ___msection *ms = msection_free_list;
+-
+-      if (stack_msection != heap_msection &&
+-          ms != NULL)
+-        {
+-          /* we can reuse an existing one */
+-
+-          msection_free_list = ___CAST(___msection*,ms->base[0]);
+-
+-          set_stack_msection (___ps, ms);
+-        }
++      ___msection *ms = stack_msection != heap_msection
++        ? take_released_stack_section(___ps) : 0;
++
++      if (ms != 0)
++        set_stack_msection (___ps, ms);
+       else
+         {
+           /* we need to allocate a new msection */
+@@ -148,6 +143,7 @@
+        */
+ 
+       ___FP_ADJFP(alloc_stack_ptr,___FIRST_BREAK_FRAME_SPACE)
++      ___FP_SET_STK(alloc_stack_ptr,-___FIRST_BREAK_FRAME_STACK_MSECTION,0)
+ 
+       /*
+        * Because ___stack_limit is only called by the stack-limit
+@@ -217,7 +213,7 @@
+                             ___CAST(___WORD,prev_alloc_stack_ptr))
+               ___ps->context->stack_break = alloc_stack_ptr;
+ 
+-              fp = alloc_stack_ptr;
++              fp = prev_alloc_stack_ptr;
+ 
+               break;
+             }
+@@ -265,6 +261,9 @@
+             }
+         }
+ 
++      section_claim *parked=section_claim_at(prev_stack_msection,tospace_offset);
++      parked->stack_floor=prev_alloc_stack_limit;
++      parked->stack_state=STACK_PARKED;
+       stack_msection_stop_using (___ps, prev_alloc_stack_start, fp);
+     }
+ 
+@@ -285,32 +284,34 @@
+ 
+   ___msection *ms;
+ 
+-  if (stack_msection != heap_msection &&
+-      ___ps->context->stack_start == &___STK(-___FIRST_BREAK_FRAME_SPACE) &&
++  if (___ps->context->stack_start == &___STK(-___FIRST_BREAK_FRAME_SPACE) &&
+       (ms = ___CAST(___msection*,___STK(-___FIRST_BREAK_FRAME_STACK_MSECTION)))
+       != NULL)
+     {
+-      /*
+-       * The current stack msection is not shared with the heap and
+-       * the break frame is at the start of the stack msection and it
+-       * was created due to a stack section overflow, so the stack can
+-       * be moved to the previous stack msection.
+-       */
+-
+-      stack_msection->base[0] = ___CAST(___WORD,msection_free_list);
+-      msection_free_list = stack_msection;
++      ___msection *outgoing=stack_msection;
++      section_claim *active=section_claim_at(outgoing,tospace_offset);
++      section_claim *parked=section_claim_at(ms,tospace_offset);
++      ___WORD *break_frame;
++      ___WORD *next_frame;
++      if(active->heap_used)
++        return ___FAL; /* The logical break-handler copy remains available. */
++      if(active->stack_owner!=___ps || active->stack_state!=STACK_ACTIVE ||
++         parked->stack_owner!=___ps || parked->stack_state!=STACK_PARKED ||
++         !parked->stack_floor)
++        { rc_contract_error("Invalid stack section undo claim"); return ___FAL; }
++      break_frame=___CAST(___WORD*,___STK(-___FIRST_BREAK_FRAME_STACK_BREAK));
++      next_frame=___CAST(___WORD*,___STK(-___BREAK_FRAME_NEXT));
++      ___SET_STK(-___FIRST_BREAK_FRAME_STACK_MSECTION,0)
+ 
+       set_stack_msection (___ps, ms);
+-
+-      ___ps->context->stack_break =
+-        ___CAST(___WORD*,___STK(-___FIRST_BREAK_FRAME_STACK_BREAK));
+-
+-      alloc_stack_ptr =
+-        ___CAST(___WORD*,___STK(-___BREAK_FRAME_NEXT));
+-
++      alloc_stack_limit=parked->stack_floor;
++      parked->stack_floor=0;
++      ___ps->context->stack_break=break_frame;
++      alloc_stack_ptr=next_frame;
+       ___ps->context->stack_start = alloc_stack_start;
+ 
+       stack_msection_resume_using (___ps, alloc_stack_start, alloc_stack_ptr);
++      release_stack_section(___ps,outgoing);
+ 
+       prepare_mem_pstate (___ps);
+ 
+@@ -373,15 +374,12 @@
+      * Get a new heap msection.
+      */
+ 
+-    ___msection *ms = msection_free_list;
+-
+-    if (stack_msection != heap_msection &&
+-        ms != NULL)
++    ___msection *ms = stack_msection != heap_msection
++      ? take_released_stack_section(___ps) : 0;
++
++    if (ms != 0)
+       {
+-        /* we can reuse an existing one */
+-
+-        msection_free_list = ___CAST(___msection*,ms->base[0]);
+-
++        words_prev_msections += alloc_heap_ptr-alloc_heap_start;
+         set_heap_msection (___ps, ms);
+       }
+     else
+@@ -396,7 +394,16 @@
+ #endif
+             compute_free_heap_space_approximately() >= ___MSECTION_SIZE)
+           {
+-            if (alloc_heap_ptr > alloc_heap_limit - ___MSECTION_FUDGE)
++            if (!heap_msection ||
++                !___gc_resume_heap_interval_matches(start_of_tospace(heap_msection),
++                  start_of_tospace(heap_msection)+(___MSECTION_SIZE>>1),
++                  alloc_heap_start,alloc_heap_ptr,alloc_heap_limit))
++              {
++                ALLOC_MEM_UNLOCK();
++                rc_contract_error("Heap limit interval leaves its destination section");
++                return 1;
++              }
++            if (___gc_resume_heap_needs_refill(alloc_heap_ptr,alloc_heap_limit,___MSECTION_FUDGE))
+               next_heap_msection_without_locking (___ps);
+ 
+             ALLOC_MEM_UNLOCK();
+@@ -410,6 +417,16 @@
+       }
+   }
+ 
++  if (!heap_msection ||
++      !___gc_resume_heap_interval_matches(start_of_tospace(heap_msection),
++        start_of_tospace(heap_msection)+(___MSECTION_SIZE>>1),
++        alloc_heap_start,alloc_heap_ptr,alloc_heap_limit) ||
++      !___gc_published_reserve_fits(alloc_heap_ptr,alloc_heap_limit,___MSECTION_FUDGE,6))
++    {
++      rc_contract_error("Heap publication lacks the fudge reserve for a first closure");
++      return 1;
++    }
++
+   prepare_mem_pstate (___ps);
+ 
+   return 0;
+--- a/lib/_mem/collection-round.inc
++++ b/lib/_mem/collection-round.inc
+@@ -308,6 +308,15 @@
+     rc_contract_error("Frozen root union publication refused");
+ 
+   BARRIER(); /* publishes the one RootTask/worker assignment */
++#if defined(___GC_SLOT_TEST_FROZEN) != defined(___GC_SLOT_TEST_REPAIRED)
++#error "GC slot observation requires both test cuts"
++#endif
++#ifdef ___GC_SLOT_TEST_FROZEN
++  /* Only the coordinator can plan from here. The other members stay at
++   * the decision barrier. No forwarding or parity flip has started. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    ___GC_SLOT_TEST_FROZEN(___ps,rc_epoch);
++#endif
+   if(___PROCESSOR_ID(___ps,___vms)==0)
+     ___COLLECTION(___vms).decision=plan_copy_round(___ps);
+   BARRIER(); /* acquire the one decision; no parity changed */
+@@ -349,8 +358,20 @@
+   BARRIER();
+ 
+ 
++#ifdef ___GC_SLOT_TEST_REPAIRED
++  /* The strong and weak scans have drained. Keep every member out of
++   * continuation restoration and reclamation until the observer returns.
++   * The test callbacks may inspect held slots but must not call Scheme,
++   * allocate managed objects or wait for a member at this barrier. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    ___GC_SLOT_TEST_REPAIRED(___ps,rc_epoch);
++  BARRIER();
++#endif
++
+   /* Weak descendants have drained on all W; each physical owner receives
+    * either one exclusive worker tail or its own disjoint empty resume span. */
++  if (!___gc_resume_owner_matches(&___RESUME(___vms,worker_id),___ps))
++    rc_contract_error("Restoration grant no longer belongs to its processor context");
+   if(active_worker) {
+     /* A final large-object section has no execution fudge. A counted fresh
+      * small grant restores that reserve before physical owner handoff. */
+@@ -375,6 +396,12 @@
+       rc_contract_error("Collector tail handoff lacks drained ownership");
+   } else if(!___gc_resume_without_arena(&___RESUME(___vms,worker_id),rc_epoch))
+     rc_contract_error("Context restoration lacks its physical grant");
++  if (!heap_msection ||
++      !___gc_resume_heap_interval_matches(start_of_tospace(heap_msection),
++        start_of_tospace(heap_msection)+(___MSECTION_SIZE>>1),
++        alloc_heap_start,alloc_heap_ptr,alloc_heap_limit))
++    rc_contract_error("Restoration heap interval leaves its destination section");
++  section_claim_at(heap_msection,tospace_offset)->heap_used=1;
+   move_continuation(___PSPNC);
+   ___RESUME(___vms,worker_id).restored=1;
+   BARRIER();
+@@ -388,6 +415,12 @@
+   BARRIER();
+ 
+ 
++  /* Restoration and still/weak cleanup are past their old-space reads.
++   * Mutators stay stopped. Retire source claims before resizing can free a
++   * section or a future round can grant that parity as its destination. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    retire_section_claims(the_msections,(___MSECTION_SIZE>>1)-tospace_offset);
++
+   /* Resize heap */
+ 
+   if (___PROCESSOR_ID(___ps,___vms) == 0)
+@@ -400,8 +433,21 @@
+ 
+   /* Guarantee heap fudge */
+ 
+-  if (alloc_heap_ptr > alloc_heap_limit - ___MSECTION_FUDGE)
++  if (!heap_msection ||
++      !___gc_resume_heap_interval_matches(start_of_tospace(heap_msection),
++        start_of_tospace(heap_msection)+(___MSECTION_SIZE>>1),
++        alloc_heap_start,alloc_heap_ptr,alloc_heap_limit))
++    rc_contract_error("Restoration heap interval changed before refill");
++  if (___gc_resume_heap_needs_refill(alloc_heap_ptr,alloc_heap_limit,___MSECTION_FUDGE))
+     next_heap_msection (___ps);
++  /* Refill must leave the same reserve prepare_mem_pstate subtracts. Six is
++   * the witnessed thread-join closure, not a census of every first write. */
++  if (!heap_msection ||
++      !___gc_resume_heap_interval_matches(start_of_tospace(heap_msection),
++        start_of_tospace(heap_msection)+(___MSECTION_SIZE>>1),
++        alloc_heap_start,alloc_heap_ptr,alloc_heap_limit) ||
++      !___gc_published_reserve_fits(alloc_heap_ptr,alloc_heap_limit,___MSECTION_FUDGE,6))
++    rc_contract_error("Restoration publication lacks the fudge reserve for a first closure");
+ 
+ 
+   /* Keep track of bytes allocated by this processor */
+--- a/lib/collector.h
++++ b/lib/collector.h
+@@ -217,11 +217,59 @@
+  * ownership. Epoch checks are not substitutes for that physical boundary.
+  * Retired copied prefixes and the final interval enter context accounting
+  * exactly once; the RC/still/root domain is never copied or rebound. */
++static inline int ___gc_resume_owner_matches
++ (const ___gc_resume_space *r, ___processor_state processor)
++{
++  return processor != 0 && r->context != 0 && r->owner == processor &&
++         processor->context == r->context;
++}
++
++/* The caller owns the section and supplies its actual destination half.
++ * Integer comparisons avoid relational comparisons of unrelated pointers;
++ * they validate address bounds, not section lifetime or ownership. */
++static inline int ___gc_resume_heap_interval_matches
++ (___WORD *section_base, ___WORD *section_past, ___WORD *start,
++  ___WORD *cursor, ___WORD *limit)
++{
++  ___UWORD base = ___CAST(___UWORD,section_base);
++  ___UWORD past = ___CAST(___UWORD,section_past);
++  ___UWORD first = ___CAST(___UWORD,start);
++  ___UWORD current = ___CAST(___UWORD,cursor);
++  ___UWORD end = ___CAST(___UWORD,limit);
++  return base != 0 && base <= first && first <= current && current <= end &&
++         end <= past && ((base | past | first | current | end) % ___WS) == 0;
++}
++
++/* Requires the aligned, ordered interval above. Compare remaining words
++ * without forming a pointer before the beginning of the destination section. */
++static inline int ___gc_resume_heap_needs_refill
++ (___WORD *cursor, ___WORD *limit, ___SIZE_TS fudge)
++{
++  ___UWORD current = ___CAST(___UWORD,cursor);
++  ___UWORD end = ___CAST(___UWORD,limit);
++  return (end-current)/___WS < ___CAST(___UWORD,fudge);
++}
++
++/* Publication postcondition for a validated interval. Remaining words must
++ * cover the fudge, so a first closure no larger than that fudge fits in the
++ * physical span. This does not observe the generated allocation site. */
++static inline int ___gc_published_reserve_fits
++ (___WORD *cursor, ___WORD *limit, ___SIZE_TS fudge, ___SIZE_TS first_words)
++{
++  ___UWORD current = ___CAST(___UWORD,cursor);
++  ___UWORD end = ___CAST(___UWORD,limit);
++  if (cursor == 0 || limit == 0 || current > end || first_words == 0 ||
++      ___CAST(___UWORD,fudge) < ___CAST(___UWORD,first_words))
++    return 0;
++  return (end - current) / ___WS >= ___CAST(___UWORD,fudge);
++}
++
+ static inline int ___gc_arena_handoff
+  (___gc_worker_arena *a, ___gc_resume_space *r, ___WORD epoch)
+ {
+   ___pstate_mem *m;
+-  if (a->handed_off || a->pending || !a->section || !r->context ||
++  if (a->handed_off || a->pending || !a->section ||
++      !___gc_resume_owner_matches(r,r->owner) ||
+       r->accepted || r->source_worker < 0 || a->epoch != epoch || r->epoch != epoch) return 0;
+   m = &r->owner->mem;
+   m->heap_msection_ = a->section;
+@@ -242,7 +290,8 @@
+  (___gc_resume_space *r, ___WORD epoch)
+ {
+   ___pstate_mem *m;
+-  if (!r->context || r->epoch != epoch || r->accepted || r->loan_used ||
++  if (!___gc_resume_owner_matches(r,r->owner) ||
++      r->epoch != epoch || r->accepted || r->loan_used ||
+       r->source_worker != -1 ||
+       !r->stack_section || r->loan_limit-r->loan_base <= 2) return 0;
+   m = &r->owner->mem;

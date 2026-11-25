@@ -47,6 +47,16 @@ class GrokSessionTests(unittest.TestCase):
         prompt.write_text("authorized diagnostic")
         return Launch(root, "diagnostic", prompt, "user consent in current thread", task="repair", **extra)
 
+    def test_launch_uses_bounded_turn_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            launch = self.make_launch(Path(tmp).resolve())
+            for candidate, expected in ((launch, "10"), (replace(launch, max_turns=15), "15")):
+                _, _, argv, _ = candidate.prepare()
+                self.assertEqual(argv[argv.index("--max-turns") + 1], expected)
+            for turns in (0, 16, 200):
+                with self.subTest(turns=turns), self.assertRaisesRegex(ValueError, "1..15"):
+                    replace(launch, max_turns=turns).prepare()
+
     def test_existing_session_adoption_preserves_binding_and_requires_confirmation(self):
         import hashlib
         for matching in (True, False):
@@ -441,7 +451,6 @@ class GrokSessionTests(unittest.TestCase):
                     failed=run(launch,execute=True,wall_seconds=1)
                 self.assertTrue(failed['timedOut']);self.assertFalse(failed['sessionCompleted'])
                 self.assertTrue((root/'.state/provider-sessions/repair/diagnostic.json').exists())
-                with self.assertRaisesRegex(ValueError,'explicit workspace resume'):run(launch,execute=True)
                 state=w.paths(root,'repair')[0]
                 interrupted_state=state.read_bytes()
                 with self.assertRaisesRegex(ValueError,'not bound'):

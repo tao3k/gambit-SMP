@@ -1,5 +1,5 @@
 require 'json';require 'digest';require 'open3';require 'fileutils'
-b='.cache/tasks/modern-c-frame-contract/cohort/copy-custody-model';e='evidence/research/modern-c-bootstrap';sha=->p{Digest::SHA256.file(p).hexdigest};q=->x{JSON.generate(x)};fact=->name,*xs{"(fact (#{name} #{xs.map{|x|q.call(x)}.join(' ')}))\n"}
+b='.cache/tasks/modern-c-frame-contract/cohort/copy-custody-model';e='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap';sha=->p{Digest::SHA256.file(p).hexdigest};q=->x{JSON.generate(x)};fact=->name,*xs{"(fact (#{name} #{xs.map{|x|q.call(x)}.join(' ')}))\n"}
 m=JSON.parse(File.read(b+'/native-projection.json'));lock=m['sourceLock'];identity=[sha.call(lock),sha.call('evidence/fixtures/gerbil-bazel-build-profile/profile.json')]
 JSON.parse(File.read(lock))['files'].each{|p,h|raise 'source drift '+p unless sha.call('vendor/gambit/'+p)==h['candidateSha256']}
 rules='dev/modeling/ascent/copy-custody.rules.scm';sys='dev/refactoring/modern-c/models/sysml/copy-custody.sysml';qnt='dev/refactoring/modern-c/models/quint/copy_custody.qnt';lean='dev/refactoring/modern-c/models/lean/CopyCustody.lean';formal='.cache/tasks/modern-c-frame-contract/cohort/frame-custody-formal/receipt.json'
@@ -49,7 +49,7 @@ whole=JSON.parse(File.read(run+'/wide-map-host/step-receipt.json'))
 population=JSON.parse(File.read(run+'/wide-map-host/run-executable.process.json'))['environment']['GAMBIT_SMP_EXPECTED_PROCESSORS']
 control='.cache/tasks/modern-c-frame-contract/cohort/frame-custody-controls/receipt.json'
 ctrl=JSON.parse(File.read(control))
-raise 'control identity' unless ctrl['sourceLockSha256']==identity[0]&&ctrl['inputsStable']&&ctrl['multiFixtureSha256']==sha.call('evidence/research/modern-c-bootstrap/scan-ownership-isolation-multi.scm')
+raise 'control identity' unless ctrl['sourceLockSha256']==identity[0]&&ctrl['inputsStable']&&ctrl['multiFixtureSha256']==sha.call('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/scan-ownership-isolation-multi.scm')
 native={}
 native['native-bootstrap']=run+'/bootstrap/step-receipt.json' if boot['fullTwoPassBootstrapEstablished']&&boot['phaseCounts'].values.all?{|n|n==2}
 native['native-whole']=run+'/wide-map-host/step-receipt.json' if whole['outcome']=='PASS'&&population=='11'

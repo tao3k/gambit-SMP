@@ -30,7 +30,7 @@ combined configured binary or current SMP qualification.
 Source links: [configure](../../../vendor/gambit/configure.ac),
 [native driver template](../../../vendor/gambit/bin/gambuild-C.unix.in),
 [Gambit producer](../../../vendor/gambit/gsc/_gsclib.scm),
-[materialized Gerbil driver](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss).
+materialized Gerbil driver (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss`; unavailable in a clean checkout).
 The materialized-tree link depends on the local source checkout.
 
 | Input | SHA-256 |

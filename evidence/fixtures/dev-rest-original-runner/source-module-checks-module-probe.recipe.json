@@ -1,0 +1,87 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-rest-original-runner-source-module-checks-module-probe",
+  "scope": "Isolated actual emitter and configured GCC/C23 checks; no core, bootstrap, Family A or Family 6 admission.",
+  "timeoutPolicy": {
+    "mode": "per-stage",
+    "overheadSeconds": 30
+  },
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/dev-rest-original-runner/source.lock.json",
+    "patches/fixtures/dev-rest-original-runner.patch",
+    "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/native-failures.json",
+    "evidence/dsl/suite-review-rules.ss",
+    "evidence/fixtures/dev-rest-candidate-source/binding.json",
+    "evidence/fixtures/dev-rest-candidate-source/observations.json",
+    "evidence/fixtures/dev-rest-candidate-source/bootstrap-review.json",
+    "evidence/fixtures/dev-rest-candidate-source/bootstrap-review-evidence.json",
+    "evidence/fixtures/dev-rest-original-runner/interpreted-gsi-host.json"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-rest-original-runner/source.lock.json",
+        "buildWorkspace": "gambit-core"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "buildProfile": "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json"
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "check-module",
+      "capability": "gambit.regenerate-module",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "bootstrapHost": "evidence/fixtures/dev-rest-original-runner/interpreted-gsi-host.json",
+        "module": "lib/_module.scm",
+        "syntaxCheck": true
+      }
+    },
+    {
+      "id": "module-check-evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "check-module"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "queries": {
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

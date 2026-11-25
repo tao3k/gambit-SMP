@@ -106,6 +106,171 @@ def case_verdict(binding, process, *, contract_complete):
             "inheritedPatchCredit": False, "aggregateProgress": None}
 
 
+def inspect_preprocessed_macros(source):
+    """Classify recorded end-of-TU macros, never object ABI or run authenticity."""
+    import re
+    if not isinstance(source, bytes):
+        raise ValueError('preprocessed macro bytes required')
+    expected = {'___WORD_WIDTH': '64', '___WS': '8', '___LWS': '3',
+        '___FLONUM_SIZE': '1', '___FLONUM_SELF_TAGGING_TAGS': '0',
+        '__GNUC__': '16', '__STDC_VERSION__': '202311L',
+        '___ALLOC': '___hp+=(n)', '___ALLOC_ALIGN64': '___ALLOC(n)',
+        '___F64BOX': '___MEM_ALLOCATED_FLONUM_ALLOC(x)',
+        '___MEM_ALLOCATED_FLONUM_ALLOC':
+        '(___ALLOC_ALIGN64(1+___FLONUM_SIZE),___hp[-(1+___FLONUM_SIZE)]='
+        '___MAKE_HD_WORDS(___FLONUM_SIZE,___sFLONUM),'
+        '*___CAST(___F64*,___hp-___FLONUM_SIZE)=(val),___GET_FLONUM())'}
+    # Close the observed branch through tag construction and result creation;
+    # a matching outer allocator must not hide a changed inner helper.
+    expected.update({'___GET_FLONUM': '___FLONUM_FROM_END(___hp)',
+        '___FLONUM_FROM_END': '___FLONUM_FROM(ptr,___FLONUM_SIZE)',
+        '___FLONUM_FROM': '___TAG(___CAST(___WORD*,ptr)-(___REFERENCE_TO_BODY+(n)),___tFLONUM)',
+        '___tFLONUM': '___tMEM4', '___tMEM4': '7', '___REFERENCE_TO_BODY': '1',
+        '___WORD': '___S64', '___S64': '___LONGLONG', '___LONGLONG': 'long long',
+        '___CAST': '((type)(val))', '___TAG': '(___CAST(___WORD,ptr)+(tag))',
+        '___F64': 'double', '___sFLONUM': '30',
+        '___MAKE_HD_WORDS': '___MAKE_HD(((words)<<___LWS),subtype,___MOVABLE0)',
+        '___MOVABLE0': '0', '___MAKE_HD': '(((bytes)<<___LF)+((subtype)<<___HTB)+(tag))',
+        '___HTB': '3', '___LF': '(___HTB+___SB)', '___SB': '5',
+        '__SIZEOF_DOUBLE__': '8', '__SIZEOF_LONG_LONG__': '8', '__CHAR_BIT__': '8'})
+    excluded = {'___GAMBIT_DEV_RESTORE_PROBE', '___NAN_BOXING', '___USE_HANDLES', '__clang__'}
+    parameters = {'___ALLOC': 'n', '___ALLOC_ALIGN64': 'n', '___F64BOX': 'x',
+                  '___MEM_ALLOCATED_FLONUM_ALLOC': 'val', '___GET_FLONUM': '',
+                  '___FLONUM_FROM_END': 'ptr', '___FLONUM_FROM': 'ptr,n',
+                  '___CAST': 'type,val', '___TAG': 'ptr,tag',
+                  '___MAKE_HD_WORDS': 'words,subtype', '___MAKE_HD': 'bytes,subtype,tag'}
+    protected = set(expected) | excluded
+    # Preserve operator/identifier boundaries; removing whitespace could turn
+    # the invalid token pair "+ =" into the admitted operator "+=".
+    token = re.compile(r'[A-Za-z0-9_]+|>>=|<<=|->|\+\+|--|<<|>>|<=|>=|==|!=|&&|\|\||\+=|-=|\*=|/=|%=|&=|\|=|\^=|##|[^\s]')
+    definitions, signatures, lines = {}, {}, {}
+    for line in source.decode('utf-8').splitlines():
+        match = re.fullmatch(r'#define ([A-Za-z_]\w*)(?:\(([^)]*)\))?(?:[ \t]+(.*))?', line)
+        if not match or match[1] not in protected:
+            continue
+        name, params, body = match.groups()
+        if name in definitions:
+            raise ValueError('duplicate protected macro context: ' + name)
+        definitions[name] = token.findall(body or '')
+        signatures[name] = params
+        lines[name] = line
+    gaps = sorted(name for name, body in expected.items()
+                  if definitions.get(name) != token.findall(body)
+                  or signatures.get(name) != parameters.get(name))
+    gaps.extend(sorted(name for name in excluded if name in definitions))
+    return dict(macroSourceSha256=hashlib.sha256(source).hexdigest(),
+        selectedDefinitions=lines, standard64MemoryBoxMatched=not gaps,
+        unresolvedMacros=gaps, perBoxWordsUpperBound=2 if not gaps else None,
+        observationPoint='end-of-translation-unit', runtimeAdmitted=False,
+        effectiveRuntimeAbiQualified=False, dependencyClosureQualified=False,
+        boundary='Exact recorded macro graph only; argument effects, per-point stability, physical grant, historical environment equivalence, calling convention and native execution are not proved')
+
+
+def inspect_directive_macro_points(source, procedure, markers):
+    """Replay a restricted GCC -E -fdirectives-only transcript, not C semantics.
+
+    Matching statements must be unique inside the named PH_PROC. Unknown
+    directives and macro-stack pragmas are unsupported, never silently ignored.
+    """
+    import re
+    if not isinstance(source, bytes) or not isinstance(procedure, str):
+        raise ValueError('directive bytes and procedure required')
+    if not markers or len(markers) != len(set(markers)) or any(
+            not isinstance(m, str) or '\n' in m or not re.fullmatch(r'___\w+\(.*\)', m)
+            for m in markers):
+        raise ValueError('unique canonical generated statements required')
+    text = source.decode('utf-8')
+    if '\\\n' in text or '\\\r\n' in text:
+        raise ValueError('unspliced directive transcript unsupported')
+    tokens = re.compile(r'/\*|\*/|//|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
+    definitions, found = {}, {}
+    in_comment = False
+    for number, raw in enumerate(text.splitlines(), 1):
+        # Preserve strings in macro bodies while excluding directives or marker
+        # lookalikes inside comments. GCC has already performed conditional selection.
+        visible, start = [], 0
+        while start < len(raw):
+            if in_comment:
+                end = raw.find('*/', start)
+                if end < 0:
+                    break
+                in_comment = False
+                start = end + 2
+                continue
+            token = tokens.search(raw, start)
+            if token is None:
+                visible.append(raw[start:])
+                break
+            visible.append(raw[start:token.start()])
+            value = token.group()
+            if value == '/*':
+                visible.append(' ')
+                in_comment = True
+            elif value == '//':
+                break
+            else:
+                visible.append(value)
+            start = token.end()
+        line = ''.join(visible).strip()
+        if line.startswith('#'):
+            define = re.fullmatch(r'#define ([A-Za-z_]\w*)(?:\([^)]*\))?(?:[ \t]+.*)?', line)
+            undef = re.fullmatch(r'#undef ([A-Za-z_]\w*)', line)
+            if define:
+                definitions[define[1]] = line
+            elif undef:
+                definitions.pop(undef[1], None)
+            elif not (re.fullmatch(r'#\s*\d+ "[^"\n]*"(?: \d+)*', line)
+                      or re.fullmatch(r'#pragma GCC diagnostic (?:push|pop|ignored "-Wpedantic")', line)):
+                raise ValueError('unsupported directive at line ' + str(number))
+            continue
+        if definitions.get('___PH_PROC') != '#define ___PH_PROC ' + procedure or line not in markers:
+            continue
+        if line in found:
+            raise ValueError('ambiguous generated statement in procedure')
+        state = ('\n'.join(definitions.values()) + '\n').encode()
+        observed = inspect_preprocessed_macros(state)
+        # Retain the exact classified dependency graph, not unrelated SDK macros.
+        graph = ('\n'.join(sorted(observed['selectedDefinitions'].values())) + '\n').encode()
+        found[line] = dict(transcriptLine=number, definitions=graph.decode(),
+                           inspection=inspect_preprocessed_macros(graph))
+    if in_comment or set(found) != set(markers):
+        raise ValueError('incomplete directive transcript or missing generated statement')
+    return dict(transcriptSha256=hashlib.sha256(source).hexdigest(), procedure=procedure,
+                observationPoint='before-selected-unexpanded-statements', points=found,
+                runtimeAdmitted=False, effectiveRuntimeAbiQualified=False,
+                boundary='Restricted directive history and selected macro graph only; no expanded argument effects, physical ownership, complete ABI or native execution proof')
+
+
+def _boxing_groups(body):
+    """Recognize canonical emitted boxing groups; never infer expanded effects."""
+    import re
+    header = re.compile(
+        r'^if\(!___group_demand_enter\(___ps,&___hp,&___fp,(\d+),(\d+),'
+        r'___LBL\((\d+)\),&___demand_attempt\)\)\{___ps->temp1=___LBL\(\3\);'
+        r'___JUMPEXTPRM\(___NOTHING,___ps->handler_stack_limit\);\}$', re.M)
+    store = re.compile(r'___SET_(R\d+|STK)\((?:(-?\d+),)?___F64BOX\((___F64V\d+)\)\)')
+    groups, unsupported = [], 0
+    for match in header.finditer(body):
+        commit = '___group_demand_commit(___ps,___LBL(' + match[3] + '),___demand_attempt);'
+        end = body.find(commit, match.end())
+        text = body[match.end():end] if end >= 0 else ''
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        stores = [store.fullmatch(line) for line in lines]
+        if not lines or not all(stores) or any(
+                (item[1] == 'STK') != (item[2] is not None) for item in stores):
+            unsupported += 1
+            continue
+        groups.append(dict(label=int(match[3]), stackWords=int(match[1]),
+            heapWords=int(match[2]), boxStores=[dict(location=item[1],
+                stackOffset=int(item[2]) if item[2] is not None else None,
+                value=item[3]) for item in stores],
+            sourceFragment=body[match.start():end+len(commit)],
+            bodySha256=hashlib.sha256(text.encode()).hexdigest(),
+            capacityAdmitted=False))
+    return dict(groups=groups, unsupportedCanonicalHeaders=unsupported,
+                boundary='Canonical emitted macro witnesses only; conditional macro allocation, C control flow, effective ABI and physical capacity are not proved')
+
+
 def inspect_generated_c(source, roots):
     """Scan the direct GSC procedure closure for allocation/poll witnesses.
 
@@ -150,7 +315,8 @@ def inspect_generated_c(source, roots):
         witnesses = [line.strip() for line in body.splitlines()
                      if re.search(r'CHECK_(HEAP|STACK)|POLL|F64BOX|ALLOC|MAKE_|HEAP_LIMIT', line)]
         procedures[name] = dict(children=sorted(children), unknownSchemeJumps=unknown,
-            witnesses=witnesses, bodySha256=hashlib.sha256(body.encode()).hexdigest())
+            witnesses=witnesses, bodySha256=hashlib.sha256(body.encode()).hexdigest(),
+            boxingGroups=_boxing_groups(body))
         todo.extend(children)
     return dict(status='generated-opcode-witness-scan-completed',
         generatedSourceSha256=hashlib.sha256(source).hexdigest(), roots=list(roots),

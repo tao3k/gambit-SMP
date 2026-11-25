@@ -1,0 +1,175 @@
+#+TITLE: Bank roots as an explicit source and task
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: VERIFYING READY | PUBLISHED
+#+PROPERTY: header-args :eval never :exports code
+
+* READY Complete bank-source responsibility :rev:gc:ownership:
+:PROPERTIES:
+:CUSTOM_ID: REV-BANK-ROOT-TASK
+:AUTHORITY: GambitBankRootTask
+:SOURCE: models/sysml/bank-root-task.sysml
+:BASE_REVISION: 832d6e51df082bd64abf2166d3bcc40fe4afb50c
+:SOURCE_TREE: 328eadaad97292ebc427cc379b9ae0bdce2c0771
+:STATUS: Scoped source/native review complete; actual admission/publication recorded separately
+:END:
+
+[[file:models/sysml/bank-root-task.sysml][SysML]] declares the actual responsibility, predecessor, needs and proof
+boundaries; [[file:bank-root-task.d2][D2]] is a projection. [[file:vm-root-task-result.org][The VM-object REV]] remains a frozen
+predecessor. This cut selects bank, not continuation-stack ownership.
+
+** Concrete root and writer inventory :source:contract:
+
+| Bank range | Actual source/consumer | Existing writers / exclusion |
+|------------+------------------------+------------------------------|
+| =source->r= | =mark_registers=, length =sizeof(r)/sizeof(*r)= | Generated GVM register macros, lowlevel backend/context consumers, setup initialization |
+| =source->saved= | =mark_saved=, length =sizeof(saved)/sizeof(*saved)= | =GC_SAVE1/2/3= helpers in gambit.h, existing conversion/runtime call protection |
+| =source->type_cache= | =mark_type_cache=, length =sizeof(type_cache)/sizeof(*type_cache)= | _io.scm character input/output type-cache stores and setup initialization |
+| Processor Scheme body | =mark_processor_scmobj=, =PROCESSOR_SIZE= words | setup processor-object construction, _thread#.scm processor representation, scheduler queues/high-level interrupts |
+| =pc,fp,hp,stack_limit,start,break= | Not scanned as bank payload | Existing call/stack/allocator/restoration contracts; continuation scan stays separate |
+
+The first three visitor bodies move from =capacity-resize.inc= to
+=root-origins.inc= byte-for-byte, preserving their original logical diagnostic
+coordinate and names. Capacity logic is unchanged. The fourth visitor already
+lives there. The new bank scanner invokes all four in the old order. The
+strong-phase caller still scans continuation first; then one claimed bank task
+replaces its four direct calls. No entire-structure or padding scan is allowed.
+
+=setup_pstate= binds =context= to the matching =vm.execution_contexts[id]=
+before helper use. =root_bank_executor= requires current PSTATE, a live active
+population index, the same bound context and that exact VM slot before source
+payload access. This preserves the present synchronous binding. It does not
+admit context migration or arbitrary native pointers.
+
+Existing safepoints and the actual GC setup barriers precede the bank view.
+The listed admitted writers are stopped under that existing collective.
+Reflective/raw/cross-VM native writes and unknown stopped-roster outcomes are
+not made safe by a task tag. Publication does not independently detect that
+all writers stopped; invoking the private API earlier violates its precondition.
+
+** Task, lifetime and conditional refinement :proof:boundary:
+
+1. A fresh unexposed C record is initialized with the admitted nonzero RC round
+   epoch minus1. Shared confined publication installs the BANK origin and one
+   lease; its returned epoch must equal that actual GC epoch.
+2. Shared claim checks kind/executor/key/state. Source-specific admission also
+   checks active VM-slot identity. Only the same current participant scans it.
+3. The actual scanner reads/updates the four disjoint root ranges, with the
+   existing visitor bodies. Only normal return sets SCANNED; shared finish
+   releases once, and known duplicate completion is idempotent.
+4. DONE ends the scanner's native borrow, not the source context's lifetime,
+   captured-frame ownership or the enclosing round. Existing storage/roster
+   holds continue through descendant/weak/copy/cleanup work and restoration.
+
+The task is never queued or exported from its C invocation. Init is only a
+constructor for fresh storage, not recovery of unknown scanning. A stale raw
+pointer needs lifetime protection before metadata can be read. Unknown worker
+death, join isolation and source migration are separate obligations.
+
+Counterexamples: flattening the entire context scans code/stack/heap pointers;
+capturing bank values into an unupdated copy loses relocation; reusing another
+context's bank violates source ownership; treating bank DONE as stack/round
+completion loses pending descendants; deduplicating roots by shared object
+identity drops a second cell holding the same multi-shot continuation. None
+is an admitted interpretation of this cut.
+
+** Existing formal duties :sysml:ascent:
+
+| Authority | Duty here | Limit |
+|-----------+-----------+-------|
+| Existing =root_dispatch= QNT | Temporal publication/claim/entry/finish/stale/unknown/qualified-drain schedules | Native SCANNED is an internal cut; selected projection, not whole C proof |
+| Existing Lean =RuntimeRoles= | Conditional cell census/partition/faithful adapter/current-address laws | Bank cells are =(VM slot,BANK,range,index)=, not pointed-to object identity |
+| Source refinement | Original visitor bodies and order, exact current slot and ranges, caller after real barriers | Existing collective/writer/lifetime premises remain explicit |
+| Native Scheme PBT | Implementation request/observation agreement and real replay/shrink | Not exhaustive concurrent schedules or a duplicate formal protocol |
+
+At p2 the current implementation has RC2 + BANK2 + VM1 tasks. The unchanged
+two-origin QNT model checks a selected projection, not that entire census.
+Its qualified round seal must not come from the projected task counts. The
+outer context/VM hold supplies the lifetime premise after native lease0.
+No new QNT/Lean file or duplicate temporal proof is needed.
+
+SysML drives the five shared ASCENT needs with exact source, profile, artifact,
+checklist and audit identities. LLM review is ambient source review, not proof.
+Earlier frozen model/audit inputs remain unchanged.
+
+** Real native replay and moving payload :pbt:
+
+Extend the existing =tests/root-task.scm= generator, observable oracle, child
+replay and deletion shrinker to BANK. The same executable is reused for an
+additional p2 bank payload run through the existing Make target. No new SCM,
+Python test, scheduler harness, configuration layer or executor is added.
+
+For an immediate-only bank trace, the fresh p1 child first snapshots all C
+arguments, then sets only the four bank ranges to FAL. Its fp/hp/pc are not
+touched. It invokes the real task/scanner functions and exits without Scheme
+allocation, callback or return. VM/BANK observation phase means published
+origin, not a synthetic stopped-writers certificate. Destruction of this child
+is test isolation, not an unknown-owner recovery protocol.
+
+Separate real p2 checks pin the producer to processor0 and1 in turn, store a
+fresh pair/vector in documented processor unused-field15, request ordinary GC
+and verify that the actual root cell is updated and contents survive. Only
+fixture-owned storage is cleared by dynamic-wind. Other bank ranges are
+covered by the unchanged visitors and existing bootstrap/frame/map/GSI consumers;
+one payload control is not a universal arbitrary-cell proof.
+
+Per family, an explicitly labeled stale-finish invocation mutation must shrink
+24 noisy actions to the four causal actions and replay the same failure with
+SCANNED/lease1 retained. This is deletion1-minimal, not globally minimal or a
+discovered production defect. Source/executor/key rejections are observable.
+
+** Benefit and added cost :matrix:
+
+| Mechanism | Concrete benefit | Added work / boundary |
+|-----------+------------------+-----------------------|
+| Bank origin/task | One explicit source/scan obligation replaces four unclaimed calls | Current participant/VM binding only; no W!=R |
+| Root-module ownership | Three unchanged visitors leave capacity module | Source movement only; no capacity-policy change |
+| Shared confined init/publish | VM and bank reuse one fresh publication rule | Private init renamed to reflect shared responsibility; no old alias |
+| Existing shared claim/finish | No third task state machine | Source-specific exclusion/admission remains necessary |
+| In-place disjoint visitation | Preserve relocation updates and shared multi-shot values | Original root visit work remains; no speedup claim |
+| Existing native PBT/executable | Bank gains real replay/shrink and p2 cell relocation | Extra generated actions/process launches and one p2 execution |
+
+** Native closure and cost matrix :evidence:matrix:
+
+[[file:../../../evidence/research/retained/modern-c/bank-root-task/receipt.json][Repository evidence]] binds the exact source/producer/compiler/profile,
+visitor relocation and native consumers. Portable replay data are available
+for [[file:../../../tests/fixtures/bank-root-task/bank-minimal.scm][BANK]], [[file:../../../tests/fixtures/bank-root-task/vm-minimal.scm][VM]] and [[file:../../../tests/fixtures/bank-root-task/rc-minimal.scm][RC]]. The existing Make target compiles once and
+runs both p1 replay/shrink and p2 moving-cell checks. A standalone negative
+=--replay TRACE= expects exit71 and the stale-finish mismatch, not exit0.
+
+| Required scope | Actual result | Boundary |
+|----------------+---------------+----------|
+| Exact producer | Tree328eadaa, two phase1--4 passes210.399s; stock core36.323s | Same SDK/profile;600s outer/575s internal limit; no timing-based speedup claim |
+| Existing roles/frame/map/exit | PASS0.676/6.075/0.660s; all290 assertions retained | Existing multi-shot/18-frame/36-wide-slot consumers; no new stack/restoration protocol |
+| Existing p2 RC | Six origin/seed cases,1440 draws/720 legal actions; PASS2.839s | Borrow/refusal/retirement/byte ownership retained |
+| Shared native PBT | Three families each24 cases/864 actions;2592 total | Same oracle/replay/shrinker and fixture;168 fresh child trials |
+| Shrink/replay | Each24 ->4, same failure replayed, deletion1-minimal | Labeled stale-finish invocation mutation, not a discovered runtime bug or schedule exhaustion |
+| Bank moving source cells | p2 pinned owners0 and1 PASS; pair/vector moves and survives ordinary GC | Specific processor-bank cell, not arbitrary-cell completeness |
+| Combined root-task target | PASS23.504s, one compilation/two actual parent executions | Includes all families and bank topology; no new executor |
+| Lossless source move | Three visitor bodies byte-exact; remaining capacity bytes identical; logical line4689 preserved | No capacity-policy change; four visitor order/names retained |
+| Actual bank ranges | Registers5 + saved3 + cache2 + processor22 =32 | Derived from configured arrays/macros; excludes pc/fp/hp/padding |
+| Metadata | Origin16,task48,domain192; header48/carrier896/VM78504 unchanged | Persistent structural delta0; bank local record48+epoch8 source-level bytes; optimized stack/peak unmeasured |
+| Runtime work | Same32 root-cell visits; no extra mutex or GC-time task allocation | Added publication/validation/control calls not benchmarked |
+| Original GSI |408/408 in62.465s, first complete sample | Prior intermittent inactive-thread evidence remains historical; not full SMP/release admission |
+| Original whole check | Test1--7 complete, test8 FAIL17.961s | setup_mem_pstate6/6 sections,1/12 members,max_heap0; capacity logic unchanged |
+| Later official tests |9/10/12/entry/inline PASS6.612s | Independent completion, not full check/GSC/stress/Gerbil credit |
+| Existing models/tools |10 QNT runs and10000 samples/64 steps PASS; native SysML/D2 PASS | Selected finite projection; unchanged Lean duties/bytes, no new model |
+
+Bank record lifetime
+is confined; no persistent registry/table/queue is added. Public layout,
+official names/entrypoints, existing profile/heap/waits and Scheme producers
+remain unchanged. Stack/global/symbol tasks and complete SMP remain separate.
+
+** Submission checklist :ascent:
+
+- [X] Exact producer and required current native consumers; original failures
+  retained and disposed separately, not relabeled green.
+- [X] Three actual native replay/shrink families and p2 bank relocation owners0/1.
+- [X] Byte-exact visitor relocation, source/range/lifetime and cost review.
+- [X] Native SysML validates; existing QNT checks and distinct unchanged Lean
+  duties recorded; final source-bound needs reproject through shared ASCENT.
+- [X] Nine-field audit prepared for the bounded cut; actual commit requires
+  five ASCENT gates and21 rejection controls. A separate publication record
+  reports whether the requirement actually passed.
+
+The three selected portable replay inputs are Scheme datum fixtures under =tests/fixtures/bank-root-task/=. Their bytes are unchanged; the consumer uses =call-with-input-file ... read= and does not depend on a filename extension. Relocation does not rerun or upgrade the retained native observations.

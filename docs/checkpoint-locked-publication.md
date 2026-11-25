@@ -8,7 +8,7 @@ host-derived independent-VM topology fixture in 1.262543 execution seconds;
 all four build checkpoints are reused. The strengthened multi-writer model
 checks explicit replay lease lifetime, including a missing-drain counterexample,
 without another runtime patch, native retry or bootstrap. The
-[registry qualification](../evidence/research/processor-interrupt-collective-wait/registry-lifetime-native-observation.md)
+registry qualification (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/registry-lifetime-native-observation.md`; unavailable in a clean checkout)
 records the exact receipts, source/model correspondence and limits. Lifecycle
 faults, complete GC/FFI, Gerbil correctness and release performance remain open.
 
@@ -18,7 +18,7 @@ were reused without execution; no bootstrap was repeated. Cumulative milestone
 completion reached **7/12** at that earlier stage, not whole current-source SMP qualification. The remaining
 gates and current-source requalification boundary are in the
 [milestone](smp-threaded-vm-milestone.md). The
-[native observation](../evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md)
+native observation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md`; unavailable in a clean checkout)
 binds source, binary, observer and receipts. Older DENY records below remain
 historical; their human-report observation contract is not silently upgraded.
 The installed ASCENT lock remains `e119827e588ea7b6d8a3195ac8e0ee8f61de6c11`.
@@ -105,7 +105,7 @@ The observed GC transport interleaved reports; 456 malformed reports were
 rejected and 3,711 complete reports accepted before observations stopped.
 This is not proof of TFIB deadlock. The remaining target-child progress premise
 is open, not hidden behind the framework PASS. See the retained
-[native result](../evidence/research/processor-interrupt-collective-wait/host-capacity-child-progress-result.md).
+native result (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/host-capacity-child-progress-result.md`; unavailable in a clean checkout).
 
 ASCENT's exact published revision completed all required remote checks,
 including formal, Scheme semantics/performance and rust-pyo3; the optional

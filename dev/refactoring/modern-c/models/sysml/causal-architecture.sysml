@@ -2,7 +2,7 @@
  * Strings describe conditional arguments; validation does not prove C behavior. */
 package GambitCausalArchitecture {
   private import ScalarValues::*;
-  attribute sourceLock:String="evidence/research/modern-c-bootstrap/request-custody-source.lock.json";
+  attribute sourceLock:String=".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json";
   attribute gateLedger:String="docs/smp-twelve-gate-research-map.md";
   attribute controlReferences:String="Chez: vendor/chez/c/schsig.c and c/alloc.c; Bruggeman/Waddell/Dybvig PLDI 1996; Guile official prompt, continuation and VM instruction manuals; OCaml papers only for selected coordination mechanisms";
   attribute controlSelection:String="Gambit full multi-shot is the semantic baseline; study Chez mixed one-shot/multi-shot stack representation and Guile delimited composition and foreign barriers; do not import OCaml one-shot, Guile thread confinement or a foreign GC policy as Gambit semantics";

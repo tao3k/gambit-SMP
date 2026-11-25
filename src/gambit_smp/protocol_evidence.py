@@ -9,7 +9,7 @@ from gambit_smp.framework import ROOT, digest
 from gambit_smp.output_observations import recorded, check_model, binding, observe, TRANSCRIPT_SUFFIXES
 
 MANIFEST = "evidence/protocol-extensions.json"
-RECEIPT = "evidence/model-results/protocol-extensions/receipt.json"
+RECEIPT = ".cache/research/legacy-evidence/evidence/model-results/protocol-extensions/receipt.json"
 BUNDLE_REGISTRY = "evidence/protocol-bundles.json"
 
 

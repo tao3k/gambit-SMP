@@ -18,7 +18,7 @@ def ir(actions):
 
 class InductionMatrixTests(unittest.TestCase):
     def test_source_wait_archived_ir_keeps_all_twenty_two_branches(self):
-        directory = matrix.ROOT / "evidence/model-results/gc-source-wait-new-action-induction"
+        directory = matrix.ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-source-wait-new-action-induction"
         parsed = json.loads((directory / "protocol-ir.json").read_text())
         members = matrix.action_members(parsed, "gc_recursive_wait_recheck", "sourceWaitStep")
         self.assertEqual(22, len(members))
@@ -56,7 +56,7 @@ class InductionMatrixTests(unittest.TestCase):
                     self.assertFalse(saved["runtimeAdmitted"])
 
     def test_reused_safety_requires_real_logs_and_matching_source(self):
-        source = matrix.ROOT / "evidence/model-results/gc-induction-cartesian-contract-ir"
+        source = matrix.ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-induction-cartesian-contract-ir"
         names = ["models/gambit/gc_recursive_queue_wait.qnt",
                  "models/gambit/gc_recursive_queue_induction.qnt"]
         with tempfile.TemporaryDirectory() as directory:

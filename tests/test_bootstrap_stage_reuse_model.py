@@ -9,8 +9,8 @@ from gambit_smp.protocol_evidence import bundle_facts
 from gambit_smp.framework import digest
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = "evidence/research/continuation-retained-seed-bootstrap/stage-reuse-contract.json"
-RECEIPT = "evidence/model-results/research/bootstrap-stage-reuse/checked/receipt.json"
+MANIFEST = ".cache/research/legacy-evidence/evidence/research/continuation-retained-seed-bootstrap/stage-reuse-contract.json"
+RECEIPT = ".cache/research/legacy-evidence/evidence/model-results/research/bootstrap-stage-reuse/checked/receipt.json"
 
 
 class BootstrapStageReuseModelTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class BootstrapStageReuseModelTests(unittest.TestCase):
         self.assertFalse(archive["runtimeAdmitted"])
 
     def test_charged_consumption_composes_actual_budget_model(self):
-        manifest_name = "evidence/research/continuation-retained-seed-bootstrap/charged-consumption-contract.json"
+        manifest_name = ".cache/research/legacy-evidence/evidence/research/continuation-retained-seed-bootstrap/charged-consumption-contract.json"
         receipt_name = "tests/fixtures/bootstrap-stage-reuse/charged-consumption/receipt.json"
         manifest = json.loads((ROOT / manifest_name).read_text())
         receipt = json.loads((ROOT / receipt_name).read_text())

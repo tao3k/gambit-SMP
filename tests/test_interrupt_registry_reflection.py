@@ -9,9 +9,9 @@ from gambit_smp.registry_history import validate as validate_history
 
 class InterruptRegistryReflectionTests(unittest.TestCase):
     def test_historical_registry_identity_is_not_replaced_by_current_hash(self):
-        parent = ROOT / "evidence/source-results/fixtures/abandoned-result-state/registry-parent.json"
+        parent = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/registry-parent.json"
         self.assertEqual(digest(parent), "eac411bf5c033abd4f4554dc4e6c81eeda6d4082581479e637255526446a35d2")
-        predecessor = ROOT / "evidence/source-results/fixtures/thread-completion-contract/registry-before-interrupt-lifetime.json"
+        predecessor = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/registry-before-interrupt-lifetime.json"
         predecessor_sha = "4582a11c426cd420e982e13df285cfa2ab1c202541c122e88e3904bd3f7d3254"
         self.assertEqual(digest(predecessor), predecessor_sha)
         history_path = "evidence/fixtures/thread-completion-contract/registry-history.json"
@@ -27,7 +27,7 @@ class InterruptRegistryReflectionTests(unittest.TestCase):
         for name in ("sealed-runtime-review-handoff", "interrupt-delivery-gc-roots",
                      "interrupt-callback-gc-exit", "interrupt-requester-cancel"):
             self.assertIn([f"evidence/research/{name}/registry-contract.json",
-                           f"evidence/model-results/research/{name}/receipt.json"], additions)
+                           f".cache/research/legacy-evidence/evidence/model-results/research/{name}/receipt.json"], additions)
         audit = json.loads((ROOT / "evidence/research-audit.json").read_text())
         for issue in audit["issues"]:
             if "reflection" in issue:

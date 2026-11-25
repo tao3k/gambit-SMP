@@ -8,7 +8,7 @@ from gambit_smp.output_observations import recorded
 from tests.support import published_digest
 
 
-BASE = ROOT / "evidence/source-results/fixtures/sfun-owned-unwind"
+BASE = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind"
 
 
 class NumericPhaseEvidenceTests(unittest.TestCase):

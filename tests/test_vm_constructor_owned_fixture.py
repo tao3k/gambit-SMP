@@ -9,7 +9,7 @@ class VMOwnedFixtureTests(unittest.TestCase):
     def test_private_memory_model_has_checked_split_prefix_and_private_success(self):
         base = "evidence/fixtures/vm-constructor-owned-rollback/"
         manifest = json.loads((ROOT / (base + "private-memory-contract.json")).read_text())
-        name = "evidence/model-results/fixtures/vm-constructor-owned-rollback/private-memory-contract/receipt.json"
+        name = ".cache/research/legacy-evidence/evidence/model-results/fixtures/vm-constructor-owned-rollback/private-memory-contract/receipt.json"
         rows = evidence.checked_rows(ROOT, manifest, ROOT / name)[0][1]
         self.assertEqual(7, len(rows))
         positive = next(row for row in rows if row["variant"] == "fixed")
@@ -21,7 +21,7 @@ class VMOwnedFixtureTests(unittest.TestCase):
         self.assertEqual(13, len(lock["files"]))
 
     def test_native_observation_is_a_summary_not_runtime_admission(self):
-        path = ROOT / "evidence/source-results/fixtures/vm-constructor-owned-rollback/observation.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/vm-constructor-owned-rollback/observation.json"
         saved = json.loads(path.read_text())
         for flag in ("runtimeAdmitted", "releaseAdmitted", "nativeGcPassed"):
             self.assertIs(saved[flag], False)
@@ -41,7 +41,7 @@ class VMOwnedFixtureTests(unittest.TestCase):
         self.assertEqual("PASS", negative["outcome"])
 
     def test_actual_memory_bodies_have_complete_failure_and_backend_matrix(self):
-        path = ROOT / "evidence/source-results/fixtures/vm-constructor-owned-rollback/observation.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/vm-constructor-owned-rollback/observation.json"
         saved = json.loads(path.read_text())
         run = saved["runs"]["memory-callee"]
         self.assertEqual("PASS", run["outcome"])

@@ -18,7 +18,7 @@ those obligations.
 
 Source authority remains Gambit baseline
 `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882` plus the
-[source lock](../../evidence/research/processor-interrupt-collective-wait/source.lock.json)
+source lock (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout)
 and cumulative patch. Gambit line references below are to that overlay. Chez
 and OCaml retain their pinned vendor revisions. This census covers definitions,
 callers and field accesses in the reviewed C backend's `lib/`, private/public

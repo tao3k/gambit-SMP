@@ -8,7 +8,7 @@ from gambit_smp.protocol_evidence import bundle_facts
 
 
 MANIFEST = "evidence/fixtures/fdset-abort-owned-rollback/progress-contract.json"
-RECEIPT = "evidence/model-results/fixtures/fdset-abort-owned-rollback/progress/receipt.json"
+RECEIPT = ".cache/research/legacy-evidence/evidence/model-results/fixtures/fdset-abort-owned-rollback/progress/receipt.json"
 
 
 class FDSetProgressRegistrationTests(unittest.TestCase):
@@ -41,7 +41,7 @@ class FDSetProgressRegistrationTests(unittest.TestCase):
     def test_progress_does_not_admit_the_separately_registered_base(self):
         rows, _ = bundle_facts(ROOT,
             "evidence/fixtures/fdset-abort-owned-rollback/protocol-contract.json",
-            "evidence/model-results/fixtures/fdset-abort-owned-rollback/protocol-qualification/receipt.json")
+            ".cache/research/legacy-evidence/evidence/model-results/fixtures/fdset-abort-owned-rollback/protocol-qualification/receipt.json")
         self.assertIn("fdset_abort_setup_ownership", [row[0] for row in rows["protocol_model"]])
         self.assertEqual(rows["protocol_checked"], [])
         progress, _ = bundle_facts(ROOT, MANIFEST, RECEIPT)

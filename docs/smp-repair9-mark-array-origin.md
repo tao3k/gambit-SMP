@@ -15,7 +15,7 @@ Existing debug fields are already **per pstate**, not a shared global: `referenc
 
 ## Complete entry map and the exact fields to stamp
 
-The [machine-readable entry map](../evidence/research/smp-retirement-study/mark-array-entry-map.json) retains each direct call's text, line, function/category and source hash. The grouped correspondence is:
+The machine-readable entry map (local execution locator: `../.cache/research/legacy-evidence/evidence/research/smp-retirement-study/mark-array-entry-map.json`; unavailable in a clean checkout) retains each direct call's text, line, function/category and source hash. The grouped correspondence is:
 
 | Entry / bound line | Selected cells and required provenance | Earliest useful capture |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ The scalar skip in `scan` at 4188–4189 is already present. Direct intact F64 d
 
 ## First-invalid-scan record: fields, sources and unavailable values
 
-The proposed helpers below are names for the design, **not implemented functions**. The [diagnostic plan data](../evidence/research/smp-retirement-study/first-invalid-scan-plan.json) maps fields to capture sites and separates existing fields from proposed metadata.
+The proposed helpers below are names for the design, **not implemented functions**. The diagnostic plan data (local execution locator: `../.cache/research/legacy-evidence/evidence/research/smp-retirement-study/first-invalid-scan-plan.json`; unavailable in a clean checkout) maps fields to capture sites and separates existing fields from proposed metadata.
 
 | Record group | Required fields / actual source | Why required |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ The [observation-protocol QNT](../models/gambit/tfib_scan_origin.qnt) and [named
 
 The classifier reads captured context, not a hidden scenario label. The **same invalid word class** can yield F64 selection, frame-path failure, root contamination, an extent failure, a matched prior-write witness or a heap-field origin with writer unresolved. Frame category is not a compiler-bug verdict. A complete-looking record cannot create a missing allocation-generation, overlap or order witness.
 
-Final validation: **29 accepted checks** under the unchanged 30-second combined cap per check, 12 TLC workers, 1 GiB heap and 8 MiB stack: typecheck; three positive safety/conditional-terminal scenarios (all thirteen fault contexts, normal two-epoch execution, and unavailable-carrier failure retention); **18 decoded negative controls**; seven explicitly selected TypeScript trajectories. The complete all-context positive has **180 distinct states**; normal and unavailable-carrier positives each have 14. Retention/diagnostic completion is not native success. [Validation receipts and source correspondence](../evidence/research/smp-retirement-study/tfib-scan-origin-validation.json) preserve all model hashes, checker results and counterexamples.
+Final validation: **29 accepted checks** under the unchanged 30-second combined cap per check, 12 TLC workers, 1 GiB heap and 8 MiB stack: typecheck; three positive safety/conditional-terminal scenarios (all thirteen fault contexts, normal two-epoch execution, and unavailable-carrier failure retention); **18 decoded negative controls**; seven explicitly selected TypeScript trajectories. The complete all-context positive has **180 distinct states**; normal and unavailable-carrier positives each have 14. Retention/diagnostic completion is not native success. Validation receipts and source correspondence (local execution locator: `../.cache/research/legacy-evidence/evidence/research/smp-retirement-study/tfib-scan-origin-validation.json`; unavailable in a clean checkout) preserve all model hashes, checker results and counterexamples.
 
 Controls reject lost tail ancestry, stale pair context, missing frame fields, late header records, mixed worker identity, torn records, unsafe pretty-printing, invented writers, range-as-generation, overwritten fault records, lost private-only records, stale epochs, skip-and-continue, missing pre-cell records, word-only attribution, same-address old writers, disjoint writes and unordered writes. The initial model's positive correctly failed because a prior-epoch accepted report was incorrectly left current after epoch transition; it was fixed by retaining the old record while clearing current admission. That failed attempt and the successful narrower 25-check model remain separate historical receipts.
 

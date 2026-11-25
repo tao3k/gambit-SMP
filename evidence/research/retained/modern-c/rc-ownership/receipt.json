@@ -1,0 +1,568 @@
+{
+  "complete": true,
+  "scope": "RC source-domain ownership after successful construction, with admitted cooperative owners, completed normal native operations and tested registration/retirement refusals",
+  "baseRevision": "43db0e3fc8eb139e28409cad18c6824095512140",
+  "sourceTree": "b593b6586009c5c1b65b6456cab70a64610cb817",
+  "changedSources": {
+    "include/gambit.h.in": "d76ea2a81c27f969927ec94086ac49bde6ef8e7786ec867a84270c6bc788df4f",
+    "lib/_mem/collection-round.inc": "012cc45933a3a5468809f3ddf2dc7b1683c86a74fa21dfc984bfe26d3f1f71d7",
+    "lib/_mem/configuration.inc": "ae01916c8f5948e64d8905e782f0253957276f3ead91fe1917e7d2c6a512bd25",
+    "lib/_mem/memory-lifecycle.inc": "cc8730a049a4b60cd92d7f10a1b9ae3be158be7f09f40755ea282cfe7559d458",
+    "lib/_mem/rc-allocation.inc": "a5c9ee7e2d243955506ac927b731f41827c551fad40aca98535b9f44f5b21b92",
+    "lib/_mem/rc-roots.inc": "dfefc1ad7c750b57cfbb3b07638666c0c8501b627e5c4848ed9fc9df696a11e0",
+    "lib/makefile.in": "7e87315d63409f9ce2d0b8fa49cc81eea752e3d60d3c2c1d222fe98992da7c6a",
+    "lib/mem.c": "bd563545af4fa1fb7d38bbd6154a81e74ae7cb1fc03452eafb9d7935a4609f8e",
+    "lib/rc.h": "882772e80d93f6cc5cd6327f3801b8f50310f2059454116482bd4d1df6c01269",
+    "lib/setup.c": "7b45629b399c153d57223b8aac46202260465abf299ebcadba2d00f8bffe61b1",
+    "tests/makefile.in": "4b68ab3015caf330ed21d572fc7559b478ab01ddd4de5ea9a2ceac2d8b3456a7",
+    "tests/rc-root-origin.scm": "d1cdd9349ac63bb58ba3803302b67b05f956b4c8aabb4d4144329b1eccecce95"
+  },
+  "profileSha256": "884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69",
+  "profileInput": {
+    "schema": "gerbil-bazel-build-profile.v1",
+    "platform": "Darwin",
+    "sourcePath": "tools/ci/build_source_toolchain.sh",
+    "sourceSha256": "14f9adabe21a3eb490bdedb4418a68958df2960bf4e045f78a66babffc56a0cc",
+    "sourceRevision": "1fbe651e0e7c28a460b09ccd974c3798b9408c48",
+    "sourceWorktreeModified": true,
+    "sourceText": "#!/usr/bin/env bash\nset -euo pipefail\n\nroot=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/../..\" && pwd)\"\n: \"${GERBIL_SOURCE_REVISION:?exact Gerbil revision required}\"\n: \"${GAMBIT_SOURCE_REVISION:?exact Gambit gitlink required}\"\n: \"${GERBIL_SOURCE_DIRECTORY:?isolated source directory required}\"\n: \"${GERBIL_PREFIX:?isolated install prefix required}\"\n[[ \"$GERBIL_SOURCE_REVISION\" =~ ^[0-9a-f]{40}$ ]]\n[[ \"$GAMBIT_SOURCE_REVISION\" =~ ^[0-9a-f]{40}$ ]]\nsource_dir=\"$GERBIL_SOURCE_DIRECTORY\"\nplatform=\"$(uname -s)\"\ngerbil_patches=(patches/gerbil-v19-bio-integer-growth-upstream.patch)\ngambit_patches=(\n  patches/gambit-v19-multiple-vms-global-capacity.patch\n  patches/gambit-v19-multiple-vms-global-setup-state.patch\n)\nmultiple_vms=true\nif [[ \"$platform\" == Darwin ]]; then\n  gerbil_patches+=(\n    patches/gerbil-v19-ffi-release-pkey-once.patch\n    patches/gerbil-v19-darwin-aot-tools.patch\n    patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch\n    patches/gerbil-v19-darwin/0003-gerbil-darwin-executable-closure-dag.patch\n    patches/gerbil-v19-darwin/0007-gerbil-darwin-executable-runtime-object-reuse.patch\n    patches/gerbil-v19-darwin/0008-gerbil-darwin-pure-module-original-path.patch\n    patches/gerbil-v19-darwin/0010-gerbil-darwin-socket-address-contract.patch\n    patches/gerbil-v19-darwin/0011-gerbil-darwin-release-dynamic-linkage.patch\n  )\n  gambit_patches+=(\n    patches/gerbil-v19-darwin/0001-gambit-darwin-posix-spawn.patch\n    patches/gerbil-v19-darwin/0004-gambit-darwin-gcc-macro-expansion.patch\n    patches/gerbil-v19-darwin/0015-gambit-darwin-literal-build-substitution.patch\n  )\nfi\n\nsha256_file() { shasum -a 256 \"$1\" | awk '{print $1}'; }\ncompiler=\"${CC:-gcc}\"\ncompiler=\"$(command -v \"$compiler\")\"\nmacros=\"$(\"$compiler\" -dM -E -x c /dev/null)\"\ngrep -q '__GNUC__' <<< \"$macros\"\nif grep -q '__clang__' <<< \"$macros\"; then\n  echo 'source CI requires GNU GCC, not clang' >&2\n  exit 1\nfi\nif [[ \"$platform\" == Darwin ]]; then\n  grep -Eq '^#define __GNUC__ 16$' <<< \"$macros\"\n  cores=\"$(sysctl -n hw.physicalcpu)\"\nelse\n  [[ \"$platform\" == Linux ]]\n  cores=\"$(getconf _NPROCESSORS_ONLN)\"\nfi\n[[ \"$cores\" =~ ^[1-9][0-9]*$ ]]\nexport CC=\"$compiler\" GERBIL_GCC=\"$compiler\" GERBIL_BUILD_CORES=\"$cores\"\ncompiler_hash=\"$(sha256_file \"$compiler\")\"\npatchset_hash=\"$({\n  for patch in \"${gerbil_patches[@]}\"; do sha256_file \"$root/$patch\"; done\n  for patch in \"${gambit_patches[@]}\"; do sha256_file \"$root/$patch\"; done\n  sha256_file \"$root/tools/ci/build_source_toolchain.sh\"\n  sha256_file \"$root/tools/release/activate-gerbil.sh\"\n} | shasum -a 256 | awk '{print $1}')\"\nidentity=\"$GERBIL_SOURCE_REVISION-$GAMBIT_SOURCE_REVISION-$compiler_hash-$patchset_hash\"\n\nverify() {\n  jq -e --arg identity \"$identity\" --argjson multipleVms \"$multiple_vms\" \\\n    '.identity == $identity and .multipleVms == $multipleVms' \\\n    \"$GERBIL_PREFIX/ci-source-toolchain.json\" >/dev/null\n  source \"$GERBIL_PREFIX/activate\"\n  \"$GERBIL_PREFIX/bin/gxi\" -v 2>&1 | grep -F \"Gerbil ${GERBIL_SOURCE_REVISION:0:7}\"\n  grep -Eq '^#define ___MULTIPLE_VMS([[:space:]]|$)' \"$GERBIL_HOME/include/gambit.h\"\n  if [[ \"$platform\" == Darwin ]]; then\n    grep -F 'replace_literal()' \"$GERBIL_HOME/bin/gambuild-C\"\n  fi\n  mkdir -p \"$root/.ci/receipts\"\n  cp \"$GERBIL_PREFIX/ci-source-toolchain.json\" \"$root/.ci/receipts/source-toolchain.json\"\n}\n\ncase \"${1:-}\" in\n  prepare)\n    [[ ! -e \"$source_dir\" ]]\n    git init \"$source_dir\"\n    git -C \"$source_dir\" remote add origin https://git.cons.io/mighty-gerbils/gerbil.git\n    git -C \"$source_dir\" fetch --depth=256 origin \"$GERBIL_SOURCE_REVISION\"\n    [[ \"$(git -C \"$source_dir\" rev-parse FETCH_HEAD)\" == \"$GERBIL_SOURCE_REVISION\" ]]\n    git -C \"$source_dir\" checkout --detach \"$GERBIL_SOURCE_REVISION\"\n    git -C \"$source_dir\" submodule update --init --depth=1\n    [[ \"$(git -C \"$source_dir/src/gambit\" rev-parse HEAD)\" == \"$GAMBIT_SOURCE_REVISION\" ]]\n    for patch in \"${gerbil_patches[@]}\"; do\n      git -C \"$source_dir\" apply \"$root/$patch\"\n    done\n    for patch in \"${gambit_patches[@]}\"; do\n      git -C \"$source_dir/src/gambit\" apply --check \"$root/$patch\"\n    done\n    printf 'cache_identity=%s\\n' \"$identity\" >> \"${GITHUB_OUTPUT:?}\"\n    ;;\n  build)\n    [[ \"$(git -C \"$source_dir\" rev-parse HEAD)\" == \"$GERBIL_SOURCE_REVISION\" ]]\n    unset GERBIL_HOME GERBIL_LOADPATH GERBIL_GSC GAMBOPT GERBIL_BUILD_PREFIX\n    export GERBIL_PATH=\"$source_dir/ci-gerbil-path\"\n    export CFLAGS=\"-pipe${CFLAGS:+ $CFLAGS}\"\n    args=(\"--prefix=$GERBIL_PREFIX\" \"--with-gambit=$GAMBIT_SOURCE_REVISION\"\n          \"--version-string=${GERBIL_SOURCE_REVISION:0:7}\" --enable-march=\n          --enable-single-host=0 --enable-multiple-vms --enable-smp)\n    if [[ \"$platform\" == Darwin ]]; then\n      export GERBIL_BUILD_AOT_TOOLS=yes\n      args+=(--enable-c-opt=-O1 --enable-c-opt-rts=yes --enable-gcc-opts\n             --enable-inline-jumps --enable-dynamic-clib --enable-trust-c-tco)\n    fi\n    cd \"$source_dir\"\n    ./configure \"${args[@]}\"\n    [[ \"$(git -C src/gambit rev-parse HEAD)\" == \"$GAMBIT_SOURCE_REVISION\" ]]\n    for patch in \"${gambit_patches[@]}\"; do\n      git -C src/gambit apply \"$root/$patch\"\n    done\n    if [[ \"$platform\" == Darwin ]]; then\n      touch src/gambit/configure\n      (cd src/gambit && ./config.status --recheck && ./config.status)\n      grep -F 'replace_literal()' src/gambit/bin/gambuild-C.unix\n    else\n      (cd src/gambit && ./config.status)\n    fi\n    grep -Eq '^#define ___MULTIPLE_VMS([[:space:]]|$)' src/gambit/include/gambit.h\n    for target in prepare gambit boot-gxi stage0 stage1 stdlib libgerbil lang tools; do\n      printf 'BUILD %s (%s cores)\\n' \"$target\" \"$cores\"\n      GERBIL_BUILD_FLAGS=\"-j$cores\" ./build.sh \"$target\"\n      if [[ \"$target\" == gambit ]]; then\n        # Upstream's Gambit wrapper can return zero after a make failure.\n        if [[ ! -x build/bin/gsc || ! -x bootstrap/bin/gsi || ! -f build/lib/libgambit.a ]]; then\n          echo 'Gambit build missing build/bin/gsc, bootstrap/bin/gsi or build/lib/libgambit.a' >&2\n          exit 1\n        fi\n        build/bin/gsc -v\n        bootstrap/bin/gsi -v\n      fi\n    done\n    ./install.sh\n    cp \"$root/tools/release/activate-gerbil.sh\" \"$GERBIL_PREFIX/activate\"\n    jq -n --arg identity \"$identity\" --arg sourceRevision \"$GERBIL_SOURCE_REVISION\" \\\n      --arg gambitRevision \"$GAMBIT_SOURCE_REVISION\" --arg compilerHash \"$compiler_hash\" \\\n      --arg patchsetHash \"$patchset_hash\" --argjson cores \"$cores\" --argjson multipleVms \"$multiple_vms\" \\\n      '{identity:$identity, sourceRevision:$sourceRevision, gambitRevision:$gambitRevision,\n        compilerHash:$compilerHash, patchsetHash:$patchsetHash, cores:$cores, multipleVms:$multipleVms,\n        scope:\"source-toolchain-construction-not-D1510-performance-admission\"}' \\\n      > \"$GERBIL_PREFIX/ci-source-toolchain.json\"\n    verify\n    ;;\n  verify) verify ;;\n  *) echo \"usage: $0 prepare|build|verify\" >&2; exit 64 ;;\nesac\n",
+    "languageStandard": "c23"
+  },
+  "configurationFlags": [
+    "--enable-march=",
+    "--enable-single-host=0",
+    "--enable-multiple-vms",
+    "--enable-smp",
+    "--enable-c-opt=-O1",
+    "--enable-c-opt-rts=yes",
+    "--enable-gcc-opts",
+    "--enable-inline-jumps",
+    "--enable-dynamic-clib",
+    "--enable-trust-c-tco",
+    "--enable-multiple-threaded-vms"
+  ],
+  "compiler": {
+    "path": "/opt/homebrew/Cellar/gcc/16.2.0/bin/gcc-16",
+    "sha256": "406040ac6e22d01468e601a5aaa548e60af1c151efb056aa45d485d6804f0cd4"
+  },
+  "sourceCopies": 0,
+  "heapRaised": false,
+  "waitExtended": false,
+  "newExecutionOrConfigurationLayer": false,
+  "nativeArtifacts": {
+    "gsi/gsi": "c4d2b4b3407bd2199b8507a52b847dbe5a0f45f9862ba5b5a865f738e27949f6",
+    "gsc/gsc": "85ea48394fb864859ac6f1071d6b921341eba70d7573c65475522ae9ba0fc48c",
+    "gsc-boot": "64cf860fa5b3d210a3e590236dff4834974e1cc8792745e3a6d725551501a2d2",
+    "lib/libgambit.a": "9ee78b584686c6014978322463cb617f111763d9e2518b034acb034bf24f74f5"
+  },
+  "configuredHeaderSha256": "2d1ec95462f4546a1dd8fde8ccc2411938023865a042bffc7b8b0de5c6777337",
+  "generatedProductsCommitted": false,
+  "schemeProducerChanged": false,
+  "nativeGeneratedInputs": {
+    "lib/_std.c": "e9996c578648429502dd8ce5d20992348075498d3f5e0ac224e7c7318cff56d7",
+    "lib/_nonstd.c": "c5b4ad77e0b7600cced0d5429b2db02b689303cc87dad84b038ff84b169ada37",
+    "lib/_module.c": "0e55fc7bbf6d95f265d8db7067e995c5ed5711b39f2394bca680e0dd380ad243",
+    "lib/_io.c": "ac5b10e2ffd1bf9327d55aa98288f97cb10fe4aa895f1e21f5c8eda51dce1035",
+    "lib/_system.c": "cc8f2cf86e6eb9ce7cdf6320e4375c6b07b10dfb0dd3273966d58e53f8e498bc",
+    "lib/_kernel.c": "2f7cfb4126149f98264fc175d1bee1e191ffc7f0170fc96634f415484c784aba",
+    "lib/_thread.c": "1c60ff2c54a4041b4368387aca35aed63bebddaf24eb96a24af9b6bfe218e2dc",
+    "lib/_gambit.c": "f3449d2e9e1c8da3a1998e702f74021e220715c61447f7541c157a9efdd810b9",
+    "lib/_repl.c": "6dd84a266436d863a3ca6c86dca76154fc224832905d1d89ce26dbde80446708",
+    "lib/_num.c": "422db868cc639b665c39c5c4e9e8edd5b9ffafad92f8f97b4038cd98312d7e8d",
+    "lib/_eval.c": "8f1e7cb643032736dc944eef1560415f47475d637099d78354e944401a044c56",
+    "gsi/_gsi_.c": "371cda2abd58db54e64359918b48e3667d8296ebd0283ff3261c69da8e38dbc4",
+    "gsi/_gambitgsi.c": "22d977705789a162fe0a51587a00df784a943ff926f6b6a8d7c485443584f951",
+    "gsc/_gsc_.c": "aafd3eb5d90d142a6feb29ad4e0a5b386618a3e158d20d498bc8475dc5c29bdd",
+    "gsc/_gambitgsc.c": "07aed273204dfbcb0a6d381d972295cbd1516734586c3edc897b340e5065ae1b"
+  },
+  "producer": {
+    "receiptSha256": "a888cff376ccf61d7233e22a112a0693265e1fea56f3b3e88d868a5ea81bc310",
+    "phaseCounts": {
+      "phase1": 2,
+      "phase2": 2,
+      "phase3": 2,
+      "phase4": 2
+    },
+    "checks": [
+      {
+        "stage": "install-real-seed",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.11599754200142343,
+        "tail": "rm -f ../gsc-boot ../gsc-boot ../gsc-boot\ncp gsc ../gsc-boot\nif test \"\" != \"\"; then \\\n\t  cp gsc ../gsc-boot; \\\n\tfi\nif test \"no\" = \"yes\"; then \\\n\t  cp libgambitgsc.a ../libgambitgsc.a; \\\n\t  if test \"\" != \"\"; then \\\n\t    cd ..; \\\n\t    ln -s \"libgambitgsc.a\" \"libgambitgsc.a\"; \\\n\t    ln -s \"libgambitgsc.a\" \"libgambitgsc.a\"; \\\n\t  fi \\\n\tfi\n"
+      },
+      {
+        "stage": "source-bootstrap",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 184.12216562499816,
+        "tail": ".c _t-cpu-backend-x86.c _t-cpu-backend-arm.c _t-cpu-backend-riscv.c _t-cpu.c _t-c-1.c _t-c-2.c _t-c-3.c _gsclib.c _gsc.c _gambitgsc.c _gsc_.c; fi\nmaking core in misc\nmaking core in doc\nmaking core in tests\nmaking core in examples\nmaking core in distr-comp\nmaking core in pi\nmaking core in ring\nmaking core in web-repl\nmaking core in web-server\nmaking core in tcltk\nmaking core in Xlib-simple\nmaking core in pthread\nmaking core in misc\nmaking core in contrib\nmaking core in GambitREPL\nmaking core in try\nmaking core in xactlog\nmaking core in prebuilt\nmaking core in macosx\nmaking core in windows\nmaking core in bench\nmaking core in githooks\n*** to compile the builtin modules you should: make modules\n"
+      },
+      {
+        "stage": "clean-objects",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 2.159732999993139,
+        "tail": "mylib.o mylib_.o pthread.o pthread\nrm -f *.gcov *.gcno *.gcda\nmaking clean in misc\nrm -f signals.c signals.o signals.o1\nrm -f *.gcov *.gcno *.gcda\nmaking clean in contrib\nmaking clean in GambitREPL\nrm -f digest.m genport.m zlib.m tar.m json.m url.m html.m wiki.m repl-server.m intf.m script.m repo.m help.m emacs.m program.m program_.m grd\nrm -f *.gcov *.gcno *.gcda\nmaking clean in try\nrm -f VM.js\nrm -rf js.scm js\\#.scm six.js six-expand.scm six-expand\\#.scm six-expand.js VM.min.js* try try.tgz\nmaking clean in xactlog\nrm -f xactlog\nmaking clean in prebuilt\nmaking clean in macosx\nmaking clean in windows\nmaking clean in bench\nrm -f results.* all-results.scm bench-*.html\nmaking clean in githooks\n"
+      },
+      {
+        "stage": "dummy-seed",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.09431612498883624,
+        "tail": "rm -f gsc-boot gsc-boot\ncp gsc-boot.bat.windows gsc-boot\ncp gsc-boot.unix gsc-boot\nchmod +x gsc-boot\n"
+      },
+      {
+        "stage": "stock-core",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 34.90471529201022,
+        "tail": ".c _t-cpu-backend-x86.c _t-cpu-backend-arm.c _t-cpu-backend-riscv.c _t-cpu.c _t-c-1.c _t-c-2.c _t-c-3.c _gsclib.c _gsc.c _gambitgsc.c _gsc_.c; fi\nmaking core in misc\nmaking core in doc\nmaking core in tests\nmaking core in examples\nmaking core in distr-comp\nmaking core in pi\nmaking core in ring\nmaking core in web-repl\nmaking core in web-server\nmaking core in tcltk\nmaking core in Xlib-simple\nmaking core in pthread\nmaking core in misc\nmaking core in contrib\nmaking core in GambitREPL\nmaking core in try\nmaking core in xactlog\nmaking core in prebuilt\nmaking core in macosx\nmaking core in windows\nmaking core in bench\nmaking core in githooks\n*** to compile the builtin modules you should: make modules\n"
+      }
+    ]
+  },
+  "focused": {
+    "receiptSha256": "98d6662dd1595d88a430ec05e2844bfe7f734d9a7c89a3c599d48ca29e116790",
+    "checks": [
+      {
+        "stage": "test-runtime-roles",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.6671207499894081,
+        "markers": {
+          "EXECUTION-STORAGE-PASS": true
+        }
+      },
+      {
+        "stage": "test-frame-contract",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 7.100066291997791,
+        "markers": {
+          "FRAME-CONTINUATION-PASS": true,
+          "FRAME-CONTINUATION-ROOTS-PASS": true
+        }
+      },
+      {
+        "stage": "test-native-scope",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.660196625001845,
+        "markers": {}
+      },
+      {
+        "stage": "test-rc-roots",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 2.6992452919948846,
+        "markers": {
+          "RC-OWNERSHIP-PASS": true,
+          "RC-DETACHED-BYTE-PASS": true
+        }
+      }
+    ]
+  },
+  "contracts": {
+    "receiptSha256": "426fd31ff9c41fe3b19014151feaabbfbeb1838508d932796ebe183c99de2fce",
+    "checks": [
+      {
+        "stage": "compile-source-control",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 1.1416177089995472,
+        "markers": {}
+      },
+      {
+        "stage": "execute-source-control",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.5908180419937707,
+        "markers": {
+          "RC-ROOT-ORIGIN-PASS": true
+        }
+      },
+      {
+        "stage": "build-sizes",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.18255254199902993,
+        "markers": {}
+      },
+      {
+        "stage": "sizes",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.47905416700814385,
+        "markers": {
+          "RC-SIZES": true
+        }
+      },
+      {
+        "stage": "rc_root_release",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.5824086659995373,
+        "markers": {}
+      },
+      {
+        "stage": "root_store_projection",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.581666292011505,
+        "markers": {}
+      },
+      {
+        "stage": "sysml",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.20275133399991319,
+        "markers": {}
+      },
+      {
+        "stage": "d2",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.1094399580033496,
+        "markers": {}
+      }
+    ]
+  },
+  "abi": {
+    "receiptSha256": "c953fd24dbb7d6c9ad87b067741416ea24369c5ca2d4ade7f8d87e1ee8d404ce",
+    "checks": [
+      {
+        "stage": "generate-old-module",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.09786862500186544,
+        "markers": {}
+      },
+      {
+        "stage": "compile-old-module",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.29415437499119435,
+        "markers": {}
+      },
+      {
+        "stage": "baseline-module-positive",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 1.2008510419982485,
+        "markers": {
+          "BASELINE-MODULE-ACCEPTED": true,
+          "MODULE-BODY-ENTERED": true
+        }
+      },
+      {
+        "stage": "compile-held-module-control",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.6106442079908447,
+        "markers": {}
+      },
+      {
+        "stage": "held-old-module-reject",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 1.2689418749941979,
+        "markers": {
+          "REPEATED-OLD-MODULE-REJECTION-PASS": true
+        }
+      },
+      {
+        "stage": "build-old-sizes",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.18765900000289548,
+        "markers": {}
+      },
+      {
+        "stage": "old-sizes",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 1.7009103750024224,
+        "markers": {
+          "RC-OLD-SIZES": true
+        }
+      }
+    ]
+  },
+  "diagnostics": {
+    "receiptSha256": "082145159f759af3eaa6f9e218cf4d8196abeeaf9cf8f7a2fc9b34d31a89a007",
+    "checks": [
+      {
+        "stage": "build-offsets",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.18592508300207555,
+        "markers": {}
+      },
+      {
+        "stage": "offsets",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.5069995829981053,
+        "markers": {}
+      },
+      {
+        "stage": "test8-fatal-boundary",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 1.2206211669981712,
+        "markers": {
+          "Heap overflow": true,
+          "___setup_mem_pstate": true
+        }
+      },
+      {
+        "stage": "remaining-independent",
+        "exit": 0,
+        "timeout": false,
+        "seconds": 6.555854624995845,
+        "markers": {}
+      }
+    ]
+  },
+  "original": {
+    "receiptSha256": "ff2feef4d79654cfeb320dd29218f84de3a0ccc6b5fa2079a519d3d12617c69e",
+    "gsiCases": 408,
+    "gsiPassed": true,
+    "fullOriginalCheckPassed": false,
+    "checks": [
+      {
+        "stage": "install-real-seed",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.11599754200142343,
+        "tail": "rm -f ../gsc-boot ../gsc-boot ../gsc-boot\ncp gsc ../gsc-boot\nif test \"\" != \"\"; then \\\n\t  cp gsc ../gsc-boot; \\\n\tfi\nif test \"no\" = \"yes\"; then \\\n\t  cp libgambitgsc.a ../libgambitgsc.a; \\\n\t  if test \"\" != \"\"; then \\\n\t    cd ..; \\\n\t    ln -s \"libgambitgsc.a\" \"libgambitgsc.a\"; \\\n\t    ln -s \"libgambitgsc.a\" \"libgambitgsc.a\"; \\\n\t  fi \\\n\tfi\n"
+      },
+      {
+        "stage": "source-bootstrap",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 184.12216562499816,
+        "tail": ".c _t-cpu-backend-x86.c _t-cpu-backend-arm.c _t-cpu-backend-riscv.c _t-cpu.c _t-c-1.c _t-c-2.c _t-c-3.c _gsclib.c _gsc.c _gambitgsc.c _gsc_.c; fi\nmaking core in misc\nmaking core in doc\nmaking core in tests\nmaking core in examples\nmaking core in distr-comp\nmaking core in pi\nmaking core in ring\nmaking core in web-repl\nmaking core in web-server\nmaking core in tcltk\nmaking core in Xlib-simple\nmaking core in pthread\nmaking core in misc\nmaking core in contrib\nmaking core in GambitREPL\nmaking core in try\nmaking core in xactlog\nmaking core in prebuilt\nmaking core in macosx\nmaking core in windows\nmaking core in bench\nmaking core in githooks\n*** to compile the builtin modules you should: make modules\n"
+      },
+      {
+        "stage": "clean-objects",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 2.159732999993139,
+        "tail": "mylib.o mylib_.o pthread.o pthread\nrm -f *.gcov *.gcno *.gcda\nmaking clean in misc\nrm -f signals.c signals.o signals.o1\nrm -f *.gcov *.gcno *.gcda\nmaking clean in contrib\nmaking clean in GambitREPL\nrm -f digest.m genport.m zlib.m tar.m json.m url.m html.m wiki.m repl-server.m intf.m script.m repo.m help.m emacs.m program.m program_.m grd\nrm -f *.gcov *.gcno *.gcda\nmaking clean in try\nrm -f VM.js\nrm -rf js.scm js\\#.scm six.js six-expand.scm six-expand\\#.scm six-expand.js VM.min.js* try try.tgz\nmaking clean in xactlog\nrm -f xactlog\nmaking clean in prebuilt\nmaking clean in macosx\nmaking clean in windows\nmaking clean in bench\nrm -f results.* all-results.scm bench-*.html\nmaking clean in githooks\n"
+      },
+      {
+        "stage": "dummy-seed",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.09431612498883624,
+        "tail": "rm -f gsc-boot gsc-boot\ncp gsc-boot.bat.windows gsc-boot\ncp gsc-boot.unix gsc-boot\nchmod +x gsc-boot\n"
+      },
+      {
+        "stage": "stock-core",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 34.90471529201022,
+        "tail": ".c _t-cpu-backend-x86.c _t-cpu-backend-arm.c _t-cpu-backend-riscv.c _t-cpu.c _t-c-1.c _t-c-2.c _t-c-3.c _gsclib.c _gsc.c _gambitgsc.c _gsc_.c; fi\nmaking core in misc\nmaking core in doc\nmaking core in tests\nmaking core in examples\nmaking core in distr-comp\nmaking core in pi\nmaking core in ring\nmaking core in web-repl\nmaking core in web-server\nmaking core in tcltk\nmaking core in Xlib-simple\nmaking core in pthread\nmaking core in misc\nmaking core in contrib\nmaking core in GambitREPL\nmaking core in try\nmaking core in xactlog\nmaking core in prebuilt\nmaking core in macosx\nmaking core in windows\nmaking core in bench\nmaking core in githooks\n*** to compile the builtin modules you should: make modules\n"
+      },
+      {
+        "stage": "original-gsi",
+        "complete": true,
+        "exit": 0,
+        "timeout": false,
+        "seconds": 72.80096995900385
+      },
+      {
+        "stage": "remaining-original-check",
+        "complete": false,
+        "exit": 2,
+        "timeout": false,
+        "seconds": 30.100575791992014
+      }
+    ],
+    "test8": {
+      "status": "FAIL",
+      "clientExit": 70,
+      "baseAlsoFailed": true,
+      "cause": "startup setup_mem_pstate capacity",
+      "assigned": 6,
+      "sections": 6,
+      "members": 1,
+      "target": 12,
+      "maxHeap": 0,
+      "capacityEndpointsUnchanged": true
+    }
+  },
+  "differential": {
+    "before": {
+      "source0": 3,
+      "source1": 2,
+      "exit": 70
+    },
+    "after": {
+      "source0": 3,
+      "source1": 3,
+      "exit": 0
+    },
+    "controlSha256": "eaea2d1735c78f5f570bfd2627d62c8774a6be9ba031f70aeb1c8b04737e5c35",
+    "controlSource": ";;; ROOT-SOURCE regression: b77ad85c fails on the nonzero-origin RC payload.\n;;; This test does not implement/admit root dispatch or arbitrary FFI writers.\n;;; Execute with -:p2. A single-thread configuration exercises origin0 only;\n;;; its PASS marker is distinct and never counts as nonzero SMP evidence.\n;;; Two slots correspond to the two real processor origins in this control.\n;;; Never dereference a possibly stale RC payload: compare tagged words only.\n(c-declare #<<c-end\n#include \"mem.h\"\n#if defined(__APPLE__)\n#include <dlfcn.h>\n#endif\nstatic void *rc_origin_slot[2];\nstatic ___SCMOBJ rc_origin_before[2];\n/* Internal root protocol under test; no new public FFI entrypoint. */\nextern ___SCMOBJ *___borrow_rc_root(___processor_state, void *);\nextern void ___return_rc_root(void *);\nstatic void *rc_borrow_slot;\nstatic ___SCMOBJ *rc_borrow_cell;\nstatic ___SCMOBJ rc_borrow_before;\nextern int rc_origin_callback(int);\nstatic int rc_marker_gc_status;\nstatic int rc_join_fault(int armed) {\n#if defined(__APPLE__)\n  void (*arm)(int,int,int)=dlsym(RTLD_DEFAULT,\"resize_test_arm\");\n  if(!arm) return 0;\n  arm(0,armed?1:0,0);return 1;\n#else\n  return 0;\n#endif\n}\nstatic int rc_join_fault_calls(void) {\n#if defined(__APPLE__)\n  int (*count)(int)=dlsym(RTLD_DEFAULT,\"resize_test_count\");\n  return count?count(1):-1;\n#else\n  return -1;\n#endif\n}\nstatic ___SIZE_TS rc_free_words(___virtual_machine_state vm) {\n  return vm->mem.heap_size_ -\n    ___CAST(___SIZE_TS,vm->mem.nb_msections_assigned_)*___MSECTION_SIZE -\n    vm->mem.occupied_words_still_ - vm->mem.overflow_reserve_;\n}\nc-end\n)\n(define register-root\n  (c-lambda (int scheme-object) int #<<c-end\nint owner = ___PROCESSOR_ID(___PSTATE, ___VMSTATE_FROM_PSTATE(___PSTATE));\nif (owner != ___arg1 || owner < 0 || owner >= 2) {\n  ___result = -1;\n} else {\n  void *p = ___EXT(___alloc_rc)(___PSA(___PSTATE) 0);\n  if (!p) ___result = -2;\n  else {\n    rc_origin_slot[owner] = p;\n    rc_origin_before[owner] = ___arg2;\n    ___EXT(___set_data_rc)(p, ___arg2);\n    ___result = owner;\n  }\n}\nc-end\n))\n(define compare-and-release\n  (c-lambda (int scheme-object) int #<<c-end\nvoid *p = rc_origin_slot[___arg1];\nint moved = rc_origin_before[___arg1] != ___arg2;\nint updated = ___EXT(___data_rc)(p) == ___arg2;\n___EXT(___release_rc)(p);\nrc_origin_slot[___arg1] = 0;\n___result = (moved ? 2 : 0) | (updated ? 1 : 0);\nc-end\n))\n(define (observe owner)\n  (let ((t (make-thread\n            (lambda ()\n              (let* ((root (cons (##current-processor-id) (make-vector 7 owner)))\n                     (registered (register-root owner root)))\n                (if (not (= owner registered))\n                    (error \"RC origin registration failed\" owner registered))\n                (write (list 'RC-SOURCE-STAGE 'registered owner)) (newline) (force-output)\n                (##gc)\n                (let ((bits (compare-and-release owner root)))\n                  ;; Keep the ordinary Scheme root live; inspect only this root.\n                  (if (not (= owner (car root))) (error \"ordinary root damaged\"))\n                  (list owner registered bits)))))))\n    (##thread-pin! t (##processor owner))\n    (thread-start! t)\n    (thread-join! t)))\n;; The control caller must survive the requested membership. Pinning its\n;; logical thread is not a replacement for the native self-removal refusal.\n(##thread-pin! (current-thread) (##processor 0))\n(thread-yield!)\n(if (not (= (##current-processor-id) 0)) (error \"control caller not on source0\"))\n(for-each\n (lambda (owner)\n   (let ((row (observe owner)))\n     (write (cons 'RC-ROOT-ORIGIN row)) (newline) (force-output)\n     (if (< (caddr row) 2) (error \"control requires actual moving collection\"))\n     (if (not (= (caddr row) 3))\n         (error \"RC moving-root coverage incomplete\" row))))\n (if (> (##current-vm-processor-count) 1) '(0 1) '(0)))\n(display (if (> (##current-vm-processor-count) 1)\n             \"RC-ROOT-ORIGIN-PASS\" \"RC-ROOT-ORIGIN-SINGLE-PASS\")) (newline) (force-output)\n\n"
+  },
+  "stateful": {
+    "seeds": [
+      173,
+      947,
+      2027
+    ],
+    "owners": [
+      0,
+      1
+    ],
+    "generatedDraws": 1440,
+    "executedLegalActions": 720,
+    "cases": [
+      [
+        0,
+        173,
+        240,
+        130
+      ],
+      [
+        0,
+        947,
+        240,
+        119
+      ],
+      [
+        0,
+        2027,
+        240,
+        111
+      ],
+      [
+        1,
+        173,
+        240,
+        130
+      ],
+      [
+        1,
+        947,
+        240,
+        119
+      ],
+      [
+        1,
+        2027,
+        240,
+        111
+      ]
+    ],
+    "requiredMarkers": [
+      "RC-REGISTRATION-REFUSAL-PASS",
+      "RC-BORROW-LAST-PASS",
+      "RC-NATIVE-REFERENCE-PASS",
+      "RC-RETIRE-REFUSAL-PASS",
+      "RC-DETACHED-BYTE-PASS",
+      "RC-OWNERSHIP-PASS"
+    ],
+    "automaticShrinking": false,
+    "controlledScheduler": false,
+    "nativeConcurrentReferenceHandoff": true,
+    "overlapWithSpecificGcStepProved": false
+  },
+  "sizes": {
+    "baseline": {
+      "header": 32,
+      "carrier": 920,
+      "vm": 80040
+    },
+    "candidate": {
+      "header": 48,
+      "domain": 144,
+      "carrier": 896,
+      "vm": 78504
+    },
+    "configured": true,
+    "structuralDelta": "144*D + 16*N - 1536",
+    "allocatorRoundingExcluded": true,
+    "processPeakMeasured": false
+  },
+  "formalRegressions": [
+    {
+      "path": "dev/refactoring/modern-c/models/quint/rc_root_release.qnt",
+      "sha256": "9df4d1b54d3c54ba05e7576debaf96f5aa286cc1c6e88576f7c5924b7790f4f0",
+      "exit": 0,
+      "seconds": 1.3314459160028491,
+      "output": "\n  rc_root_release\n    ok ownerLastTest passed 1 test(s)\n    ok borrowLastTest passed 1 test(s)\n    ok scanGraceTest passed 1 test(s)\n    ok unknownReleaseTest passed 1 test(s)\n    ok aliasAndReaderTest passed 1 test(s)\n\n  5 passing (10ms)\n"
+    },
+    {
+      "path": "dev/refactoring/modern-c/models/quint/root_store_projection.qnt",
+      "sha256": "fa1eeb411015e5ab9295db47500e5ea833cd6d6456fc2d5cc7942ce6f1668dc6",
+      "exit": 0,
+      "seconds": 1.052505875006318,
+      "output": "\n  root_store_projection\n    ok aliasAndEqualValuesTest passed 1 test(s)\n    ok originRetiresStorageRemainsTest passed 1 test(s)\n    ok writerDrainTest passed 1 test(s)\n    ok equalValueDedupNegativeTest passed 1 test(s)\n    ok doubleRewriteNegativeTest passed 1 test(s)\n    ok earlyFreeNegativeTest passed 1 test(s)\n    ok generationReuseNegativeTest passed 1 test(s)\n    ok lateWriterNegativeTest passed 1 test(s)\n    ok activeWriterNegativeTest passed 1 test(s)\n    ok borrowAcrossGcReloadTest passed 1 test(s)\n    ok closeWithActiveAccessTest passed 1 test(s)\n    ok freezeOverReaderNegativeTest passed 1 test(s)\n    ok releaseWithBorrowNegativeTest passed 1 test(s)\n\n  13 passing (45ms)\n"
+    }
+  ],
+  "newQuintFiles": 0,
+  "newLeanFiles": 0,
+  "sourceCensus": [
+    "b593b6586009c5c1b65b6456cab70a64610cb817:examples/Xlib-simple/Xlib.scm:332:             \"___result_voidstar = ___EXT(___alloc_rc) (sizeof (XColor));\")))",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:examples/Xlib-simple/Xlib.scm:381:             \"___result_voidstar = ___EXT(___alloc_rc) (sizeof (XGCValues));\")))",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:examples/Xlib-simple/Xlib.scm:739:    pev = ___CAST(XEvent*,___EXT(___alloc_rc) (sizeof (ev)));",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:examples/tcltk/tcltk.scm:150:  char *result = tcltk_call (___EXT(___data_rc) (___CAST(void*,client_data)),",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:examples/tcltk/tcltk.scm:193:  ___EXT(___release_scmobj) (___EXT(___data_rc) (___CAST(void*,client_data)));",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:examples/tcltk/tcltk.scm:297:      void *cd = ___EXT(___alloc_rc) (0);",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:examples/tcltk/tcltk.scm:326:              ___EXT(___set_data_rc) (cd, vect);",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/_mem/rc-allocation.inc:89:___EXP_FUNC(void*,___alloc_rc_no_register)",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/_mem/rc-allocation.inc:123:___EXP_FUNC(void*,___alloc_rc)",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/_mem/rc-allocation.inc:127:  void *ptr=___alloc_rc_no_register(bytes);",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/_mem/rc-allocation.inc:187:___EXP_FUNC(___SCMOBJ,___data_rc)",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/_mem/rc-allocation.inc:214:___EXP_FUNC(void,___set_data_rc)",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:1633: * in the C heap using the ___alloc_rc function:",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:3233:                    ___alloc_rc (___PSP",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:3276:                    ___alloc_rc (___PSP",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:3315:                    ___alloc_rc (___PSP",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:3350:                    ___alloc_rc (___PSP",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:3381:                    ___alloc_rc (___PSP",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:3412:                    ___alloc_rc (___PSP",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:3456:                    ___alloc_rc (___PSP",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:3579:                        ___alloc_rc (___PSP",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/c_intf.c:6536:    ___VECTORELEM(stack_marker, 0) = ___data_rc (___c_closure_self ());",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/os_dyn.c:764:  if ((c_closure = ___alloc_rc (___PSA(___PSTATE)",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/os_dyn.c:769:  ___set_data_rc (c_closure, proc);",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/os_files.c:1189:                              ___alloc_rc (___PSA(___PSTATE)",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/os_io.c:4144:                              ___alloc_rc ( ___PSA(___PSTATE)",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/os_io.c:7124:      void *ev = ___alloc_rc (___PSA(___PSTATE) sizeof (MSG));",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/setup.c:6017:  ___GSTATE->___alloc_rc_no_register",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/setup.c:6018:    = ___alloc_rc_no_register;",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/setup.c:6023:  ___GSTATE->___alloc_rc",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/setup.c:6024:    = ___alloc_rc;",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/setup.c:6035:  ___GSTATE->___data_rc",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/setup.c:6036:    = ___data_rc;",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/setup.c:6038:  ___GSTATE->___set_data_rc",
+    "b593b6586009c5c1b65b6456cab70a64610cb817:lib/setup.c:6039:    = ___set_data_rc;"
+  ],
+  "wholeSmpAdmitted": false,
+  "remoteCiObserved": false,
+  "remaining": [
+    "Raw ClientData acquisition and marker pre-allocation roots",
+    "Cross-VM raw Scheme values/global writers",
+    "Unknown join/holder death/unknown native effects",
+    "Independent root tasks/workers and capacity",
+    "Automatic shrinking and controlled scheduling",
+    "Foreign-platform native execution and full Gerbil build",
+    "Existing multi-source setup rollback selects ps rather than earlier i; native metadata OOM recovery unqualified"
+  ],
+  "metadataOomFaultInjected": false,
+  "partialCreationRollbackAdmitted": false
+}

@@ -6,6 +6,23 @@ from gambit_smp.process_observation import probe_group, capture_batch, capture, 
 
 
 class ProcessGroupObservationTests(unittest.TestCase):
+    def test_binary_transport_preserves_non_utf8_nul_and_newlines(self):
+        import os,sys
+        from pathlib import Path
+        observation=capture([sys.executable,'-c',
+            "import os;os.write(1,bytes([255,0,13,10,128]));os.write(2,bytes([254,0]))"],
+            Path.cwd(),3,dict(os.environ),text=False)
+        self.assertEqual(b'\xff\x00\r\n\x80',observation.stdout)
+        self.assertEqual(b'\xfe\x00',observation.stderr)
+        self.assertEqual(0,observation.exit)
+        self.assertFalse(observation.timeout)
+        self.assertTrue(observation.group_quiescent)
+        with patch('gambit_smp.process_observation._task_spawn') as spawn:
+            for key in ('diagnostic','progress','boundary'):
+                with self.assertRaises(ValueError):
+                    capture(['unused'],'.',3,None,text=False,**{key:lambda:None})
+            spawn.assert_not_called()
+
     def test_batch_retains_completed_siblings_before_a_slow_job_settles(self):
         import threading
         from gambit_smp.process_observation import Observation
@@ -49,6 +66,31 @@ class ProcessGroupObservationTests(unittest.TestCase):
                     capture(["unused"], ".", budget, None, recorder=recorder)
                 spawn.assert_not_called()
                 recorder.assert_not_called()
+
+    def test_cpu_snapshot_spends_only_the_original_remaining_budget(self):
+        from subprocess import TimeoutExpired
+
+        owner = {"pid": 123}
+        child = Mock(pid=123, returncode=-9, spawn_birth={"process": owner})
+        child.communicate.side_effect = TimeoutExpired(["unused"], 1)
+        with patch("gambit_smp.process_observation._task_spawn", return_value=child), \
+                patch("gambit_smp.process_observation.time.monotonic",
+                      side_effect=[0, 0, .75, .80, .81, 1]), \
+                patch("gambit_smp.process_identity.group_cpu_snapshot",
+                      return_value={"cpuLowerBoundSeconds": .4}) as sample, \
+                patch("gambit_smp.process_observation.terminate_capture") as terminate, \
+                patch("gambit_smp.process_observation.drain_capture", return_value=("", "", True, None, None)), \
+                patch("gambit_smp.process_observation.probe_group", return_value=(True, ())), \
+                patch("gambit_smp.process_observation.probe_session", return_value=True):
+            observed = capture(["unused"], ".", 1, None, cpu_sample=True)
+        sample.assert_called_once_with(owner)
+        terminate.assert_called_once_with(child)
+        self.assertEqual(2, child.communicate.call_count)
+        self.assertEqual(.75, child.communicate.call_args_list[0].kwargs["timeout"])
+        self.assertAlmostEqual(.19, child.communicate.call_args_list[1].kwargs["timeout"])
+        self.assertTrue(observed.timeout)
+        self.assertEqual(.4, observed.cpu_snapshot["cpuLowerBoundSeconds"])
+        self.assertEqual(.80, observed.cpu_snapshot["endedAtElapsedSeconds"])
 
     def test_invalid_progress_window_cannot_poll_or_admit_progress(self):
         for window in (float("nan"), float("inf"), -float("inf"), True, False, 0, -1):

@@ -5,7 +5,7 @@ FileUtils.mkdir_p(out)
 sha = ->p { Digest::SHA256.file(p).hexdigest }
 m = JSON.parse(File.read(model_path))
 raise 'question closure changed; re-evaluate this adapter' if m['duties'].any? { |d| d['researchStatus'] == 'closed' }
-path = 'evidence/research/bootstrap-cost/configuration-lineage.json'
+path = '.cache/research/legacy-evidence/evidence/research/bootstrap-cost/configuration-lineage.json'
 lineage = JSON.parse(File.read(path)); identity = sha.call(path)
 lineage['sources'].each { |r| raise 'configuration drift' unless sha.call(r['path']) == r['sha256'] }
 data = ->name, cols, rows { '(relation ' + name + ' (' + cols + ') (' + rows.map { |r| '(' + r.map(&:to_json).join(' ') + ')' }.join(' ') + '))' }

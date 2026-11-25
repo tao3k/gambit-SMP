@@ -1,0 +1,1160 @@
+#+TITLE: Modern SMP: Sharing, Allocation Regions and Collection Domains
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+CATEGORY: modern-c
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never :tangle no
+#+COLUMNS: %44ITEM %24AUTHORITY %24STATUS
+
+* RESEARCH One architecture decision boundary :smp:gc:control:ffi:
+:PROPERTIES:
+:CUSTOM_ID: sharing-and-collection-contract
+:AUTHORITY: GambitSharedHeapSmp
+:SOURCE: models/sysml/shared-heap-smp.sysml
+:STATUS: candidate-contract; source-and-native-open
+:NATIVE_ADMITTED: false
+:PROGRESS_DELTA: 0
+:END:
+
+The native-evaluated [[file:models/sysml/shared-heap-smp.sysml][SysML composition]] owns three separate logical roles:
+=sharing=, =allocationRegions= and =collectionDomains=. Existing execution,
+roots, worker, control, scheduler and retirement roles consume their contracts.
+These are architecture distinctions, not three new C modules, a new token table
+or additional delivery/SMP counters. [[file:shared-heap-smp-design.org][ASCENT's existing five-gate matrix]] remains
+the acceptance authority. Modern C/C23 is the implementation baseline.
+
+Learning input: [[file:../../knowledge/systems/shared-heap-smp-literature.org][recent primary-source survey]]. A paper identifies a mechanism,
+premise or counterexample; it does not prove Gambit's implementation. This
+research changes no runtime, managed native source product, profile or budget.
+
+* RESEARCH What makes the SMP design modern?
+
+#+NAME: modern-smp-design-questions
+| Design question | Required architectural answer | Evidence that would refute success |
+|-----------------+-------------------------------+------------------------------------|
+| Can Scheme share without conflating ownership? | Preserve identity/aliases/shared mutation while distinguishing execution, roots, physical storage and collection authority | Copying an environment changes later multi-shot observations |
+| Can parallel work remain safe on the real target? | Actual C23 access/order contracts, complete roots and unique effect/copy/scan custody | A legal source access races relocation or consumes partially initialized state |
+| What must rendezvous, and why? | Explicit collected regions, incoming edges, participants and source-close conditions | A supposedly independent cut misses a foreign-region pointer or waits on its own blocked owner |
+| What progress can actually be promised? | Separate safety, completion and bounded-latency premises; account native/OS stalls | An unknown shared writer is treated as stopped, or a counter is repaired by timeout |
+| Can lifecycle changes preserve useful work? | Retain unresolved dependencies, hand off accepted work and exclude last users before reuse/free | Worker exit loses a Tail, returned claim, root or provider dependency |
+| Does locality repay its new costs? | Measure allocation, roots, barriers, promotion, work/span, synchronization and retention together | Reduced scan counters accompany worse matched total time or unacceptable peak memory |
+| Can control and native code participate explicitly? | Per-shot root reload, Scheme-owned winding and native access/affinity/exit contracts | One-shot restrictions or hidden GC during an unqualified native operation manufacture the gain |
+| Can the system evolve and be audited? | Generated contracts and exact source/profile/consumer evidence; retire replaced responsibilities | More wrappers or unbound historical binaries substitute for a complete replacement |
+
+Modernity is not a mandatory collector name, lock-free label or larger thread
+count. Parallelism, concurrent mutation, generations, movement, isolation and
+bounded reclamation are separate choices. A coordinated moving minor collector
+can be modern; an unqualified concurrent collector is not an architectural win.
+
+* RESEARCH Separate the semantic and physical mappings
+
+#+NAME: heap-role-separation
+| Role | Owns | Does not imply |
+|------+-------+----------------|
+| Sharing contract | Admitted identity, aliases, mutations and observable control effects | One contiguous heap or globally shared allocation from birth |
+| ExecutionContext | Registers, denv, frame/control state and permitted execution | Ownership of every reachable object or permanent OS-thread affinity |
+| Allocation region | Placement, allocation/initialization bounds, physical intervals and accounting | Private reachability, request-local lifetime or independent GC |
+| Collection domain | Regions being considered, epoch, roots/incoming edges, participant and native-access cut | Equality with VM, Actor, processor, root-source count or worker count |
+| RootOrigin / RootTask | Canonical references and scan/update custody | Permission to move an object still accessed through an unqualified native pointer |
+| CollectorWorker / WorkerArena | Accepted copy/scan tasks, destination space and private/Tail debts | A mutator nursery or the lifetime of its carrier |
+| Native/resource owner | Actual access validity, affinity and final use | Logical death when a request, Scheme shot or join observation completes |
+
+Describe the logical object graph separately from a placement map into physical
+regions. Movement changes addresses/placement while preserving the admitted
+graph observations through the existing root/forwarding contract. Root locations
+and native pointers are not interchangeable with live referent objects.
+
+A collection cut must account for every reference from uncollected storage to
+objects it may move: direct roots, captured frames/denv, other regions, mature
+objects and native structures. It needs complete source slots/cards, qualified
+handles/access/promotion, pinning, or refusal. Merely knowing a target is alive
+does not repair the incoming reference. One active evacuation owner per object
+and epoch is still required when regions or workers change.
+
+* RESEARCH Actual Gambit source and candidate choices
+
+#+NAME: heap-domain-source-seams
+| Actual source seam | Observed responsibility | Replacement premise still required |
+|--------------------+-------------------------+------------------------------------|
+| _mem/configuration.inc allocation aliases | alloc_heap_ptr and heap_msection resolve through PSTATE memory fields | Explicit execution/VM region and refill ownership; locality alone proves neither privacy nor generations |
+| collector.h WorkerArena | Private copy destination with source/copy/restore obligations | Preserve disjoint physical intervals and capacities; do not relabel existing space as an implemented nursery |
+| root.h / root-tasks.inc | VM-bound root union, separate members and workers | Actual complete roster/close protocol; W different from R is not multiple independent collection domains |
+| _kernel.scm continuation-copy and setters | Wrapper copy retains frame/denv references; reflection can change fields | Alias-wide write/revision/root coverage; no per-shot deep copy or heap rollback |
+| _thread.scm winding restore | Captured denv drives unwind/wind and per-shot continuation return | Actual execution/domain/resource admission and fresh root reload before effects |
+| rc-allocation.inc borrow/return | Borrow is checked against current source/PSTATE and counts a canonical cell loan | Park raw data access during movement, retain storage and reload after reentry; arbitrary target-domain access is not granted |
+
+#+NAME: heap-partition-design-space
+| Candidate | Allowed sharing | Work potentially removed | Added cost / admission condition | Current decision |
+|-----------+-----------------+--------------------------+---------------------------------+------------------|
+| Context-local young allocation; coordinated VM young cut; shared mature candidate | Cross-context young references within the admitted VM | Allocation coordination and eligible repeated mature scanning | Complete stores/remembered incoming edges, promotion/restore capacity and VM rendezvous | Existing generational candidate, not implemented/qualified by this model |
+| Independently collected local regions | Shared objects only through a complete cross-region access/publication protocol | Unaffected participants need not join every local cut | Read/access or eager/lazy promotion rules, stronger native contract, edge closure and domain coordination | Research alternative; not admitted by current models |
+| Request-private optimization inside a shared runtime | Objects proven not to escape the request's actual lifetime | Some request-local tracing and global coordination | Dynamic/static privacy, bulk/native barriers and continuation escape handling | Optional later specialization; request completion is insufficient |
+| Explicit isolated VM/Actor boundary | Explicit copy/move/immutable sharing/handles with defined identity semantics | Some cross-domain shared mutation and collection dependencies | Graph transfer, modules/control/resource policy and global service lifetime | Separate interface choice, not a silent change to ordinary shared Scheme |
+
+The existing [[file:../../architecture/runtime/gc/modern-c-generational-design.org][generational study]] owns the coordinated candidate's detailed
+barrier, promotion and major-GC questions. This document neither duplicates its
+algorithm nor promotes an independent-domain alternative. Shared persistent or
+immutable runtime objects can still introduce cross-VM lifetime dependencies;
+isolating allocation does not automatically isolate every service.
+
+* RESEARCH Multi-shot continuation and FFI custody: one complete case
+
+Use map with a callback that captures a continuation and closes over a mutable
+cell. Retain two wrappers sharing its frame/denv graph, complete the original
+request, invoke native code and perform later collection/restores.
+
+1. Before allocation or native conversion, the active/captured roots and source
+   protection exist. Placement in a local region does not make the cell private.
+2. Capture publishes complete frame/denv references and their root lifetime.
+   Another wrapper may alias them; request completion cannot discharge that debt.
+3. If the callback/global/mailbox/native client exposes an object outside an
+   independently collectible region, publication must retain the source and
+   install the required target/incoming-edge protection before source ACK.
+   Under a coordinated VM cut, cross-context edges remain within that cut.
+4. A native borrow retains its source/record lifetime separately from active
+   pointer access. It must park/reload, use a qualified handle/pin, or prevent
+   the affected movement. Retention does not legalize a racing raw read.
+5. Each continuation shot acquires current execution/domain/root permission,
+   reloads moved references and performs required Scheme winding effects.
+   Shared mutation remains shared; restoring control is not rolling back data.
+6. Moving a logical computation to another carrier differs from relocating its
+   objects or transferring it to another VM. Unsupported closure/native-resource
+   transfer must be rejected before effects; no transparent arbitrary migration.
+7. Exception, cancellation, callback deletion and unknown return preserve the
+   unresolved root, region and resource custodian. Exact last users, not request
+   return or a generation number alone, permit reclamation and reuse.
+
+This case amplifies Gambit's control freedom by making supported execution and
+resource dependencies explicit. It does not restrict continuations to one shot
+or imply a captured native activation is safe on every target.
+
+* RESEARCH Papers change questions, not proof authority
+
+#+NAME: paper-to-heap-decision
+| Inspected source | Mechanism / caution | Gambit decision question |
+|------------------+---------------------+--------------------------|
+| [[https://www.steveblackburn.org/pubs/papers/julia-ismm-2025.pdf][Julia ISMM2025, roots and moving plans]] | A live referent can have references not available for repair | Are our actual locations, including native and captured aliases, complete? |
+| [[https://iris-project.org/pdfs/2026-pldi-parabs.pdf][Parabs PLDI2026, blocking and limitations]] | Worker shutdown participates in queue termination; proof assumes SC and has language-feature limits | Which C23/exception/control premises remain ours to establish? |
+| [[https://arxiv.org/html/2609.13186][Verified generational C GC, 2026 preprint]] | Concrete mutator/root interface; single-thread core | Which conditional data/API premises can generated C meet without importing a parallel proof? |
+| [[https://www.steveblackburn.org/pubs/papers/iso-pldi-2025.pdf][Iso PLDI2025, publication/native/bulk writes]] | Request privacy needs visibility tracking | Does a retained continuation or FFI reference invalidate the proposed request boundary? |
+
+See the survey for publication and exact read scopes, Feeley's ongoing work,
+evaluation methodology and preprint limits. The candidates above are Gambit
+inferences, not claims that those authors verified our runtime.
+
+* RESEARCH Exclusive existing model owners and remaining coverage
+
+#+NAME: heap-domain-proof-ownership
+| Existing owner / subject | Consumed result | Not established here |
+|--------------------------+-----------------+----------------------|
+| QNT shared_heap_cut + rc_freeze_publication | Bounded publish/freeze/borrow/copy-close/reload/unknown-effect protocol in its declared cut | Arbitrary independently collecting domains, C weak memory or a new regional write barrier |
+| QNT work/last-user/retirement models | Existing task/queue/private debt and stop/reuse slices | Whole scheduler, all producer code or arbitrary native death recovery |
+| Lean RelocationSlots / existing data owners | Conditional canonical-slot rewriting, aliases and live forwarding identity | Actual writer completeness, C representation/ABI or another temporal protocol |
+| Source SH-CUT-S -> SH-ALIAS-S -> SH-BOUNDARY-S | Actual cut, alias and control/resource adapters under their own clauses | Source anchors, paper claims and model-file presence cannot supply attestation |
+| Native SH-EXEC-N / SH-COST-N | Whole affected execution and matched resource/performance evidence | No native test or performance benefit is produced by this design update |
+
+SysML adds source arguments within their existing adapter owners; cross-adapter
+composition uses the existing question dependency graph. No second graph-law
+test in QNT, no scheduler induction in Lean, and no duplicated theorem is added.
+Independent-domain behavior outside current QNT scope stays OPEN; running many
+copies of the same local model would not prove global composition.
+
+* RESEARCH Benefit, cost and whole admission
+
+#+NAME: sharing-domain-benefit-cost
+| Mechanism | Potential benefit | Added cost / counterexample | Measurement still required |
+|-----------+-------------------+-----------------------------+----------------------------|
+| Local allocation | Less allocator coordination, better locality | Refill slack and cross-context publication can dominate | Matched allocation throughput, cycles and peak reserved/occupied memory |
+| Minor scan exclusion | Avoid eligible mature interiors | Stores to mature frames, denv or FFI bypass remembered edges | Young survival/promotion, dirty-source volume, all barrier paths and total minor/major work |
+| Explicit per-shot roots | Preserve reusable control without rediscovering unsupported ownership | Retained graphs, frame copying and wind effects remain real work | Capture/restore frequency, rewritten slots, per-shot cost and retained peak |
+| Smaller collection domains | Reduce coordinated participant and root work | Cross-region barriers, pinning, promotion or unknown borrower can erase benefit | Rendezvous tail, graph span, cross-domain edge traffic and delayed reclamation |
+| Independent worker tasks | Balance accepted work independently of root-source count | CAS/query/last-user/space handoff overhead | Total CPU/work versus elapsed time, W/R sensitivity and capacity/retention |
+
+Time savings and space cost are separate dimensions. Correctness precedes net
+benefit. A finite worker budget or one request's completion supplies neither a
+constant pause nor a bounded-retention guarantee under arbitrary native/OS
+failure or user-retained continuations.
+
+Whole admission remains the same five gates: complete cut and incoming edges;
+actual alias/root repair; supported control/native/domain semantics; full native
+execution/PBT; matched cost/peak. The next complete implementation boundary is
+the same-VM sharing/root/native handoff under the selected cut, including partial
+publication and failure custody. Generational exclusion, independent regions
+and actor isolation are separately admitted policies on that foundation, not
+additional fixes silently bundled into its REV.
+
+* RESEARCH Cross-region incoming edges: one complete source adapter
+:PROPERTIES:
+:CUSTOM_ID: cross-region-incoming-edges
+:AUTHORITY: SH-CUT-S / crossRegionIncomingEdges
+:STATUS: source-clause-open; native-and-cost-open
+:END:
+
+The SysML =crossRegionIncomingEdges= case belongs to the existing
+=freezePublish= clause. =regionCollectionPartition= consumes it through an
+explicit same-adapter dependency; alias and native/control composition follows
+=SH-CUT-S -> SH-ALIAS-S -> SH-BOUNDARY-S=. This section explains that contract,
+not an additional authority or an implemented regional collector.
+
+** Actual writers and consumers
+
+Paths below are relative to =vendor/gambit=. The SDK binds source-site anchors
+and working-byte hashes in the retained receipt. These are reviewed seams with
+explicit remaining coverage, not a claim of exhaustive transitive call closure.
+
+#+NAME: cross-region-source-writers
+| Writer / actual source | Concrete path and observation | Required edge treatment | Remaining implementation or coverage gap |
+|------------------------+-------------------------------+-------------------------+------------------------------------------|
+| Ordinary pair mutation | gsc/_t-c-2.scm maps set-car!/set-cdr! to SETCAR/SETCDR; include/_gambit/gvm_operations.h.in assigns fields directly | Cover a visible source slot pointing into a collected region | Current direct stores do not provide a complete regional/generational barrier |
+| Vector / structure / closure | Same emitter maps VECTORSET, UNCHECKEDSTRUCTURESET and CLOSURESET; module_generation.h.in SET_CLO writes free variables; VECTORCAS is a distinct CAS path | Cover boxed reference fields; successful CAS installs an edge; failed CAS may conservatively dirty | Audit macro-generated boxed bulk move/fill/copy and all direct native accesses; numeric payload bytes are not automatically reference slots |
+| Generated barrier reservation | targ-apply-simp-generator has if #f around ssb-space reservation | Obtain bounded log/card metadata before the semantic store; no hidden GC within the store/commit span | Historical SSB parameters do not establish an active barrier or overflow protocol |
+| Active / captured frames | stack_operations.h.in FP_SET_STK; _kernel.scm frame-set!, continuation-set!, frame/denv setters and continuation-copy | Distinguish active direct roots from mature captured interiors; preserve shared aliases and exact frame coordinates | Source slot coverage must reach both heap and stack branches and every restore consumer |
+| Reconstruction | _io.scm implode-frame fills a new frame through frame-set!; implode-continuation constructs frame/denv references | Unpublished construction can omit repeated barriers only with complete initialization and first-publication ordering | Interrupts-disabled code alone does not establish cross-thread exclusion or a published-object exception |
+| Root/global publication | _mem/global-bindings.inc try_store_global uses WORD_STORE_RELEASE after admission; generated/global and symbol/keyword roots retain their existing owners | Scan admitted direct roots each cut, or explicitly register incoming roots for a finer cut | A root release does not cover ordinary heap stores; cross-VM services remain explicit dependencies |
+| Native canonical root | _mem/rc-allocation.inc store_rc_root validates current source/domain and activation/borrow before writing under RC_LOCK; _mem/rc-roots.inc mark_rc scans data and typed payload | Retain root source, freeze access, scan/rewrite canonical locations and reload borrowers | This protects admitted root cells, not every address cached by foreign code or every mature object interior |
+| Native entry generation | gsc/_ptree2.scm root-arguments emits SFUN_ROOT_ARG before allocating conversion/marker; foreign_conversion.h.in later routes SFUN_ARG through the scope | Parent protection precedes registration; preserve source-to-target install/ACK, park/reload and exception custody | Full conversion/callback/raw-pointer producer closure and actual per-shot reentry remain source/native gates |
+| Collector relocation | _mem/continuation-roots.inc mark_frame and captured-continuation paths rewrite slots, publish scans and commit copy grants | Update all incoming references under copy/scan authority; preserve dirty-source identity across movement | Physical address rewrite is not a semantic mutation/revision; promotion must retain residual cross-region edges |
+
+Root update and remembered-edge update have different jobs. A root source that
+is scanned every minor need not be treated like an omitted mature heap interior;
+a smaller cut must nevertheless find every native/root reference into it. Still
+allocation and pinning likewise do not exempt pointer-bearing bodies from edge
+coverage. The complete bulk/native caller inventory is still OPEN.
+
+The paper evidence informs three different choices. In [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][OCaml ICFP2020,
+sections 1.3 and 4.4]], local young heaps can admit inter-heap references when
+minor collection coordinates; this avoids making C reads new safe points. This
+is a tradeoff to study, not Gambit admission. [[https://www.steveblackburn.org/pubs/papers/iso-pldi-2025.pdf][Iso PLDI2025, section 4]] reports
+separate bulk/native barriers and an initialization/publication reordering bug;
+these motivate our writer inventory and first-escape rule. [[https://www.steveblackburn.org/pubs/papers/julia-ismm-2025.pdf][Julia ISMM2025,
+section 3.4]] distinguishes identifying referents from finding repairable root
+locations; its transitive-pinning experience motivates checking descendants,
+rather than assuming a top-level native pin solves movement. Their measured
+results are not transferred into Gambit's benefit matrix.
+
+** Publication, update and last-use protocol
+
+Let C be the physical regions moved by one cut. Its incoming references comprise
+all admitted direct roots plus slots in storage outside C whose referents are in
+C. Privacy is a proven reachability/access property, not the allocation address.
+
+1. Protect source and target canonical references before any allocation,
+   conversion, callback or other collecting boundary. Reload them after that
+   boundary before using physical addresses. Unpublished construction separately
+   requires a valid scan shape and complete initialization before first escape.
+2. Enroll the semantic writer under the selected source/domain epoch, validate
+   its source slot and reserve any metadata capacity before mutation. The
+   admitted span covers the physical store and incoming-edge metadata commit.
+   It cannot allocate, secretly collect or reenter through an unqualified hook.
+3. A coordinated-cut candidate closes writer admission and drains admitted
+   spans before trusting the frozen edge view. Release publication of the
+   completed view pairs with acquire consumption; this does not legalize racing
+   plain C field accesses. A concurrently mutating alternative needs a separate
+   rescan/epoch argument and actual atomic access discipline, not a fence alone.
+4. Log-before-store alone is insufficient: a scanner can consume the old slot
+   before its later mutation. Log-after-store alone is insufficient: phase close
+   can intervene. The writer enrollment/drain must cover both. A failed CAS
+   installs no new edge; a conservative dirty entry may survive but cannot serve
+   as a successful-install ACK.
+5. Metadata overflow must use pre-reserved space, conservative full coverage or
+   a merged/coordinated cut, or refill before mutation at a complete-frame safe
+   point. Preserve valid Scheme mutation; do not reject ordinary sharing to make
+   a region appear private. Failure retains the original roots and write debt.
+6. Scan using the frozen or otherwise qualified view; repair actual source
+   locations through canonical identity. A raw slot address is not a durable card
+   identity if its source can move. Promotion and bulk relocation must record
+   residual outgoing edges needed by subsequent cuts.
+7. Clear/retire metadata only after its covered writes, scan updates and old
+   readers settle. Unknown store/commit/return keeps source, target, roots and
+   unresolved writer responsibility in custody. Query the existing operation;
+   blindly repeating a Scheme mutation or callback can duplicate effects.
+8. A native loan preserves lifetime separately from access. Park raw access and
+   reload canonical values after reentry, use a fully qualified nonmoving policy,
+   or exclude the affected movement. Pinning an outer object does not validate
+   raw pointers to its movable descendants. Unknown native access cannot be
+   declared stopped from a timeout or failed join.
+
+This is the required replacement for implicit direct-store assumptions. It is
+not evidence that a C23 remembered set or independently collecting domain has
+already been implemented. Existing QNT slices cover declared temporal premises;
+existing Lean laws cover conditional slot/alias rewriting. Neither is extended
+with a duplicate proof to turn a missing C adapter into a checked result.
+
+** map, two restores and native access: joint acceptance history
+
+The real implementation is =lib/gambit/list/list.scm=, included by =_std.scm=.
+Its primitive =map-1*= executes =proc=, recursively computes =tail=, then creates
+=cons= through =let*=. The multi-list branch similarly evaluates =apply proc=
+before recursion and construction. This is the source order for this case; it
+is not a claim that every possible Scheme map implementation has that order.
+
+#+NAME: map-region-joint-history
+| Step | Actual semantic / source obligation | Failure or counterexample retained |
+|------+-------------------------------------+------------------------------------|
+| Capture in proc | Pending map recursion, result and shared cell remain represented by frame/denv roots | A request-local lifetime cannot discard the captured graph |
+| Retain two wrappers | continuation-copy copies frame/denv references into another wrapper | Independent wrapper identity does not imply independent mutable environment |
+| Mutate after retention | Store a new young referent through a shared cell or mature captured frame; include reflective/reconstructed paths | Missing one actual writer makes mature-interior omission unsound |
+| Enter native code | Establish parent-root protection, RC/activation ownership and borrowed access before conversion/marker | Root lifetime alone cannot repair an untracked interior pointer |
+| Attempt collection | Freeze selected incoming edges, park native access, reserve copy/restore space and retain unknown debts | Any unqualified dependency refuses or broadens the affected cut, without erasing roots |
+| Restore twice | Reload relocated frame/denv/cells each shot, preserve alias observations and Scheme-owned dynamic-wind effects | Deep-copying the environment, consuming a one-shot token or replaying native effects changes semantics |
+| Exit / delete / late return | Settle root, native resource and metadata last users independently of request completion | A delete/return observation cannot retire an outstanding access or unknown write |
+
+The runtime thread can implement this as one end-to-end acceptance case, with
+PBT replay/shrinking for legal histories against the real implementation. Do not
+claim a model-only random trace validates the generated C/FFI path. Required
+negative histories include both log/store order races, overflow before mutation,
+CAS failure, source relocation, delayed native return and restoration after the
+original request exits. No larger heap or longer timeout supplies admission.
+
+** Coordinated versus independent collection
+
+#+NAME: regional-cut-admission
+| Situation | Admissible decision | Reason / unresolved dependency |
+|-----------+---------------------+--------------------------------|
+| Cross-context young pointers with only VM-wide complete roots | Coordinate the relevant VM young cut | Local placement alone cannot find every external source slot |
+| Shared mature graph with complete remembered incoming edges | Permit mature-interior omission within the qualified cut | Shared reachability and age are independent; direct roots and dirty portions remain scanned |
+| Complete incoming locations, stopped/qualified external accesses, unique copy/work/last-user closure and sufficient physical reserve | Candidate independent cut of C | Must demonstrate no dependency requiring unaffected participants; current source/native adapter remains OPEN |
+| Raw pointer or writer not under the protocol | Do not independently move the affected referents/regions | Conservatively scan/coalesce or retain nonmoving storage under a qualified policy; arbitrary failure recovery is not promised |
+| Disjoint region with proven absence of relevant dependency | Its GC need not wait for the unrelated unknown owner | Requires complete dependency/last-use evidence, not merely a different VM/worker number |
+| Retained continuation or native resource crosses request lifetime | Keep the graph/resource under its actual collection and access owners | Request completion is not a privacy or reclamation seal |
+
+** Quantitative work and peak-memory bounds
+
+Use the same workload, source/profile, allocation volume and budget. Let S be
+baseline scanned pointer slots in a declared comparison interval; let A be slots
+safely omitted, and I the additional incoming/card scanning work not already in
+S. Candidate scan work is S - A + I, with overlapping roots/cards deduplicated
+in the accounting. Thus scan reduction alone is A - I; it is not a speedup.
+Use the same units throughout a comparison, such as slots or bytes by shape.
+
+#+NAME: incoming-edge-net-benefit-matrix
+| Dimension | Benefit bound / condition | New charge / falsifier | Current evidence |
+|-----------+---------------------------+------------------------+------------------|
+| Pointer scan | A - I positive; A cannot exceed the eligible omitted portion of S | Full/unknown writer coverage forces the affected omitted portion back into S | Source mechanism only; counts unmeasured |
+| Store path | Scan CPU saved must exceed total barrier CPU across actual stores, including unsuccessful CAS/overflow bookkeeping | High write traffic or dirty coverage approaching the whole mature graph can erase the gain | Barrier implementation and matched cost unmeasured |
+| Coordination | Count removed participant rendezvous and unaffected root work | Cross-region/native dependencies can require the original coordinated cut | Independent-cut admission unproved |
+| Promotion/copy | Charge survival/promotion once in the selected CPU interval; account residual edges | Extra promotion, duplicated scanning and reserve fragmentation may exceed omitted work | Source/capacity refinement open |
+| Control / FFI | Keep multi-shot semantics while avoiding unnecessary graph rediscovery where admissible | Frame materialization, per-shot reload/winding, native retention and access checks remain | Whole generated/native case not executed here |
+| Peak memory | DeltaPeak = max_t M_candidate(t) - max_t M_baseline(t) | Simultaneously live nursery slack, metadata, pinned/retained graphs and copy/restore reserves count; later refunds cannot lower an earlier peak | No measured peak or percentage claim |
+| Wall latency | Savings depend on dependency span, worker budget and rendezvous/native-stop tail | Summing overlapping CPU/phase times or dividing copied bytes by W is invalid | No throughput, pause or speedup claim |
+
+CPU net benefit requires saved scan/coordination/control CPU to exceed barrier,
+incoming-scan, additional promotion, protocol and retention-pressure CPU, measured
+without double counting. High continuation escape can defeat request-private
+optimization while leaving generational optimization viable. An unqualified
+writer can veto movement entirely; performance arithmetic cannot override it.
+
+All five joint gates remain OPEN. This delivery supplies the integrated source
+argument, missing adapter contract and falsifiers; it does not change 4/4, 1/12
+or the separate repair-line counter. A complete implementation must replace all
+admitted writer classes and old implicit scan assumptions under its selected
+cut before retiring those responsibilities, then pass the whole history and
+matched cost/peak gates. Unknown native extensions retain conservative coverage
+or an explicit unsupported movement boundary rather than a fictitious closure.
+
+* RESEARCH Bulk writes and native addresses: integrated implementation boundary
+:PROPERTIES:
+:CUSTOM_ID: bulk-foreign-write-custody
+:AUTHORITY: SH-CUT-S / bulkForeignWriteCustody
+:STATUS: source-clause-open; implementation-and-native-open
+:END:
+
+SysML owns the =bulkForeignWriteCustody= case and its dependency into
+=crossRegionIncomingEdges=, then =regionCollectionPartition=. Its two access
+families inventory bulk candidates and native address/root candidates under the
+existing source scopes. The SDK retains membership, branches, occurrences and
+byte identities; ASCENT keeps them lexical-only. The tables below classify
+reviewed mechanisms. Neither inventory family establishes complete alias/caller
+resolution, compiled-branch coverage or arbitrary extension behavior.
+
+** Producer-to-store coverage and exclusions
+
+#+NAME: bulk-native-real-writers
+| Producer / consumer, relative to vendor/gambit | Actual write or access path | Required replacement / qualification |
+|----------------------------------------------+-----------------------------+--------------------------------------|
+| lib/gambit/vector/vector.scm -> lib/_std#.scm | Boxed vector and internal values instantiate define-prim-vector-procedures; vector-copy! and subvector-move! converge on the C memmove branch; non-C move uses directional setter loops | Bind macro instance and actual target branch; a VECTORSET-only barrier misses the C path |
+| lib/_std#.scm fill, copy, append/concatenate, insert/delete/update producers | fill uses prim-vect-set!; copy helpers pass newly allocated results to prim-subvect-move!; other helpers share the same move primitive | Classify each destination as private initialization or visible mutation; caller type alone grants no permanent barrier exemption |
+| include/_gambit/gvm_operations.h.in | SUBVECTSMALL and vector/values small-copy families cache a body address and initialize new slots through allocation macros | Root before any newly introduced collecting reservation; derive body addresses afterwards; retain initialization and first-publication responsibility |
+| lib/_mem/object-allocation.inc; setup.c; symbols.inc | make_vector fills slots; module descriptors/program vectors and symbol-table rehash insert references directly | Initialization, visible root-container mutation and permanent-table updates have different lifetime/scan owners; permanent storage may still contain edges requiring coverage |
+| lib/_mem/allocation-limits.inc | Stack growth uses memmove for frame words and updates break-frame coordinates | Existing FrameSpec/root/restore authority owns this move; ordinary object-card accounting cannot replace it |
+| lib/c_intf.c SCMOBJ_to_POINTER / POINTER_to_SCMOBJ | FOREIGN unwraps native address; wrapper construction stores Scheme tags, native release callback and opaque address | Classify the fields by representation and referent owner; do not treat the native address as automatically traced Scheme data |
+| lib/c_intf.c SCMOBJ_to_NONNULLSTRING and release_string | Encoded strings are written into allocated RC byte buffers | Charge native allocation/conversion/last use; byte payload is not a boxed Scheme-reference span |
+| lib/_mem/rc-allocation.inc; lib/_c_intf/sfun-entry.inc; setup.c | data_rc returns a snapshot; borrow returns a canonical cell under source admission; SFUN and startup/resize use rooted cells | Stable RC record, canonical Scheme root and active raw address have separate lifetimes; reacquire and reload at collecting/reentry boundaries |
+| examples/tcltk/command.h -> tcltk.scm | Create roots proc, allocates vector and directly assigns VECTORELEM, then transfers RC payload to Tcl; call pins record before callback; Scheme callback reloads payload; delete releases Scheme and RC ownership | Cover the constructor store and every install/failure/delete/in-flight callback path, including escape before the normal release; an addref is not a GC access permit |
+| gsc/_t-c-2.scm c-code emission; native CFUN/SFUN consumers | Constant C source is emitted verbatim with argument bindings; scheme-object and derived addresses may escape in user C | Admit an explicit extension set with layout/effects/callback/root/access/exit declarations or conservatively withhold affected movement; generator syntax cannot prove arbitrary C code safe |
+
+Unboxed strings/numeric-vector copies, label-table moves, queue metadata copies
+and bit-preserving scalar copies are not automatically boxed edge stores. They
+still require valid address lifetimes and their own synchronization. Generated
+=_std.c= corroborates emitted memmove variants but is not an exact current
+producer/target-build receipt. Canonical Scheme/header producers remain the
+modification owners; do not repair only a stale generated C instance.
+
+The source review reaches the primitive/macro/native seams above. Exhaustive
+selected-module caller and alias closure still requires resolving indirect and
+verbatim C accesses against the actual generated products. External extensions
+are a declared admission boundary, not a finite set that repository grep can
+prove complete. A missing declaration keeps the affected movement unsupported;
+it does not silently change ordinary Scheme sharing semantics.
+
+** One physical-write and access lifecycle
+
+Use the existing activation/root/domain owners rather than an independent
+registry. The following record requirements specify facts, not a new public API:
+source and destination canonical identities; typed offset/range; layout revision;
+source/domain epoch; admitted writer identity; reserved metadata; optional rooted
+chunk input; completed progress; outstanding native readers/writers and outcome.
+Logical identity and offset survive source relocation through qualified lookup;
+a physical pointer is valid only within its admitted span. Generation wrap and
+record reuse remain subject to the existing checked arithmetic/last-user rules.
+
+#+NAME: bulk-native-custody-phases
+| Boundary | Necessary rule | Failure / unknown custodian |
+|----------+----------------+------------------------------|
+| Validate / protect | Force/check arguments and compute checked ranges before mutation; hold source/destination/fill roots before metadata or staging allocation | Parent/root owner retains inputs if reservation fails |
+| Reserve / derive | Reserve complete dirty-range coverage or a conservative fallback; after any collecting step reload both bodies from canonical roots | Unaccepted span installs no edge; do not retain a stale body address across reservation |
+| Admit physical span | Enroll actual writer and native access under source/domain; validate epoch, offsets and layout; exclude relocation and conflicting unqualified access | Unknown admission retains original root and operation identity until query settles |
+| Mutate / record | Preserve memmove overlap order or a qualified equivalent; commit write plus edge coverage before releasing writer authority | Source/destination regions and the writer record retain uncommitted/unknown work; no unrooted progress cursor |
+| Cut / update | Close new spans, drain known admitted writes, scan actual incoming slots and rooted staging, rewrite canonical references, preserve residual promotion edges | Metadata existence cannot make a partially written pointer a valid scan slot |
+| Resume / retire | Reacquire permissions, reload moved addresses and resume only known remaining work; retire metadata/staging/RC storage after all last users | Late callback/writer or unknown result retains custody; request return and failed join grant no physical reclamation |
+
+The candidate C implementation uses release publication of completed metadata
+and acquire consumption under a closed/drained cut. Plain memmove accesses must
+not race collector or native accesses; adding a fence cannot repair such a C
+data race. The actual selected C23 atomic backend, storage alignment and writer
+closure need source and native evidence. General concurrently mutating bulk
+copy requires a separate qualified algorithm and stays outside this boundary.
+
+An ordinary GC write permit does not grant application-level exclusion between
+two conflicting vector mutations. Preserve existing serial semantics and use
+the declared synchronization/atomic-operation contract for concurrent clients;
+do not advertise whole-copy atomicity from a GC card or RC lock.
+
+** Overflow, overlap and interruption have one custody rule
+
+Before the first destructive store, metadata failure permits refill at a
+complete-root safe point or selection of conservative scan/coordinated-cut
+coverage. Neither branch may silently omit the write, reject valid Scheme
+mutation or collect while a cached physical pointer is live. Failure after a
+completed chunk preserves its edge coverage and retains all remaining debt.
+
+Long bulk operations also need an explicit GC-latency policy. One unbounded
+noncollecting memmove would retain a valid root view but may delay a cut for its
+entire duration. A bounded-chunk candidate must preserve directional overlap,
+store progress in canonical coordinates and only park between scan-valid chunks.
+Choose the chunk budget from the declared latency/metadata constraints; no magic
+constant, inserted yield or longer watchdog constitutes a bound.
+
+Unknown completion of an overlapping chunk cannot be resolved by repeating the
+original memmove: some of its input may already have been overwritten. Recovery
+requires a rooted, complete input for the chunk before its first destructive
+write, an unambiguous progress/ownership record, and proven closure of the old
+writer/helper before reconstruction. Moving the source requires rewriting the
+staging roots as well as source/destination handles. Raw destination words may
+be partially written; reconstruct a valid chunk before granting its scan access.
+A dirty card alone supplies neither scan validity nor permission to repair
+concurrently with a late writer. Merely making the writes word-sized also does
+not determine which writes completed.
+
+Two policies must remain explicit: cooperative bounded spans retain the affected
+region while a write outcome/stop is unknown; a recoverable-span policy adds the
+rooted input and settlement machinery above. The latter is not implemented or
+proved here. Arbitrary OS-thread death, cross-library longjmp or continuation
+escape through an unqualified C span cannot acquire a recovery guarantee by
+naming an exit guard. Unrelated GC progress is possible only with independently
+closed access/dependency domains.
+
+In the map case, the shared vector may be reachable from both retained
+continuation wrappers and Tcl's RC payload. A callback deletion can release
+Tcl's installed ownership while an in-flight pin still retains the record.
+Normal callback return releases that pin; exceptions/nonlocal escapes require
+an actual cleanup/custody path. Each continuation shot reloads the current graph
+and performs its own winding effects. Settling a bulk-copy outcome does not
+permit replay of a user callback or undo shared mutation.
+
+** Complete implementation and acceptance boundary
+
+#+NAME: bulk-native-whole-acceptance
+| Existing joint gate | Complete acceptance content | Current gap |
+|---------------------+-----------------------------+-------------|
+| SH-CUT-S | Selected producer/target/extension inventory; boxed bulk, scalar, private initialization and raw native access all reach the admitted cut; overflow, physical span and GC update compose | No qualified regional barrier, chunk recovery or complete extension access closure |
+| SH-ALIAS-S | Canonical source+offset/layout identity; root and staging rewrites; preserve overlapping-copy effects and map multi-shot aliases | Actual generated/reference consumers must establish existing Lean slot premises; no new theorem is claimed |
+| SH-BOUNDARY-S | Parent install/ACK, native park/reload, Tcl construction/callback/delete and abnormal exit settle their last users | Normal return paths are visible; arbitrary escape/late access recovery remains unqualified |
+| SH-EXEC-N | Whole real generated-C PBT/replay/shrink population: overlap both directions, zero/edge ranges, boxed values, old-to-young fill, overflow before writes and at chunk boundaries, source/destination movement, callback deletion/conversion failure/unknown exit, two map restores and winding | No native execution in this research delivery; model histories are not substitutes |
+| SH-COST-N | Matched total work, CPU/wall, longest noncollecting span and simultaneous peak under unchanged workloads/budgets | No measured benefit, stop bound or native peak claim |
+
+The implementation unit replaces the C bulk-move emitter/span, scalar/fill
+admission, small-constructor first-publication path and selected native
+reader/writer/exit adapters together. Root/task and GC consumers must understand
+its canonical ranges and unresolved writes. Retire implicit raw-address validity
+and per-element-only coverage only after every admitted producer reaches that
+consumer contract. Existing QNT temporal slices and Lean data laws remain
+exclusive owners; bulk progress and extension/source refinement stay explicit
+premises, not duplicate models or another countable SMP milestone.
+
+#+NAME: bulk-native-benefit-and-cost
+| Mechanism | Quantified boundary | Added cost / falsifier | Measurement |
+|-----------+---------------------+------------------------+-------------|
+| Range metadata instead of n scalar barriers | n boxed writes can share one admitted range; for card size g slots and first-slot offset o, touched cards = floor((o+n-1)/g)-floor(o/g)+1 for n>0, zero for n=0 | Metadata representation must cover every touched slot after movement; scanning entire dirty cards adds unrelated slots | Unmeasured; no O(1) total-copy claim |
+| Bounded recoverable chunk of b boxed slots | Raw copied bytes remain n*WS; rooted chunk input needs at least b*WS payload bytes when promised, plus its descriptor/roots; full input snapshot needs n*WS | Additional staging read/write, root scans, retention and ownership settlement; overlapping copy forbids blind retry | Design bound only; no measured speedup |
+| Independent GC while native runs | Benefit applies only when all affected referent accesses are parked, repairable or qualified nonmoving | Native last-use/affinity and descendants can merge domains or pin large graphs | Admission and matched cost open |
+| Private initialization specialization | Avoid per-element remembered-edge work only until proven first publication | Constructor allocations, callbacks and new barrier allocation can invalidate cached source pointers | Actual generation/consumer qualification open |
+| Peak and pause | Add concurrently live staging+metadata+retained graphs to the existing peak formula; bound each admitted physical span separately | Post-GC refunds do not lower an earlier peak; chunk size alone gives no wall bound under OS stalls | Unmeasured |
+
+This boundary learns from [[https://www.steveblackburn.org/pubs/papers/iso-pldi-2025.pdf][Iso's bulk/native/publication interface findings]] and
+[[https://www.steveblackburn.org/pubs/papers/julia-ismm-2025.pdf][Julia's root-location and native-access experience]]. It does not transfer their
+results, collectors or evaluation percentages into Gambit. The remaining work
+is a whole real writer/access replacement and its joint native acceptance, not
+more source anchors or a local memmove check presented as closure.
+
+** Source-period boundary of this design observation
+
+The queue/translation-unit review is retained historical evidence. The current
+checkout has subsequent changes in =copy-reservations.inc= and =diagnostics.inc=
+owned by the runtime thread. The research checker preserves the prior reviewed
+bytes/coordinates against its content-addressed successful observation and
+records current hash/coordinate deltas in =sourcePeriodSeparation=. It does not
+update old hashes, silently reuse preprocessing as current qualification or edit
+the other owner's source/build. Current SDK inventory remains bound to the
+current working bytes; affected original native captures require recapture by
+their owner. Formal/design checks and newly inspected bulk/native seams can be
+reported at their own scope while all source/native admission remains OPEN.
+
+* RESEARCH Concrete branch, alias and staging refinement
+:PROPERTIES:
+:CUSTOM_ID: bulk-branch-alias-refinement
+:AUTHORITY: SH-CUT-S / bulkBranchAliasRefinement
+:STATUS: reviewed-source-mechanisms; whole-adapter-and-native-open
+:END:
+
+This refinement belongs to the same implementation unit. SysML makes
+=bulkForeignWriteCustody= consume =bulkBranchAliasRefinement= before incoming-edge
+or independent-domain admission. No additional progress counter or proof owner
+is created. The observed generated file is separately hashed as a source site;
+its existence is not a receipt that today's canonical producers generated it.
+
+** Actual branch and caller chains
+
+#+NAME: resolved-bulk-native-chains
+| Chain | Resolved branch / caller / consumer | Established source fact | Remaining acceptance |
+|-------+------------------------------------+-------------------------+----------------------|
+| Boxed in-place move | _gambit#.scm macro-case-target -> _std#.scm define-prim-vector-procedures -> vector/vector.scm vector instance -> vector-copy!/subvector-move! -> ##subvector-move! -> c-code -> memmove | Target is read from compilation-options and defaults to C; explicit c/C branch uses word-sized boxed payload | Actual target/options and regenerated artifact must match; user synchronization and new write permit remain required |
+| Generated primitive caller | _std.c L4 ##vector-copy! saves/reorders stack/register operands, POLLs, then JUMPPRM ##subvector-move!; its body maps ARG1/2 to stack and ARG3/4/5 to registers before deriving addresses | Existing generated consumer has a pre-move complete-root boundary, not a safe point inside the memmove | New reservation belongs before final address derivation; verify real FrameSpec/live roots and current-build identity |
+| Boxed fill | vector-fill! -> ##subvector-fill! -> ##vector-set!; generated L3 ##subvector-fill! does VECTORSET then POLL | There are existing iteration boundaries and live vector/fill roots; this differs from a single raw bulk span | Commit edge metadata before the poll; a whole-loop borrowed raw pointer cannot cross it |
+| Internal boxed values | values macro instance -> ##values-copy / ##subvalues-move! -> FIELD(BOXVALUES) word memmove | The branch is boxed despite lacking the public vector API; generated labels corroborate it | Cover internal consumers and small-copy specialization; do not infer that every values-named public wrapper exists |
+| New-destination callers | vector-copy/subvector, insert/delete and append/concatenate allocate results then call the move primitive, sometimes multiple times | The same callee serves private construction and visible mutation; append separator and element list supply multiple source aliases | Keep all source/result roots through allocation; justify no-escape per caller and first publication, rather than omitting barriers by callee name |
+| Non-C fallback | Else branch selects backward or forward setter loop | This is an alternative target implementation, not the native C memmove behavior | Do not count fallback tests as C-branch acceptance |
+| Tcl registration | tcltk.scm ##tcltk-define-procedure c-lambda -> scheme_create_cmd -> RC proc cell -> vector element -> RC vector cell -> Tcl_CreateCommand | The direct vector write and root installation are real native producers; accepted registration transfers installed ownership | Parent protection/conversion, result-loss handling and all failure exits need exact generated/native validation |
+| Tcl invocation and deletion | scheme_call_cmd pins RC record -> tcltk_call c-define -> ##tcltk-command-payload/data_rc -> vector-ref/apply; scheme_delete_cmd releases installed Scheme/RC ownership | Native record and movable payload are different identities; Scheme reload happens after entry | In-flight and deleted ownership coexist; abnormal exit before post-call release needs an explicit custodian |
+| Native function conversion | SCMOBJ_to_FUNCTION checks static c-define host; otherwise make_c_closure conditionally allocates RC code and stores proc; begin_sfun reads self and borrows canonical payload | Static host and dynamic RC trampoline have different lifetimes; root repair concerns the payload rather than instruction bytes | Dynamic implementation is CPU/ABI dependent; observed source has no general arm64 code-size branch. Do not claim that branch works or was executed on this target |
+| Opaque pointer / copied string | SCMOBJ_to_POINTER reads FOREIGN_PTR; release_pointer does not free external payload; string conversion allocates RC byte storage | These are not interchangeable with Scheme-body aliases or scannable root arrays | Any native structure containing Scheme pointers needs declared root locations/access; copied byte lifetime remains a resource obligation |
+
+These are manually resolved mechanism chains grounded in actual definitions,
+call sites and generated labels, beyond the lexical candidate inventory. The
+remaining gap is not finding more identical tokens: it is qualifying selected
+compiled consumers, indirect/native aliases and every relevant escape path.
+=c-code= can contain arbitrary user C, so admission is relative to an explicit
+extension/module set. No finite repository inventory proves unknown extensions.
+
+** Alias classes and the overlap invariant
+
+#+NAME: bulk-alias-classes
+| Alias class | Required observation / classification | Custody consequence |
+|-------------+---------------------------------------+---------------------|
+| Same canonical source/destination, overlapping ranges | Object identity plus offsets, not physical addresses; right shift copies backwards, left shift forwards | Chunk order and saved input must preserve original serial memmove contents |
+| Same object, equal ranges or zero length | Preserve return/effect contract and checked bounds; no spurious payload work | Metadata may be empty, but entry/root/exit obligations cannot be guessed away |
+| Distinct vectors with shared referents | Copy reference slots; do not deep-copy their objects or merge identities | Retain equality/aliases through GC and every continuation shot |
+| Shared vector reachable through two map continuation wrappers | Wrapper copy preserves shared frame/denv graph and shared data mutation | Request exit and one restore do not release the other shot's graph |
+| Tcl RC pointer copied among native owners | Copies alias one RC identity; its data cell can be rewritten to a moved payload | Pin-before-payload access, source freeze and canonical reload are distinct obligations |
+| Raw body/interior pointer cached by native C | Address aliases a particular physical span, not an eternal logical object | Close access before movement; otherwise retain/exclude the affected movement |
+| Static host or dynamic trampoline pointer | Code address does not itself identify all Scheme roots or an admitted VM | Separate code lifetime, RC payload, ABI, self identity and callback last use |
+
+Let the same-object move read [a,a+n) and write [d,d+n). For a rightward overlap
+(d>a), completed chunks form a suffix; for a leftward overlap they form a prefix.
+The preservation premise is that completed destination writes do not destroy the
+original source values still needed by future chunks. Within the current chunk,
+a rooted input image must be complete before any destructive write if recovery
+is promised. This invariant handles aliasing and overlap; physical relocation
+adds slot repair but must not change the logical intervals or their equality.
+The candidate does not add atomic whole-copy semantics between conflicting
+application writers: their actual synchronization contract remains separate.
+
+No new Lean overlap theorem or QNT chunk machine is asserted here. Existing Lean
+slot/identity results are consumed for relocation only; existing QNT ownership
+results are consumed for phase/unknown/last-user ordering only. The concrete
+overlap and staging premises remain visible source-refinement obligations.
+
+** Rooted staging must have a real writer and scanner
+
+The current =___alloc_rc_roots(ps,count)= checks the byte-size bound, creates a
+private RC span, sets =root_count=, initializes every cell to FAL and then calls
+=___register_rc=. =mark_rc= scans both =h->data= and the =root_count= payload
+slots under its claimed frozen source. This supplies a reusable representation
+and scanner. Ordinary =___alloc_rc= bytes with =root_count= zero do not become
+roots merely because native code stores SCMOBJ-shaped words in them.
+
+There is a concrete reuse limit: positive-index =store_rc_root= requires an
+SFUN ROOTED/ACTIVE record, the right roots pointer and owner, plus the permitted
+borrow/source state. A bulk staging operation currently has no such record.
+Calling this setter without a real admitted owner fails; filling the payload
+through raw casts bypasses the contract. The implementation must extend the
+existing root-span writer authority with an actual bulk owner/lifetime and
+freeze/scan/reload/exit consumers. It must not impersonate an SFUN or create a
+parallel registry. Reusing representation does not retire that required code.
+
+#+NAME: rooted-stage-custody-invariants
+| State | Authoritative facts required | GC / failure rule |
+|-------+------------------------------+-------------------|
+| Prepared | Source/destination roots, validated canonical ranges, metadata capacity and parent ownership exist | Failure has made no destructive write; original roots remain live |
+| Filling stage | Every registered cell has a valid scan shape; actual typed writer authority covers initialization | No scanner may race partial/torn writes; unknown fill needs known stop before reset/rebuild or continued custody |
+| Input ready | Whole chunk input and its root lifetime are complete; progress identity is published | Staging is scanned/rewritten as roots; raw cached staging values expire at a collecting boundary |
+| Writing destination | Single admitted writer; saved input remains immutable for this chunk; cut excludes unsafe destination scanning | Unknown write retains input, source/destination and writer identity; no blind memmove replay |
+| Settling | Old writer/helper data access is known closed; input is sufficient to reconstruct all uncertain slots | Restore scan-valid destination from saved input before exposing it to scanner; late writes must be impossible |
+| Committed | Required destination writes and edge metadata are complete; progress identifies next logical chunk | Release completion before dropping input roots; repeated outcome queries return the same settled progress |
+| Parked / moved | Canonical source, destination and stage roots are repaired; physical access authority is closed | Reacquire and reload all addresses before resuming the same operation |
+| Retired | No admitted native reader/writer/query/helper or continuation-dependent operation still uses the record | Only then release staging/metadata/RC storage; generation changes alone are insufficient |
+
+A reported owner death is not the known-stop predicate. Without that predicate,
+neither helper reconstruction nor scanner admission is safe. A physically torn
+pointer cannot be repaired by recording a dirty card alone. If an extension can
+perform uncontrolled nonlocal exit or late writes, the affected span remains
+under custody and movement is refused/expanded under a qualified policy.
+Independent healthy domains require their own complete dependency closure.
+
+** One implementation unit and a discriminating native acceptance set
+
+The runtime owner can implement the producer/target adapter, source/destination
+permit, typed staging writer authority, cut/scan repair and exit settlement as
+one responsibility replacement. Existing scalar setter loops and raw bulk paths
+must converge on it with their distinct safe-point structure intact. Callback
+registration/invocation/deletion and function-conversion branches consume that
+same source/access policy, qualified for their selected native interfaces.
+
+#+NAME: bulk-branch-native-acceptance
+| Required group | Paired positive and negative evidence | What it must distinguish |
+|----------------+---------------------------------------+--------------------------|
+| Producer and branch | Same producer inputs/target/toolchain bind actual generated C; verify raw C move, setter fill and private small-copy consumers | Source observation versus real producer/build/execution admission |
+| Overlap and identity | Left/right/equal/zero/card-edge cases, distinct vectors sharing elements, boxed values; compare serial reference contents | Correct direction and shared identity versus a successful exit alone |
+| Stage and movement | GC before reservation, between completed chunks and after stage readiness; move source, destination and referents | Rooted stage repair versus stable address of an unscanned byte buffer |
+| Overflow and lost result | Metadata failure before mutation and after a committed chunk; lose completion before/after destination mutation | Preserved progress and input versus repeating an overlapping move |
+| Stop and late access | Known stop allows reconstruction; unknown stop and old helper writes must retain custody/refuse scan | A query/status/generation is not proof that physical writes stopped |
+| Native lifecycle | Registration failure/acceptance, nested callback/delete, conversion failure and escaping cleanup paths; separate static-host and actually supported dynamic branches | RC ownership versus payload access, platform availability and last use |
+| Multi-shot control | Real map callback retains shared bulk destination, GC, two restores and dynamic-wind; preserve shared mutations and exact hook effects | Control restoration versus heap rollback or one-shot restriction |
+| Matched cost and peak | Same workload/profile/budgets; measure barrier/range/scan/staging/retention CPU, total wall and peak | Local barrier reduction versus whole-run net benefit |
+
+PBT replay and shrinking belong to the actual implementation for this entire
+population. Model histories do not execute the generated branches. Negative
+stop/overflow tests must preserve valid Scheme sharing and limits; they cannot
+manufacture success by rejecting ordinary mutation or increasing capacity.
+
+#+NAME: branch-staging-net-benefit
+| Choice | Work saved / reusable support | Necessary added work / boundary | Status |
+|--------+------------------------------+---------------------------------+--------|
+| Shared bulk range admission | One range can avoid n independent admissions; existing root scan representation is reusable | Still n payload stores and touched-card scanning; implement bulk-specific writer ownership | Conditional; native cost unmeasured |
+| Chunk input staging | Enables reconstruction only for a complete saved chunk under known stop | At least one extra read/write of the chosen input image, root scans and b*WS payload plus metadata; no unknown-writer recovery guarantee | Design bound, not measured memory |
+| Address reload after cut | Reuses existing canonical-root repair rather than rediscovering graph identity | Source, destination and staged referents must all be reloaded; preserve layout revision | Source/native refinement open |
+| Existing fill polls | Preserve complete-root iteration boundaries | Edge commit before each poll; do not hold an unsafe physical permit over GC | Observed generated mechanism only |
+| Native record reuse | Existing RC root source, scanner and lifetime machinery can be reused | New bulk writer purpose, callback/exit and actual ABI coverage remain necessary | No automatic feature or speedup claim |
+
+Whole acceptance remains the same five gates. This closes the design question
+of where the writer/scanner/alias boundaries belong, not the implementation or
+native proof. The complete replacement may retire raw-address assumptions and
+setter-only bulk coverage only after all selected consumers satisfy this unit.
+Historical preprocessing/queue evidence remains separately attributed; no stale
+source evidence or another thread's runtime changes are imported as a pass.
+
+The current RC scanner now passes a local =work= variable initialized from the
+admitted executor's collector rather than repeating the PSTATE expression at
+each mark_array call. The prior literal source anchor became missing, and the
+policy fixture correctly refused readiness. This refinement updates the source
+site and its executor-binding argument; it does not infer source-independent
+scanning or native correctness from that spelling change. Historical captures
+remain in their original source period.
+
+* RESEARCH Bulk staging authority, frozen scanning and exit settlement
+:PROPERTIES:
+:CUSTOM_ID: bulk-staging-authority
+:AUTHORITY: SH-CUT-S / bulkStagingAuthority / existing rootHandoff
+:STATUS: complete-candidate-adapter; source-and-native-open
+:END:
+
+This is the complete candidate adapter for the same bulk/native implementation
+unit. SysML connects six actual call boundaries to the existing seven
+=rootHandoff= evidence roles. It adds no receipt type, parallel registry, runtime
+API implementation, QNT state machine or Lean theorem. A required evidence role
+in a diagram is not an issued physical-access permit.
+
+** Representation and real purpose-specific write authority
+
+For a copy chunk of capacity b, the candidate uses a checked typed span with
+=root_count = 2+b=: payload slots 1 and 2 retain canonical source/destination;
+slots 3 through 2+b retain chunk input. Indices here are the existing setter's
+positive, one-based payload indices. Primary =h->data= can remain FAL. All slots
+start as valid FAL values; root_count remains immutable for this allocation.
+Bounds must check the addition as well as the existing byte multiplication.
+Unused slots remain FAL; progress is native metadata, never a fabricated root.
+Other bulk operations declare their own fixed endpoint count before allocation.
+
+An existing lifecycle-owned operation record retains the span and records its
+real bulk purpose, owner/VM incarnation, source domain and epoch, exact roots
+pointer, capacity/range, operation revision, direction/cursor, input readiness,
+effect/edge outcome and outstanding users. This is a required extension of the
+existing owner, not an implemented new C structure or an unbounded identity map.
+The operation holds a real RC owner reference until settlement/retirement; an RC
+scan lease or list membership cannot substitute for it.
+
+#+NAME: bulk-stage-authority-guards
+| Actual source rule | Required bulk specialization | Forbidden shortcut |
+|--------------------+------------------------------+--------------------|
+| store_rc_root checks SFUN kind, owner, roots pointer and source state | Common source/slot checks are reused with an explicit bulk-purpose branch and actual owned operation; retain the SFUN branch's checks | Set kind to SFUN, pass another activation's roots or infer purpose from borrow count |
+| root_writer_open requires current owner, OPEN and no joined round | Ordinary bulk staging writes occur only under that real source admission; validate operation revision and typed index under source exclusion | Manufacture PSTATE identity or reopen a frozen/dead source to make a setter succeed |
+| Source stores hold RC_LOCK and cannot allocate/poll/reenter | Fill bounded valid typed batches while retaining source/endpoints; release before any GC wait or park | Hold RC gate while waiting for a scanner that needs the gate |
+| Destination writes may occur outside the RC mutex | Existing execution/lifecycle authority must explicitly enroll and close each physical destination span before freeze | Assume source mutex acquisition once protects a later off-gate memmove |
+| RC lifetime and borrow counts have distinct roles | Define exactly which references/loans the operation owns and releases; validate overflow before admission | Use a lifetime pin as data-access closure or let last public release free a pending stage |
+
+If an API returns a write grant for use after unlocking, the source freeze path
+must observe its outstanding lifetime and drain it before publishing READY. If
+all staging writes complete under the source mutex, those stores need no second
+independent staging-writer counter; destination/helper spans outside the mutex
+still need actual closure. This fusion is conditional on complete last-use
+coverage, not a counter-removal optimization asserted by this design.
+
+** Installation, filling and the scan-valid cut
+
+Registration of FAL cells establishes allocation/list ownership, not successful
+transfer of the original input. The parent retains source/destination roots
+through endpoint installation and complete chunk-input publication. The
+=installedRoot= role may acknowledge that transfer only for the exact input
+revision with sufficient rooted values; a lost response is queried by the same
+operation identity rather than repeating registration or destructive copying.
+
+Partial filling can permit GC between known completed batches: every registered
+cell is a valid SCMOBJ, source/destination retain all remaining inputs, and the
+initialized prefix/readiness state is consistent. The scanner traces the entire
+fixed root_count, including FAL remainder. It need not wait for the mutator to
+finish the logical bulk operation merely to scan this valid partial stage.
+Unknown/torn writes are different: no scan permission is issued until actual
+writer closure permits repair to a valid shape. Shrinking root_count to hide
+an uncertain cell would violate the representation and lose custody.
+
+#+NAME: bulk-stage-freeze-and-reopen
+| Real boundary | Required ordering / fact | What remains unimplemented |
+|---------------+--------------------------+----------------------------|
+| alloc_rc_roots -> register_rc -> input-ready | Initialize layout before registration; endpoints and stage input become rooted under purpose admission before parent ACK | Bulk-purpose endpoint/input stores and durable readiness/outcome publication |
+| close spans -> root_task_publish | Close new writes, drain all admitted physical stage/destination writers, then publish READY/FROZEN under source gate | RootTask publication currently has no bulk physical-span enrollment/drain |
+| root_task_claim -> mark_rc | Exact epoch/source/executor and one scan lease; stage/destination scan shape is valid and raw accesses stopped | Existing array scan is reusable; it cannot infer bulk readiness or repair an unknown destination by itself |
+| scan DONE -> whole round -> reopen_rc_roots | Local root rewriting precedes complete copy/restore/round settlement; only then reacquire source admission | A local DONE cannot reopen a bulk write or authorize a new stage revision |
+| reopen -> resume same operation | Acquire current revision and reload source, destination and staged referents before deriving physical addresses | Actual bulk-purpose reentry and GC-only park adapter |
+
+The RC mutex provides exclusion/publication for its protected slots. Metadata
+consumed outside that mutex requires an actual release/acquire pairing and a
+qualified lifetime; payload reads/writes still require exclusion or their own
+proven atomic protocol. No memory-order annotation makes racing memmove safe.
+Source-domain epoch, operation revision and current physical placement are
+separate facts: a GC address change need not mean a new semantic input revision.
+
+The native bulk candidate uses GC-only parking at complete-root chunk boundaries
+without new user callbacks/call/cc capture inside a move. Such a boundary is an
+implementation prerequisite, not an existing API inferred from a POLL token.
+Existing Scheme fill loops retain their actual POLL/control semantics. A future
+adapter allowing user hooks/captures inside the native operation must give each
+Scheme shot appropriate control-local progress; a shared completed operation
+cursor cannot silently consume subsequent multi-shot execution. Ordinary pending
+user cancellation/exception delivery cannot acquire new partial-copy semantics
+merely because GC parking was added.
+
+** Partial effects, unknown result and late-write settlement
+
+#+NAME: bulk-stage-outcome-custody
+| Outcome / boundary | Required custodian and permitted next step | Unsafe inference |
+|--------------------+--------------------------------------------+------------------|
+| Allocation/registration refused before input transfer | Parent retains original roots; private or registered stage is released through its known no-effect path | FAL registration acknowledges input transfer |
+| Partial input fill, no destination effect | Owner retains canonical source and stage prefix; known stopped fill may discard/rebuild private input under admission | Raw unregistered bytes can stand in for scanned staging |
+| Input ready, no destination write | Stage owner retains complete immutable chunk input and canonical endpoints through query/GC | Source body address remains valid across collection |
+| Destination partly written / outcome unknown | Operation retains stage input, destination and unresolved writer/helper debt | Retrying overlapping memmove, publishing completion or exposing a torn pointer to scan |
+| Old writer/helper definitely stopped | Exclusive settlement owner may reconstruct uncertain chunk from complete saved input, then commit edge coverage and cursor | A generation increment, logical close, timeout or failed join proves physical stop |
+| Chunk committed but return lost | Query returns recorded effect/edge/cursor state; resume next known chunk once | Repeat user-visible writes or native callbacks as an internal retry |
+| Source/destination/staged referents moved | Frozen scanner repairs all root slots; authorized reentry reloads every derived address | Repairing only source or only top-level stage allocation repairs descendants |
+| Late access still possible | Keep root record, synchronization/provider storage and affected movement dependency live | Free/reuse record or repair concurrently with the old writer |
+
+Known stop includes the last physical data store and all helpers that could
+still issue one. Validation before a grant is insufficient if that grant can
+outlive closure. Retired revisions reject newly arriving controlled accesses;
+already issued raw accesses must actually drain. Helper takeover needs a fresh
+exclusive authority bound to the same operation after old data closure, not
+another thread passing the old owner's PSTATE to current setters.
+
+Recovery preserves serial overlap order and saved input for the uncertain chunk.
+It does not roll back already committed Scheme mutations or replay callbacks.
+Where the original API has no interruptible partial-effect contract, normal user
+exception/cancellation delivery stays at a compatible semantic boundary. An
+uncontrolled native escape remains unresolved custody, not an invented success
+or a newly promised arbitrary-death recovery feature.
+
+** Exit, final clearing and physical storage lifetime
+
+=rc_can_close= checks non-FAL primary/payload cells as well as borrows, joined
+rounds and scan work. =rc_unlink_if_dead= uses refcount/root_borrows, not a stage
+outcome predicate. Terminal =lifecycle_close_context= currently releases generic
+activation roots. All three consumers therefore belong to this implementation
+unit; a new setter alone cannot close it.
+
+#+NAME: bulk-stage-exit-contract
+| Exit path | Required settlement | Reuse / reclamation boundary |
+|-----------+---------------------+------------------------------|
+| Normal completion | Effect and edge/cursor state recorded, result handed off, readers/helpers settled; clear stage/endpoints under admitted purpose | Return exactly owned loans then release operation owner; last-reference unlink only after all users |
+| Prewrite abort | Confirm no destination effect; retain parent/result obligations, clear/discard valid staged input | No false successful copy or lost parent root |
+| Exit while FROZEN | Retain scan-valid roots and lifetime through the selected round; settle after qualified restoration or explicit exit authority | Do not call ordinary OPEN-only writer or poll while holding RC gate |
+| Unknown native effect / stop | Keep operation, complete saved input and access dependencies under an explicit custodian | Generic marker abort and terminal cleanup cannot drop roots or free the operation |
+| Helper maintenance | Known old data closure, exact operation/source/revision, exclusive maintenance role; clear/repair under source exclusion | Never reopen dead mutator authority or pretend to be SFUN; no concurrent scanning of repair |
+| Owner/PSTATE teardown | Settle first, or install equivalent roots and queries in a live VM-owned root source before source ACK/removing PSTATE references | Current RC_DETACHED is byte-only; it cannot host live Scheme staging after carrier cleanup |
+
+VM custody is not just assigning d->owner = NULL. Its target root source must be
+installed/scannable, old source ACK and last-user closure must be established,
+and all PSTATE-dependent access paths must be replaced before teardown. If no
+such target is implemented, preserve the source/PSTATE dependencies and refuse
+that cleanup. Other healthy domains need separate dependency independence;
+unknown same-domain writes do not gain a progress guarantee from this protocol.
+
+** Whole implementation and acceptance matrix
+
+#+NAME: staging-adapter-whole-acceptance
+| Joint gate | Required complete evidence | Current status |
+|------------+----------------------------+----------------|
+| SH-CUT-S | Actual bulk-purpose owner and slot service, immutable layout, endpoint/input ACK, off-gate span drain, RootTask scan and metadata ordering | Candidate source adapter; missing in runtime |
+| SH-ALIAS-S | Source/destination/stage slot repair and canonical ranges meet existing identity laws; valid partial stage survives movement | Existing conditional data laws only; real adapter open |
+| SH-BOUNDARY-S | GC-only native park and current Scheme fill behavior; purpose-aware normal/error/terminal dispatch and live-source transfer | Native/control/exit consumers open |
+| SH-EXEC-N | Real wrong-purpose/index/source/revision cases; freeze during partial fill; known/unknown stop; lost commit; relocated endpoints/stage; late helper; zero-refcount with retained owner; cleanup and two map restores | No native tests performed by this research |
+| SH-COST-N | Same inputs/profile/budgets; compare per-slot/range costs, touched slots/cards, staging copies/root scans, park tails and simultaneous peak | Unmeasured |
+
+#+NAME: staging-reuse-and-cost-matrix
+| Reused support / benefit | Necessary new work | Quantified boundary / counterexample |
+|--------------------------+--------------------+--------------------------------------|
+| RC allocator, checked typed root layout and mark_rc loop | Actual bulk-purpose writer, per-operation input/effect/last-user state and lifecycle dispatch | Fixed copy span payload is (2+b)*WS, excluding RC header/control metadata; checked addition and multiplication are required |
+| Source mutex and existing frozen task lease | Off-gate destination/helper enrollment and physical closure; no duplicate staging counter if all stage writes stay under gate | n payload writes remain; gate-held batch duration must be measured and bounded by declared budget |
+| Canonical slot rewriting and source reopen | Reload three reference groups and validate operation revision after movement | Root_count remains 2+b even for a partial prefix; scan cost is not only initialized-prefix length |
+| Existing root/task last-use framework | Retain real owner through unknown result, clear cells before compatible cleanup, install live VM target if carrier retires | Unknown duration has no finite retained-memory bound; refcount/scan lease alone is insufficient |
+| One existing lifecycle/source path | Replace SFUN-only assumption and generic terminal release for this real purpose | No new registry/executor or claimed constant-time arbitrary-death recovery |
+
+The complete handoff is now explicit in SysML/ASCENT and projected into Org/D2.
+The implementation owner must replace the writer, freeze, scanner/reload and
+exit consumers together, then run this whole acceptance set. Source declarations
+and diagram links do not issue these facts; all five joint gates remain OPEN.
+
+* RESEARCH Real bulk-purpose, park and owner-exit consumers
+:PROPERTIES:
+:CUSTOM_ID: bulk-park-exit-refinement
+:AUTHORITY: SH-CUT-S / bulkParkExitRefinement / existing rootHandoff
+:STATUS: complete-candidate-adapter; runtime-effect-and-transfer-open
+:END:
+
+This continuation of the same implementation unit binds the proposed bulk
+purpose to actual activation-kind consumers, interrupt/synchronous-operation
+paths and active root roster. Three additional handoff points reuse the existing
+install/park/observe/resume roles; no new receipt kind, proof owner or executor
+is introduced. Candidate behavior below is not a claim of current runtime support.
+
+** Actual dispatch chains and their consequences
+
+#+NAME: bulk-purpose-park-exit-callers
+| Actual definition and consumer | Source behavior | Required responsibility replacement |
+|--------------------------------+-----------------+--------------------------------------|
+| lifecycle.h activation_kind -> rc-allocation.inc store_rc_root -> SFUN entry/abort | Current purpose checks recognize SFUN states; record owns owner/marker/roots/kind | Add a real bulk purpose with owned stage/effect state and update every relevant kind consumer; reuse common root-source checks while retaining SFUN rules |
+| module_generation.h.in POLL -> _kernel.scm stack-limit handler -> interrupt-handler | Saves return/register state and may invoke Scheme interrupt handlers | Ordinary POLL cannot be declared GC-only; retain existing fill/continuation behavior and implement a genuinely restricted native bulk boundary |
+| _kernel.scm sync-op-interrupt! -> setup.c service_sync_op -> execute_sync_op_loop | W_ALL/R_ALL surround service; the loop participates in combined operations, including GC and resize | Preserve complete root materialization and required collective participation; opcode filtering alone is unsafe |
+| execute_sync_op_loop postlude -> still-sweep.inc lifecycle_drain | After synchronization, owner cleanup may invoke release_foreign, retain unknown effects or encounter nested GC | Factor memory/restore completion from effect delivery with explicit pending-effect ownership; do not run destructors inside a raw bulk span |
+| collection-round.inc -> INTR_GC -> kernel handle-gc-interrupt! | Collection raises notification; the handler finalizes and runs registered jobs | Preserve pending notification and its later permitted delivery; memory completion is not proof the jobs ran or may run now |
+| lifecycle_can_handoff -> setup.c resize -> lifecycle_handoff | Existing eligibility distinguishes terminal startup from host callback; handoff moves still chain/accounting | A bulk purpose cannot masquerade as STARTUP; root transfer and safe abandonment of physical C return are different predicates |
+| vm-lifecycle.inc lifecycle_close_context -> cleanup_pstate -> rc_prepare_cleanup | Terminal activation iteration generically releases roots/records before source/OS cleanup | Dispatch bulk purpose through effect settlement or explicit retained transfer; generic abort cannot discard unresolved stage writes |
+| root-tasks.inc root_round_begin -> members -> freeze/scan | Roster enumerates active PSTATE RC domains and contexts using processor_count | A VM-owned native record is not an orphan-root scanning source; target installation must land in a source covered by later rounds |
+| rc-allocation.inc register_rc / cleanup_rc | Cross-domain re-registration of a block is rejected; detached domain is byte-only | Copy roots into a separately registered target span or retain original source; never relink a live block or detach Scheme roots as bytes |
+
+** GC-only means an effect restriction, not skipping VM coordination
+
+The current service loop ends with =___lifecycle_drain= and possible error
+throwing. Its body arbitrates multiple VM operations. Therefore calling it at a
+new bulk checkpoint is not automatically a no-user-code operation, and masking
+=INTR_SYNC_OP= or ignoring a pending resize can prevent other participants from
+completing the collective. A busy bulk activation must remain a real lifecycle
+participant, with retirement eligibility checked by its actual purpose.
+
+The complete candidate adapter separates these responsibilities inside the
+existing entry paths, preserving ordinary callers:
+
+1. Close physical staging/destination access, publish complete logical progress
+   and root view, then participate in the necessary VM/control/memory protocol.
+   No source lock or live derived body pointer crosses this boundary.
+2. Execute only the memory/root/control work permitted by this phase. Resize
+   must respect bulk activity and cannot retire a carrier with a required native
+   return or unresolved operation; it cannot be silently skipped after collective
+   arbitration. No new environment option or parallel service loop is required.
+3. Publish accepted restoration and reacquire source authority before reloading
+   source, destination and staged references. Whole-round error/refusal is a
+   separate outcome, not a successful resume inferred from one scan DONE.
+4. Retain owner-affine FOREIGN cleanup, Scheme hooks/notification and pending
+   errors for a semantically permitted effect boundary. Their work, roots and
+   in-flight/unknown outcomes remain accounted; deferral is not discard or
+   evidence of effect completion. New bulk GC parking must not accidentally
+   introduce a call/cc capture point or repeat dynamic-wind/native effects.
+5. Deliver pending effects with original ownership and error semantics once raw
+   spans are closed and the calling boundary permits them. If compatibility with
+   the current operation's effect boundary cannot be established, this parking
+   mode is not admitted. A later general effectful bulk checkpoint needs its own
+   shot-local control refinement, not a shared mutable completed cursor.
+
+A pending error code that is proven nonmoving can remain native metadata; a
+pending Scheme payload needs a declared root slot or other already installed
+root. Extra root slots are reserved before allocation and included in immutable
+root_count. The baseline copy span has 2+b slots; with e additional error/effect
+roots it has 2+b+e, with checked addition/multiplication. Do not place a movable
+Scheme error object into unscanned native progress metadata.
+
+This source split is an actual implementation requirement. The current service
+loop, notification handler and destructor caller have not been qualified as
+GC-only by the checked formal slices. Safety, effect equivalence and eventual
+pending-effect delivery all need actual source and native acceptance.
+
+** VM custody must be a future scanned root, not just native ownership
+
+Select a bounded cooperative transfer into an existing live RC source of the
+same VM as the candidate. It reuses the current root roster and avoids pretending
+that an unregistered orphan list is scanned. It does not authorize migration to
+another VM or abandonment of a host callback's physical return stack.
+
+#+NAME: bulk-owner-to-vm-root-transfer
+| Transition | Required source/target facts | Failure / unknown custody |
+|------------+------------------------------+---------------------------|
+| Eligibility | Old data writer/helpers are known closed; source and target live; target actually belongs to surviving roster; native return/affinity obligations separately permit owner retirement | Unknown stop or required C return retains old activation/source/carrier dependencies |
+| Target reservation | Actual target owner prepares a separate initialized typed span and operation/result-query lifetime before transfer locks | Allocation/admission refusal leaves original roots authoritative; existing register_rc cannot reparent old header |
+| Read / install | Qualified source maintenance reads current canonical slots; target owner writes under its real purpose; source/target gates use a documented total order with no allocation/poll/callback while held | Partial target input remains FAL/valid prefix under its owner; original source remains rooted and scannable |
+| Target commit | Complete endpoints, saved chunk input, effect/cursor revision and operation/query ownership installed; every overlapping and subsequent GC prefix covers them | A metadata pointer, list link or empty root registration is not commit |
+| Lost response / query | Pinned query distinguishes known absent/refused, exact installed revision and unknown; duplicate request never reapplies destination writes | Keep original and possible target roots; no premature source ACK or reuse |
+| Source ACK / retirement | Known target commit, old data closure and all old source observers settled; remove old PSTATE references only after its last access | Clearing source roots or generic terminal abort before ACK loses custody |
+| Next GC | Target's ordinary RootOrigin/RootTask includes the installed stage and rewrites source/destination/staged values | Demonstrate next-round scan and restore; VM-owned metadata alone is insufficient |
+
+During an already frozen round, do not insert or remove a source by changing
+processor_count or an owner pointer. Retain original admitted source and finish
+that round, then perform the transfer at a qualified between-round cut. Transfer
+into an already enrolled source during a round would require separately proven
+late-root publication/rescan and is outside this candidate. No participant waits
+for target reservation while holding a gate needed by current GC.
+
+The source read and target write are different permissions. Existing setters
+require current PSTATE/source identity; another thread cannot fake either by
+passing the retiring owner's pointer. A source-maintenance adapter is therefore
+necessary for stopped-source reads, and the target's actual owner must perform
+admitted writes. A record transfer must also preserve stable operation identity
+and query lifetime while excluding old writer/helper access; changing its owner
+field alone is not the protocol.
+
+Current lifecycle_handoff transfers still objects/accounting, not these RC
+spans. Current cleanup_rc permits detached byte-only native ownership, not live
+Scheme staging. If there is no qualified surviving target, refuse/retain owner
+cleanup. If the VM itself is terminating, there is no surviving same-VM source
+to assume automatically; resolve or retain the dependency before final teardown.
+Abrupt unknown owner death and missing collective participation remain explicit
+unsupported progress cases. This design does not promise arbitrary-death
+recovery or independence of another domain without complete dependency evidence.
+
+** Whole replacement, discriminating tests and net-benefit boundary
+
+#+NAME: bulk-park-exit-implementation-matrix
+| Complete change surface | Reuse / retired assumption after qualification | Required real evidence |
+|-------------------------+-----------------------------------------------+------------------------|
+| lifecycle purpose, root setter, staging owner and every kind/abort consumer | Reuse RC layout/scan and activation ownership; retire SFUN/STARTUP impersonation and generic bulk root release | Wrong-purpose/source/revision guards, normal/terminal/partial-effect dispatch and retained owner references |
+| Generator checkpoint and native service/postlude boundary | Reuse GVM frame materialization and VM collective; retire assumption that POLL/service_sync_op are GC-only | Generated complete frames, GC+resize concurrency, deferred cleanup/hooks/errors and original fill/multi-shot semantics |
+| Staging effect/cursor, stop/query and root repair | Reuse existing canonical slot and last-user contracts; retire blind retry and cached addresses across GC | Lost result before/after mutation, relocation of all three root groups, known/unknown stop and late helper |
+| Same-VM target install/ACK, roster and cleanup consumers | Reuse surviving source/RootTask; retire metadata-only custody, cross-source header relink and early PSTATE teardown | Target reserve failure, partial install, lost ACK, next-round scan, no scan gap and no required C return abandoned |
+| Final effect delivery and resource retirement | Reuse existing owner cleanup/job dispatch; preserve its semantics and last use | Nested callbacks/GC, uncertain effect, pending-error roots, notification preservation and no duplicate effect |
+
+#+NAME: bulk-park-exit-benefit-cost
+| Candidate benefit | Necessary added cost / limit | Measurement status |
+|-------------------+------------------------------+--------------------|
+| GC between completed chunks without retaining a raw address | Root/frame publication, collective participation, address reload and purpose checks; chunk budget does not bound OS stalls | Unmeasured |
+| Root custody survives cooperative carrier retirement | During transfer source and target spans coexist; for equal capacity this adds a second (2+b+e)*WS payload plus headers/control before old release | Conditional peak bound, not a measured saving |
+| One VM root/scanner infrastructure | Target initialization/copy, admission, query/ACK and last-user dispatch remain necessary; no independent orphan registry assumed | Reuse identified, runtime adapter absent |
+| Defer unsafe native/Scheme effects away from physical writes | Retained resources/error roots, delivery latency and uncertain effects can dominate; deferral cannot suppress semantics | Unmeasured; no finite bound for unknown native users |
+| Avoid duplicated overlapping writes and lost roots | More precise operation/outcome custody and tests; total payload copying remains O(n) | Correctness mechanism, not a speedup claim |
+
+The next runtime delivery boundary is this entire writer/checkpoint/restore/exit
+and scanned-target handoff, not a new setter or an alternate polling entry alone.
+Existing QNT remains the owner of declared interleavings; Lean remains the owner
+of conditional root/alias/data laws. Effect-restricted C dispatch, current build
+consumers, future-round root coverage and native execution remain open joint
+premises. SysML/ASCENT records them rather than granting readiness from source
+location. Historical evidence keeps its original source period and no native
+acceptance or SMP progress credit is transferred into this research delivery.
+
+* RESEARCH Core outcome, effect settlement and next-round root coverage
+:PROPERTIES:
+:CUSTOM_ID: bulk-sync-root-delivery
+:AUTHORITY: SH-CUT-S / bulkSyncRootDelivery / existing rootHandoff
+:STATUS: complete-source-adapter-design; implementation-and-native-open
+:END:
+
+This refinement joins the actual startup-error producer, synchronous result
+consumer, foreign-release producer/caller and target RC scan chain. It belongs
+to the same bulk purpose/park/exit replacement. SysML connects three additional
+call boundaries through existing observation/install/park/resume/scan roles;
+all source/native gates remain OPEN. No new formal owner or runtime executor is
+created, and historical source observations retain their own periods.
+
+** Four outcomes that the existing postlude must not conflate
+
+In setup.c, run_and_throw_error_on_processor_0 receives the startup result,
+sends OP_PROCESSOR_0_THROW_ERROR via on_all_processors and continues servicing
+future synchronization. execute_sync_op_loop keeps the first error it observes,
+processes the required collective operations and copies a winning/combining
+request's result back before setting that request to OP_NOOP. It subsequently
+calls lifecycle_drain and throws the saved error only on processor0.
+
+#+NAME: sync-core-effect-outcomes
+| Outcome | Actual source observation | Required future record / restriction |
+|---------+---------------------------+-------------------------------------|
+| Request consumed | Matching winner/combining operation copies result and marks sop_ptr OP_NOOP inside loop | Exact request/incarnation and known result; this says nothing about later cleanup or error delivery |
+| Memory restored | Selected GC/root/physical restore and enclosing round meet their own completion conditions | Same-call root/address reentry authority, not permission to execute every pending hook |
+| Error pending / delivered | First observed error retained locally, then processor0 throws after drain call | Preserve selected error and designated recipient; root any moving payload before further GC; delivery is a separate effect |
+| Cleanup pending / inflight / uncertain / settled | Owner queue and lifecycle_drain retain distinct state | Keep original effect identity/affinity and resource lifetime; no aggregate boolean can replace the outcome |
+
+First observed means the existing arbitration order, not wall-clock ordering of
+concurrent error producers. A refactor must not turn it into last-error-wins or
+throw it from an arbitrary worker/target merely because that target holds roots.
+The current startup producer supplies an SCMOBJ result from run_startup_root;
+this study does not attest that every possible deferred result is nonmoving.
+Either establish the exact immediate-code representation for that path or reserve
+canonical error slots before coordination. A future generalized Scheme payload
+cannot remain in an unscanned native local across additional collection.
+
+The candidate core result must preserve request result, round/restore outcome,
+selected pending error and cleanup disposition separately under existing owned
+operation storage. It need not widen the existing two-argument sync message or
+introduce a new configuration layer. Actual producer/consumer mapping is part of
+the implementation, not a new wire format asserted by this design.
+
+Ordinary entry points retain their effect/error behavior. The restricted bulk
+entry shares the synchronization core and retains required participation while
+keeping effect delivery at its admitted boundary. Its postlude must not discard
+pending errors, reinterpret request NOOP as success of the entire call, or invoke
+cleanup while raw addresses are active. Resize and other collective requests
+still require a response; active bulk lifecycle/return obligations constrain
+retirement rather than allowing the request to be silently masked.
+
+** Foreign cleanup is a real effect transaction with unknown outcomes
+
+The actual producer is free_unmarked_still_objs/free_still_objs -> lifecycle_defer
+in still-sweep.inc. It detaches FOREIGN storage into the owner's pending chain
+and accounts retained internal words. lifecycle_drain removes one pending node,
+sets inflight, saves release_fn/payload and calls release_foreign under TRY.
+release_foreign clears the object's release function and pointer before invoking
+the saved native function. Known success reclaims internal storage; failure sets
+uncertain and retains the in-flight identity. A nested drain returns while the
+outer call still owns its in-flight work.
+
+#+NAME: foreign-cleanup-result-refinement
+| Source state | Valid inference | Invalid inference / required custody |
+|--------------+-----------------+---------------------------------------|
+| Pending chain contains node | Owner has accepted deferred work and internal storage remains accounted | No proof destructor ran or native payload is independently reclaimable |
+| Shell callback/pointer cleared | release_foreign has crossed its pre-invocation update | Not proof of callback success, last native use or safe shell retirement |
+| inflight and saved callback/payload | Actual effect owner retains the invocation identity | Saved function cannot be replayed automatically after unknown return |
+| Nested draining returns true | Outer invocation still owns in-flight work | Not an empty queue or settled-effect receipt |
+| uncertain set / drain returns false | Result is unresolved; current caller may retain it without immediate recovery | Do not clear uncertainty, free roots/resources or overwrite pending startup error to manufacture completion |
+| Known callback success | Exact invocation returned NO_ERR; original postlude can reclaim its internal storage | Does not settle unrelated effects or arbitrary aliases outside the invocation contract |
+
+execute_sync_op_loop currently does not consume the drain boolean as a separate
+result. That is an observed boundary, not a diagnosis that every such call is a
+bug. The replacement must preserve ordinary error ordering while exposing pending
+versus settled cleanup to the restricted bulk/exit decision. Retaining or deferring
+an effect does not prove eventual execution; accepted deferral needs an actual
+owner scheduling path and semantic delivery boundary, with no GC/owner wait cycle.
+
+A native payload's embedded Scheme references must already have declared roots or
+qualified nonmoving access. The queue's raw payload field is not itself a typed
+Scheme root array. Callback code/module/provider lifetime and thread affinity are
+also retained until their last use; moving the operation's Scheme roots does not
+transfer an owner-affine destructor or a foreign C return obligation.
+
+** Target install ACK is continuous coverage, not waiting for scan DONE
+
+The target span is allocated and registered in a surviving active same-VM RC
+source. register_rc links it under that source gate and rejects reparenting a
+registered header. All required endpoint/input/error roots and their revision
+must be committed under real target purpose authority before ACK. Registration
+of FAL slots or an operation metadata pointer alone is insufficient.
+
+The actual next-round chain is root_round_begin -> active member RC/context
+capture -> root_round_freeze -> root_round_publish/executor assignment ->
+root_round_scan's worker-strided claim/scan/finish -> mark_rc scanning data and
+root_count slots -> whole scan/restore/end. root_task_scan_vm instead visits the
+VM SCMOBJ root; it is not a generic scanner for a new native orphan list.
+
+#+NAME: target-coverage-and-ack-obligations
+| Boundary | Required fact | What must remain retained |
+|----------+---------------+---------------------------|
+| Target root commit | Complete typed slots, exact operation revision and target reference/query lifetime | Original source remains authoritative until commit is known |
+| Admission / roster race | Target is a live admitted member and cannot retire its source/context while the operation depends on it | Target owner/source/VM lifetime and membership exclusion; a native addref alone is insufficient |
+| Source ACK between rounds | Every GC prefix that can overlap original-root removal sees complete target protection | Original and possible target roots remain if commit/coverage query is unknown |
+| GC starts before commit | Keep original source in the admitted cut; target input may be incomplete but scan-valid | No original-root removal or frozen roster mutation; finish existing cut and retry transfer later |
+| GC starts after ACK | Existing target RC task scans the committed slots, regardless of worker/source count equality | Operation roots persist until task/restore and all payload users close |
+| Target owner later exits | Resolve or transfer again under the same complete protocol | No generic terminal abort of target span merely because it was previously accepted |
+
+ACK does not have to wait for another collection to execute. The source adapter
+must establish continuous target protection and the next-round membership rule;
+real next-GC tests then validate the consumer. Requiring next-GC DONE before source
+ACK can create an unnecessary owner-exit/GC dependency. Releasing source roots
+before coverage is established creates a missed-root interval instead. Neither
+shortcut is allowed by installedRoot's existing whole-prefix condition.
+
+The candidate does not admit a transfer into a changing frozen roster, nor a
+new unscanned native list. If no qualified target survives, keep the original
+source/record/physical access dependencies and refuse retirement. An unknown
+old writer cannot be declared closed merely because target roots were installed.
+Physical stop, root installation, result settlement and resource-affine return
+remain independently necessary facts.
+
+** Complete code replacement and acceptance boundaries
+
+#+NAME: core-delivery-target-acceptance
+| Code responsibility | Complete acceptance / counterexample | Current status |
+|---------------------+--------------------------------------+----------------|
+| Startup/control error producer, sync request/result and restricted postlude | Two pending errors and cleanup success/failure/nesting preserve actual arbitration, designated delivery and rooted payload through GC; lost result never reexecutes an effectful operation | Source mapping established; new adapter absent |
+| Cleanup defer/inflight/release and effect delivery | Cleared shell with callback failure remains uncertain; nested GC/callback does not double-release; no retry from saved callback or cleared fields; affinity and provider lifetime retained | Actual producer/caller mapped; native recovery/deferral unqualified |
+| Target register/write/query/ACK and source last use | Refusal/partial install/lost ACK/late writer; no-GC interval between ACK and source exit; target retirement race | Target copy/query/coverage service absent |
+| Next roster, W<R task assignment and slot rewrite | After original source release, next real GC finds target source/destination/stage/error roots and restores map aliases across repeated shots | Actual scan chain mapped; whole native/PBT evidence required |
+| Generator/activation/root/purpose/exit integration | All original fill/control consumers and native bulk checkpoint/error/exit variants use the selected full contract; unknown owner stop retains custody | Five joint gates remain OPEN |
+
+Native PBT must replay and shrink these histories against actual generated C and
+native consumers, without added capacity/watchdog allowances. Existing QNT owns
+only its declared temporal slices, and existing Lean owns conditional slot/alias
+and accounting data laws. Those checks do not establish the new C postlude or
+target transfer merely because its source chain is now explicit.
+
+#+NAME: core-delivery-target-net-benefit
+| Potential gain | Added charge / quantitative boundary | Claim boundary |
+|----------------+--------------------------------------+----------------|
+| Reuse synchronization/root core without unsafe callbacks in a physical span | Purpose checks, pending-state/root publication, resume/reload and later effect delivery remain real work | No measured speedup or latency bound |
+| Cooperative carrier retirement with continuous roots | Source and target root arrays coexist; payload peak includes both allocations plus any reserved error slots | A later source refund cannot reduce earlier transfer peak |
+| Avoid duplicate effects and preserve first error | Outcome/query/last-user metadata and retained in-flight ownership | Correctness benefit; unknown external side effects do not have a finite inferred recovery bound |
+| Account deferred cleanup accurately | Internal q.words is already included in still/capacity accounting; count each physical allocation once, compare extra retention duration against baseline | Do not add q.words twice or infer opaque native allocation size/state from it |
+| Stable next-round scan through existing source | Target root retention and scan/update work are added until operation and old users settle | RC/scanner reuse does not remove target admission or writer/exit code |
+
+The deliverable is one coherent source-to-consumer design and native acceptance
+unit. It replaces request/memory/effect completion conflation and metadata-only
+root custody; it does not introduce another progress milestone, duplicate formal
+proof or alter the other thread's runtime. Old preprocessing/queue observations
+stay separately source-period-bound and confer no current native admission.
+
+* RESEARCH Runtime implementation packet
+:PROPERTIES:
+:CUSTOM_ID: bulk-runtime-packet-link
+:AUTHORITY: bulkRuntimeInterface / existing rootHandoff
+:STATUS: candidate-interface; source-and-native-open
+:END:
+
+The [[file:bulk-runtime-interface.org][complete private interface packet]] specifies owned data, input authorization,
+linearization, result categories, partial/unknown custody, lock order, restricted
+postlude, target prepare/install/query/ACK, exit and next-round coverage together.
+SysML binds the packet as design data and refines existing handoff points; it is
+not a C source attestation, generated runtime or another formal model. Use its
+whole native acceptance matrix as one implementation boundary. Historical
+preprocessing/queue evidence remains source-period-separated and grants no
+current native or performance credit.

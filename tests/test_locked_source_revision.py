@@ -7,7 +7,7 @@ from gambit_smp.native_capabilities import (
     assert_head_unchanged, assert_locked_source, head_command, locked_revision_command)
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCK = ROOT / "evidence/research/processor-interrupt-collective-wait/handler-quiet-while-pending.lock.json"
+LOCK = ROOT / ".cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/handler-quiet-while-pending.lock.json"
 CHECKOUT = ROOT / "vendor/gambit"
 
 

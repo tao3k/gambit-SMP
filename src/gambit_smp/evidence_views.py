@@ -17,15 +17,29 @@ class ReferenceUnavailable(ValueError):
 
 def reference_witnesses(root, document):
     """Observe bytes and explicit context, not dependency completeness or meaning."""
+    from gambit_smp.source_identity import read_git_sources, reference_bytes, SourceUnavailable
+    git_refs = [ref for ref in document['references'] if ref.get('identity', {}).get('kind') == 'git']
+    git_bytes = dict(zip((ref['id'] for ref in git_refs),
+                        read_git_sources(root, [ref['identity'] for ref in git_refs])))
+
+    def read(ref):
+        if ref['id'] not in git_bytes:
+            return reference_bytes(root, ref)
+        data = git_bytes[ref['id']]
+        if data is None:
+            raise SourceUnavailable('immutable Git backing unavailable')
+        return data
+
+    return _reference_witnesses(root, document, read)
+
+
+def _reference_witnesses(root, document, read):
+    """Derive witnesses from the exact bytes already checked by the caller."""
     from gambit_smp.framework import relative
     from gambit_smp.reasoning_history import fingerprint
     from gambit_smp.source_capabilities import project_bytes
     by_id = {ref["id"]: ref for ref in document["references"]}
     checked, visiting = {}, set()
-    from gambit_smp.source_identity import read_git_sources
-    git_refs=[ref for ref in document['references'] if ref.get('identity',{}).get('kind')=='git']
-    git_bytes=dict(zip((ref['id'] for ref in git_refs),
-                       read_git_sources(root,[ref['identity'] for ref in git_refs])))
 
     def observe(identity):
         if identity in checked:
@@ -35,12 +49,7 @@ def reference_witnesses(root, document):
         visiting.add(identity)
         ref = by_id[identity]
         path = relative(Path(root).resolve(), ref["path"])
-        from gambit_smp.source_identity import reference_bytes, SourceUnavailable
-        if identity in git_bytes:
-            data=git_bytes[identity]
-            if data is None:raise SourceUnavailable('immutable Git backing unavailable')
-        else:
-            data = reference_bytes(root, ref)
+        data = read(ref)
         if hashlib.sha256(data).hexdigest() != ref["sha256"]:
             raise ValueError("Evidence reference changed during byte observation")
         label, value, text = ref["path"], ref["sha256"], None
@@ -126,6 +135,7 @@ def load(root, name):
             or document["schema"] != "ascent.evidence-view.v1"):
         raise ValueError("typed Evidence view required")
     references, inputs, unavailable = {}, {str(path): digest(path)}, []
+    reference_data = {}
     validation = []
     def assess(ref, data):
         if 'validator' not in ref:
@@ -189,6 +199,7 @@ def load(root, name):
                 continue
             references[ref['id']] = (ref['sha256'] if ref['pointer'] is None else
                                       pointer(json.loads(data), ref['pointer']))
+            reference_data[ref['id']] = data
             assess(ref, data)
             continue
         if original.exists() and not original.is_file():
@@ -204,10 +215,11 @@ def load(root, name):
                 reason="missing" if actual is None else "changed"))
             references[ref["id"]] = None
         else:
+            reference_data[ref['id']] = data
             references[ref["id"]] = (ref["sha256"] if ref["pointer"] is None else
                                       pointer(json.loads(data), ref["pointer"]))
             assess(ref, data)
-    witnesses = reference_witnesses(root, document) if not unavailable else {}
+    witnesses = _reference_witnesses(root, document, lambda ref: reference_data[ref['id']]) if not unavailable else {}
     def cell(value):
         if isinstance(value, dict):
             if (set(value) not in ({"reference"}, {"reference", "field"})
@@ -242,6 +254,7 @@ def load(root, name):
     catalog = load_component_catalog(source_path(root, document["manifest"]),
         entry=document["entry"], constructor=document["constructor"], trusted=True)
     catalog['referenceValidation'] = validation
+    catalog['referenceWitnesses'] = witnesses
     inputs.update(catalog["sourceInputs"])
     if any((digest(Path(p)) if Path(p).is_file() else None) != sha for p, sha in inputs.items()):
         raise ValueError("Evidence view changed during loading")

@@ -32,7 +32,7 @@ and equality check fails with `reachable still object lost`, exit 70, in
 quiescent. Runtime input/artifact identities were validated before and after.
 
 Portable source-bound evidence:
-`evidence/source-results/fixtures/sync-message-atomic-publication/still-survival-observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sync-message-atomic-publication/still-survival-observation.json`.
 This demonstrates failed post-shrink survival, not an RC failure or a complete
 proof of the exact corrupting write. The source cleanup path supplies a concrete
 ownership violation to audit. No unchanged native retry is justified.
@@ -49,7 +49,7 @@ negative controls violate reachable-resource preservation (12 states), owner
 accounting (11 states), and scanner stability (14 states). Campaign time was
 20.833 seconds. Host-auto selected two controls with six TLC workers each and
 12 workers for the positive check. Portable receipt:
-`evidence/model-results/fixtures/sync-message-atomic-publication/local-resource-transfer-contract/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/sync-message-atomic-publication/local-resource-transfer-contract/receipt.json`.
 
 The resource tokens are not an allocator proof. Exact still-object word counts,
 deferred accounting, list links, registered RC handles, foreign-release reentry

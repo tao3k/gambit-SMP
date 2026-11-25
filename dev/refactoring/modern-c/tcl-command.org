@@ -1,0 +1,185 @@
+#+TITLE: Tcl command construction: root and returned ownership
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %42ITEM(Responsibility) %AUDIT_NUMBER(Audit) %STATUS(State)
+
+* QUALIFYING 3.5.2.1 Construction source and result ownership :roots:ffi:audit:
+:PROPERTIES:
+:CUSTOM_ID: ROOT-TCL-COMMAND-CONSTRUCTION
+:AUDIT_NUMBER: 3.5.2.1
+:PARENT_ITEM: 3.5.2 / actual borrowers and consumers
+:BASE: 8ee204fc3a38071e078b61d81a3a239c7d89210a
+:AUTHORITY: GambitTclCommand
+:SOURCE: models/sysml/tcl-command.sysml
+:STATUS: QUALIFYING
+:END:
+
+** Existing official caller and selected responsibility
+
+This is the existing official =examples/tcltk/tcltk.scm= adapter, originally
+copyright1997--2025 Marc Feeley. No new example directory or Scheme namespace is
+introduced. Its native command operations move into =command.h=; the invocation
+and deletion block is byte-identical. The new private =scheme_create_cmd= owns
+construction. The existing Scheme =##tcltk-define-procedure= and GUI initialization
+names/behavior remain. The example Make description includes the header in its
+distribution and compilation dependencies, including out-of-source include lookup.
+The actual include option is =-I$(srcdirpfx).=: an empty configured prefix becomes
+=-I.=, while an absolute source prefix becomes its source directory plus a dot.
+Both actual Make expansions and object compilations using those options are
+required. These are argv/context tests, not a claimed second full VPATH build.
+
+Two actual source defects/obligations justify this leaf. The old example calls
+=alloc_rc(0)= without the processor argument required by the current SMP ABI;
+same-profile compilation of the actual generated C fails with expected2/have1.
+The old native result path also loses ownership of initialized RC/still resources
+when =Tcl_CreateCommand= returns NULL before accepting ClientData.
+
+The extraction adds another necessary contract: the original generator's
+=___arg2= expands through =___ARG2= to the live =___CFUN_ARG(2)= stack cell. It is
+not evidence of an old stale scalar parameter. A C helper receives a scalar;
+rooting that captured value before allocation is necessary to preserve the
+original semantics. This does not justify adding a new global root registry.
+
+** Source and effect sequence
+
+| Cut | Actual source operation | Custodian / failure |
+|-----+-------------------------+---------------------|
+| No interpreter | Return false before allocation | No new debt |
+| Allocate private source | alloc_rc with caller processor; install proc in existing RC cell | Current RC domain; native allocation performs no Scheme collection |
+| Allocate still vector | make_vector may collect; RC scanner updates proc cell | Registered RC source remains scanned through existing RootTask |
+| Allocation error | release_rc | No vector was created; no still release |
+| Initialize | Read data_rc after allocation; write vector field; install vector in RC cell | Still vector initially has refcount1; no intervening allocation |
+| Native acceptance | Tcl returns a command token | Tcl command owns ClientData and its existing delete callback |
+| Native rejection | Tcl returns NULL before acceptance | Constructor invokes the same delete callback locally |
+| Replacement/deletion | Actual Tcl calls scheme_delete_cmd | Release still hold and native RC owner once |
+| Unknown/no returned decision | No token/rejection receipt | No inferred rollback or timeout-based reclamation; broader recovery remains open |
+
+The [[https://github.com/tcltk/tcl/blob/core-9-0-3/generic/tclBasic.c][public Tcl source]]
+places the relevant NULL returns before installing the new ClientData and delete
+hook. The real native tests use installed Tcl9.0.3, with header/config/library
+hashes and actual =Tcl_GetVersion= output. Public release-tag source is supporting
+API evidence, not a claim of byte-equivalence with the loaded library. Source
+behavior for other platforms and GUI/Tk execution is not qualified here.
+
+** Conditional argument
+
+Given valid owner-thread Tcl input and the existing participating owner/OPEN RC
+and GC protocol, install the captured procedure before any Scheme allocation.
+The collector's existing claimed RC source scan updates that cell. The helper
+therefore initializes the still payload from the relocated referent rather than
+a C local captured before collection. At native acceptance the existing callback
+becomes the owner. At returned rejection no native owner was acquired, so the
+constructor releases both resources through the same release implementation.
+Allocation failure releases only the existing RC record. These are disjoint
+returned outcomes, so there is no double-release in the admitted sequence.
+
+Arbitrary native reentry/nonlocal escape during registration is not a returned
+rejection. Do not run rollback merely because a call did not finish. Existing
+registered roots/native holds retain actual custody where it still exists;
+automatic resolution and whole-provider drain are not established. Unresolved
+RC debt may prevent cleanup but is still a root source, not a reason to stop
+all VM GC. No callback pin-before-read or cross-library result boundary is claimed.
+
+** Real implementation tests and calibration
+
+The existing =tests/root-task.scm= generator, process-isolated replay, oracle and
+deletion shrinker are reused. An optional =test-tcl-command= Make target compiles
+that same file with the real Tcl provider. Normal =check= has no Tcl dependency;
+no new SCM, shell/Python test framework or execution/profile layer is introduced.
+Tools come from the existing profile/environment. Tcl flags come from configured
+environment values or the installed provider's configuration and are bound to the
+actual child environment. Limits and heap settings remain unchanged.
+The optional provider suite runs =-:p1= in the SMP-enabled runtime. Official
+processor0/1 RC cases still run in the broader manifest, but they are not a Tcl
+cross-thread or multi-processor GUI qualification. Tcl owner-thread input remains
+a required premise for this constructor contract.
+
+| Evidence | Actual result | Boundary |
+|----------+---------------+----------|
+| Complete corrected source bootstrap |170.073s; two phase1--4 passes | Same persistent Modern C SDK/Bazel C23 profile,600s unchanged |
+| Stock core |29.218s | Final corrected producer; earlier candidate/test-only lineage retained |
+| Actual binding generation/compilation |0.979s/1.247s | Entire generated Tcl/Tk C object; GUI/Tk not run |
+| Actual Make prefix contexts | Empty and absolute source prefixes; both emitted options compile real objects |0.666s/0.678s object compilation; argv/context cells, not a second full build tree |
+| Predecessor binding | Compiler refuses alloc_rc arity, exit70 | Real generated baseline, same processor/tool/header context |
+| Real Tcl target |16.532s; provider9.0.3/2; RC header48 bytes | Explicit include/link flags; no system-header fallback |
+| Stateful constructor histories |300 total actions:12 mandatory +12 seeded histories of24 | Actual create/replace/delete, GC reload, rejection, null interpreter and controlled vector failure |
+| Rejection counterexample |13→1 compound request; old failure/current pass replayed | Deletion1-minimal, not one C instruction or exhaustive scheduling |
+| Current original GSI |408/40864.132s | Existing thread-interrupt uncertainty remains separately vetoed |
+| Remaining original Make |101.525s under120s | Includes original test8/test9,290 assertions, roots, multi-shot continuation and existing PBT |
+
+The compiled predecessor calibration preserves the old allocation/publication/
+NULL-result sequence. It supplies PSD to make the otherwise ill-formed SMP call
+testable and supplies a live caller cell to preserve the original generated
+argument reload. It is not an exact-byte whole predecessor image, and it does
+not manufacture a stale-argument failure. The oracle observes real RC nodes and
+still refcounts; the predecessor retains one of each after actual rejection.
+
+The allocator adapter forces a real collection before the real allocation, or
+returns a controlled allocation error. It does not mutate observations. The
+stub Scheme-result callback is not invoked in these constructor tests; callback
+entry, deletion during active callback and nonlocal provider drain remain open.
+
+Two test-authoring failures are retained: the diagnostic attempted to use the
+private STILL_BODY macro, then a driver updated its local environment after the
+ExecutionContext had copied it, causing absent link flags. Corrections affect
+test diagnostics/driver binding only. They are neither production SMP failures
+nor a reason to widen limits. Current native receipts carry the real effective
+flags and outputs; earlier failed receipts remain retained.
+
+Final consumer audit also found the first local candidate emitted a dangling
+=-I= with empty =srcdirpfx=. That unpushed, unpublished candidate was withdrawn;
+[[file:../../../evidence/research/retained/modern-c/tcl-command/withdrawn-local-candidate.json][the withdrawal and frozen earlier audit]] remain evidence. The corrected source
+uses =-I$(srcdirpfx).=, repeats source/native qualification under the unchanged
+limits, and requires actual configured Make argv plus object compilation in
+both prefix contexts. Independent compilation with an explicit absolute include
+did not prove that Make consumer. This adds a missing obligation rather than
+relaxing the prior one. Initial259.602s/core44.977s producer evidence remains
+historical, not the final producer result.
+
+** Benefit and added-cost matrix :matrix:
+
+| Contract | Established benefit | Added cost / limitation |
+|----------+---------------------+-------------------------|
+| Captured C value | Existing RC allocation roots it before make_vector; actual GC reload passes | One extra RC store and one post-GC load, using existing mutexes |
+| Returned native rejection | No indefinitely retained RC record or positive still hold | Same existing deletion code; still physical reclaim waits for GC |
+| Size boundary | Native RC header48 bytes; one-field still vector7 words at8 bytes,56 accounted bytes |104-byte structural floor per leaked pair, excluding allocator/alignment overhead and captured graph; not measured RSS |
+| Repeated rejected registrations | n rejected pairs no longer retain n RC roots/still holds indefinitely | Reclaimable captured graph is the unique reachable union excluding other roots, not a sum that double-counts sharing |
+| Successful construction | No new object, persistent table, field, lock or allocation site | Two additional existing RC critical sections; no throughput claim |
+| Invocation hot path | Native invocation/deletion text preserved byte-for-byte | Active-callback ownership and exception semantics are not fixed by this leaf |
+| Maintenance/build | One command ownership module, distribution/dependency closure, shared PBT | Optional external Tcl matrix; default tests remain independent of Tcl |
+
+Before the next GC, rollback immediately frees the RC block while the zero-refcount
+still object can remain physically present. After collection, unreferenced still
+payloads and otherwise unreachable captured objects can be reclaimed. No complete
+round-peak reduction, latency result or human-day estimate is used for admission.
+
+** Programme, proof and residual changes
+
+This is3.5.2.1 within the fifteen-target queue's =root-borrowers= responsibility.
+Parent3.5.2,3.5 and3.6 stay open: remaining native borrower/entry lifetimes,
+dynamic closure identity/ABI and complete writer/source union are separate.
+The13-item programme stays at item3; ROOTS remains4 scoped closed/2 open.
+Independent SMP12 remains1 prerequisite qualified/11 open under the carried
+thread-interrupt veto. No scheduler, capacity or complete Repair9 work joins.
+
+Native SysML owns the source/result contract and five Needs. Actual ASCENT binds
+native cases and source premises, rejects ten stale/missing/incorrect-policy
+claims, and uses the shared five gates/21 rejection controls for publication.
+QNT alone owns competing runtime histories; Lean alone owns distinct conditional
+coverage/address laws. Neither is copied or rerun. Finite PBT and LLM review do
+not replace complete concrete refinement or native provider evidence.
+
+Only the selected five-file SDK tree can qualify. The pending Tcl prototype is
+checked against its base: every hunk concerns this constructor alone (early proc
+rooting/reload and an incompatible Boolean assumption about the actual void
+setter API). Its two source intents are implemented by the tested helper. It is
+intentionally superseded, with no unrelated hunk discarded; the callback block
+is still byte-identical. The larger tests Make prototype remains separate. Its
+qualified optional target is appended without admitting other pending recipes.
+[[file:../../../evidence/research/retained/modern-c/tcl-command/prototype-supersession.json][The scoped supersession record]] distinguishes this from a lossless mechanical
+merge or a bulk reset. After publication that residual-free Tcl path can leave
+the queue. Other paths remain until all their unqualified hunks are disposed.
+
+[[file:tcl-command.d2][Returned ownership diagram]];
+[[file:../../../evidence/research/retained/modern-c/tcl-command/source.json][source/callback identity evidence]].

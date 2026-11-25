@@ -7,7 +7,7 @@ package GambitBranchQualification {
     attribute :>> evidenceRoot="evidence/refactoring/modern-c";
   }
   ref part ownershipComponent=GambitRuntimeRoleRealization::cut0;
-  attribute profile:String="evidence/research/worker-role-handoff/profile.json";
+  attribute profile:String=".cache/research/legacy-evidence/evidence/research/worker-role-handoff/profile.json";
   attribute scope:String="Independent exact-commit branch qualification. Read Git objects, never dirty vendor files. Use the one existing Modern C SDK with explicit source transition and preserved completed products. Source, generated artifacts, compiler seed and native outcomes have separate identities.";
   attribute formalDuty:String="SysML owns test scope and original semantic requirement references. ASCENT admits only matching source/profile/producer/inventory observations. The existing bounded recipe recorder executes commands. QNT schedules and Lean laws stay with their owning runtime components; source identity and process receipts do not duplicate them.";
   attribute progressRule:String="PASS of a named case supplies only that exact test contract. No patch-line8/12, research-tree test or structural commit gate transfers into branch progress. Semantic requirements remain unestablished until their whole contracts and source refinement are independently reviewed.";

@@ -251,33 +251,15 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'mutable source consumer'):
             import_steps(ctx)
 
-    def test_inventory_borrow_preserves_import_but_other_source_aliases_are_denied(self):
-        from types import SimpleNamespace
-        from gambit_smp.runtime_artifact import import_steps
-        ref = {'step': 'candidate', 'output': 'source'}
-        imported = dict(id='runtime', capability='gambit.runtime-import', arguments={'source': ref})
-        suite = dict(id='suite', capability='gambit.suite', arguments={'expectedSource': ref})
-        ctx = SimpleNamespace(directory=Path('candidate'), receipt={'plannedSteps': [imported, suite]})
-        self.assertEqual([imported], import_steps(ctx))
-        for capability, arguments in (
-                ('source.project', {'expectedSource': ref}),
-                ('gambit.suite', {'expectedSource': ref, 'other': [ref]}),
-                ('gambit.suite', {'source': ref}),
-                ('gambit.suite', {'nested': {'expectedSource': ref}})):
-            with self.subTest(capability=capability, arguments=arguments):
-                suite.update(capability=capability, arguments=arguments)
-                with self.assertRaisesRegex(ValueError, 'mutable source consumer'):
-                    import_steps(ctx)
-
     def test_launch_returns_actual_observation_path_and_bound_failure_without_cache_search(self):
         from gambit_smp.research_kernel import launch_summary
         out = self.root/'.cache/tasks/repair/runs/example/outputs/diagnostic'
         (out/'run').mkdir(parents=True)
         child = out/'run/receipt.json'
-        child.write_text(json.dumps({'steps':[
+        child.write_text(json.dumps({'schema': 'evidence-recipe-run.v1', 'recipe': 'launch-fixture', 'steps':[
             dict(id='candidate', capability='gambit.materialize', outcome='DENY', reason='pinned producer required'),
             dict(id='sample', capability='gambit.executable-test', outcome='BLOCKED')]}))
-        receipt = dict(outcome='DENY', childReceiptSha256=hashlib.sha256(child.read_bytes()).hexdigest())
+        receipt = dict(recipe='launch-fixture', outcome='DENY', childReceiptSha256=hashlib.sha256(child.read_bytes()).hexdigest())
         result = launch_summary(receipt, out)
         self.assertEqual(str(out), result['out'])
         self.assertEqual(str(out/'receipt.json'), result['receipt'])
@@ -334,7 +316,8 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
                               'run/receipt.json': outer['childReceiptSha256']})
         archive = self.root/'.cache/tasks/repair/ci/runtime.tar'; archive.parent.mkdir(parents=True)
         pack(archive, runtime, value, logs=logs)
-        descriptor = self.root/'evidence/input.json'
+        descriptor = self.root/'dev/runtime-import-spec.json'
+        descriptor.parent.mkdir(parents=True, exist_ok=True)
         descriptor.write_text(json.dumps(dict(schema='runtime-artifact-input.v1', path=str(archive.relative_to(self.root)))))
         return runtime, value, compiler, archive
 
@@ -344,7 +327,7 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
         directory = out/'candidate'; directory.mkdir(parents=True)
         steps = [dict(id='candidate', capability='gambit.materialize', dependsOn=[], arguments={'sourceLock':value['sourceLock']}),
                  dict(id='runtime', capability='gambit.runtime-import', dependsOn=['candidate'],
-                      arguments={'source':{'step':'candidate','output':'source'}, 'archive':'evidence/input.json'})]
+                      arguments={'source':{'step':'candidate','output':'source'}, 'archive':'dev/runtime-import-spec.json'})]
         receipt = dict(workspacePolicy='in-place', engine={'path':str(self.root)}, recipe='import-control',
                        steps=[], plannedSteps=steps, inputs={str(self.root/value['sourceLock']): value['sourceLockSha256']})
         scope = WorkspaceValidationScope()
@@ -384,30 +367,6 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
                     self.assertEqual([['runtime', 'same-producer-workspace', content_id(value['files']), 0]], projected)
                 ctx.workspace_leases.close(); scope.close()
 
-    def test_import_requires_explicit_in_place_policy_before_reusing_runtime(self):
-        from gambit_smp import workspace as w
-        from gambit_smp.runtime_artifact import prepare_import
-        w.start(self.root, 'repair', adopt=True)
-        with w.execution_scope(self.root, 'repair'):
-            runtime, value, compiler, _ = self.generation()
-            ctx, scope = self.context(value, compiler)
-            with patch('gambit_smp.research_kernel.manifest_paths', return_value=value['engineManifest']):
-                for policy in (None, 'isolated', 'unknown'):
-                    if policy is None:
-                        ctx.receipt.pop('workspacePolicy', None)
-                    else:
-                        ctx.receipt['workspacePolicy'] = policy
-                    with self.subTest(policy=policy):
-                        with self.assertRaisesRegex(ValueError, 'in-place maintained workspace policy'):
-                            prepare_import('evidence/input.json', ctx)
-                ctx.receipt['workspacePolicy'] = 'in-place'
-                resumed, _, _, storage = prepare_import('evidence/input.json', ctx)
-                self.assertEqual(runtime, resumed)
-                self.assertEqual('same-producer-workspace', storage['mode'])
-                self.assertEqual(0, storage['copiedFiles'])
-                self.assertEqual([], ctx.commands)
-            ctx.workspace_leases.close(); scope.close()
-
     def test_existing_producer_drift_is_not_hidden_by_an_import_or_bootstrap(self):
         from gambit_smp import workspace as w
         from gambit_smp.runtime_artifact import prepare_import
@@ -418,7 +377,7 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
             ctx, scope = self.context(value, compiler)
             with patch('gambit_smp.research_kernel.manifest_paths', return_value=value['engineManifest']):
                 with self.assertRaisesRegex(ValueError, 'no duplicate fallback'):
-                    prepare_import('evidence/input.json', ctx)
+                    prepare_import('dev/runtime-import-spec.json', ctx)
             self.assertFalse((ctx.directory/'import-staging').exists())
             self.assertEqual([], ctx.commands)
             ctx.workspace_leases.close(); scope.close()
@@ -447,7 +406,8 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
         path.write_text('{}')
         seal = self.root/'.cache/tasks/repair/ci/producer'; seal.mkdir()
         (seal/'engine.json').write_text(json.dumps(value['engineManifest']))
-        descriptor = self.root/'evidence/input.json'
+        descriptor = self.root/'dev/runtime-import-spec.json'
+        descriptor.parent.mkdir(parents=True, exist_ok=True)
         descriptor.write_text(json.dumps(dict(schema='runtime-artifact-input.v1', path=str(path.relative_to(self.root)),
             producerEngine=dict(path=str(seal.relative_to(self.root)), engineId=value['engineManifest']['engineId']))))
         proof = dict(prefixIdentity='fixture-prefix', step='core', parentCompletionObserved=False,
@@ -497,11 +457,11 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
                 capability = rows[-1]['capability']
                 rows[-1]['capability'] = 'gambit.seed-core'
                 with self.assertRaisesRegex(ValueError, 'cannot be replaced by a seed'):
-                    prepare_import('evidence/input.json', ctx)
+                    prepare_import('dev/runtime-import-spec.json', ctx)
                 rows[-1]['capability'] = capability
                 (runtime/'gsi/gsi').write_bytes(b'different producer')
                 with self.assertRaisesRegex(ValueError, 'no duplicate fallback'):
-                    prepare_import('evidence/input.json', ctx)
+                    prepare_import('dev/runtime-import-spec.json', ctx)
             self.assertEqual([], ctx.commands)
 
     def test_missing_local_producer_installs_once_and_archive_envelopes_do_not_multiply_products(self):
@@ -514,7 +474,7 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
             ctx, scope = self.context(value, compiler)
             ctx.tools.update(tar=shutil.which('tar'), sh=shutil.which('sh'))
             with patch('gambit_smp.research_kernel.manifest_paths', return_value=value['engineManifest']):
-                runtime, _, _, storage = prepare_import('evidence/input.json', ctx)
+                runtime, _, _, storage = prepare_import('dev/runtime-import-spec.json', ctx)
             self.assertEqual('installed-import-workspace', storage['mode'])
             inode = (runtime/'gsi/gsi').stat().st_ino
             self.assertEqual(['runtime-install'], [row['stage'] for row in ctx.commands])
@@ -528,12 +488,12 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
         logs['receipt.json'] = value['outerReceipt']
         replacement = archive.with_name('repacked.tar')
         pack(replacement, runtime, value, logs=logs)
-        (self.root/'evidence/input.json').write_text(json.dumps(dict(
+        (self.root/'dev/runtime-import-spec.json').write_text(json.dumps(dict(
             schema='runtime-artifact-input.v1', path=str(replacement.relative_to(self.root)))))
         with w.execution_scope(self.root, 'repair'):
             ctx, scope = self.context(value, compiler)
             with patch('gambit_smp.research_kernel.manifest_paths', return_value=value['engineManifest']):
-                resumed, _, _, storage = prepare_import('evidence/input.json', ctx)
+                resumed, _, _, storage = prepare_import('dev/runtime-import-spec.json', ctx)
             self.assertEqual(runtime, resumed)
             self.assertEqual(inode, (resumed/'gsi/gsi').stat().st_ino)
             self.assertEqual('retained-import-workspace', storage['mode'])

@@ -32,6 +32,26 @@
 ;; not by these module observations or by a copied QNT/Lean result.
 (relation msArchitectureReady (id source profile))
 (relation msCommitReady (id))
+;; Source review is independent of native acceptance. These facts are projected
+;; from SysML TestReview, actual source custody and existing official paths.
+(relation msReviewRequired (id))
+(relation msReview (id decision target official gap))
+(relation msReviewSource (id sha))
+(relation msReviewArchive (id sha))
+(relation msReviewOfficial (id official))
+(relation msReviewTarget (target sha))
+(relation msReviewNoTarget (decision) (("remove") ("archive")))
+(relation msReviewHasTarget (decision) (("retain") ("merge") ("reuse")))
+(relation msReviewChecked (id))
+((msReviewChecked I) <-- (msReviewRequired I)
+ (msReview I D "" O _) (msReviewNoTarget D)
+ (msReviewSource I H) (msReviewArchive I H) (msReviewOfficial I O))
+((msReviewChecked I) <-- (msReviewRequired I)
+ (msReview I D T O _) (msReviewHasTarget D) (msReviewTarget T _)
+ (msReviewSource I H) (msReviewArchive I H) (msReviewOfficial I O))
+(relation msReviewMissing (id))
+((msReviewMissing I) <-- (msReviewRequired I) (not (msReviewChecked I)))
+;; msReviewChecked cannot supply msObservation or any of the five gates.
 ((msCommitReady C) <-- (msCandidate C) (msIdentity S P) (msBootstrap S)
  (msArchitectureReady C S P)
- (not (msMissing _)) (not (msGateMissing _)))
+ (not (msMissing _)) (not (msGateMissing _)) (not (msReviewMissing _)))

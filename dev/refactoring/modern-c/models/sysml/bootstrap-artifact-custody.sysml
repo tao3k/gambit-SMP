@@ -2,9 +2,9 @@ package GambitBootstrapArtifactCustody {
   private import ScalarValues::*;
   ref part orderedWord:GambitOrderedSynchronization::Responsibility=GambitOrderedSynchronization::word;
   ref part gcStop:GambitOrderedSynchronization::Responsibility=GambitOrderedSynchronization::stop;
-  attribute sourceLock:String="evidence/research/ordered-sync/initialization/source.lock.json";
+  attribute sourceLock:String=".cache/research/legacy-evidence/evidence/research/ordered-sync/initialization/source.lock.json";
   attribute profile:String="evidence/fixtures/gerbil-bazel-build-profile/profile.json";
-  attribute recipe:String="evidence/research/bootstrap-artifact-custody/journal-bootstrap.recipe.json";
+  attribute recipe:String=".cache/research/legacy-evidence/evidence/research/bootstrap-artifact-custody/journal-bootstrap.recipe.json";
   attribute scope:String="Darwin/GCC modern-C synchronization and immutable bootstrap artifact boundary; no full0-12 SMP, unknown-owner recovery or other-platform release admission";
   attribute formalBoundary:String="No new QNT/Lean. Existing continuation schedule/permit histories and issued-view algebra retain their owners. Artifact source refinement, adverse real-filesystem tests, exact producer receipts and native Scheme tests deliver distinct evidence";
   attribute wholeBudget:Integer=600;

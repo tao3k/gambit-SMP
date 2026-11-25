@@ -3,7 +3,7 @@
 package GambitControlRefinement {
   private import ScalarValues::*;
   attribute target:String="full-control";
-  attribute predecessor:String="evidence/research/continuation-segments/validation.json";
+  attribute predecessor:String=".cache/research/legacy-evidence/evidence/research/continuation-segments/validation.json";
   attribute profile:String="evidence/fixtures/gerbil-bazel-build-profile/profile.json";
   part def Route {
     ref part obligation:GambitContinuationSegments::Obligation;

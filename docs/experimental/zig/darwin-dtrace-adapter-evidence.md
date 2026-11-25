@@ -37,7 +37,7 @@ materialized Darwin patch checkout.
 | [libdtrace.tbd](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/lib/libdtrace.tbd) | `ad62632d9aefb0561888f39f932ab440e30bdc6da47830d1aee838eb846c2412` |
 | [mach/machine.h](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/mach/machine.h) | `f315bbdab024f89b45756410d1459c85cefe07316f57b67d0fdb2d0087fa6697` |
 
-The previous ledger binds [materialized Gambit source](../../../../../.data/ci-source-patch-check/src/gambit/lib/os_io.c),
+The previous ledger binds materialized Gambit source (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/lib/os_io.c`; unavailable in a clean checkout),
 [vendor fallback](../../../vendor/gambit/lib/os_io.c),
 [DTrace manual](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/share/man/man1/dtrace.1),
 [spawn header](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/spawn.h)

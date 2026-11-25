@@ -31,7 +31,7 @@ def validate(root, record):
     inputs = record.get("inputs", {})
     required = {"models/gambit/native/gc_wait_notification_schedule.c",
                 "src/gambit_smp/gc_wait_source.py", "evidence/gc-wait-notification.json",
-                "evidence/model-results/gc-wait-notification/receipt.json"}
+                ".cache/research/legacy-evidence/evidence/model-results/gc-wait-notification/receipt.json"}
     if not required.issubset(inputs):
         raise ValueError("component model/fixture/adapter bindings missing")
     for name, sha in inputs.items():

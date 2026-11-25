@@ -187,7 +187,7 @@ the current framework implementation. A full-framework test exposed that its
 old seed `recipes.py` hash was being compared to the evolving current checkout.
 The failure remains recorded; the original bootstrap receipt and archive were
 not rewritten. Six exact matching seed inputs are now independently retained in
-`evidence/source-results/fixtures/sfun-owned-unwind/historical-seed-inputs`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/historical-seed-inputs`.
 Its manifest binds the original bootstrap receipt hash, preserves the complete
 original input inventory and grants no runtime, release or source-refinement
 admission. Tests verify those actual archived bytes, not replacement hashes.

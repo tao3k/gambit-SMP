@@ -1,7 +1,7 @@
 ;;; Caller-owned investigation choices, not execution or repair admission.
 (define-evidence (make-tool-reasoning)
-  (sources focus source build compiler_kind question rationale tool offers support requirement available observation environment_hint)
-  (outputs compiler_context options why missing ready reuse unbound conflicts context_gaps choice_scope exploration_window environment_options actions)
+  (sources focus source build compiler_kind question rationale tool offers support requirement available observation environment_hint choice_key)
+  (outputs compiler_context options why missing ready reuse unbound conflicts context_gaps choice_scope exploration_window environment_options actions clue factor link)
   (relation choice_scope ((kind string?) (meaning string?))
     (("coverage" "Open world: known examples, never an exhaustive tool universe")
      ("selection" "Optional and unordered; no tool or sequence is mandatory")
@@ -20,6 +20,10 @@
   (relation available ((focus string?) (premise string?) (source string?)))
   (relation observation ((focus string?) (goal string?) (tool string?) (source string?)))
   (relation environment_hint ((tool string?) (source string?)))
+  (relation choice_key ((id string?) (focus string?) (goal string?) (tool string?)))
+  (relation clue (id digest claim polarity role source))
+  (relation factor (id digest name value))
+  (relation link (claim target label id digest))
   (relation current (focus))
   (relation compatible (focus tool))
   (relation conflicts (focus))
@@ -69,6 +73,24 @@
     (available F P S) (not (source S _ _)))
   ((ready F G T) <-- (options F G T _ _ _ _ _ _) (not (missing F G T _)))
   ((reuse F G T P H) <-- (current F) (observation F G T S) (source S P H))
+  ((clue I H I (lit "support") (lit "hypothesis") P) <--
+    (choice_key I F G T) (options F G T _ _ _ _ P H))
+  ((factor I H (lit "kind") (lit "tool-choice")) <-- (clue I H _ _ _ _))
+  ((factor I H (lit "focus") F) <-- (choice_key I F G T) (clue I H _ _ _ _))
+  ((factor I H (lit "question-goal") G) <-- (choice_key I F G T) (clue I H _ _ _ _))
+  ((factor I H (lit "tool") T) <-- (choice_key I F G T) (clue I H _ _ _ _))
+  ((factor I H (lit "purpose") Purpose) <--
+    (choice_key I F G T) (clue I H _ _ _ _) (options F G T Purpose _ _ _ _ _))
+  ((factor I H (lit "boundary") Boundary) <--
+    (choice_key I F G T) (clue I H _ _ _ _) (options F G T _ Boundary _ _ _ _))
+  ((factor I H (lit "rationale") Reason) <--
+    (choice_key I F G T) (clue I H _ _ _ _) (why F G T Reason _ _))
+  ((factor I H (lit "missing-premise") M) <--
+    (choice_key I F G T) (clue I H _ _ _ _) (missing F G T M))
+  ((link I P (lit "question-source") I H) <--
+    (choice_key I F G T) (clue I H _ _ _ _) (options F G T _ _ P _ _ _))
+  ((link I P (lit "environment-route") I H) <--
+    (choice_key I F G T) (clue I H _ _ _ _) (environment_options F T P _))
   ((unbound F (lit "build") S) <-- (build F _ _ _ _ S) (not (source S _ _)))
   ((unbound F (lit "question") S) <-- (question F _ S) (not (source S _ _)))
   ((unbound F (lit "premise") S) <-- (available F _ S) (not (source S _ _)))

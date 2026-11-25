@@ -41,7 +41,7 @@ characterization models without controls retain their original checks.
 Campaign001 rejected all four controls and checked `guardSound` plus temporal
 progress: 432 distinct / 752 generated states, zero queued, 32.536 seconds for the
 positive check. Source and model context stayed stable. Portable logs and receipt
-are under `evidence/model-results/vm-list-constructor-visibility-model/`.
+are under `.cache/research/legacy-evidence/evidence/model-results/vm-list-constructor-visibility-model/`.
 
 No unpublication, storage reclamation or constructor-error drain is proved.
 POSIX heartbeat cleanup sets the timer off and handler disposition to ignore;

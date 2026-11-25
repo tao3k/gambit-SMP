@@ -121,7 +121,6 @@ class NativeRecipeTests(unittest.TestCase):
         self.backend.write_text("unit backend")
         self.calls = []
 
-
     def save(self):
         self.path.write_text(json.dumps(self.recipe))
 
@@ -463,7 +462,6 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertEqual(sorted(map(str, files)), sorted(file for row in rows for file in row["files"]))
         self.assertTrue(all(row["accepted"] for row in rows if row is not bounded))
 
-
     def test_group_preparation_is_not_outside_original_cap(self):
         import time
         runtime = self.root / "preparation-runtime"
@@ -488,7 +486,6 @@ class NativeRecipeTests(unittest.TestCase):
             self.assertTrue(rows[0]['deadlineExhausted'])
             self.assertFalse(rows[0]['timeout'])
             launched.assert_not_called()
-
 
     def test_completed_owner_is_checkpointed_before_a_slow_owner_returns(self):
         import time
@@ -530,12 +527,12 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertEqual(rows, json.loads((directory / "suite-progress.json").read_text()))
         self.assertFalse((directory / "suite-progress.pending.json").exists())
 
-
     def test_bootstrap_requires_both_complete_phase_passes(self):
         lines = [f"*** making phase{phase}" for _ in range(2) for phase in range(1, 5)]
         self.assertEqual({f"phase{phase}": 2 for phase in range(1, 5)},
                          native.bootstrap_phase_counts("\n".join(lines)))
-        for incomplete in (lines[:4], lines[:-1], lines + [lines[0]], []):
+        misordered = [lines[0], lines[2], lines[1], *lines[3:]]
+        for incomplete in (lines[:4], lines[:-1], lines + [lines[0]], misordered, []):
             with self.assertRaisesRegex(ValueError, "two-pass"):
                 native.bootstrap_phase_counts("\n".join(incomplete))
 
@@ -620,7 +617,6 @@ class NativeRecipeTests(unittest.TestCase):
             self.assertTrue(all(row["effectiveBudgetSeconds"] <= (1 if regime == "atomic-coverage" else 10)
                                 for row in ctx.commands))
 
-
     def test_nested_file_caps_preserve_inventory_and_kill_within_whole_budget(self):
         import time
         runtime = self.root / "bounded-runtime"
@@ -657,7 +653,6 @@ class NativeRecipeTests(unittest.TestCase):
                 self.assertEqual(sorted(str(file) for file in files),
                                  sorted(file for row in rows for file in row["files"]))
 
-
     def test_additional_fixture_is_hash_bound_and_cannot_replace_upstream(self):
         source = self.root / "spawn.scm"
         source.write_text("(test-equal 0 0)")
@@ -680,7 +675,7 @@ class NativeRecipeTests(unittest.TestCase):
 
     def test_real_grid_restores_exact_original_375_file_inventory(self):
         from gambit_smp.framework import ROOT
-        grid = recipes.read_json(ROOT / "evidence/research/smp-threaded-vm-native-grid/native.recipe.json")
+        grid = recipes.read_json(ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/native.recipe.json")
         fixtures = [row for row in grid["steps"] if row["capability"] == "gambit.suite"]
         self.assertEqual(2, len(fixtures))
         for row in fixtures:
@@ -723,7 +718,6 @@ class NativeRecipeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, decision):
                     native.suite(arguments, ctx)
             self.assertFalse((directory / 'runtime').exists())
-
 
     def test_bootstrap_known_failure_gate_precedes_clone_and_from_scratch(self):
         runtime, identity = self.root / "seed", self.root / "seed-identity.json"

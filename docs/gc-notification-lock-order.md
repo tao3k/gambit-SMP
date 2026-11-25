@@ -55,7 +55,7 @@ counterexample (108 distinct states before failure). The positive policies
 completed safety and weak-fair critical-section progress over 1,920 distinct
 states, 4,200 generated and zero queued, in 26.725 seconds. Reviewed context
 remained stable. Portable evidence is in
-`evidence/model-results/gc-notification-lock-order/`; runtime/release admission
+`.cache/research/legacy-evidence/evidence/model-results/gc-notification-lock-order/`; runtime/release admission
 remain false.
 
 Registration increased the exported checked protocol set from 29 to 31. The

@@ -74,7 +74,7 @@ the owner invalidates calls while already-owned result observations are independ
 Runtime ordinary Scheme procedures and mutable closure factories were removed
 from the current dependency asset and its declared exports under the explicitly
 approved declarative contract. Their exact old files and tests remain in
-`evidence/library/compiled-graph-057/contract-history`, not a compatibility path.
+`.cache/research/legacy-evidence/evidence/library/compiled-graph-057/contract-history`, not a compatibility path.
 The current dependency asset contains only statically lowered rule helpers.
 Aggregate, negation, lattice and recorded-only explanation boundaries are unchanged.
 This does not claim the old arbitrary-procedure or Actor API was implemented in

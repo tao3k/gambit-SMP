@@ -1,0 +1,116 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-rest-original-stress",
+  "scope": "Original TFIB, interrupt, interrupt2 and terminate populations on the completed rest producer. Adaptive p2 then p1, 295-second inner and 300-second outer. The upstream runner bytes are unchanged. This receipt does not admit a runtime until that campaign qualifies.",
+  "budgetSeconds": 300,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/dev-rest-original-runner/source.lock.json",
+    "patches/fixtures/dev-rest-original-runner.patch",
+    "evidence/research/retained/modern-c/dev-rest-original-runner-bootstrap/completed-producer.json",
+    "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json",
+    "evidence/research/retained/modern-c/stress-gsi/manifest.json",
+    "evidence/research/retained/modern-c/stress-gsi/dev-family6-receipt-audit.json",
+    "evidence/native-failures.json",
+    "evidence/dsl/suite-review-rules.ss",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-rest-original-runner/observations.json",
+    "evidence/fixtures/dev-rest-original-runner/binding.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-rest-original-runner/source.lock.json"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/retained/modern-c/dev-rest-original-runner-bootstrap/completed-producer.json"
+      }
+    },
+    {
+      "id": "stress",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 295,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsi",
+        "regime": "whole-parallel",
+        "inventory": "stress",
+        "selection": [
+          "."
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/dsl/suite-review-rules.ss",
+        "orderedStress": {
+          "manifest": "evidence/research/retained/modern-c/stress-gsi/manifest.json",
+          "inputReceipt": "evidence/research/retained/modern-c/stress-gsi/dev-family6-receipt-audit.json",
+          "profile": "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json"
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "stress"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-rest-original-runner/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

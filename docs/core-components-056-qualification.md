@@ -52,4 +52,4 @@ known-failing route was rerun or promoted. Git direct-url metadata was not forge
 All original failures and budgets remain intact.
 
 Raw receipts, including wrong-workspace and denied source-read attempts, are in
-`evidence/library/core-components-056/raw`; SHA manifest records archived bytes.
+`.cache/research/legacy-evidence/evidence/library/core-components-056/raw`; SHA manifest records archived bytes.

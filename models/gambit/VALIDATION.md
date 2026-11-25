@@ -149,7 +149,7 @@ support record values. A strict integer/Boolean/tuple/record decoder now
 rejects unsupported, duplicate, truncated, trailing and structurally drifting
 values. The unchanged 003 logs were redecoded without rerunning the checker;
 original receipt/log digests are retained in
-`evidence/model-results/gc-forward-publication.json`. The initial DENY receipt
+`.cache/research/legacy-evidence/evidence/model-results/gc-forward-publication.json`. The initial DENY receipt
 is not overwritten. Framework unit suite: 36/36 passed.
 
 This is bounded characterization only, not a GC patch or performance result.
@@ -189,7 +189,7 @@ The exporter now rejects dependency cycles before entering the engine, with an
 explicit negative test. This bounds the supported query domain to acyclic PR
 dependencies; it does not claim cycle handling by the Datalog engine.
 
-Three imported model receipts are under `evidence/model-results/`. They are
+Three imported model receipts are under `.cache/research/legacy-evidence/evidence/model-results/`. They are
 historical producer records with referenced raw logs retained in the originating
 local investigation, not new exhaustive runs or whole-toolchain acceptance.
 The complete PR988 inventory is retained under `evidence/upstream/`.

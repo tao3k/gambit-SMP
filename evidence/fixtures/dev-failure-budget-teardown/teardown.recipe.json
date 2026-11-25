@@ -1,0 +1,180 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-failure-budget-teardown",
+  "scope": "Quint controls for one historical failure binding, one process-group terminal observation, one checkpoint budget ledger, and one foreign-origin VM teardown: a retained failure keeps its bytes and budget, a guess is not a strict group observation, two requests share one finite ledger, and one VM call is not torn down as a premature commit. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 200,
+  "inputs": [
+    "models/gambit/historical_failure_observation.qnt",
+    "models/gambit/process_group_terminal_observation.qnt",
+    "models/gambit/checkpoint_budget_ledger.qnt",
+    "models/gambit/foreign_origin_vm_teardown.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-failure-budget-teardown/binding.json",
+    "evidence/fixtures/dev-failure-budget-teardown/observations.json",
+    "evidence/fixtures/dev-failure-budget-teardown/teardown.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "hist-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/historical_failure_observation.qnt"
+      }
+    },
+    {
+      "id": "hist",
+      "capability": "quint.test",
+      "dependsOn": [
+        "hist-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/historical_failure_observation.qnt",
+        "parsed": "hist-parse",
+        "main": "historical_failure_observation",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "checkedVersionTest",
+          "loadedIsNotReviewedTest",
+          "postReviewDriftTest",
+          "bypassControlTest"
+        ]
+      }
+    },
+    {
+      "id": "group-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/process_group_terminal_observation.qnt"
+      }
+    },
+    {
+      "id": "group",
+      "capability": "quint.test",
+      "dependsOn": [
+        "group-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/process_group_terminal_observation.qnt",
+        "parsed": "group-parse",
+        "main": "process_group_terminal_observation",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "resolvedPermissionTest",
+          "unknownBudgetTest",
+          "guessedControlTest",
+          "unreapedControlTest"
+        ]
+      }
+    },
+    {
+      "id": "budget-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt"
+      }
+    },
+    {
+      "id": "budget",
+      "capability": "quint.test",
+      "dependsOn": [
+        "budget-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt",
+        "parsed": "budget-parse",
+        "main": "checkpoint_budget_ledger",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "failedConsumerChargedTest",
+          "interruptedReservationHeldTest",
+          "boundRecoveryTest",
+          "unboundRecoveryChargedTest",
+          "concurrentReservationsTest",
+          "releaseBeforeChargeControlTest",
+          "omitFailedConsumerControlTest",
+          "duplicateSettlementControlTest"
+        ]
+      }
+    },
+    {
+      "id": "tear-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt"
+      }
+    },
+    {
+      "id": "tear",
+      "capability": "quint.test",
+      "dependsOn": [
+        "tear-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt",
+        "parsed": "tear-parse",
+        "main": "foreign_origin_vm_teardown",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "childP0BusyTest",
+          "rootP0BusyTest",
+          "partialCloseRollbackTest",
+          "quiescentCommitTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "hist-parse",
+        "hist",
+        "group-parse",
+        "group",
+        "budget-parse",
+        "budget",
+        "tear-parse",
+        "tear"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-failure-budget-teardown/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

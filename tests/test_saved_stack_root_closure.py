@@ -17,7 +17,7 @@ class SavedStackRootClosureTests(unittest.TestCase):
                 "twoCyclesDoNotRestoreIdentity"))
 
     def test_root_origin_and_phase_gaps_remain_source_bound(self):
-        directory = ROOT / "evidence/research/host-root-publication"
+        directory = ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication"
         path = directory / "root-closure-facts.json"
         facts = json.loads(path.read_text())["facts"]
         inputs = dict(json.loads((directory / "root-closure.manifest.json").read_text())["contextInputs"])

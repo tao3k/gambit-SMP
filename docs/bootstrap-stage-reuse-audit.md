@@ -31,7 +31,7 @@ milestone completion.
 
 The first positive check found drift during active construction. Its denied
 receipt, original snapshot and trace remain in
-`evidence/model-results/research/bootstrap-stage-reuse/launch-drift-attempt`.
+`.cache/research/legacy-evidence/evidence/model-results/research/bootstrap-stage-reuse/launch-drift-attempt`.
 The corrected model separately binds launch-time validity and rechecks
 current exactness at commit. Mid-execution drift therefore rejects commit,
 without claiming an external edit could never occur.

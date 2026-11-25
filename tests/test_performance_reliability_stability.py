@@ -8,7 +8,7 @@ from gambit_smp.verify_protocols import load_manifest
 
 
 MANIFEST = "evidence/performance-reliability-stability-model.json"
-RECEIPT = "evidence/model-results/performance-reliability-stability/joint-contract/receipt.json"
+RECEIPT = ".cache/research/legacy-evidence/evidence/model-results/performance-reliability-stability/joint-contract/receipt.json"
 
 
 class PerformanceReliabilityStabilityTests(unittest.TestCase):
@@ -51,7 +51,7 @@ class PerformanceReliabilityStabilityTests(unittest.TestCase):
         self.assertFalse(receipt["releaseAdmitted"])
 
     def test_initial_state_parser_denial_is_retained_not_admitted(self):
-        folder = ROOT / "evidence/model-results/performance-reliability-stability/initial-state-denial"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/model-results/performance-reliability-stability/initial-state-denial"
         archive = json.loads((folder / "archive.json").read_text())
         self.assertTrue(archive["archiveOnly"])
         self.assertFalse(archive["accepted"])

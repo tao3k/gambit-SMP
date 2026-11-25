@@ -37,7 +37,7 @@ class CallbackReturnOwnedResultTests(unittest.TestCase):
         self.assertIn("full_native_bootstrap_gerbil_acceptance", case["openObligations"])
 
     def native_receipt(self, name):
-        folder = ROOT / "evidence/source-results/fixtures/callback-return-owned-result" / name
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/callback-return-owned-result" / name
         archive = json.loads((folder / "archive.json").read_text())
         self.assertTrue(archive["archiveOnly"])
         self.assertFalse(archive["runtimeAdmitted"])

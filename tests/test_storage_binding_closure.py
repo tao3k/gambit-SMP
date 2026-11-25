@@ -67,6 +67,52 @@ class BindingClosureTests(unittest.TestCase):
             views.materialize(self.root,'evidence/sample.view.source.json',expected_view_sha=expected)
         self.assertEqual(original,target.read_bytes())
 
+    def test_generation_preserves_record_validation_instead_of_publishing_forged_pass(self):
+        target,source,original=self.declaration()
+        source.write_text(json.dumps({'outcome':'PASS','runtimeAdmitted':True}))
+        declaration=self.root/'evidence/sample.view.source.json'
+        spec=json.loads(declaration.read_text())
+        spec['references'][0].update(validator='recorded-cases',origin='observed-artifact')
+        spec['references'][0]['source']['sha256']=sha(source)
+        w.write(declaration,spec)
+        with self.assertRaisesRegex(ValueError,'reference changed or missing'):
+            views.materialize(self.root,'evidence/sample.view.source.json',expected_view_sha=sha(target))
+        self.assertEqual(original,target.read_bytes())
+
+    def test_observed_artifact_generation_keeps_live_byte_invalidation(self):
+        target,source,original=self.declaration()
+        artifact=self.root/'.cache/observation.json'
+        artifact.parent.mkdir(exist_ok=True)
+        artifact.write_text('{"observed":7}')
+        declaration=self.root/'evidence/sample.view.source.json'
+        spec=json.loads(declaration.read_text())
+        spec['references'][0].update(origin='observed-artifact',
+            source=dict(path='.cache/observation.json',sha256=sha(artifact)))
+        w.write(declaration,spec)
+        result=views.materialize(self.root,'evidence/sample.view.source.json',expected_view_sha=sha(target))
+        self.assertFalse(result['runtimeAdmitted'])
+        from gambit_smp.evidence_views import load,ReferenceUnavailable
+        load(self.root,'evidence/sample.view.json')
+        artifact.write_text('{"observed":8}')
+        with self.assertRaises(ReferenceUnavailable):load(self.root,'evidence/sample.view.json')
+
+    def test_generator_change_during_inference_cannot_bless_a_new_binding(self):
+        target,source,original=self.declaration()
+        from gambit_smp.evidence_views import evaluate
+        changed=False
+        digest=views.digest
+        def concurrent(*args):
+            nonlocal changed
+            result=evaluate(*args);changed=True;return result
+        def observed(path):
+            if changed and Path(path)==Path(views.__file__):return '0'*64
+            return digest(path)
+        with patch('gambit_smp.evidence_views.evaluate',side_effect=concurrent), \
+                patch('gambit_smp.view_materialize.digest',side_effect=observed):
+            with self.assertRaisesRegex(ValueError,'generator changed during publication'):
+                views.materialize(self.root,'evidence/sample.view.source.json',expected_view_sha=sha(target))
+        self.assertEqual(original,target.read_bytes())
+
     def test_publication_does_not_overwrite_a_concurrent_view(self):
         target,source,original=self.declaration()
         from gambit_smp.evidence_views import evaluate

@@ -6,8 +6,52 @@ from unittest.mock import Mock, patch
 from tempfile import TemporaryDirectory
 from pathlib import Path
 
-from gambit_smp.gambit_build_primitives import (build_capacity, core_command,
-                                              build_seed_core, rebuild_source_core)
+from gambit_smp.gambit_build_primitives import (build_capacity, compiler_rss_limit,
+                                              core_command, build_seed_core,
+                                              host_compiler_reservation, rebuild_source_core)
+
+
+class MemoryCapacityTests(unittest.TestCase):
+    def test_unknown_job_exclusively_reserves_available_budget(self):
+        plan=build_capacity(12,memory_bytes=3072,parent_reserve_bytes=128,job_reserve_bytes=2944)
+        self.assertEqual(1,plan['makeJobs'])
+        self.assertEqual(1,plan['compilerProcessors'])
+        self.assertEqual(12,plan['availableProcessors'])
+        self.assertFalse(plan['reservationIsMeasuredUpperBound'])
+        self.assertEqual(['make','-j1','GAMBOPT=p1','core'],core_command(plan))
+
+    def test_eight_gibibyte_runner_admits_one_compiler_job(self):
+        with patch("os.sysconf", side_effect=lambda name: 4096 if name == "SC_PAGE_SIZE" else 2 * 1024 ** 2):
+            reservation = host_compiler_reservation()
+        plan = build_capacity(12, **reservation)
+        self.assertEqual(1, plan["makeJobs"])
+        self.assertEqual(1, plan["compilerProcessors"])
+        self.assertEqual(8 * 1024 ** 3, plan["memoryBytes"])
+        self.assertEqual(8 * 1024 ** 3, compiler_rss_limit(reservation))
+        self.assertEqual(["make", "-j1", "GAMBOPT=p1", "core"], core_command(plan))
+
+    def test_thirty_two_gibibyte_host_stays_within_eight_gibibyte_envelope(self):
+        with patch("os.sysconf", side_effect=lambda name: 4096 if name == "SC_PAGE_SIZE" else 8 * 1024 ** 2):
+            reservation = host_compiler_reservation()
+        plan = build_capacity(12, **reservation)
+        self.assertEqual(1, plan["makeJobs"])
+        self.assertEqual(1, plan["compilerProcessors"])
+        self.assertEqual(8 * 1024 ** 3, reservation["memory_bytes"])
+        self.assertEqual(8 * 1024 ** 3, compiler_rss_limit(reservation))
+        self.assertEqual(["make", "-j1", "GAMBOPT=p1", "core"], core_command(plan))
+
+    def test_memory_credits_and_cpu_both_limit_concurrency(self):
+        self.assertEqual(2,build_capacity(12,memory_bytes=1000,parent_reserve_bytes=200,
+                                        job_reserve_bytes=400)['makeJobs'])
+        self.assertEqual(2,build_capacity(2,memory_bytes=1000,parent_reserve_bytes=200,
+                                        job_reserve_bytes=100)['makeJobs'])
+
+    def test_incomplete_invalid_or_oversized_reservation_refuses(self):
+        for args in [dict(memory_bytes=1),dict(memory_bytes=True,parent_reserve_bytes=0,job_reserve_bytes=1),
+                     dict(memory_bytes=10,parent_reserve_bytes=10,job_reserve_bytes=1),
+                     dict(memory_bytes=10,parent_reserve_bytes=1,job_reserve_bytes=10),
+                     dict(memory_bytes=10,parent_reserve_bytes=-1,job_reserve_bytes=1)]:
+            with self.subTest(args=args),self.assertRaises(ValueError):build_capacity(12,**args)
 
 
 class BuildCapacityTests(unittest.TestCase):
@@ -37,6 +81,7 @@ class BuildCapacityTests(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             source = Path(temporary)
             stages = Mock()
+            stages.memory_reservation = {}
             stages.run.return_value = (0, "", False, 0.1)
             with patch("gambit_smp.gambit_build_primitives.available_processors", return_value=7):
                 ok, observation = build_seed_core(stages, source, 120)

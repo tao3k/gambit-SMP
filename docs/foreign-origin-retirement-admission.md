@@ -32,7 +32,7 @@ runtime entry from generated SFUN wrappers.
 ## Framework Receipt
 
 Recipe: `foreign-origin-retirement-admission-model`, under
-`evidence/research/vm-registry-reader-lease/foreign-origin-retirement-admission.recipe.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/foreign-origin-retirement-admission.recipe.json`.
 Model: `models/gambit/foreign_origin_retirement_admission.qnt`.
 Local run: `.data/fixtures/foreign-origin-retirement-admission/model-admission-run`.
 

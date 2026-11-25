@@ -8,7 +8,7 @@ from gambit_smp.recipes import load
 
 class ForeignOriginBootstrapBindingTests(unittest.TestCase):
     def test_successor_binds_actual_locked_bytes_and_historical_baselines(self):
-        directory = ROOT / "evidence/research/vm-registry-reader-lease"
+        directory = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease"
         recipe, _ = load(ROOT, directory / "foreign-origin-lease-admission-bootstrap.recipe.json")
         review = next(s for s in recipe["steps"] if s["id"] == "review")
         intent_path = review["arguments"]["intent"]

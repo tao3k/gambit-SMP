@@ -1,0 +1,184 @@
+#+TITLE: Owned registry getters and direct consumer retirement
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: QUALIFYING | PUBLISHED
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %40ITEM(Responsibility) %AUDIT_NUMBER(Audit) %STATUS(State)
+
+* QUALIFYING 3.4.2 Getter and caller ownership :refactoring:roots:audit:
+:PROPERTIES:
+:CUSTOM_ID: ROOT-VIEWS-GETTERS
+:AUDIT_NUMBER: 3.4.2
+:PARENT_ITEM: 3.4 / ROOT-VIEWS
+:BASE: da5651af241ff30632c2f2009f09f22240fa3752
+:AUTHORITY: GambitSymkeyGetters
+:SOURCE: models/sysml/symkey-getters.sysml
+:STATUS: QUALIFYING
+:END:
+
+** Complete responsibility and learning
+
+Insertion locking does not protect a bucket alias after a getter returns. The
+registry owns count/buckets and intrusive NEXT; a Scheme caller with that vector
+can retain it through GC, mutate it, or traverse links that a later rehash
+rewrites. These are different lifetimes. Adding another check at a reader cannot
+transfer that ownership, and holding a registry lock through Scheme control
+would span allocation, exceptions and multi-shot continuation restoration.
+
+Both private C-target getter names now return fresh flat Scheme-owned identity
+vectors through the admitted capture service. The getters permit allocation and
+GC; their old noninterrupting declarations are retired. All four actual in-tree
+direct consumer sites migrate in the same source cut. The symbol fold uses the
+same getter authority. There is no production raw fallback, duplicate registry
+or new root API. The only raw getter is an explicitly named predecessor fixture.
+
+This is a representation and ownership replacement, not a repair-line patch or
+a claim that every SMP failure is solved. The C runtime continues to own canonical
+PERM publication and atomic capture; Scheme owns traversal and managed lifetime.
+Preserving canonical identities and allowing a captured view to survive multiple
+resumptions amplifies Gambit's control semantics without imposing OCaml's one-shot
+restriction. Existing QNT and Lean do not prove this concrete adapter by naming it.
+
+** Actual callers and representation boundary
+
+| Selected source | Retired authority | New consumer / evidence boundary |
+|-----------------+-------------------+----------------------------------|
+| =lib/_kernel.scm:##symbol-table; ##keyword-table= | Direct GSTATE bucket return under noninterrupting declaration | Fresh flat identity capture; allocation outside existing gate |
+| =lib/_kernel.scm:##symbol-table-foldl= | Separate capture entry selection | Calls official private getter, then existing flat fold |
+| =lib/_geiser/_geiser.scm:geiser:module-completions= | Bucket loop and symbol field2 NEXT | Identity fold; same interesting predicate and string-ci sort |
+| =doc/checkdoc.scm:all-symbols= | Drop count slot, bucket/NEXT recursion | vector-to-list over the complete owned vector |
+| =tests/test10.scm:get-rtlib-mapping= | Bucket/symbol-interned link metadata adapter | Flat vector-to-list; original tests, names and assertions retained |
+| =tests/run-unit-tests.scm:get-rtlib-mapping= | Same metadata layout dependency | Same flat adapter; original unit manifest remains intact |
+| Native =gsc/*.scm= source census | No getter intrinsic override found | Generated getter rooting/classification checked by complete bootstrap |
+| =lib/_univlib.scm= | Separate universal-target implementation | No C bucket representation transplanted to other backends |
+| Native debug diagnostics / unsafe reflection | Raw C access and arbitrary field writes | Separate profile/source/writer census remains unadmitted |
+
+The source census and actual consumer-body execution are retained in
+[[file:../../../evidence/research/retained/modern-c/symkey-getters/receipt.json][the source-bound receipt]]. Gambit's native reader extracts the real Geiser helpers/completion
+procedure, checkdoc enumerator and both metadata adapters and executes their
+bodies. This is not a full Geiser module or downstream build. Complete original
+tests additionally consume the actual changed metadata path.
+
+The existing Gerbil source contains raw private walkers in
+=src/v0.19-WIP/v0.19-TODO-std/debug/heap.ss= for symbols and keywords. It is a TODO
+tree, not proof of an active build dependency. Its bucket and macro-symbol-next
+assumptions cannot be silently admitted to the new getter contract. Parent3.4
+stays OPEN until external private-layout migration/rejection is resolved. This
+REV neither changes that source nor claims full Gerbil acceptance. Public names
+and arities survive; the private return representation intentionally changes.
+
+** Lifetime, failure and conditional proof
+
+#+NAME: getter-transfer-cuts
+| Cut | Custodian and invariant | Failure / unknown disposition |
+|-----+-------------------------+-------------------------------|
+| Query | Existing native gate reads current count N | No new object/resource retained |
+| Allocate | Scheme frame owns an initialized vector outside the gate | Allocation may collect/escape without a native debt |
+| Matching copy | Existing native gate excludes count/NEXT/rehash writers; exactly N PERM identities | Mismatched count writes nothing; retry has only ordinary GC-owned garbage |
+| Deliver | Native retains no destination pointer; getter returns owned vector | No borrowed registry storage crosses return |
+| Retain/mutate | Normal Scheme aliases and GC/continuation roots own the vector | Mutation changes that vector, not registry or another getter's vector |
+| Callback/resume | Existing fold frame carries one snapshot | Exceptions unwind normally; multiple resumptions share it and preserve dynamic-wind |
+
+The claim requires admitted native interning, a coherent matching-count capture,
+complete generated roots and ordinary Scheme mutation discipline. Reflective
+stores into arbitrary native/symbol storage are not made safe by this API.
+Binding values are still read at their original callback-time points. Finite
+completion needs a stable-size interval; continuous native growth can starve the
+two-pass retry. Capture delays polling while holding the gate. No bounded latency,
+dead-owner recovery or independent collector admission follows from alias safety.
+
+Falsifiers include: two getter results sharing the same mutable vector; mutating
+one changing registry or another view; growth changing a retained view; omitted
+or duplicated canonical identities; a live consumer still reading count/bucket/NEXT;
+GC or a second continuation restoration losing a view root; external raw readers
+being declared supported without a migration. These are concrete source/native
+obligations, not a second QNT/Lean state machine.
+
+** Verification and real implementation counterexamples
+
+- [X] Complete same-workspace source producer, two phase1--4 passes and stock core.
+- [X] Actual Scheme PBT: seed997, twelve generated histories plus mandatory chain,
+  322 actions; ten mandatory actions include ten explicit GC requests and two
+  continuation resumptions, getter mutation/isolation, native growth and escape.
+- [X] Actual old fold:6297 was the previous cut's population; this cut captures6301
+  and visits2016 under growth. Retained thirteen-action failure shrinks to one,
+  deletion-one-minimal, replayed against old code and passing against current code.
+- [X] Actual raw getter returns the same registry alias; thirteen actions shrink
+  to one in seven trials, deletion-one-minimal, old replay fails/current replay
+  passes. It refuses before mutation of raw storage, avoiding corruption as oracle.
+- [X] Initial schema rejection is retained: fault2 was not an admitted trace value.
+  Only view traces now admit2; other trace domains keep their old fault bounds.
+  Exact runtime artifacts were reused for this test-only correction.
+- [X] Cross-domain regression caught an overly broad fixture edit: interner noise
+  temporarily generated action9 although its domain admits only0--8. Restore its
+  original bound, retain the actual invalid-trace failure, and rebind every final
+  receipt to the corrected tree. Only the view generator admits action9. Native
+  interner publication/growth regression passes again; no runtime workaround.
+- [X] Complete final-tree original GSI408/408 in65.915s and every original Make
+  prerequisite in102.638s under the unchanged120s limit. A prior-tree first run
+  exceeded120s; its same-source recheck finished118.714s. Both are retained,
+  not rewritten as final-tree results or stable performance acceptance.
+- [X] Final-tree interner405-action/growth, globals extent/refusal and startup
+  unknown-result/early-root-drain regressions; actual source identities match.
+- [X] Actual consumer-body/old-fold AST comparison and source census. The native
+  reader skips verified script headers; initial audit-reader syntax/argument/header
+  refusals remain recorded. No whole Geiser/Gerbil build is inferred.
+- [X] Native SysML drives actual ASCENT pending ownership/field checks; six negative
+  controls reject missing/duplicate owner, unknown stage, missing tests, empty
+  blocker and unqualified commit. Existing QNT/Lean hashes remain unchanged.
+- [ ] Shared five commit gates and twenty-one negative controls on exact source.
+
+** Benefit and added-cost matrix
+
+#+NAME: getter-benefit-cost
+| Mechanism | Established structural benefit | Added work / peak bound | Positive condition and refutation |
+|-----------+--------------------------------+-------------------------+----------------------------------|
+| Two owned getters | Two production raw registry alias escape sites removed | O(bucket count+N) copy replaces O(1) alias return; N managed reference words plus ordinary header per call | Needed for safe retained/mutable views; if private callers still depend on buckets, parent admission stays open |
+| Four caller sites | No count skipping or intrusive field traversal in admitted Scheme consumers | Flat O(N) iteration remains; Geiser no longer owns traversal mechanics | Same canonical identity sequence/filter/sort; any missing/duplicate member refutes |
+| GC and multi-shot reuse | Ordinary managed roots replace per-consumer native lifetime/cleanup support | Independently retained views use sum(N_i) words and add reference scanning when collected; one captured fold's resumes share its vector | Both resumptions and roots must survive actual GC; no one-shot substitution or reduction of whole-GC work is inferred |
+| Existing capture service | Zero new mutexes, C fields, permanent records, native buffers or manual root APIs | Existing gate holds O(bucket+N) work; retries add transient vectors | Contention/poll latency and physical peak are unmeasured; no throughput claim |
+| Example6301 identities,64bit | Canonical objects and names are not duplicated | One vector payload50408 bytes; two independent vectors100816 bytes, excluding headers, retention and retries | Logical size only, not RSS or whole-round peak measurement |
+| Tests and audit | Existing root-task replay/shrink and official manifests reused | One new action and predecessor control in existing SCM; no new test framework/config/executor | Actual producer/schema/caller failures retained; a plan never qualifies pending code |
+| Producer reuse | Both test-only corrections reuse four exact native binaries/archive and all15 generated products | Initial source bootstrap126.205s plus stock core28.195s; reuse records those stages as not rerun | Identity reuse only, not a cold-build speedup; prior-tree Make120s timeout/118.714s recheck and final-tree102.638s stay visible |
+
+** Programme location and pending REV queue
+
+The primary audit has thirteen responsibility indices, not thirteen promised
+commits. Item3 ROOTS is current; this REV closes leaf3.4.2 after3.4.1. Parent3.4
+remains open for the downstream private-layout boundary, along with3.5 writers
+and3.6 complete census: three scoped closed / three remaining ROOTS groups.
+The separate twelve-family SMP table admits only complete manifests bound to the
+current source/profile. The two current-source prerequisites are rechecked here;
+compiled/PR/stress/registry/lifecycle/GC-FFI/Gerbil/release families remain open.
+Neither repair8/12 nor repair9 results transfer into this branch.
+
+[[file:pending-cuts.org][The SysML-derived pending queue]] assigns all135 unique pending paths
+(133 net changes plus two index/working-only paths)
+to ten review owners with tests, blockers and ordering. Generated C is attached
+to its exact producer, never an independent handwritten REV. Header/build support
+can qualify separately. Root/writer closure precedes physical reservation and
+independent workers; retirement, scheduling and CFFI follow their admitted
+interfaces. Every small completed responsibility gets its own tested REV; no
+directory-wide staging, arbitrary renaming or audit-less bulk commit.
+
+** Model and paper reflection
+
+[[file:models/sysml/symkey-getters.sysml][GambitSymkeyGetters]] binds prior capture ownership, current coverage, actual
+sources and five typed Needs. [[file:models/sysml/pending-cuts.sysml][GambitPendingCuts]] owns exact pending file assignment;
+[[file:../../modeling/ascent/delivery-plan.rules.scm][ASCENT]] rejects missing premises and premature publication. The shared
+submission DSL additionally binds exact selected tree, native artifact identity,
+reviewed Org/commit audit and five gates. QNT retains only source/task temporal
+histories; Lean retains its separate conditional cell/census/address laws. Neither
+is rewritten or credited with this concrete alias/callback proof. The ambient
+LLM performs source review; it supplies no missing native observation.
+
+The preceding research on Gambit, Chez, Guile and OCaml motivates separating
+control and storage lifetimes, not replacing Scheme's semantics with another
+runtime's restrictions. This cut keeps canonical shared Scheme identities,
+dynamic-wind and multi-shot continuation roots while removing hidden authority
+over mutable native topology. It is one foundation for independent collector
+workers; whole root union, writers and task/restoration ownership still need
+their own complete C replacements and original workload acceptance.
+
+#+CAPTION: Registry topology lifetime ends before Scheme view lifetime begins.
+[[file:symkey-getters.d2]]

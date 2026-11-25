@@ -35,7 +35,7 @@ an automatic proof that the two models refine a concrete implementation.
 ## Current Receipt
 
 Recipe `foreign-origin-vm-teardown-model` in
-`evidence/research/vm-registry-reader-lease/foreign-origin-vm-teardown.recipe.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/foreign-origin-vm-teardown.recipe.json`.
 Model `models/gambit/foreign_origin_vm_teardown.qnt`.
 Local run `.data/fixtures/foreign-origin-vm-teardown/combined-model-run`.
 

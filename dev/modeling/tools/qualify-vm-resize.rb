@@ -1,5 +1,5 @@
 require 'json';require 'digest';require 'open3';require 'fileutils'
-b='.cache/tasks/modern-c-frame-contract/cohort';e='evidence/research/modern-c-bootstrap';sha=->p{Digest::SHA256.file(p).hexdigest};q=->x{JSON.generate(x)}
+b='.cache/tasks/modern-c-frame-contract/cohort';e='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap';sha=->p{Digest::SHA256.file(p).hexdigest};q=->x{JSON.generate(x)}
 fact=->name,*xs{"(fact (#{name} #{xs.map{|x|q.call(x)}.join(' ')}))\n"}
 m=JSON.parse(File.read(b+'/resize-model/native-projection.json'));lock_path=m['identity']['sourceLock'];profile=m['identity']['profile'];lock=JSON.parse(File.read(lock_path))
 lock['files'].each{|p,h|raise 'current source drift: '+p unless sha.call('vendor/gambit/'+p)==h['candidateSha256']}
@@ -44,7 +44,7 @@ if File.exist?(boot)
 end
 control=b+'/resize-ownership-controls/receipt.json'
 if File.exist?(control)
- j=JSON.parse(File.read(control));raise 'control source mismatch' unless j['sourceLockSha256']==identity[0] && j['fixtureSha256']==sha.call('evidence/research/modern-c-bootstrap/resize-fixture.scm') && j['adapterSha256']==sha.call('evidence/research/modern-c-bootstrap/resize-faults.c') && j['calibrationSourceSha256']==sha.call('evidence/research/modern-c-bootstrap/resize-fault-calibration.c')
+ j=JSON.parse(File.read(control));raise 'control source mismatch' unless j['sourceLockSha256']==identity[0] && j['fixtureSha256']==sha.call('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-fixture.scm') && j['adapterSha256']==sha.call('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-faults.c') && j['calibrationSourceSha256']==sha.call('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-fault-calibration.c')
  observed['VQ-BODY']=[control,'native-caller'] if j['rows'].any?{|r|r['id']=='none'&&r['oracleMatched']}
  observed['VQ-FAULT']=[control,'native-fault-control'] if j['adapterCalibrated']&&%w[allocation create unknown].all?{|id|j['rows'].any?{|r|r['id']==id&&r['oracleMatched']}}
 end

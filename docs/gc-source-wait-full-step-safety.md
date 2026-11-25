@@ -3,7 +3,7 @@
 The ordered-recheck extension had deterministic mechanism checks but no
 reachability check over its complete transition relation. On 2026-10-11, the
 unchanged extension and imported recursive model were snapshotted in
-[`gc-source-wait-full-step-safety`](../evidence/model-results/gc-source-wait-full-step-safety/receipt.json).
+`gc-source-wait-full-step-safety` (local execution locator: `../.cache/research/legacy-evidence/evidence/model-results/gc-source-wait-full-step-safety/receipt.json`; unavailable in a clean checkout).
 Quint 0.33.0 compiled `sourceWaitInit`, `sourceWaitStep` and `sourceWaitSafety`
 to TLC. All 22 branches were retained, including repeated condition returns;
 no state constraint, reduced role population or focused-action substitution

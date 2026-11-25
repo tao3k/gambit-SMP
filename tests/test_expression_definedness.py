@@ -47,7 +47,7 @@ class ExpressionDefinednessTests(unittest.TestCase):
             checker.defined(name("cycle"))
 
     def test_real_original_actions_include_update_definedness(self):
-        path = ROOT / "evidence/model-results/gc-ranking-all-components/protocol-ir.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-ranking-all-components/protocol-ir.json"
         ir = json.loads(path.read_text())
         necessary = projections(ir)
         sufficient, partial = sufficient_projections(ir, necessary)
@@ -57,7 +57,7 @@ class ExpressionDefinednessTests(unittest.TestCase):
         self.assertNotEqual(necessary["probeEmptyQueue"], sufficient["probeEmptyQueue"])
 
     def test_current_kernel_reproduces_archived_sufficient_expressions(self):
-        archive = ROOT / "evidence/model-results/gc-defined-transition-coverage"
+        archive = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-defined-transition-coverage"
         ir = json.loads((archive / "protocol-ir.json").read_text())
         sufficient, _ = sufficient_projections(ir, projections(ir))
         verify_generated(json.loads((archive / "proof-ir.json").read_text()), sufficient)

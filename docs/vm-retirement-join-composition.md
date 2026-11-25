@@ -52,7 +52,7 @@ one because the retirement contract is violated; it is not a claim that a valid
 native POSIX join has been reproduced failing in production.
 
 Receipt summary:
-`evidence/source-results/fixtures/interrupt-prefix-owned-lifecycle/retirement-join-observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-prefix-owned-lifecycle/retirement-join-observation.json`.
 This remains a characterization of uncorrected source, not runtime admission.
 
 ## Required Implementation Closure

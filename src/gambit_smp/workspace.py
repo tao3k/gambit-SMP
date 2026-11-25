@@ -261,7 +261,7 @@ def execution_scope(root, task, provider="codex"):
         if value["state"] != "open":
             raise ValueError("task is not open")
         if value.get("execution") in {"running", "interrupted"}:
-            raise ValueError("uncertain previous execution; explicit workspace resume required")
+            repair_dead_execution(root, value)
         transition_check(root, value, takeover=True)
         module = Path(__file__).resolve()
         selected_module = Path(value["checkout"]) / "src/gambit_smp/workspace.py"
@@ -312,11 +312,23 @@ def execution_scope(root, task, provider="codex"):
                     os.environ[key] = old_value
 
 
-def execute(root, task, command, *, provider="codex", wall_seconds=1800):
+def execute(root, task, command, *, provider="codex", wall_seconds=1800,rss_limit_bytes=None,
+            footprint_limit_bytes=None):
     if not command or provider not in {"codex", "grok"}:
         raise ValueError("literal argv and supported provider required")
     if isinstance(wall_seconds, bool) or not math.isfinite(wall_seconds) or wall_seconds <= 0:
         raise ValueError("positive finite task wall budget required")
+    if rss_limit_bytes is not None and (type(rss_limit_bytes) is not int or rss_limit_bytes<=0):
+        raise ValueError('positive integer registered-group RSS limit required')
+    if footprint_limit_bytes is not None:
+        if type(footprint_limit_bytes) is not int or footprint_limit_bytes<=0:
+            raise ValueError('positive integer registered-group footprint limit required')
+        if rss_limit_bytes is not None:
+            raise ValueError('select one admission metric; RSS is observation-only with footprint admission')
+        if sys.platform!='darwin':raise ValueError('Darwin footprint accounting required')
+    from gambit_smp.work_items import admit_command
+    admit_command(root, task, command)
+    nested_execution = inherited_lease(Path(root).resolve(), task) is not None
     with execution_scope(root, task, provider) as (value, fd, run):
         from gambit_smp.task_broker import serve
         external_agent=Path(str(command[0])).name in {'codex','grok'}
@@ -349,25 +361,118 @@ def execute(root, task, command, *, provider="codex", wall_seconds=1800):
             if owns:
                 receipt.update(pid=process.pid, pgid=process.pid, argv=[str(arg) for arg in command])
                 write(run, receipt)
+            resource_sample={}
+            if rss_limit_bytes is not None or footprint_limit_bytes is not None:
+                receipt.update(rssLimitBytes=rss_limit_bytes,peakRegisteredRssBytes=0,
+                               rssSamplingIntervalSeconds=.25,rssObservationIsHardCap=False,
+                               resourceMetric='sum-process-rss',physicalMemoryQuotaEquivalent=False)
+                if footprint_limit_bytes is not None:
+                    receipt.update(footprintLimitBytes=footprint_limit_bytes,peakRegisteredFootprintBytes=0,
+                                   resourceMetric='sum-darwin-phys-footprint',rssMetric='sum-process-rss',
+                                   admissionMetric='sum-darwin-phys-footprint',rssAdmissionEnabled=False)
             try:
-                code = process.wait(timeout=max(.001,launch_deadline-__import__('time').monotonic()))
+                if rss_limit_bytes is None and footprint_limit_bytes is None:
+                    code = process.wait(timeout=max(.001,launch_deadline-__import__('time').monotonic()))
+                else:
+                    from gambit_smp.task_processes import memory_sample
+                    reported=-8*1024*1024
+                    while True:
+                        resource_sample=memory_sample(Path(root).resolve(),task,os.environ['GAMBIT_SMP_TASK_RUN'],
+                            **({'footprint':True} if footprint_limit_bytes is not None else {}))
+                        if resource_sample.get('censusRestarts'):
+                            receipt['resourceCensusRestartCount']=receipt.get('resourceCensusRestartCount',0)+len(resource_sample['censusRestarts'])
+                            receipt['lastResourceCensusRestarts']=resource_sample['censusRestarts']
+                            if owns:write(run,receipt)
+                        receipt['peakRegisteredRssBytes']=max(receipt['peakRegisteredRssBytes'],resource_sample['rssBytes'])
+                        footprint_exceeded=False
+                        if footprint_limit_bytes is not None:
+                            receipt['peakRegisteredFootprintBytes']=max(receipt['peakRegisteredFootprintBytes'],resource_sample['footprintBytes'])
+                            footprint_exceeded=resource_sample['footprintBytes']>footprint_limit_bytes
+                        rss_exceeded=rss_limit_bytes is not None and resource_sample['rssBytes']>rss_limit_bytes
+                        if receipt['peakRegisteredRssBytes']-reported>=8*1024*1024 or rss_exceeded or footprint_exceeded:
+                            reported=receipt['peakRegisteredRssBytes']
+                            receipt['resourceSample']=resource_sample
+                            if owns:write(run,receipt)
+                        if footprint_exceeded:
+                            receipt['footprintLimitExceeded']=True
+                            raise MemoryError('registered process-group charged footprint limit exceeded')
+                        if rss_exceeded:
+                            receipt['rssLimitExceeded']=True
+                            raise MemoryError('registered process-group RSS limit exceeded')
+                        remaining=launch_deadline-__import__('time').monotonic()
+                        if remaining<=0:raise subprocess.TimeoutExpired(command,wall_seconds)
+                        try:
+                            code=process.wait(timeout=min(.25,remaining));break
+                        except subprocess.TimeoutExpired:pass
             except BaseException as error:
+                # Freeze this driver before enumerating its registered nested
+                # sessions. Killing only its own group leaves native compilers.
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    os.killpg(process.pid, signal.SIGSTOP)
                 except ProcessLookupError:
                     pass
-                process.wait()
+                from gambit_smp.task_processes import stop_run
+                cleanup=None
+                try:
+                    cleanup=stop_run(Path(root).resolve(),task,os.environ['GAMBIT_SMP_TASK_RUN'],
+                                     anchors=resource_sample.get('members',()),
+                                     root_group=process.pid if nested_execution else None)
+                finally:
+                    if cleanup is None or not any(row['pgid']==process.pid for row in cleanup['stopped']):
+                        try:os.killpg(process.pid,signal.SIGKILL)
+                        except ProcessLookupError:pass
+                    process.wait()
                 receipt.update(exit=process.returncode, parentReaped=True,
-                               timedOut=isinstance(error, subprocess.TimeoutExpired))
+                               interruptionError=dict(type=type(error).__qualname__,message=str(error)[:1024]),
+                               timedOut=isinstance(error, subprocess.TimeoutExpired),
+                               registeredGroupCleanup=cleanup)
                 if owns:write(run, receipt)
                 record_child('interrupted',token,dict(exit=process.returncode,parentReaped=True))
                 raise
-            receipt.update(exit=code, parentReaped=True)
+            from gambit_smp.task_processes import stop_run
+            cleanup=stop_run(Path(root).resolve(),task,os.environ['GAMBIT_SMP_TASK_RUN'],
+                             anchors=resource_sample.get('members',()),
+                             root_group=process.pid if nested_execution else None)
+            # A returned driver cannot qualify detached native work.
+            if cleanup['stopped'] or cleanup['unresolved']:code=125
+            receipt.update(exit=code, parentReaped=True,registeredGroupCleanup=cleanup)
             if owns:write(run, receipt)
             record_child('finished',token,dict(exit=code,parentReaped=True))
             # Return status never proves detached descendants or native restoration.
             value["exit"] = code
             return code
+
+def repair_dead_execution(root, value):
+    """Reconcile a dead prior attempt so a new command can start.
+
+    The failed command is not replayed. A live supervisor, a pending request,
+    or an occupied dependency still raises from the same custody check.
+    """
+    if value.get("execution") not in {"running", "interrupted"}:
+        return value
+    observation = transition_check(root, value, takeover=True)
+    prior_execution = value.get("execution")
+    prior_run = value.get("run")
+    if prior_run:
+        prior = bounded(root, ".state/task-runs/" + value["task"] + "/" + identifier(prior_run) + ".json")
+        receipt = json.loads(prior.read_text())
+        if receipt["state"] == "running":
+            receipt["state"] = "interrupted"
+        if receipt["state"] == "interrupted":
+            receipt.setdefault("endedAt", observation["observedAt"])
+        from gambit_smp.task_broker import cleanup
+        cleanup(receipt)
+        receipt["reconciliation"] = observation
+        receipt["autoRepair"] = True
+        write(prior, receipt)
+    value.update(state="open", execution="reconciled", reconciliation=observation,
+                 lastActivity=now().isoformat(),
+                 autoRepair={"observedAt": observation["observedAt"],
+                             "priorExecution": prior_execution, "priorRun": prior_run,
+                             "replayed": False, "nativeAdmitted": False})
+    write(context_owner(root, value["task"]), value)
+    return value
+
 
 def resume(root, task):
     """Reconcile custody without rerunning an action or restoring native memory."""
@@ -483,16 +588,23 @@ def collect(root):
     cutoff = now().date() - timedelta(days=1)
     for record in sorted(directory.glob("*.json")):
         value = json.loads(record.read_text())
-        try:
-            from gambit_smp.task_retention import collect as collect_dependencies
-            collect_dependencies(root,value["task"])
-            collect_runs(root, value["task"])
-            from gambit_smp.work_process import collect as collect_process
-            for process_record in bounded(root,'.state/work-processes/'+value['task']).glob('*.json'):
-                process=json.loads(process_record.read_text())['process']
-                collect_process(root,value['task'],process)
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
-            results.append(dict(task=value["task"], runsRemoved=False, deferred=type(error).__name__))
+        def attempt(phase,action):
+            # Each existing collector retains its own leases, references and
+            # unknown-custody rejection. One blocked owner cannot suppress
+            # collection of unrelated, independently checked process outputs.
+            try:
+                removed=action()
+                if removed:results.append(dict(task=value['task'],phase=phase,removed=removed))
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                results.append(dict(task=value['task'],phase=phase,runsRemoved=False,
+                                    deferred=type(error).__name__,reason=str(error)))
+        from gambit_smp.task_retention import collect as collect_dependencies
+        attempt('dependencies',lambda:collect_dependencies(root,value['task']))
+        attempt('task-runs',lambda:collect_runs(root,value['task']))
+        from gambit_smp.work_process import collect as collect_process
+        for process_record in bounded(root,'.state/work-processes/'+value['task']).glob('*.json'):
+            process=json.loads(process_record.read_text())['process']
+            attempt('process:'+process,lambda:collect_process(root,value['task'],process))
         if (value["state"] != "closed" or
                 datetime.fromisoformat(value["lastActivity"]).astimezone(ZONE).date() >= cutoff):
             continue
@@ -603,13 +715,13 @@ def owned_build_reference(root, path, product):
 def validate_build_derivation(value):
     if (not isinstance(value, dict) or set(value) not in ({'role', 'inputSha256'}, {'role', 'inputSha256', 'activation'})
             or value['role'] not in {'completed-seed', 'completed-runtime', 'completed-bootstrap-input', 'working-bootstrap-input',
-                                    'working-bootstrap', 'working-consumer'}
+                                    'working-bootstrap', 'working-consumer', 'working-source-core'}
             or not isinstance(value['inputSha256'], str) or len(value['inputSha256']) != 64
             or any(c not in '0123456789abcdef' for c in value['inputSha256'])):
         raise ValueError('typed build role and exact input identity required')
     if 'activation' in value:
         activation = value['activation']
-        if (value['role'] not in {'working-bootstrap-input', 'working-bootstrap', 'working-consumer'}
+        if (value['role'] not in {'working-bootstrap-input', 'working-bootstrap', 'working-consumer', 'working-source-core'}
                 or not isinstance(activation, dict) or set(activation) != {'producerSha256', 'step'}
                 or not isinstance(activation['producerSha256'], str)
                 or len(activation['producerSha256']) != 64
@@ -680,32 +792,22 @@ def build_source_links(root, build, state):
     return {}
 
 
-def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overlay_files=(), consume_staged=False,
-                      initial_transfer=None):
-    """Apply source deltas under the caller's existing exclusive workspace lease.
-
-    Input and generated bytes are distinct. A killed update can contain either
-    side of its recorded transition, but arbitrary source drift is never fixed
-    by overwriting it. Every subsequent native build still runs its real tool.
-    """
-    from gambit_smp.recipes import tree_identity
-    import shutil
-    root, build, staged = Path(root).resolve(), Path(build), Path(staged)
+def verify_build_source_custody(root, build, previous):
+    """Check task lease, build ownership and prior owner quiescence before any write."""
+    root, build = Path(root).resolve(), Path(build)
     task = os.environ.get('GAMBIT_SMP_TASK_ID')
     if not task or inherited_lease(root, task) is None:
         raise ValueError('incremental source update requires real task custody')
     # Validate the same owner routing as build_output, including process areas.
     if task_output(root, build) != build or 'build' not in build.relative_to(root).parts:
         raise ValueError('incremental source requires an owned build area')
-    source, state_path = build / 'source', build / 'source-state.json'
-    staged_inventory = tree_identity(staged)
-    incoming = staged_inventory if inventory is None else inventory
-    if any(incoming.get(name) != entry for name, entry in staged_inventory.items()):
-        raise ValueError('source delta differs from its complete input inventory')
-    previous = json.loads(state_path.read_text()) if state_path.exists() else {}
     if previous:
+        # Qualification is an observation on this mutable development tree,
+        # not a frozen artifact. Reopening still checks custody and every
+        # observed input below; the new state does not inherit qualification.
         if (previous.get('schema') != 'incremental-source-state.v1'
-                or previous.get('phase') not in {'ready', 'building', 'updating'}):
+                or previous.get('phase') not in {'ready', 'building', 'updating',
+                                                 'distribution-qualified'}):
             raise ValueError('unknown incremental source state')
         receipt = bounded(root, previous['custody'])
         owner = json.loads(receipt.read_text())
@@ -717,18 +819,51 @@ def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overla
                 raise ValueError('interrupted build requires real owner reconciliation')
             from gambit_smp.task_processes import check
             check(root, task, process=owner.get('process'), run=previous['run'])
+    return task
+
+
+def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overlay_files=(), consume_staged=False,
+                      initial_transfer=None, preserve_retained=False):
+    """Apply source deltas under the caller's existing exclusive workspace lease.
+
+    Input and generated bytes are distinct. A killed update can contain either
+    side of its recorded transition, but arbitrary source drift is never fixed
+    by overwriting it. Every subsequent native build still runs its real tool.
+    """
+    from gambit_smp.recipes import tree_identity
+    import shutil
+    root, build, staged = Path(root).resolve(), Path(build), Path(staged)
+    source, state_path = build / 'source', build / 'source-state.json'
+    previous = json.loads(state_path.read_text()) if state_path.exists() else {}
+    task = verify_build_source_custody(root, build, previous)
+    staged_inventory = tree_identity(staged)
+    incoming = staged_inventory if inventory is None else inventory
+    if any(incoming.get(name) != entry for name, entry in staged_inventory.items()):
+        raise ValueError('source delta differs from its complete input inventory')
+    if preserve_retained and not source.is_dir():
+        raise ValueError('retained build source directory is missing')
     source.mkdir(exist_ok=True)
     pending = previous.get('pending', {})
     links = build_source_links(root,build,previous)
     actual = tree_identity(source, broken_links=links or None)
-    retired_links = (dict(previous.get('retiredGeneratedLinks',{})) if previous.get('phase') == 'updating' else
+    retired_links = ({} if preserve_retained else
+                     dict(previous.get('retiredGeneratedLinks',{})) if previous.get('phase') == 'updating' else
                      {name:row['link'] for name,row in actual.items()
                       if row.get('unresolved') and previous.get('phase') == 'building'})
     actual = {name:{key:value for key,value in row.items() if key != 'unresolved'}
               for name,row in actual.items()}
     old = previous.get('inputs', {})
-    if any(name in old or name in incoming for name in retired_links):
-        raise ValueError('generated-link recovery cannot remove a source input')
+    # A completed generation can have contributed these launch aliases to
+    # the initial inventory. After bootclean they are generated outputs,
+    # not source inputs that may restore a stale compiler. Reclassify only
+    # the exact aliases already authorized by build_recovery_links.
+    for name, target in retired_links.items():
+        if any(row is not None and row != {'link': target}
+               for row in (old.get(name), incoming.get(name))):
+            raise ValueError('generated-link recovery cannot remove a source input')
+    if retired_links:
+        old = {name: row for name, row in old.items() if name not in retired_links}
+        incoming = {name: row for name, row in incoming.items() if name not in retired_links}
     from gambit_smp.source_capabilities import source_name
     for name in set(old) | set(incoming):source_name(name)
     observed = previous.get('observed', old)
@@ -746,7 +881,10 @@ def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overla
         if actual.get(name) not in allowed:
             if not (previous.get('phase') == 'building' and name in mutables):
                 raise ValueError('incremental source drift: ' + name)
-    changed = [name for name, entry in incoming.items() if old.get(name) != entry]
+    changed = [name for name, entry in incoming.items()
+               if old.get(name) != entry
+               or (name in staged_inventory and name not in mutables
+                   and actual.get(name) != entry)]
     if initial_transfer is not None and old:
         raise ValueError('bulk transfer is restricted to a verified initial import')
     removed = [name for name in old if name not in incoming and not old[name].get('directory')]
@@ -754,6 +892,8 @@ def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overla
         if (name not in old and name in actual and actual[name] != incoming[name]
                 and actual[name] != pending.get(name)):
             raise ValueError('new source collides with an existing generated output: ' + name)
+    if preserve_retained and (changed or removed or retired_links or pending or initial_transfer is not None):
+        raise ValueError('source-core synchronization would replace retained products')
     state = dict(schema='incremental-source-state.v1', inputs=old,
         pending={name: incoming.get(name) for name in set(changed) | set(removed)},
         mutable=sorted(mutable), observed=observed, phase='updating',
@@ -804,8 +944,10 @@ def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overla
             shutil.copyfile(origin, target)
             target.chmod(entry['mode'])
             os.utime(target, None)
+    current_observed = (tree_identity(source, broken_links=links or None, content_paths=incoming)
+                        if preserve_retained else tree_identity(source))
     state.update(inputs=incoming, pending={}, phase='building', overlayFiles=list(overlay_files), pendingOverlayFiles=[], observed={
-        name: entry for name, entry in tree_identity(source).items() if name in incoming})
+        name: entry for name, entry in current_observed.items() if name in incoming})
     write(state_path, state)
     return dict(changed=changed, removed=removed, source=str(source),
                 retiredGeneratedLinks=retired_links,
@@ -820,7 +962,7 @@ def checkpoint_build_source(source, *, broken_links=None, **observations):
     if not state_path.is_file():
         return
     state = json.loads(state_path.read_text())
-    current = tree_identity(source, broken_links=broken_links)
+    current = tree_identity(source, broken_links=broken_links, content_paths=state['inputs'])
     state['observed'] = {name: entry for name, entry in current.items() if name in state['inputs']}
     state.update(observations)
     write(state_path, state)
@@ -941,7 +1083,8 @@ def main():
     commands = parser.add_subparsers(dest="operation", required=True)
     for name in ("absorb-process", "process-run", "process-resume", "process-gc", "start", "run", "resume", "finish", "gc", "remove-worktree", "adopt-paths", "release-paths", "migrate-script", "run-script", "scripts", "normalize"):
         sub = commands.add_parser(name)
-        sub.add_argument("task")
+        sub.add_argument("task",nargs='?' if name=='gc' else None)
+        if name=='gc':sub.add_argument('--all',action='store_true',help='Run existing two-day collectors for all registered tasks; defer busy or unverifiable owners')
         if name=='absorb-process':
             sub.add_argument('process');sub.add_argument('--from-task',required=True)
         if name.startswith('process-'):
@@ -951,6 +1094,9 @@ def main():
                 sub.add_argument('--argv-file',help='managed, root-relative JSON argv used for hash reconstruction')
             if name=='process-run':
                 sub.add_argument('--wall-seconds',type=float,default=1800)
+                memory=sub.add_mutually_exclusive_group()
+                memory.add_argument('--rss-limit-bytes',type=int,help='Sampled sum of registered process RSS; shared mappings are not deduplicated; not a physical RAM quota')
+                memory.add_argument('--footprint-limit-bytes',type=int,help='Darwin charged-memory ledger admission; RSS is observed, not used to terminate; not a machine RAM quota')
                 sub.add_argument('--provider',choices=('codex','grok'),default='codex')
                 sub.add_argument('argv',nargs=argparse.REMAINDER)
         if name == "normalize":
@@ -961,6 +1107,10 @@ def main():
             location.add_argument("--adopt", action="store_true", help="explicitly adopt the current checkout")
         if name in {"run", "run-script"}:
             sub.add_argument("--wall-seconds", type=float, default=1800)
+            if name=='run':
+                memory=sub.add_mutually_exclusive_group()
+                memory.add_argument('--rss-limit-bytes',type=int,help='Sampled sum of registered process RSS, not a physical RAM quota')
+                memory.add_argument('--footprint-limit-bytes',type=int,help='Darwin charged-memory ledger admission; RSS is observation-only')
             sub.add_argument("--provider", choices=("codex", "grok"), default="codex")
             if name == "run":
                 sub.add_argument("argv", nargs=argparse.REMAINDER)
@@ -976,6 +1126,11 @@ def main():
         if name == "remove-worktree":
             sub.add_argument("--merged-into", required=True)
     args = parser.parse_args()
+    if args.operation=='gc':
+        if bool(args.task)==bool(args.all):parser.error('gc requires either TASK or --all')
+        if args.all:
+            print(json.dumps(collect(args.root),indent=2))
+            return 0
     if args.operation=='absorb-process':
         from gambit_smp.work_process import absorb
         print(json.dumps(absorb(args.root,args.task,args.process,args.from_task),indent=2));return 0
@@ -983,8 +1138,14 @@ def main():
         from gambit_smp import work_process
         if args.operation=='process-run':
             command=args.argv[1:] if args.argv[:1]==['--'] else args.argv
+            from gambit_smp.work_items import admit_command
+            try:
+                admit_command(args.root, args.task, command)
+            except ValueError as error:
+                parser.error(str(error))
             with work_process.scope(args.root,args.task,args.process,args.provider):
-                return execute(args.root,args.task,command,provider=args.provider,wall_seconds=args.wall_seconds)
+                return execute(args.root,args.task,command,provider=args.provider,wall_seconds=args.wall_seconds,
+                               rss_limit_bytes=args.rss_limit_bytes,footprint_limit_bytes=args.footprint_limit_bytes)
         if args.operation=='process-resume':
             discard=None
             if bool(args.discard_metadata_read)!=bool(args.argv_file):parser.error('--discard-metadata-read and --argv-file must be supplied together')
@@ -1007,7 +1168,8 @@ def main():
         return run_script(args.root, args.task, args.key, provider=args.provider, wall_seconds=args.wall_seconds)
     if args.operation == "run":
         command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
-        return execute(args.root, args.task, command, provider=args.provider, wall_seconds=args.wall_seconds)
+        return execute(args.root, args.task, command, provider=args.provider, wall_seconds=args.wall_seconds,
+                       rss_limit_bytes=args.rss_limit_bytes,footprint_limit_bytes=args.footprint_limit_bytes)
     if args.operation == "normalize":
         from gambit_smp.task_migration import normalize_programs
         from gambit_smp.task_retention import classify

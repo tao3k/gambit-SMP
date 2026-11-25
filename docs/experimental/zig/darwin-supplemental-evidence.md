@@ -24,14 +24,14 @@ limits; they do not establish a working original-context observer.
 | F11 | Prior darwin-observation-platform-evidence.md D1-D6; independent-equivalence-evidence-plan.md | ES candidate remains uninitialized/unqualified; no full original-context join merely from available SDK types |
 | F12 | Historical d1510-object-request-cost.md Excluded Attempts | Observer labels/variables can contaminate context; no environment injection for correlation accepted by default |
 
-Direct repository links: [materialized spawn code](../../../../../.data/ci-source-patch-check/src/gambit/lib/os_io.c),
+Direct repository links: materialized spawn code (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/lib/os_io.c`; unavailable in a clean checkout),
 [vendor fallback/reaper](../../../vendor/gambit/lib/os_io.c),
 [process wrapper](../../../vendor/gambit/lib/gambit/process/process.scm),
 [Scheme status implementation](../../../vendor/gambit/lib/_io.scm),
 [shell native driver](../../../vendor/gambit/bin/gambuild-C.unix.in),
 [Gambit callers](../../../vendor/gambit/gsc/_gsclib.scm),
-[Gerbil invocation/barrier](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss),
-[Gerbil jobs](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/base.ss),
+Gerbil invocation/barrier (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss`; unavailable in a clean checkout),
+Gerbil jobs (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/base.ss`; unavailable in a clean checkout),
 [previous ES ledger](darwin-observation-platform-evidence.md),
 [historical invalid controls](../../../../../patches/gerbil-v19-darwin/receipts/d1510-object-request-cost.md).
 

@@ -23,6 +23,91 @@ def sha(data):
 
 
 class RuleWorkerBoundaryTests(unittest.TestCase):
+    def test_rg_drift_can_reseal_a_fresh_attempt_without_changing_other_tools(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine, out, rg = root / "old-engine", root / "run", root / "rg"
+            rg.write_bytes(b"replacement rg")
+            old = {"engineId": "previous", "hostTools": {
+                "rg": {"path": str(rg), "sha256": sha(b"old rg")},
+                "gcc": {"path": "/example/gcc", "sha256": "same compiler"},
+                "genmc-declaration": {"path": "/example/genmc.json", "sha256": "same GenMC declaration"},
+                "wp-declaration": {"path": "/example/wp.json", "sha256": "same WP declaration"},
+            }, "providerSources": {}, "genmcRuntime": {"scope": "same GenMC runtime"},
+               "wpRuntime": {"scope": "same WP runtime"}}
+            replacement = {"path": str(rg.resolve()), "sha256": sha(b"replacement rg")}
+            successor = {**old, "hostTools": {**old["hostTools"], "rg": replacement},
+                         "hostToolRepair": {"priorEngineId": "previous", "tool": "rg",
+                                            "previous": old["hostTools"]["rg"], "replacement": replacement}}
+            with (patch.object(research_kernel, "manifest_paths", side_effect=[
+                      research_kernel.HostToolDrift("rg"), old, successor]),
+                  patch.object(research_kernel.shutil, "which", return_value=str(rg)),
+                  patch.object(research_kernel, "seal") as seal):
+                target, current = research_kernel.recover_launch_engine(engine, out)
+            self.assertEqual(target, root / "run.engine")
+            self.assertEqual(current, successor)
+            self.assertEqual(seal.call_args.kwargs["_tool_repair"], (old, replacement))
+            self.assertEqual(seal.call_args.kwargs["genmc_runtime"], Path("/example/genmc.json"))
+            self.assertEqual(seal.call_args.kwargs["wp_runtime"], Path("/example/wp.json"))
+            self.assertEqual(old["hostTools"]["rg"]["sha256"], sha(b"old rg"))
+
+    def test_tool_recovery_leaves_existing_runs_and_compiler_drift_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            out = root / "run"
+            out.mkdir()
+            for tool, target in (("rg", out), ("gcc", root / "new")):
+                with (patch.object(research_kernel, "manifest_paths",
+                                   side_effect=research_kernel.HostToolDrift(tool)),
+                      patch.object(research_kernel, "seal") as seal):
+                    with self.assertRaisesRegex(ValueError, "sealed host tool drift: " + tool):
+                        research_kernel.recover_launch_engine(root / "engine", target)
+                    seal.assert_not_called()
+
+    def test_rg_repair_rejects_a_successor_that_changes_other_identities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine, out, rg = root / 'old-engine', root / 'run', root / 'rg'
+            rg.write_bytes(b'new rg')
+            old = dict(engineId='old', hostTools={
+                'rg': dict(path=str(rg), sha256=sha(b'old rg')),
+                'gcc': dict(path='/example/gcc', sha256='same compiler')},
+                providerSources={'inputs': {'provider': 'same source'}},
+                sysmlProvider={'sha256': 'same sysml'}, genmcRuntime={'scope': 'same GenMC'},
+                wpRuntime={'scope': 'same WP'})
+            replacement = dict(path=str(rg.resolve()), sha256=sha(b'new rg'))
+            repair = dict(priorEngineId='old', tool='rg', previous=old['hostTools']['rg'],
+                          replacement=replacement)
+            good = {**old, 'hostTools': {**old['hostTools'], 'rg': replacement},
+                    'hostToolRepair': repair}
+            for change in ['compiler', 'provider', 'sysml', 'genmc', 'wp', 'prior', 'replacement']:
+                changed = copy.deepcopy(good)
+                if change == 'compiler': changed['hostTools']['gcc']['sha256'] = 'different'
+                elif change == 'provider': changed['providerSources']['inputs']['provider'] = 'different'
+                elif change == 'sysml': changed['sysmlProvider']['sha256'] = 'different'
+                elif change == 'genmc': changed.pop('genmcRuntime')
+                elif change == 'wp': changed['wpRuntime']['scope'] = 'different'
+                elif change == 'prior': changed['hostToolRepair']['priorEngineId'] = 'different'
+                else: changed['hostTools']['rg']['sha256'] = 'different'
+                with self.subTest(change=change), \
+                        patch.object(research_kernel, 'manifest_paths', side_effect=[
+                            research_kernel.HostToolDrift('rg'), old, changed]), \
+                        patch.object(research_kernel.shutil, 'which', return_value=str(rg)), \
+                        patch.object(research_kernel, 'seal'):
+                    with self.assertRaisesRegex(ValueError, 'successor does not match'):
+                        research_kernel.recover_launch_engine(engine, out)
+
+    def test_missing_rg_does_not_modify_or_reseal_the_prior_engine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(research_kernel, 'manifest_paths', side_effect=[
+                    research_kernel.HostToolDrift('rg'), {'engineId': 'old'}]), \
+                    patch.object(research_kernel.shutil, 'which', return_value=None), \
+                    patch.object(research_kernel, 'seal') as seal:
+                with self.assertRaisesRegex(ValueError, 'executable rg on PATH'):
+                    research_kernel.recover_launch_engine(root / 'engine', root / 'run')
+                seal.assert_not_called()
+
     def test_engine_transport_projection_distinguishes_valid_bytes_from_new_launch_compatibility(self):
         expected = {'python/gambit_smp/transport.py': 'observed-source-digest'}
         with patch.object(research_kernel, 'process_transport_identity', return_value=expected):
@@ -329,6 +414,20 @@ class ResearchGraphTests(unittest.TestCase):
             research_kernel.main()
         launched.assert_not_called()
 
+    def test_step_cannot_silently_launch_a_complete_recipe(self):
+        arguments = ["research", "--run", "declared", "--engine", "seal",
+                     "--out", ".cache/result", "--step", "model"]
+        with self.owned_dispatch_fixture(), patch("sys.argv", arguments), \
+                patch.object(recipes, "discover") as discovered, \
+                patch.object(research_kernel, "run_sealed") as launched, \
+                patch("sys.stderr", new_callable=io.StringIO) as error, \
+                self.assertRaises(SystemExit) as refused:
+            research_kernel.main()
+        self.assertEqual(2, refused.exception.code)
+        self.assertIn("read/export-only", error.getvalue())
+        discovered.assert_not_called()
+        launched.assert_not_called()
+
     def test_engine_read_exposes_validated_tool_bindings_without_execution(self):
         engine = self.root / "engine"
         engine.mkdir()
@@ -391,6 +490,54 @@ class ResearchGraphTests(unittest.TestCase):
                 self.assertIn(denial, result["denial"])
                 self.assertEqual("DENY", json.loads((self.root / name / "receipt.json").read_text())["outcome"])
         self.assertEqual(original, (prior / "receipt.json").read_bytes())
+
+    def test_recorded_source_sync_timeout_resumes_without_a_new_cause(self):
+        from gambit_smp import host_environment
+        self.load()
+        inputs = {name: recipes.digest(self.root / name)
+                  for name in ["evidence/control.recipe.json", *self.recipe["inputs"]]}
+        source = self.root / ".cache/tasks/unit/build/core/key/source"
+        source.mkdir(parents=True)
+        (source / "keep.txt").write_text("settled")
+        (source.parent / "source-state.json").write_text(json.dumps({
+            "schema": "incremental-source-state.v1", "phase": "building", "inputs": {}}))
+        prior = self.root / "synced"
+        child_dir = prior / "run"
+        child_dir.mkdir(parents=True)
+        child = {"schema": "evidence-recipe-run.v1", "recipe": self.recipe["id"], "outcome": "DENY",
+                 "steps": [{"id": "source", "outcome": "TIMEOUT", "commands": [{"timeout": False}],
+                            "sourceDelta": {"changed": [], "source": str(source)}}]}
+        child_path = child_dir / "receipt.json"
+        child_path.write_text(json.dumps(child))
+        previous = dict(schema="sealed-research-run.v1", recipe=self.recipe["id"], inputs=inputs,
+                        engineId="unit-seal", outcome="DENY", budgetSeconds=40,
+                        stepBudgets={step["id"]: 5 for step in self.recipe["steps"]},
+                        childReceiptSha256=recipes.digest(child_path), executionLaunched=True,
+                        parentReaped=True, processGroupQuiescent=True)
+        (prior / "receipt.json").write_text(json.dumps(previous))
+        manifest = {"engineId": "unit-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL,
+                    "files": research_kernel.process_transport_identity(),
+                    "hostTools": {"python": {"path": sys.executable}, "gcc": {"path": "/usr/bin/false"}}}
+        with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
+                patch.object(host_environment, "observe", return_value=None), \
+                patch.object(research_kernel, "retain_run_record", return_value={"path": "unit-only"}), \
+                patch.object(research_kernel, "execute", return_value=(2, "fixture only", False, .01)) as launched:
+            result = research_kernel.run_sealed(self.root, self.path, self.root / "resume-sync",
+                                                self.root / "seal", prior=prior, allow_native=True)
+        launched.assert_called()
+        self.assertEqual("source", result["prior"]["sourceSyncResumption"]["step"])
+        self.assertEqual("recorded-source-sync-not-a-new-causal-route", result["prior"]["sourceSyncResumption"]["claim"])
+        child["steps"][0]["commands"] = [{"timeout": True}]
+        child_path.write_text(json.dumps(child))
+        previous["childReceiptSha256"] = recipes.digest(child_path)
+        (prior / "receipt.json").write_text(json.dumps(previous))
+        with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
+                patch.object(host_environment, "observe", return_value=None), \
+                patch.object(research_kernel, "execute") as refused:
+            denied = research_kernel.run_sealed(self.root, self.path, self.root / "closed-sync",
+                                                self.root / "seal", prior=prior, allow_native=True)
+        refused.assert_not_called()
+        self.assertIn("unchanged failed", denied["denial"])
 
     def test_stage_retry_retains_interrupted_cost_without_reducing_fresh_timers(self):
         from gambit_smp import host_environment
@@ -698,6 +845,144 @@ class ResearchGraphTests(unittest.TestCase):
 
 
 class FailedPrefixRetryTests(unittest.TestCase):
+    def supervisor_fixture(self,root):
+        prior=root/'.cache/tasks/darwin/processes/audit/runs/run1/outputs/research'
+        prior.mkdir(parents=True)
+        path=root/'.state/work-process-runs/darwin/audit/run1.json'
+        path.parent.mkdir(parents=True)
+        row=dict(task='darwin',process='audit',run='run1',state='interrupted',exit=-9,
+            startedAt='2026-10-31T00:00:00+08:00',endedAt='2026-10-31T00:01:00+08:00',
+            output=str(prior.parent.parent),rssLimitExceeded=True,rssLimitBytes=100,
+            peakRegisteredRssBytes=110,parentReaped=True,reconciliation={'nativeAdmitted':False},
+            registeredGroupCleanup={'unresolved':[]})
+        path.write_text(json.dumps(row))
+        return prior,path,row
+
+    def test_hang_guard_widens_only_the_stage_that_timed_out_while_working(self):
+        previous = {"timeout": True, "stepBudgets": {"bootstrap": 600, "seed": 600}, "steps": [
+            {"id": "seed", "outcome": "PASS", "budgetSeconds": 600},
+            {"id": "bootstrap", "outcome": "TIMEOUT", "budgetSeconds": 600}]}
+        steps = [{"id": "seed", "budgetSeconds": 600}, {"id": "bootstrap", "budgetSeconds": 1800}]
+        widened = recipes.hang_guard_widening(previous, steps)
+        self.assertEqual("bootstrap", widened[0]["step"])
+        self.assertEqual(1800, widened[0]["to"])
+        steps[0]["budgetSeconds"] = 1800
+        with self.assertRaisesRegex(ValueError, "prior step budget cannot expand"):
+            recipes.hang_guard_widening(previous, steps)
+        outer = {"timeout": True, "stepBudgets": {"bootstrap": 600}}
+        widened = recipes.hang_guard_widening(outer, [{"id": "bootstrap", "budgetSeconds": 1800}])
+        self.assertEqual(600, widened[0]["from"])
+
+    def test_reconciled_task_run_stop_is_fresh_expenditure_without_reusing_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = '9b9de93beca94263a11a31a2b614c5cd'
+            prior = root / '.cache/tasks/darwin/runs' / run / 'outputs/research'
+            prior.mkdir(parents=True)
+            record = root / '.state/task-runs/darwin' / (run + '.json')
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps(dict(
+                task='darwin', run=run, state='interrupted', nativeAdmitted=False,
+                startedAt='2026-11-07T21:32:17+08:00', endedAt='2026-11-07T21:36:45+08:00',
+                output=str(prior.parent.parent), supervisorPid=2**31 - 1,
+                reconciliation={'observedAt': '2026-11-07T21:36:45+08:00', 'nativeAdmitted': False})))
+            before = record.read_bytes()
+            interruption = research_kernel.reconciled_task_interruption(root, prior)
+            self.assertEqual('supervisor-interruption', interruption['kind'])
+            self.assertFalse(interruption['nativeOutputsAdmitted'])
+            state, prefix, recipe, steps = self.fixture()
+            result = research_kernel.failed_prefix_retry(state, prefix, recipe, steps,
+                {'source': 'new'}, 'new-engine', interruption=interruption)
+            self.assertTrue(result['failedPrefixExpenditure']['freshAttempt'])
+            self.assertFalse(result['priorArtifactsReusable'])
+            self.assertTrue(result['engineChanged'])
+            self.assertEqual(before, record.read_bytes())
+            self.assertIsNone(research_kernel.reconciled_task_interruption(root, root / 'elsewhere'))
+            same = research_kernel.failed_prefix_retry(state, prefix, recipe, steps,
+                {'source': 'old'}, 'old', interruption=interruption)
+            self.assertTrue(same['failedPrefixExpenditure']['freshAttempt'])
+            self.assertFalse(same['priorArtifactsReusable'])
+            self.assertFalse(same['engineChanged'])
+            longer = copy.deepcopy(steps)
+            longer[0]['budgetSeconds'] = 1800
+            recipe['budgetSeconds'] = 1810
+            prefix['records'][0]['payload']['stepBudgets']['build'] = 600
+            prefix['records'][0]['payload']['budgetSeconds'] = 610
+            research_kernel.failed_prefix_retry(state, prefix, recipe, longer,
+                {'source': 'old'}, 'old', interruption=interruption)
+
+    def test_reconciled_resource_kill_is_history_without_native_or_parent_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);prior,path,row=self.supervisor_fixture(root)
+            before=path.read_bytes()
+            interruption=research_kernel.supervised_interruption(root,prior)
+            state,prefix,recipe,steps=self.fixture()
+            state['resumption']['relations']['failed_attempt_history']=[]
+            result=research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                {'source':'new'},'new',interruption=interruption)
+            self.assertFalse(result['priorArtifactsReusable'])
+            self.assertFalse(result['externalResourceInterruption']['nativeOutputsAdmitted'])
+            self.assertEqual(60,result['externalResourceInterruption']['supervisorWallIntervalSeconds'])
+            self.assertIsNone(result['failedPrefixExpenditure']['oldAggregateOutcome'])
+            self.assertFalse(result['failedPrefixExpenditure']['parentCompletionObserved'])
+            self.assertEqual(before,path.read_bytes())
+            with self.assertRaisesRegex(ValueError,'unchanged'):
+                research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                    {'source':'old'},'old',interruption=interruption)
+            state['resumption']['executionQuiescence']['observed']=False
+            with self.assertRaisesRegex(ValueError,'quiescence'):
+                research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                    {'source':'new'},'new',interruption=interruption)
+
+    def test_resource_interruption_requires_exact_reconciled_measured_custody(self):
+        for field,value in [('parentReaped',False),('reconciliation',None),('exit',0),
+                            ('output','/tmp/unrelated'),('task','other'),
+                            ('registeredGroupCleanup',{'unresolved':['unknown']}),
+                            ('registeredGroupCleanup',{}),
+                            ('registeredGroupCleanup',{'unresolved':None}),
+                            ('peakRegisteredRssBytes',99),('endedAt',None),
+                            ('startedAt','2026-10-31T00:02:00+08:00')]:
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);prior,path,row=self.supervisor_fixture(root)
+                row[field]=value;path.write_text(json.dumps(row))
+                with self.subTest(field=field),self.assertRaises(ValueError):
+                    research_kernel.supervised_interruption(root,prior)
+
+    def test_unknown_supervisor_cause_is_accounting_only_not_resource_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);prior,path,row=self.supervisor_fixture(root)
+            row['rssLimitExceeded']=False;path.write_text(json.dumps(row))
+            result=research_kernel.supervised_interruption(root,prior)
+            self.assertEqual('supervisor-interruption',result['kind'])
+            self.assertFalse(result['nativeOutputsAdmitted'])
+            self.assertIsNone(result['causeRecorded'])
+            path.unlink()
+            self.assertIsNone(research_kernel.supervised_interruption(root,prior))
+
+    def test_planned_spawn_needs_current_exclusive_cancellation_witness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);prior,path,row=self.supervisor_fixture(root)
+            row['rssLimitExceeded']=False
+            record=root/'.state/task-processes/darwin/run1/token.json'
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps(dict(task='darwin',run='run1',token='token')))
+            row['registeredGroupCleanup']['unresolved']=[dict(record=str(record),error='unresolved planned process birth')]
+            path.write_text(json.dumps(row))
+            with patch('gambit_smp.spawn_protocol.reconcile',return_value=dict(
+                    result='cancelled-before-birth',targetExecuted=False)):
+                observation=research_kernel.supervised_interruption(root,prior)
+            self.assertEqual(1,len(observation['reconciledPlannedSpawns']))
+            state,prefix,recipe,steps=self.fixture()
+            state['resumption']['relations']['failed_attempt_history']=[]
+            result=research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                {'source':'new'},'new',interruption=observation)
+            self.assertIn('externalSupervisorInterruption',result)
+            self.assertNotIn('externalResourceInterruption',result)
+            self.assertFalse(result['priorArtifactsReusable'])
+            for witness in (None,dict(result='exited-exec-outcome-unclaimed',targetExecuted=None)):
+                with patch('gambit_smp.spawn_protocol.reconcile',return_value=witness):
+                    with self.assertRaises(ValueError):research_kernel.supervised_interruption(root,prior)
+
     def fixture(self):
         steps=[dict(id='build',capability='gambit.source-core',dependsOn=[],budgetSeconds=30),
                dict(id='test',capability='gambit.executable-test',dependsOn=['build'],budgetSeconds=10)]
@@ -1238,6 +1523,48 @@ class EngineSealTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "historical producer reachable"):
             research_kernel.implementation_paths(package)
 
+    def test_static_package_closure_keeps_nested_policy_and_excludes_unrelated_code(self):
+        package = self.root / 'package'
+        package.mkdir()
+        for name in (*research_kernel.PROCESS_IMPLEMENTATION, 'research_kernel', 'recipes', 'native_capabilities',
+                     'source_capabilities', 'evidence_capabilities', 'process_observation',
+                     'ascent_program', 'validation_domains'):
+            (package / (name + '.py')).write_text('')
+        (package / 'recipes.py').write_text('from gambit_smp.gerbil_build import check\n')
+        nested = package / 'gerbil_build'
+        nested.mkdir()
+        (nested / '__init__.py').write_text('from gambit_smp.gerbil_build.cli_tests import check\n')
+        (nested / 'cli_tests.py').write_text('from gambit_smp.framework import digest\n')
+        (nested / 'unrelated.py').write_text('from gambit_smp.source_unit import prepare\n')
+        (package / 'framework.py').write_text('')
+        paths = research_kernel.implementation_paths(package)
+        self.assertIn(nested / '__init__.py', paths)
+        self.assertIn(nested / 'cli_tests.py', paths)
+        self.assertNotIn(nested / 'unrelated.py', paths)
+        (nested / 'cli_tests.py').write_text('from gambit_smp.gerbil_build.sources import source_files\n')
+        (nested / 'sources.py').write_text('')
+        resource = package / 'gerbil_compile_products.ss'
+        with self.assertRaisesRegex(ValueError, 'unavailable static research resource'):
+            research_kernel.implementation_paths(package)
+        resource.write_text('(display "source-owned")\n')
+        for name in ('gerbil_library_order.ss', 'gerbil_semantic_graph.ss',
+                     'gerbil_initialization_view.ss', 'gerbil_static_products.ss'):
+            (package / name).write_text('(display "source-owned")\n')
+        self.assertIn(resource, research_kernel.implementation_paths(package))
+        resource.unlink()
+        resource.symlink_to(nested / 'sources.py')
+        with self.assertRaisesRegex(ValueError, 'unavailable static research resource'):
+            research_kernel.implementation_paths(package)
+        (nested / 'cli_tests.py').write_text('from gambit_smp.source_unit import prepare\n')
+        with self.assertRaisesRegex(ValueError, 'historical producer reachable'):
+            research_kernel.implementation_paths(package)
+        (nested / 'cli_tests.py').write_text('')
+        alias = package / 'alias'
+        alias.symlink_to(nested, target_is_directory=True)
+        (package / 'recipes.py').write_text('from gambit_smp.alias import check\n')
+        with self.assertRaisesRegex(ValueError, 'unavailable static research implementation'):
+            research_kernel.implementation_paths(package)
+
     def test_dependency_projection_uses_source_bytes_not_file_metadata(self):
         import os
         package = self.root / 'package'
@@ -1328,6 +1655,26 @@ class ProcessObservationTests(unittest.TestCase):
             self.assertEqual("identity\n", text)
             self.assertEqual("warning\n", (root / "identity.stderr").read_text())
             self.assertEqual(sha(b"warning\n"), context.commands[0]["stderrSha256"])
+
+    def test_ordered_campaign_clock_is_retained_in_the_process_receipt(self):
+        import sys
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+            started = time.monotonic()
+            deadline = started + 5
+            context = recipes.ExecutionContext(root, root, root, {}, deadline, {}, {"engine": {}}, {})
+            context.ordered_stress_clock = dict(runId="campaign", clockEpoch="test-epoch", headerSha256="test-header")
+            context.require("p2-topology-runner", [sys.executable, "-c", "print('PROCESSORS:1')"], root, 5)
+            command, = context.commands
+            checkpoint = json.loads((root / "p2-topology-runner.process.json").read_text())
+            clock = command["campaignClock"]
+            self.assertEqual(clock, checkpoint["campaignClock"])
+            self.assertEqual("campaign", clock["runId"])
+            self.assertEqual(deadline, clock["deadlineMonotonic"])
+            self.assertLessEqual(started, clock["startedMonotonic"])
+            self.assertLessEqual(clock["startedMonotonic"], clock["endedMonotonic"])
+            self.assertLessEqual(clock["endedMonotonic"], deadline)
 
 
 if __name__ == "__main__":

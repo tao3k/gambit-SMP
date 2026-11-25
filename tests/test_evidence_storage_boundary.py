@@ -1,12 +1,13 @@
 """Publication is selected evidence, not a copy of a run directory."""
 import json
 from pathlib import Path
-import subprocess
+from gambit_smp.task_processes import check_output
 from tempfile import TemporaryDirectory
 import unittest
 
 from gambit_smp.framework import ROOT
 from gambit_smp.storage_policy import EVIDENCE_CACHE_SUFFIXES, StoragePolicyError, validate
+from gambit_smp.research_publication import classify
 
 
 class EvidenceStorageBoundaryTests(unittest.TestCase):
@@ -52,20 +53,22 @@ class EvidenceStorageBoundaryTests(unittest.TestCase):
         files = [str(p.relative_to(ROOT)) for p in (ROOT / 'evidence').rglob('*')
                  if p.is_file() and p.suffix.casefold() == '.gz']
         self.assertEqual([], files)
-        indexed = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files', '-z'])
+        indexed = check_output(['git', '-C', str(ROOT), 'ls-files', '-z'])
         self.assertEqual([], [p for p in indexed.decode().split('\0')
                               if Path(p).suffix.casefold() == '.gz'])
-        ignored = subprocess.check_output(
+        ignored = check_output(
             ['git', '-C', str(ROOT), 'check-ignore', 'evidence/study/raw.gz', 'raw.gz'])
         self.assertEqual(['evidence/study/raw.gz', 'raw.gz'], ignored.decode().splitlines())
 
     def test_checkout_and_index_contain_no_mixed_run_assets(self):
         files = [str(p.relative_to(ROOT)) for p in (ROOT / 'evidence').rglob('*')
-                 if p.is_file() and p.suffix.casefold() in EVIDENCE_CACHE_SUFFIXES]
+                 if p.is_file() and p.suffix.casefold() in EVIDENCE_CACHE_SUFFIXES
+                 and classify(str(p.relative_to(ROOT)), p.stat().st_size)['disposition'] != 'allow']
         self.assertEqual([], sorted(files))
-        indexed = subprocess.check_output(['git', '-C', str(ROOT), 'ls-files', '-z', 'evidence'])
+        indexed = check_output(['git', '-C', str(ROOT), 'ls-files', '-z', 'evidence'])
         self.assertEqual([], [p for p in indexed.decode().split('\0')
-                              if Path(p).suffix.casefold() in EVIDENCE_CACHE_SUFFIXES])
+                              if Path(p).suffix.casefold() in EVIDENCE_CACHE_SUFFIXES
+                              and classify(p)['disposition'] != 'allow'])
 
     def test_current_publication_inventories_do_not_bind_cache_suffixes(self):
         for path in (ROOT / 'evidence').rglob('evidence-bindings.json'):

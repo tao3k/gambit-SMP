@@ -70,7 +70,7 @@ class ConcurrentGCViewTests(unittest.TestCase):
         expected = {ref["id"]: ref["sha256"] for ref in original["references"]}
         for ref in captured["references"]:
             self.assertEqual(ref["sha256"], expected[ref["id"]])
-            self.assertTrue(ref["path"].startswith("evidence/source-results/view-custody/"))
+            self.assertTrue(ref["path"].startswith(".cache/research/legacy-evidence/evidence/source-results/view-custody/"))
             if (ROOT / ref["path"]).is_file():
                 self.assertEqual(digest(ROOT / ref["path"]), ref["sha256"])
         with self.assertRaisesRegex(ValueError, "historical Evidence view"):

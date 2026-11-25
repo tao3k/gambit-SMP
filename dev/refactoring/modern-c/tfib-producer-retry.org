@@ -1,0 +1,2212 @@
+#+TITLE: TFIB producer admission and bounded retry
+#+OPTIONS: toc:2
+
+Focused implementation entry: [[file:family6-engineering.org::#family6-engineering][Family 6 checklist 4-12 engineering domains and Grok workflow]].
+
+Current runtime handoff after the user's reported completion of 4-5:
+[[file:family6-checklist-6-12-handoff.org::#family6-checklist-6-12-handoff][Checklist 6-12, same-image Family A and original p2-to-p1 campaign]].
+
+Current source separation and producer-identity audit:
+[[file:vendor-remainder-audit.org::#family6-vendor-remainder-audit][Vendor remainder audit after checkpoint 62477854]].
+
+* Ownership and lifecycle source refinement
+:PROPERTIES:
+:CUSTOM_ID: family6-ownership-lifecycle
+:STATE: OPEN
+:END:
+
+This work order defines the source correspondence needed to use the existing
+mathematical and temporal models during repair. Grok owns implementation in
+the existing emitter, allocator, handler and research entrypoints. The initial
+scope is one generated write group and its service/return path. The selected
+native failure determines which contract to investigate next.
+
+** Authority and geometry
+
+Model an authority as =(owner, region, generation, extent, access)= and bind
+its use to an activation, write-group identity and attempt. A region generation
+changes when its backing is retired or reassigned. A GC/root-view revision
+tracks relocation and reloading separately. Moving collection may require
+reloading references while a source segment remains pinned. Shared reads
+require live custody; exclusive writes require current write authority.
+
+For an extent =[lo, hi)=, a footprint beginning at offset =start= with
+=words= words fits when =lo <= start <= hi= and =words <= hi - start=.
+Each actual store additionally needs an offset strictly below =words=.
+The subtraction requires the preceding order check. The C correspondence
+must establish object provenance, alignment, checked word-to-byte conversion
+and representable arithmetic before forming a pointer. Logical frame depth,
+initialized/root prefix and physical backing have separate meanings.
+
+Evaluate physical authority before capacity. A live valid region with a
+short footprint can use an existing backed recovery path. Invalid ownership,
+expired backing, an outside cursor or arithmetic failure requires a preserved
+diagnostic before an unbacked spill or collection. The failure path needs its
+own backing contract.
+
+| Boundary | Supplier obligation | Consumer obligation | Existing owner |
+|-
+| Allocator to write group | Publish actual owned extent, lifetime and access | Validate the complete footprint against that authority | =lib/_mem/allocation-limits.inc= and section lifecycle |
+| Emitter to admission | Inventory stores, allocations, alignment, macro effects and preparatory spills | Obtain authority before the first corresponding mutation | =gsc/_t-c-2.scm= and emitted C macros |
+| Admission to service | Preserve old-frame spill backing, root map and attempt identity | Read demand before displacement and preserve custody during service | =lib/_kernel.scm= and pending-demand implementation |
+| GC to resumed execution | Repair tracked roots and publish the current view | Reload moved references and validate actual post-unwind locals | Collector, root consumers and internal return |
+| Resumed execution to commit | Bind grant to the current attempt and view | Write only the authorized footprint and commit effects once | Generated write group and commit implementation |
+
+** Executable correspondence and model duties
+
+The emitter should expose its existing operation information through the
+current single-module research receipt. Each operation needs a source/GVM
+identity, generated-C location, effect kind, frame origin, offset/width and
+authority or root dependency. Include C-macro allocations, closure headers,
+boxing, alignment and preparatory raw spills. Macro expansion and actual
+handler stores must be checked against this inventory. Unresolved coverage
+is an explicit open obligation.
+
+Use the existing Make lineage to bind source, generator, generated C, objects
+and linked image. Model results apply to the source-bound operations supplied
+to them. The inventory and its independent macro/store coverage check remain
+engineering deliverables. Runtime probes are evidence for exercised paths.
+
+| Existing surface | Work to implement |
+|-
+| =FrameContract.lean= | Reuse =generatedWriteGroupExtents=, =preEnterSpillNeedsOldExtent= and =firstStoreAddressFromUnwind=. Supply complete actual operation lists, distinct old/new extents and independently decoded frame origins. Add geometry lemmas only for newly exposed arithmetic obligations. |
+| =rest_frame_publication.qnt= | Bind existing scope, epoch, reload, service, retry and commit events to actual operations. Represent region retirement/reuse and root-view revision separately where the current abstraction merges them. Exercise invalidation, nested service, stale grant and duplicate-effect histories. |
+| =bootstrap-cohort.sysml= | Track the five boundary suppliers/consumers and open source correspondence under =BC-OWNERSHIP-LIFECYCLE=. Link to this work order and the existing formal models. |
+| Existing ASCENT Evidence | Associate observed events and model counterexamples by source/image, group, activation and attempt. Retain support, counterevidence and missing premises for each proposed violated contract. A repair choice remains model-owned. |
+| Existing Python research flow | Retain bounded single-module observations and dependency-valid incremental products. Preserve failures and allow a revised hypothesis or patch to select another experiment through existing source-bound execution. |
+
+** Modern C implementation blueprint
+:PROPERTIES:
+:CUSTOM_ID: family6-ownership-blueprint
+:END:
+
+The active delivery scope is Family 6 checklist items 4 through 12 below.
+The five contracts supply local repair obligations for those items. Broader
+lifecycle redesign is outside this work order. Models can be extended with
+the repair that exposes an obligation; completing a general ownership model
+is not a prerequisite for investigating or fixing the current failure.
+
+Organize the work by five supplier/consumer contracts across the existing
+specification, implementation and evidence surfaces. Each contract owns an
+assumption, a guarantee, an invalidation event and a failure observation.
+Keep contract state grounded in current allocator/context/attempt records.
+An abstract authority tuple is a specification vocabulary; a new runtime
+structure is justified only when existing records cannot supply a required
+identity or lifetime.
+
+| Contract | Source responsibility | Formal responsibility | First distinguishing observation |
+|-
+| Physical authority | Existing section claim/release and =___owned_stack_span=, =___heap_alloc_fits=, =group_footprint_fits= in =lib/_mem/allocation-limits.inc= | Lean checks interval arithmetic; QNT checks retirement, reuse and concurrent custody | A valid short span is distinguished from an expired owner or outside cursor before spill |
+| Complete write-group demand | =gsc/_t-c-2.scm= plans allocations, stores and spills; =include/gambit.h.in= supplies actual macro effects | Lean relates the full operation inventory to demand and backing | A closure followed by copies exposes repeated charged demand or extra retry frames |
+| Backed service entry | =lib/_kernel.scm= and pending-demand code preserve the old root/return view and preparatory backing | Lean covers old-frame slots; QNT checks demand consumption and nested service identity | Demand is read using the old view before handler adjustment and its first preparatory store |
+| Repaired return view | Existing collector/root consumers in =lib/mem.c= and kernel internal return repair/reload the current view | QNT checks root revision and invalidation; Lean relates actual unwind and store coordinates | Independently observed saved fp, post-unwind fp and actual first-store fp agree with their distinct roles |
+| Unique effect settlement | Emitted =enter/commit= and existing attempt lifecycle settle one authorized group | QNT checks duplicate commit, replay and abandonment; Lean covers the final footprint | One attempt writes/publishes once across service return, nested interruption and retry |
+
+The table assigns review ownership. A concrete defect can require coordinated
+edits on both sides of a boundary. Source-level memory access semantics,
+root/alias completeness and external C calls remain explicit trusted or open
+premises until their corresponding source obligations are discharged.
+
+*** File placement and implementation languages
+
+| Existing location | Deliverable | Implementation language |
+|-
+| This ORG work order | Five assume/guarantee contracts, failure cases, repair rationale and open obligations | English Org |
+| =models/sysml/bootstrap-cohort.sysml= | Five separately addressable contract responsibilities and links to source/model/evidence owners | SysML |
+| =models/lean/FrameContract.lean= | Checked interval, word/byte, frame-origin and complete-inventory implications as needed | Lean |
+| =models/quint/rest_frame_publication.qnt= and existing section-lifecycle models | Owner retirement, current roots, service/return, competing custody, unique settlement and retry progress | Quint |
+| Existing =dev/modeling/ascent= and registered Evidence | Join source-bound facts, counterexamples and missing premises to repair hypotheses | Existing Scheme/Datalog interface |
+| Existing Python research and Make lineage | Retain operation observations and dependency-valid incremental products using the single-module entrypoint | Python integration |
+| =vendor/gambit/gsc/_t-c-2.scm= | Correct demand planning and generated guards; expose operation identities from the emitter | Scheme emitting C |
+| Existing =vendor/gambit/lib= and =include/gambit.h.in= | Correct owned extents, invalidation, backed service, root reload and settlement where a reproduced violation requires changes | C and embedded C in Scheme |
+
+Generated =_*.c= files are Make outputs. Apply semantic repairs to their
+Scheme/macro/runtime sources and regenerate affected outputs with retained
+lineage. C work concentrates on these existing boundary implementations and
+on bounded observations of actual locals. Operation descriptions should be
+produced from the emitter's existing representation and related macro effects.
+Avoid introducing another allocator, a general pointer wrapper or a second
+research runner as a prerequisite for this repair.
+
+*** Evidence-driven implementation slices
+
+The first slice locates the failing stage in an existing single-module case.
+If execution reaches an allocation, generated group or handler, bind that
+operation to its actual runtime authority. If failure precedes emission,
+investigate the actual reader/parser/compiler binding or progress failure.
+It needs enough observation to select the first violated contract. A missing
+observation remains unresolved.
+
+The next slice repairs that contract at its existing source owner and retains
+a before/after control that distinguishes the defect. Add only the geometry
+or transition obligations exposed by that repair. Expand to the adjacent
+contract when the observation crosses its boundary. Contract completion is
+tracked independently, allowing investigation to proceed while unrelated
+proof obligations remain open.
+
+Each native event is keyed by source/image identity, activation, group and
+attempt, with region generation and root-view revision where applicable.
+Capture demand and available extent at admission, the old spill backing at
+service entry, actual locals at unwind/retry, and the first write/commit.
+Diagnostic recording before admission must use already-backed storage with
+a defined overflow behavior. Preserve diagnostic-image identity separately
+from any production image used for final native qualification.
+
+There is no line-count estimate for C changes before the first violated
+contract is reproduced. The initial deliverable is one end-to-end source
+correspondence with a distinguishing regression. Wider allocator or collector
+changes require evidence from that slice. The original Family A and p2/p1
+acceptance conditions continue to govern native qualification.
+
+** Family 6 checklist 4 through 12
+:PROPERTIES:
+:CUSTOM_ID: family6-checklist-4-12-contracts
+:END:
+
+The numbering below follows the user's implementation checklist within
+Family 6. It is separate from the family ledger, which remains 5/12.
+This historical matrix defines the contracts; it is not a current status
+override. The 2026-11-12 handoff advances work to items 6-12 after the user's
+reported completion of 4-5 and retains the exact evidence-binding limits.
+Historical timeout and failure descriptions motivate investigation and do
+not establish the present candidate's first failing contract.
+
+| Item | Concrete delivery | Relevant contract and model work | Native closure evidence |
+|-
+| 4 | Locate and repair the target GSC source defect | Select physical authority, demand, backed service, repaired return or settlement from the first observed violation. For a reader/parser/binding failure before emission, model its actual invariant and track useful work plus allocation/live-data deltas. | Matched host/input/prelude control, first invalid operation or binding, and a before/after regression that distinguishes the repair. |
+| 5 | Complete the second bootstrap pass | Carry item 4's repair through actual target self-emission. Check demand/descriptor growth and retry progress where implicated; retain complete Make source-to-C-to-object-to-link lineage. | Complete second-pass products and natural completion under the existing configured budget. The retained _std timeout stays visible. |
+| 6 | Same GSI, one-word-short complete-region refusal | Physical authority, complete demand and backed service. Lean covers the entire physical write footprint and parameter cursor, including preparatory effects. | Same sealed GSI records complete extents/cursors and zero writes, pops or parameter mutation on short refusal. |
+| 7 | Same GSI, source-segment handoff across break | Physical ownership and lifecycle. QNT tracks pin/custody through successor authority and last old-segment metadata use; source correspondence binds actual release. | Native source pin remains live through the handoff and required reads, then releases at its justified retirement point. |
+| 8 | Same GSI, GC root reload and unique delivery | Repaired view plus unique settlement. Distinguish owner/region generation, GC/root revision and attempt. Bind Lean frame coordinates to QNT reload/commit events. | Joint owner/epoch, moved-root reload and single delivery receipts for all three rest spellings on the same GSI. |
+| 9 | Two handlers compete for the final eligible section | Physical ownership and unique settlement. Existing concurrency models must represent locked capacity validation, reservation/publication and the unsuccessful contender. | Real contention yields one successful claim, preserved unsuccessful-contender custody and no overlapping authority or duplicate delivery. |
+| 10 | Original p2 with jobs=3, four cases | Consume qualified production/A evidence and preserve the original workload. Models provide the local obligations already checked in items 6-9. | Four original cases naturally complete in the p2 leg of the shared campaign. |
+| 11 | Original p1 with jobs=4, four cases in the same run | Preserve p2-to-p1 order, shared product identity and the original common budget. | Four original cases naturally complete after p2 within the same 295-second inner / 300-second outer campaign. |
+| 12 | Independent audit and registration of Family 6 | Join source lock, emitted C, objects, linked/sealed image, complete Family A and original campaign identities using existing Evidence. Keep missing correspondence explicit. | Audited eight natural completions across both topologies with original assertions and budgets, plus complete same-image A and source/product lineage. |
+
+Items 4 and 5 include compiler correctness and resource/progress questions.
+Memory safety contracts help isolate them; termination and affordable
+compilation require their own evidence. A bounded diagnostic failure retains
+the first defect and leaves the corresponding native item open.
+
+Items 6 through 9 are the immediate same-image runtime obligations. Retain
+the complete existing Family A inventory, including any additional A rows,
+before starting items 10 and 11. During repair, single-module evidence can
+be collected independently. Final qualification uses the original sealed
+product and campaign criteria. Item 12 alone updates the family ledger.
+
+** Research basis for engineering decomposition
+:PROPERTIES:
+:CUSTOM_ID: family6-engineering-methods
+:END:
+
+The following adaptations target checklist items 4-12. The cited publications
+establish methods in their own settings. Applicability to the current Gambit
+source and generated-C semantics requires the implementation and evidence
+described here. This is a research-backed work order with OPEN engineering
+obligations.
+
+*** Contracts and local memory reasoning
+
+Meyer's /Applying Design by Contract/ (1992) assigns obligations through
+preconditions, postconditions and invariants. Apply this vocabulary to each
+of the five existing supplier/consumer boundaries. For a footprint check,
+state the allocator-supplied authority, the exact admitted writes and the
+invalidation conditions. Resource shortage and invalid authority need
+separate outcomes with backed failure handling.
+[[https://se.inf.ethz.ch/~meyer/publications/computer/contract.pdf][Meyer, Applying Design by Contract]]
+
+Calcagno, Distefano, O'Hearn and Yang's /Compositional Shape Analysis/
+(2008 technical report, followed by the 2009 bi-abduction publication)
+analyzes procedures using local heap specifications. Bi-abduction infers
+missing required state and the residual state outside the operation's
+footprint. For items 4 and 6-8, describe what each allocation, spill, copy
+or reload requires and changes. Validate that caller state supplies the
+required footprint, while retained source custody survives the operation.
+Grok may propose these summaries from observed code. A summary becomes
+verification evidence only through a corresponding checked source model.
+[[https://spiral.imperial.ac.uk/entities/publication/a3590359-6c02-406d-8bdd-b6f20cdb23a3][Calcagno et al., Compositional Shape Analysis]]
+
+The immediate implementation unit is the effect boundary around a generated
+group or runtime helper. Reuse current source functions and allocator records.
+Separate capacity calculation, ownership validation and effectful mutation
+where a reproduced failure shows that they are interleaved. Provide an exact
+effect inventory before attempting a wider structural refactor.
+
+*** Concurrent interference and authority transfer
+
+Vafeiadis's /Modular fine-grained concurrency verification/ (2008) combines
+rely/guarantee and separation reasoning in RGSep, including ownership transfer
+and linearizability arguments. For items 7-9, state which changes other
+handlers or the collector may make, which shared invariant survives those
+changes and which existing synchronization operation linearizes the claim.
+Bind this to actual section pin/release, capacity validation and publication.
+QNT can explore these histories. Source refinement must additionally relate
+the real locks/atomics and memory-order assumptions to the modeled events.
+[[https://www.cl.cam.ac.uk/techreports/UCAM-CL-TR-726.html][Vafeiadis, Modular fine-grained concurrency verification]]
+
+For the final-section race, record the locked capacity read, successful
+reservation and publication, and unsuccessful-contender custody. For source
+handoff, record successor authority and the last required source use before
+release. Model counterexamples identify candidate failures in this mapping.
+
+*** Validate each generated translation at the affected boundary
+
+Necula's /Translation Validation for an Optimizing Compiler/ (2000) checks
+the relation between intermediate programs across individual compilation
+passes. Adapt the principle to items 4-6 and 12 by relating each affected GVM
+operation inventory to the actual emitted C and macro effects. Check that
+whole-group admission dominates the stores, that decoded return descriptors
+match the intended old view, and that demand covers the complete footprint.
+[[https://people.eecs.berkeley.edu/~necula/Papers/tv_pldi00.pdf][Necula, Translation Validation for an Optimizing Compiler]]
+
+This proposed checker initially validates these selected properties. Full
+semantic preservation requires source and target semantics and broader
+coverage. Retain missing cases explicitly. The operation inventory emitted
+by the producer needs an independent check against actual C/macro effects.
+Make hashes establish artifact identity and lineage; the property checker
+establishes its stated correspondence. Keep both in the existing receipts.
+
+*** Reduce a stable native failure and refine only implicated state
+
+Zeller and Hildebrandt's /Simplifying and Isolating Failure-Inducing Input/
+(2002) minimizes a failing input or the difference between passing and failing
+cases. For item 4, hold host identities and formal prelude fixed while reducing
+the module using syntax/dependency-aware changes. If the prelude difference
+is itself the hypothesis, retain private matched variants and return to the
+original full prelude for the repair regression. Preserve the original inputs.
+[[https://www.st.cs.uni-saarland.de/publications/files/zeller-tse-2002.pdf][Zeller and Hildebrandt, Simplifying and Isolating Failure-Inducing Input]]
+
+The oracle must recognize the same first violated contract or native failure
+signature. A syntax error, different crash or ambiguous timeout is unresolved
+for that oracle. Retain PASS, matching FAIL and UNRESOLVED outcomes. Reduction
+can require many tests and may expose timing sensitivity. Record the experiment
+cost and choose another hypothesis when evidence supports it. A reduced case
+is a diagnostic artifact; original module/bootstrap and campaign evidence
+still close the corresponding checklist items.
+
+Clarke et al.'s /Counterexample-guided Abstraction Refinement/ (2000) checks
+whether an abstract counterexample has a concrete counterpart and refines
+the abstraction when it is spurious. Apply this discipline when a QNT trace
+and native observation disagree. Add the state that explains the mismatch,
+such as region generation, root revision, nested-service scope or post-unwind
+cursor. Preserve a concrete reproducer when the counterexample is realizable.
+[[https://web.stanford.edu/class/cs357/cegar.pdf][Clarke et al., Counterexample-guided Abstraction Refinement]]
+
+ASCENT should associate hypotheses with those traces, source bindings,
+counterevidence and missing observations. A sound CEGAR implementation would
+also require a sound abstraction/concretization relation. The current proposed
+evidence loop retains this as an OPEN correspondence obligation. New evidence
+can change the selected repair and experiment without a fixed retry sequence.
+
+*** Delivery priority for the current checklist
+
+For item 4, first obtain a stable paired failure and a smaller diagnostic
+case, then select the violated memory, binding or progress obligation.
+Use local effect summaries and generated-code checks when that defect crosses
+the emitter/runtime boundary. For item 5, validate the repair through the
+existing incremental products and eventual complete second pass. For items
+6-9, supply the concrete extent, custody, root and contention witnesses and
+refine the relevant models. Items 10-12 retain their original full native
+qualification and audit duties.
+
+Compiler termination and completion of the 295/300 campaign require their
+own evidence. Measure useful work, allocation/live data and
+generated-label growth on the matching case where progress is at issue.
+The immediate engineering deliverable is a smaller distinguishing failure,
+a local source repair and source-bound regression evidence. Model extensions
+accompany that repair as its obligations become concrete.
+
+** Repair experiment selection and handoff
+
+When the first failure implicates demand accounting, use a tiny closure
+allocation followed by register copies and frame adjustment. Compare the
+actual selected emitter with the current candidate
+under the same identified host and inputs. Count write groups, retry labels,
+frame descriptions and actual allocations. Record why each group boundary
+exists and whether its demand is prospective or accumulated bookkeeping.
+The legacy =targ-proc-heap-reserved= counter serves the traditional heap-check
+interval. Establish its relation to each grant's hp origin before changing
+its reset behavior.
+
+For the small formal-prelude reproducer, preserve the first failing admission
+and its caller location, requested footprint, owned extent, owner/generation,
+root revision, saved handler fp, actual post-unwind fp/hp and retry identity.
+These observations decide whether the next repair targets demand accounting,
+region lifetime, root reload or return geometry. Preserve measured progress
+and allocation/live-data deltas when all memory contracts hold but execution
+continues. Memory safety and compiler termination have separate obligations.
+
+Grok should return one source change with its violated contract, before/after
+single-module evidence and remaining open correspondence. Repair choices and
+experiment order can change with new evidence. Use the existing task and
+incremental build ownership. Native progress remains 5/12 until same-image
+Family A and the original p2 then p1 campaign complete within 295/300 seconds.
+
+* Decision and construction boundary
+:PROPERTIES:
+:CUSTOM_ID: tfib-producer-retry
+:FAMILY: 6
+:STATE: OPEN
+:END:
+
+Admit one complete generated write group at a still-valid mapped point,
+including the space required to enter the existing limit handler. On a
+short grant, keep the same rest attempt and published roots. The handler
+consumes the pending demand and either supplies a current full grant,
+reports actual exhaustion through a backed failure path, or transfers
+custody to an explicit wait. Return to a label before that write group.
+An unchanged short interval cannot authorize another immediate retry.
+
+The proposed generator precheck is necessary. Reusing the old handler
+also requires adapting its admission predicate and return contract.
+The current stack handler tests the current fp after its internal spill;
+=___stack_limit= tests the current limit plus guard allowance.
+The heap handler calls =##check-heap=, which tests the current hp. A
+prospective request can fail while both current cursors pass those
+tests. Entering a handler without carrying demand can return to the
+same insufficient interval indefinitely.
+[[file:../../../vendor/gambit/lib/_kernel.scm::329][Stack handler]]
+[[file:../../../vendor/gambit/lib/_kernel.scm::2141][Heap predicate]]
+[[file:../../../vendor/gambit/lib/_mem/allocation-limits.inc::50][Stack refill predicate]]
+
+The user reported that =gsc.half= loops after the global frame guard and
+=gsc.guarded= stops with hp three words beyond the half, following a
+one-word remainder. These are implementation-owner observations. The
+first offending emitter site, input and sampled loop PC require their
+own producer receipt. Seven adjustments of twenty words in a generated
+file are candidates, not identification of the failing instruction.
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-producer-retry-review.json][Review and model receipt]]
+
+The old emitter intentionally checks after some bounded work. It tracks
+=targ-msection-fudge=, and =prepare_mem_pstate= subtracts the runtime
+guard allowance when publishing soft limits. Such a path is valid only
+while that previously backed allowance covers the entire emitted group
+and handler entry. The observed physical overrun proves that the composed
+invariant failed; operation order alone does not identify its producer.
+Audit the last interval assignment, soft-limit publication, accumulated
+group demand and handler spill together. The new admission boundary
+replaces that implicit backing with an explicit complete-group grant.
+Retain a proven backed fast path where its coverage is complete.
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::117][Compiler guard demand]]
+[[file:../../../vendor/gambit/lib/_mem/memory-lifecycle.inc::87][Soft-limit publication]]
+
+* Ordered implementation
+:PROPERTIES:
+:CUSTOM_ID: tfib-producer-construction
+:END:
+
+** Current integration review
+
+The implementation-owner report says =mem.o= and =_kernel.o= compiled.
+The revised source now preserves deferred labels, emits group commit,
+uses per-processor slots and checks handler backing before the spill.
+The two handler fragments also correspond at the inspected demand calls.
+The operator reports that the generated kernel host was aligned by hand
+and the compiler objects still come from the old emitter. Treat this as
+source/object progress pending the admitted bootstrap chain.
+
+| Cut | Observed source behavior | Required correction or proof |
+|-
+| Label emission and dirty values | =targ-demand-label-operand= now returns =("LBL" cell)= and preflight emission preserves the floating-point cache. | Decode the emitted old-view descriptor and prove that all live unboxed values survive the actual slow path. Preserving compiler cache metadata alone does not save native values across a trampoline or moving GC. |
+| Slot ownership | =group_demands= is a process-static array indexed by the processor number within a VM. VM zero and another VM's zero therefore choose the same element. The shared attempt counter increments without synchronization. | Own the record under VM/context/activation lifetime. Processor slot numbers may route a request within its VM, but cannot supply process-wide identity. Include processor retirement and reuse. A counter that is needed for uniqueness needs synchronized issuance and an explicit exhaustion policy. |
+| Attempt/view/epoch validation | The record stores =root_fp= and =epoch=, but =group_demand_same= checks context, point and a nonzero attempt only. External granted/commit calls do not carry the attempt. Same-context recursion to the same point can reuse that comparison. | Compare a stable activation attempt and current root view. After GC publish repaired view and fresh grant epoch through the original attempt; do not retain raw-address equality as a moving-root rule. Distinguish repeated query from a new invocation of the same point. Consume that exact attempt once. |
+| Current cursors | Emitted =arm= receives ps and counts. Its fit predicate reads =ps->context->hp/fp=, while the GVM also maintains local =___hp/___fp=. The emission shows no cursor publication. | Prove these are the same view, or explicitly pass/publish the actual local cursors under the old complete map before querying the allocator. Observe a case where a local cursor has advanced since its last publication. Never authorize a local store from an older context cursor. |
+| Backing and physical grant | The new pre-spill check uses configured register/frame macros. =heap_alloc_fits= still subtracts before validating cursor containment, and =stack_adjust_fits= chooses the half from its numeric cursor. | Use admitted half/owner and checked arithmetic first. Prove spill plus group headroom for shared heap/stack storage. Emit and verify early checks on the same compiler image. |
+| Demand, result and producer | Phase four is now explicitly a diagnostic hold. Commit clears the slot. Handler source fragments correspond, while the operator reports manually aligned generated C. | Keep diagnostic failure distinct from a production wait. Verify the exact request's successful commit, lost-return query and exit settlement, then regenerate from an admitted seed. A source-aligned host supplies no proof that the new emitter ran. |
+
+[[file:../../../vendor/gambit/gsc/_t-c-2.scm::321][Deferred label operand]]
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::2730][Mutable emitter cell]]
+[[file:../../../vendor/gambit/lib/_mem/allocation-limits.inc::354][Pending-demand prototype]]
+[[file:../../../vendor/gambit/lib/_kernel.scm::304][First handler stores]]
+
+Implement in dependency order: bind the actual old root/cursor view,
+place each complete group before its first store, close VM/activation
+identity and grant settlement, prove early backing and repaired refill
+return, and regenerate the matching compiler and kernel from a bound seed.
+For each stage return the source/host correspondence and unmet premises.
+The original four native A rows remain the joint release gate.
+
+** 1. Derive the write group's high-water marks
+
+At each dominating mapped point, derive stack and heap demand to the
+next complete publication, not just the final pointer movement.
+Include stack slot stores before ADJFP, pushes, alignment, headers,
+the last payload field, mutually referring closures and floating-point
+cache materialization. Unboxed live values and pending operands must
+remain representable in the old root map until admitted space is available.
+The preflight itself must neither allocate its request record nor spill
+into the interval it is trying to obtain.
+
+| Generator cut | Required change and review |
+|-
+| =targ-check-conditions= | Move admission to a dominating old mapped point before the first new store. Keep the old and prospective frame descriptors separate. It currently emits stack adjustment before CHECK or POLL. |
+| =targ-adjust-stack= and all its callers | Keep adjustment as the admitted group's operation. Its =targ-require-stack-room= hook is currently a no-op. A guard here alone would miss earlier slot stores. Review direct/non-safe jumps and C procedure argument/RA spills as well as poll sites. |
+| =targ-heap-reserve-and-check= and primitive emitters | Compiler counters describe demand; they do not grant physical space. Admit the full write group before the first header, field or cursor bump, including the path whose accumulated demand stays below the compiler's guard threshold. |
+| =targ-update-fr= and =targ-fp-cache-write= | Boxing dirty floats can allocate before a later safepoint. Include those stores in the admitted group or move admission to an earlier valid map. Preserve code/lexical identities and actual live values. |
+| =targ-gen-label-return*= | Emit a real old-view internal-return descriptor for the preflight return. The existing after-check label describes a potentially adjusted frame and cannot automatically serve as the pre-write retry descriptor. |
+
+[[file:../../../vendor/gambit/gsc/_t-c-2.scm::379][Check emitter]]
+[[file:../../../vendor/gambit/gsc/_t-c-2.scm::2490][Adjustment hook]]
+[[file:../../../vendor/gambit/gsc/_t-c-2.scm::346][Compiler heap bookkeeping]]
+[[file:../../../vendor/gambit/gsc/_t-c-2.scm::2539][Float writeback]]
+
+** 2. Establish handler entry space before ordinary execution
+
+Each admitted group preserves the configured handler spill reserve at
+its next mapped exit. Derive the reserve from the real GVM registers,
+RETI, alignment, saved return data and permitted nested handler paths.
+Validate physical half bounds and stack/heap non-overlap under the
+current owner and epoch. A guard threshold and a first-break allowance
+are separate quantities.
+
+When this backing is missing at entry, do not first build the same
+internal frame or a Scheme exception to report it. Use an existing
+bounded invariant-failure path that can execute without the unavailable
+stack/heap, while preserving diagnosable custody. A generic macro-level
+refusal must not reject the handler's own spill after the preflight
+protocol has admitted it. Current =___ADJFP= is again a pointer operation.
+Qualify this contract for the compiler's own kernel objects and for
+initial native entries before using it as an assumed invariant.
+[[file:../../../vendor/gambit/include/_gambit/stack_operations.h.in::12][Pointer and stack operations]]
+[[file:../../../vendor/gambit/lib/_kernel.scm::311][Handler spill]]
+
+** 3. Request capacity with the old roots still published
+
+Keep pending demand in the existing context/activation authority. It
+contains the original rest attempt, generated point and retry identity,
+old mapped root view, owner/epoch, complete group requirement and
+handler cause. A failed preflight writes no target field and pops no
+argument. The existing stable metadata must already have capacity for
+the request before the shortage is encountered.
+
+Extend the existing stack/heap limit service to consume this demand
+even if the ordinary current-cursor threshold has not tripped.
+Refill/collection runs from the old complete root view. The existing
+allocator arbitrates the full prospective footprint and any shared
+heap/stack boundary. Return only with a demand result. A GC round or a
+changed epoch alone does not prove enough room.
+
+On success, acquire repaired roots, discard address-derived locals,
+reload the cursors and validate a full grant for the same attempt.
+The continuation label returns to this admitted group with operands
+already evaluated and correctly rooted. A return label after ADJFP
+would skip a necessary operation. A label before side-effectful operand
+evaluation could repeat an effect. Require both labels and their exact
+slot maps in the emitted-C review.
+
+** 4. Give failed recovery an explicit settlement
+
+| Service outcome | Authorized continuation |
+|-
+| Full grant, repaired roots, current epoch | Apply the still-uncommitted write group once. Publish a complete view, then clear or settle the pending demand. |
+| No grant, actual capacity exhausted | Preserve roots and the committed frontier. Deliver failure through a backed path that does not recursively request the same unavailable resource. Keep internal settlement unique. |
+| Unknown grant/result | Query the same attempt. Retain interval and root debt until the allocator resolves it. No speculative replay. |
+| Another owner must release capacity | Park with an explicit pending identity and an observable wake dependency. An active CPU loop earns no progress credit. |
+| Handler reserve missing or current cursor already outside the physical half | Report a bounded invariant failure at that cut. Preserve the raw cursor and first invalid address for diagnosis; no rewind or clamping. |
+
+Physical safety and progress are separate checks. A shortage followed
+by an exception handler that needs the same denied resource can keep
+roots safe while executing forever. The same applies to a valid old
+threshold returning without supplying the prospective grant.
+
+The local progress obligation starts after the allocator supplies a
+definite result. Admission → handler → repaired retry → grant →
+write → complete has a descending stage order. A resource wait is
+explicit custody with external progress assumptions. This establishes
+no time bound for arbitrary Scheme code or an unresolved external
+allocator. For the small compiler input, retain sampled PC/attempt,
+instruction/CPU activity, demand outcome and output completion to
+distinguish a retry cycle from useful compilation.
+
+For cost review record checks per admitted write group, existing backed
+fast-path hits, refill/GC requests, materialized root/spill words and
+actual completed compiler outputs. The proposed group admission adds
+work, so a successful protocol test alone supplies no speed claim.
+Record handler/refill capacity inside the original heap reservation and
+peak ledger. No larger heap or fresh watchdog is part of this contract.
+
+* Model and native acceptance
+
+** C section provenance and producer/consumer acceptance
+:PROPERTIES:
+:CUSTOM_ID: c-section-scope
+:EVIDENCE: evidence/research/retained/modern-c/stress-gsi/dev-c-host-scope.json
+:STATUS: ROLE-PARTITION-PASS-HOST-DEPENDENCIES-OPEN
+:END:
+
+The completed compilation-unit plan now preserves five existing C roles.
+Compiler-produced out-of-line functions carry =c-function-decl= nodes;
+raw =c-declare= text stays distinct. This is source provenance, not a
+permission to move opaque C or relax host selection. The old whole-unit
+fallback remains until its actual dependency contract is qualified.
+
+The real numeric unit reports one raw declaration, five outlined functions,
+five Scheme C-entry stubs, zero initializers and zero foreign objects.
+Its generated C is byte-identical to the pending-demand candidate in
+both quiet and existing =-verbose= modes. The earlier comment-based probe
+is retained as history; audit text now goes only to the existing diagnostic
+port, preserving C line numbers and =__LINE__= behavior. Procedure order, point
+IDs, retry labels, root descriptors and runtime C bodies are unchanged.
+The additional compiler work is an O(D) declaration partition and one
+five-slot role vector. Its time and allocation deltas are unmeasured.
+
+| Existing acceptance | Observed result | Boundary |
+|-
+| Full FrameSpec producer | 2387 checks; 306 fixtures | Coherent independent host; not the target GSI. |
+| Layout assertion generation | All 290 assertions retained | Current-platform applicable assertions compile; no cross-platform CI claim. |
+| Compilation-unit plan | 31 checks | Includes ordered role partition, identity/count conservation, no automatic host admission, and diagnostic-only output that cannot write C bytes. |
+| Write-group source controls | 86 checks | Source dependencies include stubs; same-GSI A remains open. |
+| C frame consumer | 102 current five-register / 64-bit cases pass | Uses the actual configured GCC executable flags, DEFS and generated fixtures; standalone archive-free control. |
+| mem.h ABI consumer | reserve=3; one-slot=4; RETI=4; capacity=8194 | Existing test confirms capacity and frame reserve stay distinct. |
+| Production bootstrap / family | Open; 5/12 | Full Make target, current GSI, moving GC and original campaign are not replaced by these controls. |
+
+The C-interface lifecycle still clears its frontend lists only after
+capturing them for target emission. =targ-scan-c-procedure= separately owns
+the argument/RA frame, C call, context save/reload, conversion-error return
+and all-live descriptor. Those consumers, declarations/macros and any
+producer-private code references must be qualified together before the
+any-C host coupling can retire. Neither the word inventory nor successful
+C parsing alone supplies that authorization.
+
+*** Physical host resource closure: a real negative control
+
+The DEV-only producer variant replaces the any-C selection predicate with
+procedure hosts and reuses the other 33 coherent host objects. The first
+runtime-rebinding experiment was inert under the compiled producer and is
+retained as a rejected control. A real rebuilt emitter module was required.
+With that producer, numeric C differed from the baseline only in the host
+layout tag; the original configured GCC/C23 compile then rejected seven
+functions with an undeclared =___r4=. This is an observed resource-closure
+failure, not an out-of-memory sample or a runtime GC failure.
+
+=targ-spill-dirty-unboxed= emitted a raw =set-r= node without
+=targ-wr-reg=; =targ-reload-dirty-unboxed= constructed a raw register operand
+without =targ-rd-reg=. The module-wide union masked those omissions. A DEV
+variant routes the store through existing =targ-loc-no-invalidate= and
+records the raw register read, preserving floating-cache identity rather
+than boxing or invalidating it. It does not declare all registers to hide
+an incomplete producer ledger.
+
+The resulting numeric C changes 21 compiler-owned PD/PR/PW resource
+macro definitions (three per affected function), including their line
+wrapping. Outside those definitions, bytes remain exact after replacing
+the single host-layout tag: code points, frame descriptors, raw C bodies
+and emitted operations are preserved. This is source correspondence, not
+an equivalence theorem for arbitrary C observing source line numbers.
+No runtime or checked-in Scheme source was modified for this experiment.
+The candidate remains in the validation role, with no target publication.
+
+The guarded configured GCC/C23 object compile naturally passed in 24.629
+seconds, with a maximum sampled process-group RSS of 1,076,969,472 bytes
+and stable observed project inputs. The object has not been linked or
+executed. Historical user-observed 20 GB and interrupted 535.205 seconds
+are not a completed matched baseline, so no speedup or peak-memory ratio
+is claimed. Next are linked C-entry/callback, root/retry and coherent
+target/self-bootstrap consumers. Zero initializers/foreign objects in the numeric source cannot
+qualify other modules. See the [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-c-host-procedure-qualification.json][candidate qualification receipt]] for completed stages and explicit gaps.
+
+** Sealed tool transition does not qualify a native producer
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-tool-recovery.json][tool recovery audit]] checks the existing
+=recover_launch_engine= path. Four mocked framework tests pass, including five
+successor-identity mismatch controls. No actual seal or native compiler was
+started. Historical rg drift is not evidence of a current native blockage.
+
+| Situation | Existing responsibility | Qualification boundary |
+|-
+| rg drift, fresh attempt | Validate the old seal except its changed rg, select PATH rg, and create a successor with explicit prior/replacement metadata | New immutable engine identity; not old tool semantic equivalence or native admission. |
+| Existing historical run | Preserve its journal and terminal observations | A new attempt journal does not require a new private source checkout. Fixed Modern C build products still require exact identity checks. |
+| GCC, provider or SysML mismatch | Reject rg-only repair | Qualify the actual changed compiler/provider/profile separately. |
+| Missing rg or mismatched successor | Preserve the failed boundary; do not launch | No fallback, rewritten prior or successful artifact credit. |
+| Current complete host | Emit under admitted current inputs and macro/ABI closure | Still open; successful metadata controls cannot substitute for complete host/target bootstrap. |
+
+Fresh repair must keep this Goal's fixed native budgets and same build workspace.
+A changed seal is a new implementation identity, not proof that old native
+outputs remain equivalent. Do not relax engine or artifact checks to report a
+recovered tool as a completed BC-HOST stage.
+
+#+INCLUDE: "c-entry-arrival.org"
+
+*** C-entry admission remains part of A
+
+The real five-argument numeric C entry writes four stack slots (register
+arguments and RA), sets R0, then executes =ADJFP(10)= and =CFUN_OOL=.
+It has no local =group_demand_enter= before those stores, and the generic
+stack-room hook is a no-op. The scanner also assigns the previous
+=targ-proc-exit-frame= as its entry frame rather than deriving this C
+entry's root view from =targ-label-info= / =pcontext=.
+
+This is a source-refinement gap, not proof that this execution exceeded
+its interval. A dominating caller reservation could cover the frame,
+but its context, callee, owner, epoch and complete extent must be shown.
+Otherwise a real incoming C-entry FrameSpec/retry protocol is required.
+Do not add an =ADJFP= refusal or reuse a preceding Scheme root descriptor.
+
+The implementation must bind the incoming argument locations and return
+mapping, complete aligned frame and CFUN context stores to one grant;
+shortage keeps the old roots, GC reloads the same invocation, and only a
+new current-epoch full grant permits first writes. Reuse the existing
+=pregrantStoreControlTest= for ordering; do not write a duplicate QNT or
+Lean theorem. Native A still needs the actual entry branch with an
+independent whole-region one-short sentinel, root reload and callback/
+conversion-error settlement controls.
+
+This gate is limited to producer host binding and C-entry first-write /
+root / return coverage. It does not absorb the later FFI borrowing,
+blocking, destructor or scheduler redesign. Existing C-interface behavior
+must remain a consumer constraint. The five role qualifications below
+are not five SMP families and do not change the independent 5/12 ledger.
+
+The named Babel block reuses the installed OpenSysML SDK and existing
+ASCENT source-linkage rules. It produces the role table and an explicit
+five-gap receipt; it grants no host or runtime authority.
+
+#+include: "host-placement.org"
+
+#+name: bc-c-host-scope-projection
+#+begin_src python :dir ../../.. :python .venv/bin/python :results output verbatim :exports code
+from pathlib import Path
+import hashlib, json, re
+import opensysml
+from gambit_smp.smp_dev_composition_projection import _family_relations
+if not __debug__:
+    raise RuntimeError('Qualification projection requires enabled assertions')
+root = Path.cwd().resolve()
+model = 'dev/refactoring/modern-c/models/sysml/bootstrap-cohort.sysml'
+org = root / 'dev/refactoring/modern-c/tfib-producer-retry.org'
+evidence = 'evidence/research/retained/modern-c/stress-gsi/dev-c-host-scope.json'
+recipe = json.loads((root / 'evidence/fixtures/dev-publication-sysml-families/families.recipe.json').read_text())
+models = recipe['steps'][0]['arguments']['models']
+client = opensysml.connect(version='v0.10.1')
+model_bytes = {p: (root/p).read_bytes() for p in models}
+catalog = client.parse_sources([(p, raw.decode('utf-8')) for p, raw in model_bytes.items()], strict=True, strict_conformance=True)
+catalog.raise_for_errors()
+namespace = 'GambitModernCBootstrapCohort'
+roles = []
+for part in catalog.find(namespace).parts():
+    if part.type_facts.resolved_id == namespace + '::CSectionRole':
+        roles.append({a.name: catalog.eval(part.id + '.' + a.name) for a in part.attributes()})
+roles.sort(key=lambda role: role['id'])
+evidence_bytes = (root/evidence).read_bytes()
+packet = json.loads(evidence_bytes)
+source_bytes = {}
+report = packet['outputEquivalence']['roleReport']
+assert packet['outputEquivalence']['exactMatch'] is True
+assert report.startswith('Foreign C scope: ')
+counts = {k: int(v) for k, v in re.findall(r'([a-z-]+)=(\d+)', report)}
+assert len(roles) == len({r['id'] for r in roles}) == 5
+assert {r['nativeKey'] for r in roles} == set(counts)
+contract_part = catalog.find(namespace+'::foreignHostQualification')
+contract_path = catalog.eval(contract_part.id+'.qualificationContract')
+contract_raw = (root/contract_path).read_bytes()
+assert (root/contract_path).resolve() == root/contract_path
+assert b'* Whole-delivery acceptance and falsification' in contract_raw
+source_bytes[contract_path] = contract_raw
+sites = [['host-placement-contract',contract_path,hashlib.sha256(contract_raw).hexdigest(),'* Whole-delivery acceptance and falsification']]
+for role in roles:
+    path = root / role['source']
+    assert path.resolve() == path and path.is_relative_to(root)
+    raw = source_bytes.setdefault(role['source'], path.read_bytes())
+    assert role['anchor'].encode() in raw and role['gap']
+    role['sourceSha256'] = hashlib.sha256(raw).hexdigest()
+    role['observedCount'] = counts[role['nativeKey']]
+    role['nativeSourceMatches'] = role['sourceSha256'] == packet['sourceFiles'][role['source']]['sha256']
+    role['hostQualified'] = False
+    sites.append(['c-role:' + role['id'], role['source'], role['sourceSha256'], role['anchor']])
+    consumer = role['consumerSource']
+    assert (root/consumer).resolve() == root/consumer and (root/consumer).is_relative_to(root)
+    raw_consumer = source_bytes.setdefault(consumer, (root/consumer).read_bytes())
+    assert role['consumerAnchor'].encode() in raw_consumer and role['placement']
+    role['consumerSha256'] = hashlib.sha256(raw_consumer).hexdigest()
+    sites.append(['c-role-consumer:' + role['id'], consumer, role['consumerSha256'], role['consumerAnchor']])
+    prior_consumer = packet['sourceFiles'].get(consumer)
+    role['producerSourceMatches'] = role['nativeSourceMatches']
+    role['consumerSourceMatches'] = (None if prior_consumer is None else
+        role['consumerSha256'] == prior_consumer['sha256'])
+    role['nativeSourceMatches'] = role['producerSourceMatches'] and role['consumerSourceMatches'] is True
+    role['countPeriod'] = 'Historical role-report receipt, not current emission'
+    if role['caseSource']:
+        case = role['caseSource']; assert (root/case).resolve() == root/case
+        case_raw = source_bytes.setdefault(case, (root/case).read_bytes())
+        assert role['caseAnchor'].encode() in case_raw and role['caseDuty']
+        role['caseSha256'] = hashlib.sha256(case_raw).hexdigest()
+        role['caseNativeQualified'] = False
+        sites.append(['c-role-case:' + role['id'],case,role['caseSha256'],role['caseAnchor']])
+assert all((root/p).read_bytes() == raw for p, raw in model_bytes.items())
+assert all((root/p).read_bytes() == raw for p, raw in source_bytes.items())
+assert (root/evidence).read_bytes() == evidence_bytes
+model_sha = hashlib.sha256(model_bytes[model]).hexdigest()
+ids = [r['id'] for r in roles]
+relations = _family_relations(root, model, model_sha, ids, ids, source_sites=sites)
+assert {r[0] for r in relations['gap']} == set(ids) and not relations['candidate']
+result = dict(scope='SDK-owned C role/source projection; source linkage is not host or native admission',
+              model=model, modelSha256=model_sha, evidence=evidence,
+              evidenceSha256=hashlib.sha256(evidence_bytes).hexdigest(),
+              modelInputs={p: hashlib.sha256(raw).hexdigest() for p, raw in model_bytes.items()},
+              roles=roles, relations=relations, runtimeAdmitted=False, nativeProgress='5/12')
+out = root / 'evidence/research/retained/modern-c/stress-gsi/dev-c-host-scope-projection.json'
+
+rows = ['| Model role | Actual source | Historical numeric count | Consumer placement | Preserved responsibility | Open qualification |', '|-']
+for role in roles:
+    rows.append('| ' + role['id'] + ' | [[file:../../../' + role['source'] + '][' + role['source'] + ']] | ' + str(role['observedCount']) + ' | [[file:../../../' + role['consumerSource'] + '][' + role['consumerSource'] + ']]: ' + role['placement'] + ' | ' + role['custody'] + ' | ' + role['gap'] + ' |')
+rows += ['', '| Role | Producer bytes | Consumer bytes | Historical report applies to both |', '|-']
+for role in roles:
+    rows.append('| ' + role['id'] + ' | ' + str(role['producerSourceMatches']) + ' | ' + str(role['consumerSourceMatches']) + ' | ' + str(role['nativeSourceMatches']) + ' |')
+rows += ['', '| Real numeric caller | Source anchor | Required qualification |', '|-']
+for role in roles:
+    if role['caseSource']:
+        rows.append('| ' + role['id'] + ' | ' + role['caseSource'] + ': ' + role['caseAnchor'] + ' | ' + role['caseDuty'] + ' |')
+text = org.read_text()
+begins = list(re.finditer(r'^#\+BEGIN_C_HOST_SCOPE$', text, re.M))
+ends = list(re.finditer(r'^#\+END_C_HOST_SCOPE$', text, re.M))
+assert len(begins) == len(ends) == 1 and begins[0].end() < ends[0].start()
+a, b = begins[0].end(), ends[0].start()
+body = '\n' + '\n'.join(rows) + '\n'
+updated = text[:a] + body + text[b:]
+if updated != text:
+    org.write_text(updated)
+assert org.read_text() == updated
+result['publication'] = dict(org='dev/refactoring/modern-c/tfib-producer-retry.org',
+                             sectionSha256=hashlib.sha256(body.encode()).hexdigest())
+diagram = root/'dev/refactoring/modern-c/diagrams/stress-gsi-rest-construction.d2'
+diagram_text = diagram.read_text()
+start_marker, end_marker = '# BEGIN_C_HOST_SCOPE', '# END_C_HOST_SCOPE'
+if start_marker not in diagram_text:
+    diagram_text += '\n'+start_marker+'\n'+end_marker+'\n'
+assert diagram_text.count(start_marker) == diagram_text.count(end_marker) == 1
+lines = ['host_qualification: C host qualification {',
+         '  fallback: "Configured layout retained"',
+         '  closure: "C roles and resource closure\\nOPEN"',
+         '  layout: "Procedure host placement\\nNative qualification OPEN"',
+         '  fallback -> closure -> layout']
+for index, role in enumerate(roles):
+    label = role['id']+'\nHistorical count '+str(role['observedCount'])
+    if role['caseSource']: label += '\n'+role['caseAnchor']
+    if role['consumerSourceMatches'] is None: label += '\nConsumer ancestry UNKNOWN'
+    lines += ['  role'+str(index)+': '+json.dumps(label),
+              '  role'+str(index)+' -> closure']
+lines += ['}', 'host_qualification.layout -> producer.p0: current host emission required']
+section = '\n'+'\n'.join(lines)+'\n'
+a = diagram_text.index(start_marker)+len(start_marker); b = diagram_text.index(end_marker,a)
+diagram.write_text(diagram_text[:a]+section+diagram_text[b:])
+result['publication']['diagramSectionSha256'] = hashlib.sha256(section.encode()).hexdigest()
+result['relations'] = {key: sorted(value) for key, value in relations.items()}
+out.write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+print(json.dumps(dict(roles=len(roles), counts=counts, qualificationGaps=len(relations['gap']), runtimeAdmitted=False, nativeProgress='5/12')))
+#+end_src
+
+#+BEGIN_C_HOST_SCOPE
+| Model role | Actual source | Historical numeric count | Consumer placement | Preserved responsibility | Open qualification |
+|-
+| c-scope-declaration | [[file:../../../vendor/gambit/gsc/_ptree2.scm][vendor/gambit/gsc/_ptree2.scm]] | 1 | [[file:../../../vendor/gambit/gsc/_t-c-1.scm][vendor/gambit/gsc/_t-c-1.scm]]: Declarations are emitted before BEGIN_M_COD; file-level location does not prove that macro/private-name effects are independent of later host layout. | Raw file-level declaration text remains distinct from compiler-produced wrappers; preserve order and identity. | Header, macro, private host-name and callback dependency closure remains open; a raw string is not a host-neutrality proof. |
+| c-scope-entry-stub | [[file:../../../vendor/gambit/gsc/_t-c-2.scm][vendor/gambit/gsc/_t-c-2.scm]] | 5 | [[file:../../../vendor/gambit/gsc/_t-c-1.scm][vendor/gambit/gsc/_t-c-1.scm]]: The Scheme C-entry stub remains one procedure host with its argument/RA stores and return descriptor; correct-arity pcontext and caller coverage before first writes remain open. | Keep argument and return-address writes, CFUN_OOL context save/reload, JUMPRET and the all-live return descriptor together. | Native callback/error, moving-GC root and multi-shot return coverage still required in the same target product. |
+| c-scope-initializer | [[file:../../../vendor/gambit/gsc/_ptree2.scm][vendor/gambit/gsc/_ptree2.scm]] | 0 | [[file:../../../vendor/gambit/include/_gambit/module_generation.h.in][vendor/gambit/include/_gambit/module_generation.h.in]]: Module initialization has its own init_mod function and existing ordered setup; moving ordinary Scheme procedures must not duplicate or reorder it. | Initialization remains module-owned and ordered; zero observations in one module are not a global absence proof. | Host/data dependencies and initialization order remain unqualified for other modules. |
+| c-scope-object | [[file:../../../vendor/gambit/gsc/_ptree2.scm][vendor/gambit/gsc/_ptree2.scm]] | 0 | [[file:../../../vendor/gambit/gsc/_t-c-1.scm][vendor/gambit/gsc/_t-c-1.scm]]: Module object macros are emitted before declarations and physical hosts; label/object references must keep the existing host-independent label mapping and root lifetime. | Preserve existing module symbol, object identity and root lifetime; scope role adds no relocation authorization. | Object/code identity, callback lifetime and moving-GC coverage remain native/source obligations. |
+| c-scope-outlined-function | [[file:../../../vendor/gambit/gsc/_t-c-2.scm][vendor/gambit/gsc/_t-c-2.scm]] | 5 | [[file:../../../vendor/gambit/include/_gambit/foreign_conversion.h.in][vendor/gambit/include/_gambit/foreign_conversion.h.in]]: OOL selection emits its own C function; CFUN_OOL saves/reloads context and returns conversion errors through temp1 and the caller label. | The non-inline CFUN_SELECT branch has an explicit independent C-function node; its opaque body is preserved. | The tag proves producer provenance only. Root, callback, error and private label dependencies require qualification before changing host policy. |
+
+| Role | Producer bytes | Consumer bytes | Historical report applies to both |
+|-
+| c-scope-declaration | False | False | False |
+| c-scope-entry-stub | False | False | False |
+| c-scope-initializer | False | None | False |
+| c-scope-object | False | False | False |
+| c-scope-outlined-function | False | True | False |
+
+| Real numeric caller | Source anchor | Required qualification |
+|-
+| c-scope-declaration | vendor/gambit/lib/_num.scm: (c-declare "#include \"mem.h\"" procedure-host) | The actual numeric declaration includes internal mem.h. Qualify its effective macro/header and host-private dependency closure; file-level placement is not host neutrality. |
+| c-scope-entry-stub | vendor/gambit/lib/_num.scm: (define (##flonum->ieee754-32 x) | Four numeric bit-conversion c-lambda sites use typed argument/result conversion. Preserve entry root maps, all-live return descriptor, conversion errors and possible allocating result conversion together. |
+| c-scope-outlined-function | vendor/gambit/lib/_num.scm: (define ##mult-inner-loop | The numeric OOL body writes existing bignum payload through native pointers and defines BIG_END_MINT_FLIP. Preserve preprocessor order, payload lifetime and conversion/return protocol; compiler-owned wrapper provenance does not make its body pure. |
+#+END_C_HOST_SCOPE
+
+** Before-first-emission planning and actual host policy
+:PROPERTIES:
+:CUSTOM_ID: pending-write-group-plan
+:EVIDENCE: evidence/research/retained/modern-c/stress-gsi/dev-pending-group-plan.json
+:STATUS: SOURCE-MODEL-CONSUMER-PASS-HOST-QUALIFICATION-OPEN
+:END:
+
+A pending demand can grow only while its GVM instruction, exact entry
+frame object, physical fp and =targ-emit= frontier are unchanged. The
+delayed stack/heap constants retain maxima before the first emitted write.
+Any emitted node or context change refuses this merge. The mapped retry
+label and commit remain. This is compile-time planning, not reuse of a
+runtime grant after writes or GC. Source extraction and moving-GC adapter
+obligations remain open.
+
+| Matched output basename =_num.c= | Inline | Shared entry | Pending plan |
+|-
+| Source bytes | 17663549 | 12977970 | 12488020 |
+| Admission / commit points | 16869 | 16869 | 16417 |
+
+The same recorded input, cwd, prelude and flags were used with three
+retained emitter binaries. Diagnostic basename changes affect module
+identifiers: earlier differently named output byte counts are diagnostic
+only and this matched comparison supersedes their percentages. Pending
+planning removes 452 before-write plans; the combined source reduction is
+29.30 percent. Neither compiler-memory reduction nor runtime speed is
+measured. The 86 source controls, 20 existing Quint histories and a real
+252216-byte object from the existing continuation/FFI fixture pass.
+
+*** Remaining producer architecture gate
+
+Actual GCC/C23 preprocessing selects =HOST_LAYOUT_CONFIGURED=,
+=SINGLE_HOST_LIMIT=0=, =SINGLE_HOST= and 22493 labels. The current
+=targ-plan-compilation-unit= falls back for any C declaration, procedure,
+initializer or object. In this profile zero disables the label-count
+fallback. Thus shortened guards still enter one large C host. This is a
+confirmed selection mechanism, not proof of the entire observed 20 GB
+memory trajectory or a reason to change the profile.
+
+| Complete next responsibility | Required evidence | Retirement boundary |
+|-
+| Classify embedded C by actual host dependency | Trace declarations, the bignum multiplication wrapper and four bit-conversion wrappers through generated wrapper/return/root consumers; include macro/header dependencies. | Lexical absence of host names is insufficient; unknown opaque host code keeps fallback. |
+| Bind certified C to the completed physical-host plan | Preserve label/code identity, FrameSpec, C-local scope, callbacks, exceptional return and moving-GC roots. | Retire whole-unit any-C fallback only for certified fragments; no blanket reclassification. |
+| Qualify the producer under unchanged profile | Existing official C/FFI consumers plus map multi-shot/root cases, matching source/headers/argv and guarded GCC compilation. | Do not credit alternate flags, larger heap or source-only model success. |
+| Complete original native chain | Complete target regeneration, self-bootstrap, same-GSI A and original 295/300-second p2 then p1. | DEV remains 5/12 until the complete family naturally passes. |
+
+QNT adds only pre-publication expansion and late-expansion refusal to its
+existing attempt ordering. Lean representation duties are unchanged.
+No large generated-C compilation was repeated after the user termination.
+
+** Historical shared write-group entry and guarded preparation (71 controls)
+:PROPERTIES:
+:CUSTOM_ID: shared-write-group-entry
+:EVIDENCE: evidence/research/retained/modern-c/stress-gsi/dev-shared-group-entry.json
+:STATUS: SOURCE-PASS-PREPARATION-PASS-NATIVE-A-OPEN
+:END:
+
+The generator now emits one =group_demand_enter= call and retains the
+mapped limit-service jump. The runtime service performs the previous
+resume-view, cursor publication, arm, blocked and grant checks in order.
+The retry label, root descriptor, attempt identity and commit remain.
+There is no additional Scheme allocation or safepoint in this wrapper.
+Its source factoring does not change the existing QNT state transitions
+or discharge real moving-GC and lifetime refinement obligations.
+
+| Metric / gate | Observation | Qualification |
+|-
+| Source checks | 71 pass | Source stubs; not same-image A. |
+| Numeric generated C | 17663549 to 12986297 bytes; 26.48 percent smaller | Same recorded generation flags/input; shared emitter and explicit diagnostic output differ. |
+| Admission / commit points | 16869 of each retained | No group or frame-root map removed to obtain the reduction. |
+| Host construction sampled group RSS | 650067968 bytes | Fixed-wall RSS guard enabled; lower-bound sampled maximum. |
+| Numeric C emission sampled group RSS | 535003136 bytes | C generation only, not GCC compilation of the numeric unit. |
+| Header and runtime compile | Header, mem.o and setup.o pass; 229097472-byte sampled compile group peak | Existing Make/configuration, full 51-file generated C inventory unchanged. |
+| Large-unit compile peak / runtime performance | Unmeasured for the shared-entry candidate | Earlier user-observed roughly 20 GB remains failure evidence. |
+| Complete native acceptance | Open; DEV 5/12 | Current complete target cohort, bootstrap, same-GSI A and original p2 then p1 still required. |
+
+The 4 GiB guard is an explicit conservative stop threshold for these
+bounded preparatory jobs, not a measured compiler bound or a larger
+runtime heap. The existing recorder retains resource-sample events with
+process identities. No repeat of the failed large-unit compilation ran.
+
+Source C remains about three times the earlier retained numeric baseline.
+Next inspect whether retry labels and root descriptors can be shared at
+proven write-group boundaries. Do not coalesce across effects, polls,
+changes to the mapped root view or an unknown-size allocation without a
+complete footprint proof. Do not claim compiler-memory savings from the
+source-size reduction alone.
+
+** Historical physical-host and frame-prefix construction (68 controls)
+:PROPERTIES:
+:CUSTOM_ID: current-host-frame-cuts
+:EVIDENCE: evidence/research/retained/modern-c/stress-gsi/dev-current-host-frame-cuts.json
+:STATUS: SOURCE-PASS-TARGET-NATIVE-OPEN
+:END:
+
+Current source passes 68 source controls. The old mapped entry is kept
+through fused producer/consumer emission. Frame publication requires the
+live raw/reference slots and stacked return address, rather than every
+dead logical tail slot. The Lean prefix lemmas assume that this inventory
+is complete; they do not prove extraction or moving-GC coverage.
+
+The attempt scratch declaration belongs to the existing physical C host
+resource declaration. Emitting it once per Scheme procedure produced
+2674 C redefinition diagnostics under the module host. The current
+foreign/continuation fixture emits and compiles to an actual object after
+this correction. A prior command exited zero without producing its
+requested object; that negative control remains a failure.
+
+| Boundary | Current observation | Added cost or remaining obligation |
+|-
+| Source generation | All 51 required target C products generated. | Does not qualify target linking, self-emission or the original family. |
+| Native core | The last full attempt failed after 492.565 seconds: setup import visibility plus two GCC signal-9 terminations. | The kill actor is unknown; partial assembler output is secondary evidence. |
+| Internal lifecycle API | setup excludes public runtime imports; mem.h now declares the existing group-retire service. | No object layout or allocation algorithm change. Native compile remains required. |
+| Incremental continuation | Existing C and completed objects remain in the fixed workspace; heavy native leaves are compiled separately before core. | Exact pre/post C inventory and Scheme identities must remain equal. No cold-build acceleration claim. |
+| Admission maintenance | Shared write-group controls and one scratch declaration per physical host. | Added checks, cursor lifetime, code size and runtime fast-path cost remain unmeasured. |
+| Whole-family acceptance | Native progress remains 5/12. | Same-image A, target bootstrap and original 295/300-second p2 then p1 remain mandatory. |
+
+The incremental isolated =_num.o= attempt then failed after 535.205
+seconds, before its fixed deadline. The user confirmed terminating it
+because of excessive memory consumption. Darwin =time -l= reported
+8138342400 bytes maximum resident set; the failed target object is absent.
+The user subsequently clarified that =cc1= grew gradually to approximately
+20 GB before termination. This direct observation is recorded separately
+from =time -l=; the latter is not accepted as the compiler lifetime peak.
+No complete memory time series was captured in this attempt.
+
+The failed caller did not enable the existing =capture= RSS guard; at that
+source revision its stream =boundary= mode excluded the guard. The current
+service composes a boundary observer with the RSS guard under the same fixed
+wall deadline. Boundary observation retains its 0.05-second polling interval;
+guard-only observation retains 0.25 seconds. Increasing sampled peaks are
+recorded at 8 MiB increments, including the threshold-crossing observation.
+This is a sampled process-group RSS bound, not a physical-memory quota or a
+proof that every short-lived child peak is captured. Callers must still pass
+an explicit =rss_limit_bytes= and retain the resource recorder; the framework
+does not silently enable a global default or reserve more build memory.
+
+The recipe transport now preserves the actual sampling mode in its process
+receipt: 0.05 seconds with a boundary observer, 0.25 without one. Its
+=require= path independently rejects =rssLimitExceeded= even if graceful
+termination produces exit zero. Partial streams and the observed exit are
+retained; a resource refusal must not become successful compiler completion.
+All 31 recipe framework tests passed in 0.096 seconds, including mocked
+zero-exit resource refusal and both sampling modes. No GCC process ran.
+
+| Actual path | Source observation | Heavy-compile admission still required |
+|-------------+--------------------+----------------------------------------|
+| =ExecutionContext.run/require= | Explicit inner RSS guard is supported and recorded; omission does not activate it. | Bound selected budget, recorder, exact typed argv and outcome to the compiler attempt. |
+| =Stages.run= and =build_hosted_core(Stages(ctx), ...)= | These native build callers do not explicitly choose an inner RSS limit. | Attest an existing outer workspace guard or pass an approved inner budget through the current service; do not infer coverage from the API existing. |
+| Existing workspace supervisor | Already accepts a process-group memory budget. | Preserve its source/attempt identity, sample history and terminal refusal; do not add inner and outer sampled peaks as if they were disjoint memory. |
+| Historical cc1 | User observed gradual growth to about 20 GB and terminated it. | Keep the unobserved lifetime peak open; neither small controls nor the old time-l sample reconstruct it. |
+
+Guard activation remains an open host-execution precondition. This review
+does not select a new machine budget, create a configuration layer, change
+GCC/C23 flags or qualify a native producer. RSS protection limits exposure;
+it does not establish the compiler-memory cause or demonstrate an optimization.
+
+The resource suite passed 24 tests in 2.647 seconds, including a real gradual
+8 MiB allocation sequence under a 64 MiB test threshold with simultaneous
+boundary observation and verified process-group exit. The first sandboxed
+suite run retained one boot-identity permission error; the unrestricted run
+passed without changing the checks. No large generated-C compilation was
+rerun. See the [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-gradual-compiler-memory-guard.json][source-bound resource-guard receipt]].
+
+The follow-up resource suite passed all 24 tests in 2.622 seconds. Its gradual
+growth control additionally requires consecutive sample sequence numbers,
+monotonic retained peaks and equality of the last recorded peak with the
+returned observation. This exercises growth after the first observation;
+it does not recreate the historical 20 GB event. An initial restricted run's
+boot-session identity permission failure is retained separately from the
+successful run, without treating unavailable identity as an empty process.
+
+Before another heavy compile, use this guarded fixed-wall path with an
+explicit reservation from the existing build budget. This observer repair
+does not qualify the foreign-C host partition, target bootstrap or same-GSI A.
+
+This identifies the latest termination only, not the earlier full-build
+signal-9 events. All 51 C inventories and Scheme inputs remained equal.
+
+| Generated numeric unit | Earlier retained C | Current generated C |
+|-
+| Source bytes | 4303897 | 17663549 |
+| Lines | 116630 | 244354 |
+| Write-group arm calls | 0 | 16869 |
+| Write-group commits | 0 | 16869 |
+
+This is a source-expansion observation, not a matched compiler-memory
+causal proof or runtime performance comparison. The repeated inline
+admission sequence needs a bounded producer representation before
+repeating the same heavy compile. Keep pre-write authorization, exact
+retry roots and unique commit semantics; do not remove guards or increase
+budgets to obtain a build.
+
+The user explicitly authorized source changes and original-workspace
+GCC/C23 construction after the earlier automatic review read stale
+DEV-only Goal wording. That rejection is historical, not a current
+permission dependency. No reverse engineering, larger heap, changed
+census or extended deadline is part of this continuation.
+
+** Historical Scheme implementation successor (34 controls)
+:PROPERTIES:
+:CUSTOM_ID: scheme-backed-frame-successor
+:EVIDENCE: evidence/research/retained/modern-c/stress-gsi/dev-scheme-backed-frame.json
+:STATUS: SOURCE-PASS-NATIVE-OPEN
+:END:
+
+Grok was paused and Scheme ownership was handed over. The emitter now
+publishes a deeper logical entry frame only within an already granted
+stack range, before retiring that grant. Copy and call admission precede
+their stores. Temporary emitter controls are restored on exceptional
+exits. A stack-only group also declares both cursor resources, because
+the retry protocol can reload both heap and frame pointers.
+
+| Responsibility | Observed benefit | Added cost / open acceptance |
+|-
+| Mapped retry entry | The existing rest case now emits C; the prior missing-RA failure is retained. | Additional grant-backed frame publication; moving-GC correctness remains open. |
+| Cursor resource ownership | Source regression checks both heap and frame resource registration for a stack-only group. | Generated functions may retain a heap cursor even without allocation; no performance claim. |
+| Incremental compiler rebuild | One emitter module rebuilt; the other 33 object hashes match the retained construction receipt. | Host link still executes; this is not a complete target bootstrap. |
+| Public runtime service boundary | Canonical header declarations and runtime export conventions now match the generated service calls. | Target header regeneration, compilation and link have not yet qualified these edits. |
+| Source controls | 34 checks pass, including missing/short grants and exceptional cleanup. | Fixture dependencies are stubs; they do not replace same-image A or the original family. |
+
+The current host emits the existing rest semantic source into 395094
+bytes of C. The preceding consumer compile exposed missing service
+declarations and an undeclared heap cursor in stack-only functions.
+Those failures remain evidence, and target compilation after the fixes
+is still open. Completed distribution artifacts must not be rewritten
+to manufacture a matching header. Native progress remains 5/12.
+
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-scheme-backed-frame.json][Source-bound successor receipt and retained consumer failure]]
+:PROPERTIES:
+:CUSTOM_ID: tfib-producer-retry-acceptance
+:END:
+
+** Remove the self-hosting cycle
+
+Resolve the executable behind =gsc-boot= before selecting a producer.
+The official bootstrap path first builds a compiler core, then uses it
+to generate the remaining C. A wrapper that resolves to =gsc.half= is
+still the looping compiler. Preserve the old completed seed by exact
+identity and use the existing Make phases and GCC/C23 profile to build
+the modified generator. The source and linked input manifest must say
+which seed emitted each compiler object and which compiler emitted each
+runtime host.
+
+There is an additional admission boundary: a seed can emit compiler C
+under its older guard protocol. Its compiled stage must have that
+protocol's backing before it can regenerate hosts with the new emitter.
+Treat that intermediate compiler as a bootstrap producer, then regenerate
+and qualify all objects that rely on the new admission contract. A
+successful stage-one link alone does not prove its objects have new
+preflights. If no identity-matching usable seed or proved intermediate
+backing exists, report that exact dependency. Do not edit generated C
+alone to make a self-hosting witness.
+[[file:../../../vendor/gambit/makefile.in::111][Core and bootstrap phases]]
+[[file:../../../vendor/gambit/gsc/makefile.in::270][Generation phases]]
+[[file:../../../evidence/research/retained/modern-c/dev-rest-original-runner-bootstrap/completed-producer.json][Historical completed producer identity]]
+
+** Bind each emission to the compiler that ran
+:PROPERTIES:
+:CUSTOM_ID: tfib-emission-custody
+:STATUS: HISTORICAL-COMMAND-OBSERVED-EXEC-IDENTITY-OPEN
+:END:
+
+The retained =gsi-generate= logs contain the =../gsc-boot ... -c _gsi.scm=
+recipe at line 1 and the link of =_gsi_.c= from =_gsi.c= at line 6.
+The =up to date= message at line 7 follows the dependency work. The
+GSI Make rule makes =_gsi.c= a prerequisite of =_gsi_.c=. The command
+requested the link target and =_gsi.c= in the same invocation.
+[[file:../../../vendor/gambit/gsi/makefile.in::211][GSI Make dependencies]]
+
+| Cohort, China time on 2026-11-09 | Bound host field | Recorded old and resulting =gsi/_gsi.c= | Evidentiary limit |
+|-
+| =handoff-target-generation=, 08:57 | =25dccb24…=, matching the retained =prior/gsc-boot= bytes | =6cbec94a…= to =2eadfda0…= | Recipe line and cohort transition observed. The command record names Make and does not bind the executable bytes of its compiler child. |
+| =declared-procedure-target=, 09:43 | =15abf3dc…= | =2eadfda0…= to =2eadfda0…= | The compile recipe is present even though the output bytes match. Content equality does not identify which invocation produced the file currently at the path. |
+| Current build tree, after the later link | =5d95321a…= | Current C remains =2eadfda0…= | =gsc-boot= is a separate inode with the same bytes as =gsc/gsc= and =bin/gsc-script=. Its current hash supplies no earlier exec observation. |
+
+Keep the retained prior unchanged. First seek an immutable phase lease
+that proves the executed child could only resolve to the retained host,
+or an actual child execution record with that identity. If neither
+survives, record =historical-emitter-unverified=. The known candidate
+bytes remain available for a fresh, qualified experiment. Re-emitting
+identical bytes in that experiment establishes a new generation edge.
+It leaves the old edge unverified.
+
+*** Read-only historical projection
+
+Evaluate this block from the repository root against the two named task
+receipts. It records the Make recipe observation and explicitly leaves
+the historical child identity and production bootstrap open. Retain the
+JSON result with the task artifacts.
+
+#+name: tfib-emitter-history-audit
+#+begin_src python
+import hashlib
+import json
+import shlex
+from pathlib import Path
+
+from ascent import Engine
+
+cohort = Path(".cache/tasks/modern-c-frame-contract/cohort")
+required = "gsi/_gsi.c"
+stages = ("handoff-target-generation", "declared-procedure-target")
+rows = []
+source_needs = []
+source_seen = []
+sha = lambda raw: hashlib.sha256(raw).hexdigest()
+for name in stages:
+    path = cohort / name / "receipt.json"
+    raw = path.read_bytes()
+    receipt = json.loads(raw)
+    command, = [row for row in receipt["commands"] if row["name"] == "gsi-generate"]
+    lines = command["stdout"].splitlines()
+    recipe_lines = []
+    for number, line in enumerate(lines, 1):
+        if line.startswith("../gsc-boot "):
+            argv = shlex.split(line)
+            if "-c" in argv and argv[-1] == "_gsi.scm":
+                recipe_lines.append(number)
+    up_to_date = [number for number, line in enumerate(lines, 1)
+                  if "_gsi.c" in line and "is up to date" in line]
+    complete = (command["exit"] == 0 and command["timeout"] is False
+                and command["streams_complete"] is True and command["group_quiescent"] is True)
+    need = [name, str(path), sha(raw), "gsi-generate:compile:_gsi.scm"]
+    source_needs.append(need)
+    if complete and len(recipe_lines) == 1:
+        source_seen.append(need)
+    rows.append(dict(stage=name, receiptSha256=sha(raw), boundHost=receipt["hostSha256"],
+                     inputC=receipt["oldGenerated"][required], outputC=receipt["generated"][required],
+                     recipeLines=recipe_lines, upToDateLines=up_to_date, commandComplete=complete,
+                     childExecIdentity="unverified"))
+prior = cohort / "declared-procedure-target/prior/gsc-boot"
+prior_sha = sha(prior.read_bytes())
+facts = dict(sourceNeed=source_needs, sourceSeen=source_seen,
+             sourceRefinementNeed=[["historical-emitter", "actual-child-and-output"]],
+             sourceRefinementSeen=[],
+             nativeNeed=[["production-bootstrap", "sealed-current-two-pass"]],
+             nativeSeen=[])
+engine = Engine()
+try:
+    rules = Path("dev/modeling/ascent/repair-driven-gc-smp.rules.scm").read_text()
+    session = engine.open_sources(rules)
+    assert session.run(queries=["gap"])["complete"]
+
+    def query(data):
+        session.replace(data)
+        result = session.run(queries=["sourceLinked", "gap", "candidate"])
+        assert result["complete"]
+        return {name: sorted(value) for name, value in result["relations"].items()}
+
+    relations = query(facts)
+    no_recipe = query({**facts, "sourceSeen": []})
+    assert not no_recipe["sourceLinked"] and [stages[0]] in no_recipe["gap"]
+    host_field_only = query({**facts, "sourceRefinementSeen":
+                             [["historical-emitter", "cohort-host-hash-only"]]})
+    assert ["historical-emitter"] in host_field_only["gap"] and not host_field_only["candidate"]
+    assert not relations["candidate"]
+    print(json.dumps(dict(observations=rows, priorSha256=prior_sha,
+                          priorMatchesHandoffHost=prior_sha == rows[0]["boundHost"],
+                          relations=relations, runtimeAdmitted=False), indent=2))
+finally:
+    engine.close()
+#+end_src
+
+*** Producer-side record in the existing build stages
+
+Create the record at the Make stage which owns the output. Reuse the
+managed build lease, immutable workspace preservation and existing
+process receipt. The build stage must enforce the custody recorded here
+before promotion. This review adds no execution authority.
+
+The managed =gambit.bootstrap= capability now accepts =makeLineage=true=
+and requires all four configured Make witness files when selected. The
+static Gambit path executes a separate read-only emitter copy per pass
+and publishes =make-lineage/lineage.json= with the completed runtime
+identity. =gambit.completed-runtime= revalidates the retained records.
+Set =orderedStress.makeLineage=true= on the current acceptance recipe to
+require that binding before the first topology. The original clock and
+fixture validation remain in the existing ordered suite.
+[[file:../../../src/gambit_smp/make_lineage.py][Executable Make witness]]
+[[file:../../../tests/test_make_lineage.py][Real Make regression controls]]
+
+1. Before launch, freeze the exact emitter and its effective host runtime
+   dependencies, configured Make recipe, tools, source and transitive
+   include/prelude inputs. Give the emitter a read-only generation path
+   disjoint from the later =bootstrap-post= destination. Make must
+   resolve the preserved bytes for this phase. A stage with a mutable
+   executable needs an independent exec observation of the actual child.
+   Matching before/after hashes of a mutable path permit substitution
+   followed by restoration.
+2. Fix the complete required module and linker output inventory before
+   cleaning. Classify each target as fresh emission, exact reuse from a
+   previously admitted origin, or missing/unverified. For a fresh edge,
+   bind the actual recipe, resolved emitter, prelaunch output state,
+   final output digest, exit and quiescence. An output can match older
+   bytes. A no-op Make target inherits a recorded origin and never
+   creates a new one. Freeze the outputs before the next phase can
+   overwrite them. Use one writer per target in the phase lease.
+3. Keep three separate transitions in the receipt. Scheme-to-C records
+   the emitter and module or linker inputs. C-to-object records GCC,
+   effective C23 flags, configured headers and object output. The link
+   records ordered objects and archives, runtime dependencies and the
+   resulting executable. A GSC link is a new artifact and receives its
+   own self-emission phase. Keep compiler-role and runtime-role inputs
+   distinct until the exact final GSI link closes.
+4. Reject the record if a required output has no qualified origin, the
+   child can resolve a substituted seed, a prior is rebound, a phase
+   still owns live child processes, or an object consumes C from an
+   incompatible generation. Verify rejection with a seed replacement,
+   a no-op with an unbound output, a byte-identical fresh emission, a
+   missing linker product, and an interrupted output write. The
+   byte-identical fresh emission is a positive when execution and
+   output custody are established.
+
+[[file:../../../src/gambit_smp/gambit_build_primitives.py::144][Managed hosted generation]]
+[[file:../../../src/gambit_smp/bootstrap_artifacts.py::152][Immutable preservation]]
+[[file:../../../vendor/gambit/gsc/makefile.in::354][Bootstrap replacement boundary]]
+
+*** Run order and falsifiers
+
+Review the emitter and handler contract before generation. The linked
+correspondence check belongs after the seed, target build and executable
+controls. Requiring a qualified linked image before admitting its seed
+would create a review cycle.
+
+- Keep source-side admission open independently of the build. The
+  current =___owned_stack_span= derives the half from allocator state,
+  but reads it through a duplicate private claim layout and an integer
+  state literal. Resolve it through the allocator's typed claim access
+  and establish the synchronization and lifetime premise. Check
+  =delta <= fp - lo= after containment and before forming =fp - delta=.
+  In =rest_interval_fits= the heap-short return currently precedes
+  stack validation. Test simultaneous heap shortage and invalid stack
+  ownership. An unqualified stack must never reach the root-window
+  copy or caller-frame GC path even when heap room is exhausted.
+  [[file:../../../vendor/gambit/lib/_mem/movable-sections.inc::10][Canonical allocator claim]]
+  [[file:../../../vendor/gambit/lib/_mem/rc-allocation.inc::1113][Rest stack and heap admission]]
+  [[file:../../../vendor/gambit/lib/_mem/allocation-limits.inc::386][Stack extent check]]
+- Use the retained prior only after checking its complete compiler
+  graph, runtime ABI and effective inputs for the seed role. A historic
+  log match does not establish seed suitability. The seed and the first
+  linked new GSC run under different generation contracts. Prove the
+  backing needed by the old-emitter stage before asking it to self-emit
+  with the new guard protocol.
+- Use the existing small input as a bounded compiler experiment.
+  Record the first raw spill, frame map, demand identity, prospective
+  extent, handler entry and repaired retry. Require usable output,
+  process quiescence and an independent consumer or semantic check.
+  A bounded refusal preserves the first counterexample. A successful
+  small input permits full self-emission and never replaces it. Inspect
+  all reachable write groups before their first store, including the
+  seven reported adjustments, spill-before-demand sites and variable
+  allocations.
+- Close A on the exact sealed GSI used for acceptance. Keep fault
+  injection disabled during the original workload. Compare actual
+  ownership and reads across the break, the complete one-short region
+  and argument cursor, GC owner and epoch, and the terminal grant or
+  retained custody for each of the two contenders. Check one final
+  Scheme body entry for each spelling. The =gsi.cut-frame= and
+  =gsi-room= observations retain their separate image scopes.
+- Check wait settlement and measured completed work if the corrected
+  candidate still stalls or censors. An authority fix excludes the
+  named invalid transition once source coverage and actual execution
+  agree. Historical TFIB attribution and performance require separate
+  observations. Family 6 requires all four original cases on each
+  topology, p2/jobs=3 followed by p1/jobs=4, under one shared
+  295/300-second clock. Preserve natural exit and the original assertions.
+
+** Bootstrap guard handoff and independent host qualification
+:PROPERTIES:
+:CUSTOM_ID: tfib-bootstrap-guard-handoff
+:END:
+
+The latest operator report stops at =Heap limit old cursor leaves its
+owned active half= before entering census. An earlier run of the
+reported same compiler stopped at a stack cursor four words below the
+half. Keep these as separate observations until executable hashes,
+inputs, loaded runtime, and the first invalid transition are bound.
+Neither a common image nor the 20-word adjustment candidates identify
+a common first writer. There is no generated C from the latest attempt.
+
+The old post-check protocol requires physical backing between the soft
+poll boundary and the owned hard boundary. Its failure is not evidence
+that all older compiler C requires a new preflight to execute safely.
+First reconcile the actual poll trip, configured burst bound, handler
+spill, break-frame writes and any co-resident heap/stack overlap. Count
+each extent once: configured fudge may already include a spill. An
+outside cursor cannot acquire ownership by requesting another GC.
+
+| Ordered transition | Required evidence before it can be trusted |
+|-
+| Allocator publishes an interval | Active half, owner/epoch, stack floor, hard bounds and all required legacy or new backing agree. |
+| Limits become visible to Scheme | The actual context limit reaches stack_trip through the installed refresh path. A pending interrupt may make the trip more conservative. A processor-field write alone is insufficient. |
+| Legacy group and handler execute | Their last store, alignment and break frame fit the admitted physical extent. Record the last valid and first invalid cursor with the actual generated label. |
+| Census or heap-limit recovery begins | The incoming view is already owned and mapped. Reject clipping, rewinding or treating the other half's mapped pages as spare space. |
+
+The current source snapshot contains a separate branch that asks for
+collection when hp is outside the active half but still inside the
+section. Its process-static =seen_hp= / =seen_epoch= guard neither
+establishes ownership of that extent nor binds a retry to a VM/context.
+It supplies no collector-readable initialization or destination-space
+proof. Keep this branch outside an admitted legacy bridge until those
+premises are established. A changed epoch alone does not settle it.
+[[file:../../../vendor/gambit/lib/_mem/allocation-limits.inc][Heap-limit entry and break construction]]
+[[file:../../../vendor/gambit/include/_gambit/module_generation.h.in][Actual poll trip publication]]
+
+DEV already defines a route that does not require the broken target
+compiler to regenerate itself. =BC-HOST= builds the complete current
+34-module compiler graph under a coherent independent host ABI/runtime.
+That host executes the current target emitter, which emits modern-c C.
+The host runtime is never linked into the target. A partial backend
+overlay or linking the current target compiler objects to an old library
+does not qualify this route. Preserve the existing Make entrypoints,
+workspace and GCC/C23 profile; no additional executor is needed.
+
+The historical host emission succeeded with executable digest
+=5d38899f9624e2cdb2de88b6859fe43646ab95435b48e2781809c7a4435ee662=.
+This is evidence that the route existed, not current qualification.
+Reconcile its full source/SDK/argv inventory with today's emitter. A
+changed emitter requires rebuilding the host with a separately qualified
+host producer. If retained bytes or that producer are unavailable, name
+the missing input; do not fall back silently to the broken target image.
+[[file:bootstrap-cohort.org][Whole-host evidence and partial-overlay failure]]
+[[file:bootstrap-artifact-custody.org][Existing bootstrap-input and completed-product custody]]
+[[file:models/sysml/bootstrap-cohort.sysml][BC-HOST authority boundary]]
+
+| Producer gate | Acceptance | Current evidence boundary |
+|-
+| Coherent host | Whole current compiler graph, host ABI/runtime and effective argv, usable producer and exact input inventory. | Historical emission exists; current source correspondence and retained availability remain open. |
+| Target emission | Actual preflight precedes BEGIN_ALLOC_LIST and every admitted store; old-map retry and handler backing correspond. | Source changes and object compilation do not establish emitted output. |
+| Target self-host | Complete target cohort builds, compiles the small input, and regenerates with the new emitter. | Latest attempt fails before C output. |
+| Same-GSI A | Full-region refusal, cross-break custody, owner/epoch and two-contender grant, all three rest spellings. | Focused diagnostic observations remain partial. |
+| Family 6 | Original p2 then p1, unchanged 295/300 budget, natural completion and assertions. | Unclosed; DEV remains 5/12. |
+
+The existing Quint =bootstrap_cohort::fullChainTest= owns the order of
+host qualification, complete emission, target build and self-emission.
+Its =qualifyHost= transition assumes the native host witness; it does
+not prove that witness or compiler correctness. Guard publication
+histories own temporal guard cases; existing Lean arithmetic owns
+containment. No duplicated proof or additional family credit follows
+from connecting these obligations.
+
+** Current BC-HOST construction order
+:PROPERTIES:
+:CUSTOM_ID: tfib-bc-host-construction
+:STATUS: SOURCE-STALE; CURRENT-HOST-NATIVE-QUALIFICATION-OPEN
+:END:
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-audit.json][repository-retained BC-HOST audit]] embeds the historical declaration and
+plan, all per-file comparisons, effective SDK mapping and observed bytes.
+Its cache locations are provenance observations, not reusable completion
+authority. The following matrix is generated from that audit; counts
+describe its source snapshot and must be refreshed after input changes.
+
+#+BEGIN_BC_HOST_AUDIT
+| Audit item | Observed result | Authority |
+|-
+| Retained executable | 27488936 bytes; expected digest matches | Historical producer only |
+| Host plan and C probe | Both present; recorded digests match | Historical input/output integrity |
+| Prior top-level source snapshot | 98 names; 81 same; 17 changed | Current-host reuse not admitted |
+| Effective SDK | 54/54 recorded and 54/54 actual working inputs match | Historical host ABI inputs retained |
+| Strong bootstrap-input fields | sourceReceipt and targetRuntimeLinked absent | Probe cannot substitute for complete two-pass ancestry |
+| Actual host CC/link context | Historical argv plan exists; native cwd/environment and effective C23 TU trace not retained here | New native host qualification open |
+| Native progress | 5/12; seven families remain | Zero new family credit |
+
+| Changed input | Role | Historical hash prefix | Current hash prefix |
+|-
+| [[file:../../../vendor/gambit/gsc/_env.scm][gsc/_env.scm]] | compiler-module | 678ddcbcac3b | ecd1c907482b |
+| [[file:../../../vendor/gambit/gsc/_prims.scm][gsc/_prims.scm]] | compiler-module | c6bc87cc87cb | 9d4fd4ea5f71 |
+| [[file:../../../vendor/gambit/gsc/_ptree2.scm][gsc/_ptree2.scm]] | compiler-module | 8dbf9c446430 | ebbb591d03ec |
+| [[file:../../../vendor/gambit/gsc/_t-c-1.scm][gsc/_t-c-1.scm]] | compiler-module | 019d288c6e1f | 7c2e76a49871 |
+| [[file:../../../vendor/gambit/gsc/_t-c-2.scm][gsc/_t-c-2.scm]] | compiler-module | 5d3f5d5a3a76 | 2869562f4659 |
+| [[file:../../../vendor/gambit/gsc/_t-cpu-abstract-machine.scm][gsc/_t-cpu-abstract-machine.scm]] | compiler-module | 7beaa1c36bb4 | 2fd7e41777b6 |
+| [[file:../../../vendor/gambit/lib/_eval.scm][lib/_eval.scm]] | compiler-include-or-library-envelope | 00af1ceff01b | 68c770aaa00d |
+| [[file:../../../vendor/gambit/lib/_fifo#.scm][lib/_fifo#.scm]] | compiler-include-or-library-envelope | f230d60814a3 | 8b11a2489150 |
+| [[file:../../../vendor/gambit/lib/_gambit#.scm][lib/_gambit#.scm]] | compiler-include-or-library-envelope | cfe925d92e09 | 0e522a731454 |
+| [[file:../../../vendor/gambit/lib/_io.scm][lib/_io.scm]] | compiler-include-or-library-envelope | 6bafa8aa2945 | c6fc4ef0be9e |
+| [[file:../../../vendor/gambit/lib/_kernel.scm][lib/_kernel.scm]] | compiler-include-or-library-envelope | f379798da689 | 20c11339d5cb |
+| [[file:../../../vendor/gambit/lib/_nonstd.scm][lib/_nonstd.scm]] | compiler-include-or-library-envelope | 9619de313be5 | 6bc19c594d6a |
+| [[file:../../../vendor/gambit/lib/_num#.scm][lib/_num#.scm]] | compiler-include-or-library-envelope | ba1ea4f61708 | df86ef484f9f |
+| [[file:../../../vendor/gambit/lib/_num.scm][lib/_num.scm]] | compiler-include-or-library-envelope | b787451c08e7 | 975a681cee12 |
+| [[file:../../../vendor/gambit/lib/_system.scm][lib/_system.scm]] | compiler-include-or-library-envelope | c42a0fc0f0f1 | 4887d910a03c |
+| [[file:../../../vendor/gambit/lib/_thread#.scm][lib/_thread#.scm]] | compiler-include-or-library-envelope | e7113bd34c26 | bce907248c46 |
+| [[file:../../../vendor/gambit/lib/_thread.scm][lib/_thread.scm]] | compiler-include-or-library-envelope | 810f58f679d7 | 221ae4f034b9 |
+#+END_BC_HOST_AUDIT
+
+*** Input and ABI work before emission
+
+The six changed compiler modules have different responsibilities:
+
+| Current module | Observed changed responsibility | Grok must reconcile |
+|-
+| =gsc/_env.scm= | Global environment name index and shared frame views | Whole compiler graph uses one environment representation; no old ADT producer mixed with new consumers. |
+| =gsc/_prims.scm= | Thread-park primitive description and vector increment checks | Primitive table and generated implementation agree, including refusal behavior. |
+| =gsc/_ptree2.scm= | SFUN raw-argument root list emitted before conversion | This is target C emission data. Bind its emitted macro operands to target headers; do not link target SFUN runtime into the host. |
+| =gsc/_t-cpu-abstract-machine.scm= | Carrier/context prefix and low-level execution offsets | Distinguish target layout computation from the ABI used to execute the host compiler. |
+| =gsc/_t-c-1.scm= | Physical host and compilation-unit plan, module and frame emission | Current plan must assign the same semantic control points and exact frame maps expected by target consumers. |
+| =gsc/_t-c-2.scm= | Write-group preflight, deferred labels, retry and commit | Newly emitted target C must show admission before first store and a correct old-map retry. |
+
+The other changed inputs are =lib/_io.scm=, =lib/_kernel.scm=,
+=lib/_thread.scm=, =lib/_thread#.scm=, =lib/_num#.scm=,
+=lib/_fifo#.scm=, =lib/_num.scm=, =lib/_nonstd.scm=,
+=lib/_system.scm=, =lib/_gambit#.scm= and =lib/_eval.scm=.
+The current compiler-input function conservatively includes the root
+Scheme library. These entries are an envelope, not a demonstrated list
+of dynamically loaded host dependencies. Resolve actual includes and
+macro-phase reads. In particular, =header.scm= includes =_gambit#.scm=:
+an unchanged prelude file does not imply unchanged macro expansion.
+Keep coherent host ABI support separate from target source emitted as
+data. Do not refresh old host C headers with target headers or restore
+carrier aliases to make compilation pass.
+
+*** Existing entrypoints and receipt types
+
+The input-envelope regression now has a source-level fix in the existing
+=current_compiler_inputs= owner. The previous top-level enumeration did
+not invalidate a host on nested macro changes, additions or removals.
+Three negative tests reproduced that omission and an external file
+symlink escape. Recursive coverage of Scheme inputs under gsc/lib plus
+gsi/main now closes those specific identity omissions. The reviewed
+snapshot grows from 98 to 854 files, adding 756 nested names.
+
+This is a conservative identity envelope, not a replacement reader.
+Its added cost is hashing more files and invalidating on changes to
+unused nested inputs. External reads, macro effects and actual executed
+includes still require the resolved-read witness. Historical 98-entry
+declarations must be requalified; do not edit their old hashes to force
+reuse. Twelve fixture tests now pass on the expanded owner, including
+the previously failing three controls. The earlier nine-test receipt
+remains historical.
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-framework-nested-before.json][Nested-input failure baseline]]
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-framework-nested-after.json][Expanded-input fixture result]]
+
+The source-level [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-read-closure.json][BC-HOST-READS refinement]] identifies a concrete closure
+question for the next native owner. =header.scm= includes =_gambit#.scm=;
+that macro support conditionally emits an include of
+=~~lib/gambit/prim/prim#.scm=. This file is absent from the retained host
+SDK and its recorded inventory, and from the top-level source envelope.
+The source branch exists; its execution during this host build has not
+been observed. Do not classify absence as the cause of the previous
+compiler failure or add an unexecuted branch as a required read.
+
+The subsequent retained-source audit narrows that absence: the file
+exists in the original SDK and the current checkout with the same
+digest, and in both historical source-core and bootstrap workspaces
+with bytes matching their recorded identity. Those identities contain
+1034 source files, including this nested path. The effective host copy
+and its 54-item support inventory omit it. This supplies an existing
+source candidate for the native owner; no binary reconstruction is
+needed. Identity inventories are still not actual read traces.
+
+Under the original host workspace lease, bind the coherent original
+SDK's nested support file and any actually required transitive inputs
+to the construction inventory. Preserve its digest and ABI provenance
+when materializing the host support path. Do not replace all host
+macros with current target macros. Record actual branch activation and
+resolved paths before declaring the host read closure complete. This
+review makes no copies into the occupied host directory.
+
+A read-only probe now executed the retained SDK compiler with the
+historical host runtime aliases through the existing validation role.
+Its actual path-expand result resolves the prim/prim path to the
+effective host directory where the file is absent. The registered child
+returned zero, was reaped, and completed in about 0.217 seconds. This
+qualifies that alias observation on the retained SDK only; it neither
+executes the current host graph nor proves macro-branch activation.
+The source/receipt record retains the exact argv and compiler hash.
+
+The first launch failed before child creation because the sandbox
+denied boot identity; it was reconciled before retry. The successful
+attempt spent substantial time in framework admission before its child
+record began: the supervisor was observed live at age 01:10. Keep that
+overhead separate from the short native child interval. No stop signal
+was sent: the process naturally completed before the guarded stop
+attempt, which verified that its target PID was already absent. This
+observation does not justify a compiler timeout or a matched speed claim.
+
+The first-emission route also needs an explicit ancestry witness:
+seed checks the executable digest and the caller-declared current
+source table, but those fields alone cannot show that the binary was
+built from that table. Do not relabel the retained old host as current
+by updating its source map. Retain actual host construction commands,
+input snapshots and output hashes from the owning native stage before
+emission admission. This witness is distinct from the stronger complete
+two-pass producer required by bootstrap-input; imposing that stronger
+producer on the first host build would recreate the bootstrap cycle.
+
+The real reader in =##include-file-as-a-begin-expr= resolves names with
+the source path and =##path-reference=, then uses the current readtable.
+=##path-reference= falls back to cwd when no source path exists. Bind
+those inputs and runtime directory aliases to the actual host emission.
+Record content identities and phases for executed reads, and distinguish
+conditional macro-generated includes from quoted data. For example,
+the include forms inside the quoted begin near the top of =_t-c-1.scm=
+are not direct top-level includes. A regex dependency scanner would
+misclassify them. Existing reader semantics must drive this observation;
+no second scanner or binary reconstruction is part of this order.
+
+Acceptance for the native owner is one stable source cohort with a
+resolved host read trace: actual prelude, module and macro support
+inputs, successful or failed opens, aliases/readtable/cwd, plus output
+identity. If the missing conditional file is actually requested, retain
+the original failure and make its support closure ABI-coherent before
+retrying. This source review advances the construction evidence while
+leaving BC-HOST-INPUT native qualification open.
+
+The BC-HOST metadata-checker work is delivered under the existing
+=bootstrap_artifacts.qualified_host= owner. Missing proof fields and
+missing receipt files now produce explicit qualification failures.
+Outer, child and identity records are decoded from the exact bytes
+whose digest was checked. Complete two-pass, process quiescence,
+generator ancestry and target-runtime exclusion checks remain required.
+
+| Scoped check | Result | Acceptance boundary |
+|-
+| Original eight fixture cases before the change | Four error reports across missing-proof and missing-file cases; other cases passed | Captured regression baseline, no native execution |
+| Nine fixture cases after the change | PASS, including malformed JSON with matching digests, incomplete phases, timeout, unreaped/unquiesced producer, wrong ancestry and target linkage | Metadata validator only; native host remains open |
+| Three existing current-producer review tests | Two passed; tool discovery failed on sandbox xcrun warning/path handling | Retained separately; no broad framework-green claim |
+
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-framework-before.json][Before-change failure receipt]]
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-framework-after.json][After-change fixture receipt and replay argv]]
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-review-observation.json][Separate tool-discovery failure]]
+
+No disassembly, decompilation or binary-to-source reconstruction is
+needed for this delivery. If a subsequent stage requires any of those,
+stop before that operation and report the dependency to the user for
+their Grok handoff. Source-based negative controls remain in scope.
+
+=native_capabilities.seed= already accepts a source-matching complete
+AOT host and calls =build_hosted_core=. That is the existing first
+hosted target-emission route; its outcome explicitly does not establish
+full two-pass bootstrap. =bootstrap_artifacts.qualified_host= serves
+the stronger =gambit.bootstrap-input= route: it requires =sourceReceipt=,
+=targetRuntimeLinked=false= and a complete two-pass producer whose
+compiler bytes and source ancestry match. The retained AOT declaration
+has neither of those fields. A matching executable and successful
+historical probe cannot synthesize that producer.
+
+Grok should qualify a current whole-graph host in the existing host
+role, then use the hosted seed route for initial target regeneration.
+Only a genuine complete producer may supply the stronger bootstrap-input
+receipt. Preserve both types and all rejection checks. Do not change
+the framework predicate merely to accept the historical declaration.
+[[file:../../../src/gambit_smp/native_capabilities.py::1110][Current input envelope and hosted seed]]
+[[file:../../../src/gambit_smp/bootstrap_artifacts.py::167][Stronger completed-producer gate]]
+[[file:../../../src/gambit_smp/gambit_build_primitives.py::144][Existing hosted regeneration]]
+
+*** One ordered delivery and independent review
+
+**** Grok work order for the formal-prelude host control
+:PROPERTIES:
+:CUSTOM_ID: family6-formal-prelude-host-control
+:END:
+
+The first open delivery is =BC-HOST-CONTROL=. Finish it before building the
+complete host graph, regenerating the target inventory or running core. The
+retained =bootstrap-16= Make lineage belongs to its own inputs. The TFIB
+reduced-delay attribution and the Feeley-inspired poll design remain useful
+runtime work, downstream of a usable current compiler. See the
+[[file:tfib-refactory-reflection.org::#tfib-host-control-reflection][Refactory reflection]]
+and the [[file:models/sysml/bootstrap-cohort.sysml][SysML delivery stages]].
+
+The implementation owner reported two traces ending in =parse= before
+=normalize= or =emit-proc=. The longer trace reached 523 macro expansions
+with repeat count 1 and then exit 139. Another receipt reported
+=Heap overflow=. Preserve the exception and the crash as distinct outcomes
+until source position and the earliest failing operation match. Increasing
+expansion counts witness local activity. An observed repeat count of 1
+cannot exclude an unsampled cycle or explain heap growth. Write-group
+admission, return labels and straight-line slot placement are later cuts.
+
+1. *Bind the paired experiment.* Select =lib/_module.scm= for the reported
+   parse failure. Use the existing =research --module-checks= declaration
+   with the configured-source provider and =--bootstrap-host= for each
+   leg. One leg uses the failing interpreter and the other an independently
+   usable, ABI-compatible interpreter with an explicit host specification.
+   Pin both actual executables and loader dependencies. Use the same current
+   compiler source closure, module, formal Make prelude including transitive
+   include bytes and resolution, configured GCC/C23 profile and diagnostic
+   ceiling. Retain actual argv, cwd and effective environment. Normalize
+   only the host selection and private output coordinates in the comparison
+   key. A plain procedure without the formal prelude may help isolate startup
+   but is a separate observation. If a usable reference is unavailable,
+   record the missing host and keep the build prerequisite open.
+2. *Retain the evidence through the existing task.* Use
+   =gambit-smp --task modern-c-frame-contract research --module-checks RECIPE --step CONFIGURED_STEP --module lib/_module.scm --bootstrap-host HOST_SPEC=
+   to produce Recipe data. Select the actual configured provider ID from
+   the source Recipe. Keep declarations, host specs and outputs under the
+   same task. For each chosen declaration use
+   =gambit-smp --task modern-c-frame-contract research --run LEG_RECIPE --engine ENGINE --out RUN=
+   with the current engine and a task-owned run destination. The
+   [[file:../../../patches/diagnostics/compiler-phase-observation.patch][phase probe]]
+   can be composed into the candidate source lock. Bind its exact bytes for
+   both legs and preserve each unmodified prior receipt. Capture =cf=,
+   read, prelude wrapping, parse, normalize, GVM and C scan boundaries.
+   In the failing parse retain the last completed macro and its source
+   location, sampled counts, and where available allocation deltas,
+   post-collection live words and the original native fault PC. Record
+   timeout, exception, natural exit and signal independently. Peak RSS is a
+   process footprint and cannot substitute for live words after collection.
+3. *Read and compare through ASCENT.* Read each retained run with
+   =research --read RUN=. The bound =executionSummary.compilerTraces=
+   supplies stream hashes and line references for both legs.
+   For failed hosted cuts, =repairContext.inference= already exposes
+   =compiler_frontier=, =compiler_signal= and =compiler_unreturned_signal=
+   from =make-repair-loop=. Join events only within their run, module step,
+   emission command and authenticated stream. Use
+   =trajectory submit= to retain the paired observation and model-selected
+   hypothesis under this task. Reference both terminal receipts, the equal
+   comparison key and the distinct verified hosts. Pair current facts
+   explicitly. Missing or changed streams withdraw the affected event
+   facts. The existing projection localizes a single cut. The paired join
+   is an open source-bound ASCENT correspondence for Grok to supply, and
+   may be expressed in a caller-owned selector. Keep evidence gaps open
+   without prescribing an experiment sequence or retry.
+4. *Use the result to choose the next change.* If only the reference emits,
+   investigate the differing host or its interaction with this source. If
+   both fail at the same verified location, investigate the shared input or
+   compiler path. Different failure locations or an unverified reference
+   keep attribution open. For parse pressure compare work and retained heap
+   within the same phase and input prefix. Given matched prefix and heap
+   samples, report the allocation delta and live-word delta separately.
+   For a crash, bind the signal, loaded image and fault PC before inferring
+   a first bad access. Select the next hypothesis or repair from these
+   observations. Record the selected prior and changed input through the
+   existing repair review. Do not repeat the same uninformative run.
+5. *Release the build prerequisite with a current witness.* Retain both
+   terminal receipts on matching inputs with quiescent process groups.
+   The selected build host must return from parse, exit naturally with
+   fresh nonempty C, and pass configured GCC/C23. A bound failure in the
+   reference leg remains comparison evidence.
+   If a different interpreter is selected as the build candidate, declare
+   it and establish its own bound comparison. A bounded failure of the
+   selected host is usable diagnosis and leaves this prerequisite open.
+   This release applies only
+   to construction. The existing =BC-HOST-EMIT=, target inventory and
+   self-pass still own production qualification.
+
+**** Formal and native correspondence to deliver
+
+Let =K = (S, M, P, A, G, B)= denote the exact current source closure,
+module bytes, resolved prelude closure, normalized Make invocation and
+environment, configured GCC/C23 profile and diagnostic ceiling. Let
+=E = (R, step, command, stream, line)= address one event in a terminal
+receipt =R=. Each leg binds its own declared and executed host =H=.
+The ASCENT pair joins two independent receipts with the same current =K=
+and different verified hosts. An event can refine a leg only through its
+own =E=. The construction prerequisite is =matchedPair ∧ selectedHostComplete=.
+There is no implication from a matched pair or a successful construction
+prerequisite to Family A or Family 6.
+
+For comparable samples at the same parse milestone, preserve cumulative
+allocation =A_i= and live words after a completed GC =L_i= with their
+units and observation identities. Within a single run report
+=ΔA = A_2 − A_1= and =ΔL = L_2 − L_1= over the same bracketed prefix.
+Across hosts compare deltas only when the measurement and prefix match.
+An absent collection or unavailable counter leaves the corresponding
+delta unknown. A macro count or RSS sample alone cannot refine it.
+
+| Owner | Abstract statement | Required concrete witness |
+|-
+| ASCENT | Match the pair on the full comparison key and classify its last authenticated phase and terminal outcomes. | Two receipt hashes, per-leg declared and executed host and loader identities, effective Make prelude/include inputs, command identity and bound event references. A stale log or unrelated run cannot supply an event. |
+| QNT before construction | A matched current pair and completion by the selected host are necessary to release the large-build prerequisite. A bound reference failure can carry evidence. | Refine =bootstrap_cohort.qnt= hosted-control predicates from actual parse return, natural exit, nonempty fresh C, configured C23 and process custody. Exercise changed prelude, stale stream, reference-only success and false exit-zero controls. |
+| QNT after target emission | In =rest_frame_publication.qnt=, admission precedes writes, demand is consumed using the old mapped frame, recovery reloads current roots and commit happens once. | Map each affected generated-C site to the entry/backed spill, demand, service/return, reload, write and commit events. Cover the relocated seven historical 20-word sites and actual variable-size paths by procedure and source span. Include one-short refusal and no replay on retry. |
+| Lean identity and geometry | =BootstrapCohort.lean= proves the fixed-input and candidate completion consequences of a matched control. =FrameContract.lean= separates backing of old-frame spill slots from coverage of target write slots. | Refine the comparison key from actual byte identities. On the eventual target image, independently decode old descriptor and retry/return labels and enumerate each real store slot. Supply the old and new owned extents for the same attempt and bind complete inventories to the emitted code and handler source. |
+| Native acceptance | A bound host comparison and formal checks are intermediate evidence. | On one sealed GSI close Family A across all three rest spellings, full-extent refusal, cross-segment custody, GC owner/epoch and competing last-section claims. Then run the original four cases at p2/jobs=3 then p1/jobs=4 under the same 295/300-second envelope. |
+
+The mathematical checks below the native boundary do not establish parser
+termination, host compatibility, physical pointer custody, scheduling
+fairness or elapsed time. Keep every unobserved premise open in ASCENT and
+SysML. The accepted prefix remains 5/12.
+
+#+BEGIN_BC_HOST_STAGES
+| Ordered stage | Prerequisite | Work | Required receipt | Failure boundary |
+|-
+| BC-HOST-INPUT | retained host audit | Reconcile complete current compiler inputs, host producer/SDK and effective include resolution. Keep the host ABI coherent and separate from the emitted target ABI. | Source-stable per-file before/after inventory, actual input resolution, GCC/profile identities and resolved host module closure. | Historical hashes match but generator bytes differ; partial emitter overlays and rewriting historical hashes cannot admit current emission. |
+| BC-HOST-CONTROL | BC-HOST-INPUT | Compare the selected and independently usable interpreters on one actual module with the same formal Make prelude and bound compiler source. | Matched fixed inputs, two bound terminal host legs with quiescent processes, and parse return, natural exit, fresh C and configured C23 on the selected host. | Missing reference, unstable inputs, selected-host failure, stale stream or absent selected-host output leaves the large-build prerequisite open. |
+| BC-HOST-EMIT | BC-HOST-CONTROL | Build the complete current host graph in the existing host role. Qualify Make-shaped compilation and linker emission using existing hosted seed entrypoints. | Current host bytes, actual compiler/link argv, cwd/environment and header/library inputs; natural exit, expected C output and current-emitter preflight/frame-map correspondence. | AOT emission qualification does not fabricate the complete two-pass producer required by bootstrap-input. Missing backing, outside-half cursors or absent output keep the stage open. |
+| BC-TARGET-C | BC-HOST-EMIT | Capture all required module and linker C names before destructive generation, then regenerate under the existing Make and target GCC/C23 profile. | Total required-name inventory, fresh source-to-output ownership, stable source inputs and actual target headers/argv; no host runtime linkage. | An empty post-clean directory cannot shrink coverage. One generated file or a hand-aligned kernel does not establish a coherent target cohort. |
+| BC-SELF | BC-TARGET-C | Build and self-regenerate the target compiler with the new protocol. Exercise the existing small input before sealing a runtime. | Complete required phases, finite successful emission, matched current generator and target runtime identity, unchanged budget and quiescent processes. | Finite invariant failure is diagnosis only. Linking old-emitter objects with changed headers does not establish the new protocol. |
+| BC-A | BC-SELF | Use one sealed GSI for all three rest spellings, cross-break custody, GC owner/epoch, full-region zero-write refusal and competing final-section claims. | Production-cut observations bound to that GSI, generator, generated C, headers, object and link inputs; query unknown outcomes without duplicate execution. | One-word sentinels, separate diagnostic binaries or model arithmetic cannot close the full-region and lifetime obligations. |
+| BC-FAMILY6 | BC-A | Run original unspliced p2 then p1 workload with assertions and original heap, census and process custody. | One complete natural-exit family receipt within 295-second inner and 300-second outer budget. | Partial, reordered or timed-out campaign retains DEV 5/12. Historical patch progress supplies counterexamples only. |
+#+END_BC_HOST_STAGES
+
+For =BC-HOST-INPUT=, preserve a read-stable snapshot before changing the
+host working generation. Reuse the existing task/cache and existing
+host output role. Keep the retained historical executable immutable;
+it remains useful as a possible old-ABI construction tool only after
+its own input-resolution premises are checked. Whole-graph qualification
+does not forbid reuse of unchanged host objects with exact dependency,
+producer and ABI identity; it forbids a partial backend overlay.
+
+Use the historical plan's SDK compiler, headers, library and build script
+as the construction-tool candidates, rather than invoking the failing
+modern-c GSC to compile its own replacement. The retained SDK compiler
+digest starts =80e933283df4=; the historical whole-graph host digest starts
+=5d38899f9624=. They are distinct roles. The plan's module list is the
+starting inventory, not permission to ignore a new transitive dependency.
+Resolve the prelude and every include against the intended host macro
+ABI before building. The retained current-gsc executable may become an
+emitter again only after its generator identity matches the requested
+source cohort, or after a new whole-graph host is qualified.
+
+For =BC-HOST-EMIT=, capture actual host GCC compilation and link argv,
+cwd, environment and selected SDK files. The historical plan selects
+GCC through its build script but is not an actual compiler invocation
+trace, and does not record the build environment or explicit cwd.
+Its host =-O0= and target O1/O3 scopes are distinct. Preserve the existing
+GCC/C23 profile; effective C23 translation-unit evidence remains open.
+Require finite successful compilation and real C output from a
+Make-shaped probe, including module/linker production. An exit zero
+without output and a bounded invariant failure both fail this gate.
+
+For =BC-TARGET-C=, preserve the required module and linker output names
+from the leased source inventory before bootclean. In each emitted
+write group record the old mapped retry, all root spills, stack/heap
+high-water demands, admission before the earliest store, commit and
+new mapped continuation. A path that emits BEGIN_ALLOC_LIST before
+admission fails even if a later CHECK_HEAP succeeds. Target headers,
+configuration and C consumers must belong to the same current cohort.
+
+*** Gate 2 audit: anchored effects, service maps and probe origin
+:PROPERTIES:
+:CUSTOM_ID: family6-gate2-audit-d3e1a760
+:END:
+
+The 2026-11-11 audit retained 21 stable input files in
+=.cache/tasks/modern-c-frame-contract/processes/audit/runs/family6-gate2-audit-1=.
+=snapshot.json= binds the bytes; =findings.json= separates source facts from
+observation gaps; =seven-sites.json= retains all seven baseline locators and
+their surrounding instructions. This is an audit snapshot, not a producer,
+emitter executable seal, object inventory or linked-image receipt.
+
+The emitter snapshot is =d3e1a760ebee14f717a64aa5bb0f8bb733222a989f262ed4f10abe97fd9042b5=.
+It includes both the separate live/write accounts and =gvm-instr-frame=
+size in the write high-water. The former liveness-only diagnosis is historical.
+Do not ask Grok to redo that completed change. The following are concrete
+remaining investigations, not assertions that each is a demonstrated defect.
+
+| Contract | Read source fact | Distinguishing work for Grok |
+|-
+| Prospective effects | =targ-instr-write-slot= includes frame size and copy/apply/close destinations | Trace one tiny closure/copy/adjustment case through GVM and lowered macros. Enumerate RA, alignment, publication and inliner effects. Rebase each store by cumulative signed =ADJFP= to the opening cursor; compare the complete endpoint set with the emitted grant. A maximum of local demands at different origins is insufficient. |
+| Service roots | =targ-entry-roots-fit?= checks stacked live indices; =targ-demand-covers?= checks numeric bounds | Decode the fixed opening retry descriptor at the actual possible service edge. Match stack/register Scheme roots and raw spill representations, plus return-address geometry. Do not require every later logical frame identity to be identical when no invalidating service occurs. Extent alone does not prove a GC map. |
+| Prior backing | Admission publishes an earlier live prefix and spills dirty unboxed values before =enter= | Attribute each such write and positive adjustment to the preceding owned physical span and exact old-frame representation. A subsequent refill cannot authorize an earlier spill. |
+| Handler to caller | =group_demand_after= saves a still-installed handler cursor; =resume_view= refuses to reinject it in phase 1 | Observe demand before spill, saved handler frame, actual post-unwind caller frame and current retry grant. Account for relocation between save and unwind. Preserve the real restored locals. |
+| Actual first store | =enter= assigns =write_fp= at grant issuance | Observe the actual first-store base/address separately. Equal grant/store cursors are allowed; independent event origins and the current image/processor/context/activation/group/attempt are required. This field alone does not witness a store. |
+| Unwind attribution | =note_return_fp= is called after RA/register pop and caller-alignment adjustment, but the helper itself checks no phase/attempt | Bind the sample to the concrete return event and current attempt, or prove the caller supplies equivalent attribution. A later unrelated internal return must not masquerade as this retry. |
+
+The temporary C snapshots are =_prims.c= SHA =5eef40ae4c88f2ebb6066c93fb6976a82942163439d0cb6d5817b0da5c5f54a7=
+and =_ptree2.c= SHA =627b5e2a7464f563ca0a123da82ac4792355c504bb5dce7de6fd834ff59c01f5=.
+Their linker IDs are =___LNK___prims= and =___LNK___ptree2=. No temporary
+=_eval.c= was present in that read set. The retained prims C still contains
+empty =enter/commit= groups 183-187 followed by group 188's =ADJFP(6)= and
+=new-cst=. This demonstrates fragmentation in those bytes. It does not
+attribute those bytes to the concurrently edited =d3e1a760= emitter or prove
+which historical site they replace. Only the generation receipt can do so.
+
+For each =F6-20-N= row below, attach the original Scheme expression and
+operands, GVM operation/control edge, generated group ranges, common-origin
+effects, descriptor, earlier spill authority, object and same-image link
+membership. One old block can map to several new groups. A new group may
+legitimately end at a real call/poll/map boundary; identify that boundary.
+Do not optimize for a literal =enter(20)=, label renumbering or matching callee
+names. All seven rows in the audit matrix remain =UNJOINED= until this join.
+
+An independently hosted emitter can supply Gate 2's C correspondence if
+its exact input/host/emitter/configuration and resulting link are bound.
+Self-emission is a separate producer obligation. Static coverage can settle
+the fast-path subset of a small group that cannot reach phase 1; it cannot
+replace the missing same-image retry/handler witness for the whole gate.
+Use a real reachable shortage with its actual full footprint. Do not alter
+production reserve geometry solely to manufacture the witness.
+
+On an unbacked =handler_break= refusal, entering the ordinary Scheme
+stack-overflow exception path is not automatically safe: it too can need
+frame space. Establish that path's prior backing or use the existing bounded
+native contract-failure mechanism before any unbacked write. Merely routing
+through =group_demand_enter= cannot retroactively back preparatory writes.
+
+Unsealed regenerated C is useful review input. A Gate 2 candidate and native
+closure need the actual source lock/configured headers, runtime and object/link
+identities. Do not label a temporary candidate a sealed production GSI.
+Source/root/event controls below guide focused repair and impose no new fixed
+retry sequence. Grok selects the next experiment from the first discrepancy.
+Ledger remains 5/12; =runtimeAdmitted=false=. Same sealed GSI Family A,
+then original p2/jobs=3 followed by p1/jobs=4, four cases each, 295/300 unchanged.
+
+*** Gate 2 correspondence for the seven legacy adjustments
+:PROPERTIES:
+:CUSTOM_ID: family6-gate2-seven-sites
+:END:
+
+Use the current interpreted emitter for a bounded regeneration when it
+can emit the selected module. Bind the actual host and loader, compiler
+source closure, effective Make recipe and target configuration to each
+new C digest. Bind each resulting object and the matching kernel,
+allocator, configured headers and link inputs to the same candidate
+image before using native observations to close Gate 2. An independent
+emitter can establish this correspondence. The target compiler's own
+self-emission remains =BC-SELF=. Keep the previous image and receipt
+attached to their original C bytes.
+
+The following baseline is a locator inventory of the legacy C read for
+this audit. All seven instructions are =___ADJFP(20)= and the three units have no
+=___group_demand_enter=. The labels and lines below identify the old
+blocks. Fresh label numbers, allocation group sizes and C line numbers
+can change.
+
+| ID | Legacy C site | Scheme procedure | Preceding block | Old successor and return |
+|-
+| F6-20-1 | [[file:../../../vendor/gambit/gsc/_prims.c::48593][_prims.c 48593]] | =c#setup-prim-expanders= | =SLBL 40= | =new-cst=, return =41= |
+| F6-20-2 | [[file:../../../vendor/gambit/gsc/_prims.c::49606][_prims.c 49606]] | =c#setup-prim-expanders= | =SLBL 124= | heap check =1630=, =new-ref=, return =125= |
+| F6-20-3 | [[file:../../../vendor/gambit/gsc/_prims.c::49929][_prims.c 49929]] | =c#setup-prim-expanders= | =SLBL 151= | heap check =1642=, =new-ref=, return =152= |
+| F6-20-4 | [[file:../../../vendor/gambit/gsc/_prims.c::50178][_prims.c 50178]] | =c#setup-prim-expanders= | =SLBL 171= | heap check =1653=, =new-ref=, return =172= |
+| F6-20-5 | [[file:../../../vendor/gambit/gsc/_prims.c::59814][_prims.c 59814]] | =c#setup-prim-expanders= | =GLBL 2331= | poll =1918=, =new-ref=, return =1342= |
+| F6-20-6 | [[file:../../../vendor/gambit/gsc/_ptree2.c::13837][_ptree2.c 13837]] | =c#br-app= | =SLBL 10= | =prc-body=, return =11= |
+| F6-20-7 | [[file:../../../vendor/gambit/lib/_eval.c::30201][_eval.c 30201]] | =##comp-do= | =SLBL 20= | heap check =21=, =##sourcify=, return =22= |
+
+The baseline hashes are =e2262104d093b54498756e8cec83e190fe11402e83fbe94237e4ad449a1ad53c=
+for =_prims.c=, =54edbe817aff8cd1ff1bfeead029a4d5cb1c56a3c05dc5a17fa5490ef978a8fd=
+for =_ptree2.c= and =b1980ca2ff8bd5b1c610d99de11c6a5671492eaf554bc1bd88e7ae24d74dd4ef=
+for =_eval.c=. These hashes identify the audit inputs. They do not establish
+which C bytes were linked into a historical executable.
+
+For each ID recover the source subexpression and GVM block using the
+procedure, incoming edge, operand/slot dataflow and outgoing effect.
+Use the five distinct successor fingerprints in =setup-prim-expanders=
+to separate its sites. Record one old ID against all new group/label
+sites implementing the same path, including split or merged groups.
+If a site disappears, provide the source/GVM reachability or rewrite
+witness and account for its old writes and effects. A missing literal
+=ADJFP(20)= or a matching =enter(...,20,...)= leaves the row open. Include
+the vector/heap allocations ahead of the old adjustment in =##comp-do=
+and separately cover other positive adjustments and variable-length paths.
+
+For each resolved row keep the old and new C digests, Scheme span and GVM
+edge, new retry and semantic return labels, old-frame descriptor and slot
+map, complete stack/heap footprint, first store and cleanup, plus native
+event references. Bind observations to the same candidate image, procedure,
+group point, activation/attempt, owner and epoch. Feed the paired rows to
+the existing receipt-bound ASCENT evidence path. A row stays open when
+the byte/label join, actual reachability, physical interval or native event
+is missing. Do not infer the missing row from counts or another image.
+
+**** Current frontier: separate liveness from prospective writes
+:PROPERTIES:
+:CUSTOM_ID: family6-gate2-current-frontier
+:AUDIT_DATE: 2026-11-11
+:STATUS: OPEN
+:END:
+
+The current implementation frontier is Gate 2, not verifier availability.
+Capacity CBMC verification and a source-level WP proof do not link the seven
+rows to a candidate image. The newly reported capacity passes are separate
+from this correspondence. Do not reopen a whole core or extend the native
+295/300 budget merely to repeat those local observations.
+
+The read-only audit found emitter bytes
+=8fc453b04f8cbc30dce95bb92063fa8e0304ff9b817980defbfed2f35d6a635b=
+in =vendor/gambit/gsc/_t-c-2.scm=. The observed =/tmp/gate2/_prims.c= has digest
+=5eef40ae4c88f2ebb6066c93fb6976a82942163439d0cb6d5817b0da5c5f54a7=
+and linker identifier =___LNK___prims=. The candidate around lines 56409-56437
+contains a stack store and adjustment under one grant, then empty grants
+of 1, 2, 3, 4 and 5, each immediately committed, followed by =enter(6,0)=,
+=ADJFP(6)=, commit, poll and the call to =c#new-cst=. This is a locator for
+investigation, not a completed assignment to F6-20-1: the source/GVM/operand
+join must distinguish the several calls to that successor in the procedure.
+Temporary generated bytes can change during Grok's work. These hashes retain
+this observation only; neither the emitter executable/loader closure nor a
+link of these C bytes into an image has been established by this read.
+
+There are two concrete source relationships to investigate first:
+
+1. =targ-straight-line-slots= returns the current =code-slots-needed= field.
+   In =_gvm.scm::setup-slots-needed!=, the field is computed by a backwards
+   live-demand transfer. =need-gvm-loc= can reduce the requirement to
+   =stk-num(loc)-1= when the destination slot is defined. For example its
+   transfer at slot 20 with incoming demand 20 returns 19, while the physical
+   future write still requires slot 20. This quantity cannot generally stand
+   for the maximum footprint of all future writes. Keep this existing root/
+   liveness analysis; supply a separate prospective effect summary instead of
+   renaming or overwriting it.
+2. =targ-expand-pending-write-group= requires entry-frame object identity and
+   equality of =targ-proc-fp= with the saved plan. =targ-gen-gvm-instr= assigns
+   entry-frame from the previous instruction's frame for each instruction.
+   These checks can prevent extension across changing logical frames, even
+   when the intended semantic write group continues. A generated sequence
+   of short, immediately retired grants is consistent with that limitation.
+   Record the actual failed predicate at the selected GVM edge before
+   calling it the cause of a particular legacy row.
+
+The repair direction is a group plan anchored at the first admission's
+actual =fp= and retry/root descriptor. In one linear pass per actual group,
+account for all stack writes, heap allocation/alignment, cursor displacements
+and necessary publications. Express every effect in that anchor's coordinates;
+the stack extent is the largest required endpoint, not the maximum of demand
+counts taken at different later cursor positions. Printed mutable demand
+operands may be finalized after collection of the complete group. Preserve
+source span and operation identity so the footprint can be checked against
+the generated C, not against the planner's own total alone.
+
+Do not just remove the frame/fp checks. Changes of root view, real labels,
+calls, polls or other invalidating effects need an explicit boundary or a
+proved preservation relationship. A real boundary must close a complete
+semantic transaction and retain a valid retry descriptor for the next one.
+A later logical frame must not silently replace the old descriptor used
+before the first write. Preparatory raw spills still require old backing
+before enter; a larger future grant cannot authorize them retroactively.
+
+The focused falsifier for Grok is a straight-line source/GVM case that fills
+successive stack slots and calls the selected successor. Keep the original
+live-slot annotations beside the independently calculated write endpoints.
+The generated output must show that the complete required batch is admitted
+before its first target write. Check exact fit, whole-batch one-short/zero
+writes and a shortage/retry with one effect delivery. A repaired example
+does not replace the seven-row inventory or its variable paths.
+
+The old literal 20 is not a required new literal or a proof by summation.
+If optimized layout removes slots or a genuine safe cut partitions effects,
+provide the reachability/effect/descriptor correspondence. Conversely, seven
+positive-adjustment checks or a sequence of individually fitting writes do
+not establish whole-batch admission. Current empty grants do not establish
+either safe partitioning or native replay behavior.
+
+After the focused emitter regression distinguishes the repair, bind the
+already generated affected C, matching kernel/allocator and configured headers
+through the existing incremental Make/object/link stages to one candidate.
+Then collect the independent handler, post-unwind and first-write cursors,
+pre-enter backing, pending demand and settlement events below on that image.
+Do not substitute another host, a diagnostic mirror or the new C text alone.
+No additional broad build or Grok launch is requested by this work order.
+
+***** Concurrent progress observed after the 8fc453b0 snapshot
+
+Grok changed the maintained emitter during this audit. The subsequent bytes
+are =4a3e7b157b9cef2cbec6c9738f9ec6bc0498a9d0ae8de509442fa8e8937dfb11=.
+The observed =_gvm.scm= is
+=a1160027e78b7ee75bb6f89094f658cd518d75c1a133f681d1832966a5e611c9=.
+The new emitter has =targ-straight-line-accounts=, separate line-live and
+line-write state, and a per-real-label account retained by later instructions.
+It inventories copy/apply/close destination slots. Pending expansion replaces
+entry-frame object equality with =targ-entry-roots-fit?= while keeping the
+saved-fp check. This is source progress; do not request the removed
+=targ-straight-line-slots= repair again or attribute the old temporary C to
+this new emitter without a new production observation.
+
+The next discriminating reviews are:
+
+- Check independently that GVM destination-slot accounts cover every emitted
+  target store and positive displacement, including inliner-generated
+  temporaries, return/alignment work and publication effects. The existing
+  =sn= and terminal-frame accounting may discharge particular effects; record
+  that correspondence rather than assuming =max(live,write)= includes them.
+  Treat preparatory old-frame spills as their separate backing obligation.
+- =targ-entry-roots-fit?= bounds live stacked slot indices by the granted end.
+  This is an extent check, not by itself a proof of the opening retry map's
+  root identities, register roots, raw/Scheme representations or RA/unwind
+  descriptor. Preserve the fixed opening view and justify any intervening
+  boundary/invalidation. Also examine the already-covered fast branch, which
+  can reuse the plan without entering the expansion predicate.
+- A real GVM label bounds this account, but calls/polls/GC-capable operations
+  can be inserted by lowering or inliners. Check those generated boundaries
+  and heap-demand changes explicitly. A safe split needs its own complete
+  effects and replay/root-view correspondence; it is not proved by the label
+  convention alone.
+- Once new C exists, repeat the seven semantic joins against its actual bytes.
+  Bind only the affected generated units and matching runtime/header inputs
+  into one incremental candidate link, then collect the independent native
+  cursor/backing/phase/settlement witnesses. New source accounts, corrected
+  linker identifiers and source-level solver passes do not close this step.
+
+The first journal submission was rejected because the emitter reference
+changed during its read. The source snapshots and this follow-up remain
+explicitly separated; no concurrent source edit was overwritten or counted
+as a native pass.
+
+**** Independent cursor and backing observations
+
+| Observation | Place and acceptance rule |
+|-
+| Old demand read | At =group_demand_before= record the caller =fp=, old soft limit, independently owned span and demand result before the handler adjusts or spills. A valid short request must be seen before target writes or argument pops. |
+| =fp_saved= | At =group_demand_after= record the exact saved =d->fp=, role of the frame, descriptor, owner, epoch and attempt. This call occurs before =internal_return= unwinds its temporary frame. |
+| =fp_unwound= | At the actual retry edge after =internal_return= restores registers, RA and alignment, read the local caller cursor before any =resume_view= assignment. Decode from the actual RETI descriptor and current handler view independently. If the handler view changed after the save, retain the relocation and owner/epoch transition explicitly. |
+| Grant and =fp_write= | Observe the cursor checked by successful =enter= and the cursor at the first target store independently. The grant base must be the repaired caller view. If authorized adjustments precede the first store, apply their signed word displacement to =fp_unwound=. Check the effective address against the stack grant for a stack store or the actual =hp= and heap grant for a heap store. Compare owner/epoch and attempt and account for any intervening invalidation or fresh grant. |
+| Pre-enter spill | Observe the first dirty unboxed stack spill and all of its slots before the store. Decode the exact old slot representation and independently owned extent. Record the backing grant or entry invariant that was already in force. Keep a raw unboxed spill's map classification distinct from a Scheme root. Check the handler's own spill reserve separately. |
+| Settlement | Observe the actual transition from granted to cleared after the complete group. Preserve the first-store and semantic-effect counts across retry. No repeated side effect and no second consumption of the same attempt. |
+
+The specific falsifier is a saved handler cursor copied into the retry
+local after unwind. =group_demand_resume_view= can currently install that
+value and a later pointer comparison can then agree with its own writeback.
+Matching values reported only by that helper leave the independent
+correspondence open. The QNT observation predicate checks the grant base
+against the independently observed caller cursor and accounts for signed
+displacement before the first store. Lean decodes the caller coordinate
+from the current handler coordinate and proves the stack-store address and
+old-slot bounds under explicit premises. The exact ABI, complete old map
+and complete footprint remain native refinement obligations.
+
+On the fast path, successful =enter= is the full grant. On shortage, the
+old soft threshold governs the pending-demand read. After a full current
+grant, =ADJFP= can cross that soft threshold within the authorized physical
+span. C =group_demand_commit= retires the attempt after the writes. The QNT
+=commitGroup= transition covers the admitted effects, including the
+adjustment. Neither the cleanup nor a successful =enter= supplies evidence
+for an earlier unbacked spill.
+
+Run exact fit and one-short on the resolved group, and preserve a backed
+pre-enter spill, a one-slot-outside-old-frame refusal, and a stale
+handler-cursor reinjection control. Exercise repair with the same attempt
+and real relocation where supported by the path. Observe the full target
+write range independently on refusal. Gate 2 remains open until every row
+and the required variable paths have native correspondence. Family A and
+the original p2 then p1 campaign retain their existing same-image order
+and 295/300-second envelope. The accepted prefix remains 5/12.
+
+** Observed target generation and numeric compilation
+
+| Evidence | Result | Remaining obligation |
+|----------+--------+----------------------|
+| Target source and header | Two backend modules and the standalone frame fixture synchronized under the original lease. Make re-emitted the identical effective =gambit.h=. | Retain exact inputs for native linking. |
+| Current host and Make | All 51 target C products regenerated with stable sources and natural completion. Five products match the preceding bytes. | Qualify their native consumers and target self-emission. |
+| Configured =_num.o= | GCC/C23 stopped after 67.249 seconds at a 4 GiB sampled RSS guard. Last sampled group peak was 4,933,369,856 bytes. No object was published. | Implement and qualify procedure host placement and resource ownership in the real generator. |
+| Earlier procedure layout diagnostic | All 74 recorded project input digests match the current workspace. The prior diagnostic compiled in 24.629 seconds. | Bind the real producer and execute the linked runtime. No matched performance claim. |
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-audit.json][native observation]] retains source and output hashes, the exact Make invocation,
+the RSS samples and quiescence. Original-family acceptance remains open.
+
+For =BC-SELF=, keep the existing Make phases and budget. Review
+complete phase outcomes and source/output identities, not announcements
+alone. Preserve generated-C differences with their producer lineage;
+do not hand-align kernel C or combine old GSC objects with new headers
+as the final witness. A small input must finish with expected output
+before the new compiler is qualified for production acceptance.
+Use the active task's budget and profile. A larger deadline in a
+historical recipe or receipt is not execution authority for this order.
+
+For =BC-A=, seal one GSI and bind its generator, generated C, configured
+headers, object files and link inputs. Cover ordinary rest, keyword-rest
+and rest-keyword. Independently observe the entire refusal destination
+and actual parameter cursor, not a sentinel written by the grant helper.
+Collect before stores on shortage, then reload repaired roots and grant
+the same attempt once. Keep a cross-break predecessor pin until the
+successor grant and link are validated. Record owner/epoch during GC
+and two processors racing for the final eligible section, with one
+grant and uniquely settled refund. Missing observation stays open.
+
+For =BC-FAMILY6=, run only after those premises are delivered: original
+unspliced p2 then p1 under the unchanged 295/300 limits. A native
+failure before this gate is neither a scheduler diagnosis nor a TFIB
+throughput result. Construction B/C remain dependent on A. The reader
+of this DEV order is not authorized by this review to launch work in
+the other thread's occupied build directory.
+
+*** Benefit and added-work review
+
+| Mechanism | Work it can eliminate | Added work and cost | Net-benefit condition |
+|-
+| Independent coherent host | Repeated failed attempts to have the invalid target compiler regenerate its fix | Current host cohort construction, SDK/ABI and actual-input verification | Host natively emits current target protocol; target defects are still separately corrected. |
+| Source-matched host reuse | Unnecessary rebuilding of exact completed host inputs | Hash/dependency and lease checks | Full current source/host ABI/effect closure agrees; 81 matching files alone do not authorize reuse. |
+| Complete target regeneration | Stale old-emitter objects masquerading as new prewrite admission | Regenerate and compile every affected module/linker product | Complete current cohort, then genuine self-emission; no one-file substitution. |
+| Same-image A and original family | False acceptance from diagnostic images and mixed receipts | Original full-region/concurrency observers and unchanged workload | Natural original completion; no measured speedup or peak-RSS reduction is claimed here. |
+
+Runtime admission remains false. Native progress stays 5/12 with seven
+families remaining. SDK source linkage and this read-only audit close
+the construction specification, not the native stages above.
+
+*** Recheck the source snapshot through the existing Python owner
+
+This read-only block compares the embedded historical declaration with
+the current checkout using the framework's existing input function. It
+does not run a compiler or update the historical declaration. Re-reading
+the repository receipt remains possible after historical cache cleanup;
+native reuse still requires the actual qualified artifact bytes.
+
+#+begin_src python :eval never :results output
+import json
+from pathlib import Path
+from collections import Counter
+from gambit_smp.native_capabilities import current_compiler_inputs
+audit = json.loads(Path(
+    "evidence/research/retained/modern-c/stress-gsi/dev-bc-host-audit.json"
+).read_text())
+old = audit["historicalManifest"]["content"]["qualification"]["compilerSourceInputs"]
+current = current_compiler_inputs(Path("vendor/gambit"))
+states = {name: "same" if old.get(name) == current.get(name) else "different"
+          for name in set(old) | set(current)}
+print(dict(Counter(states.values())))
+reviewed = audit.get("inputEnvelopeUpgrade", {}).get(
+    "sourceSnapshot", audit["vendor"]["sourceSnapshot"])
+print("matches reviewed snapshot:", current == reviewed)
+print("runtime admitted:", audit["constraints"]["runtimeAdmitted"])
+#+end_src
+
+** Temporal model and observation plan
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bc-host-construction.json][actual current-host construction receipt]] supersedes the assumption that
+only the historical host can run. All 34 current compiler modules were
+generated and compiled in the existing host source staging. The old
+host binary remains unchanged. The candidate links and is 27,630,296
+bytes. This is construction success, not emission qualification.
+
+The inherited PATH selected a Nix ld64-954.16 wrapper. A minimal C puts
+program failed with unresolved system symbols under that environment.
+The same source and GCC argv pass after calling the framework's existing
+host_tools normalizer, which selects the actual Xcode developer linker.
+Reusing the 34 objects and original incremental linker C then succeeds.
+The flat-link experiment is retained and discarded: its default library
+mode lacked main. No flat-link change, Clang compiler or new profile is
+adopted. GCC reports __STDC_VERSION__=202311L and no __clang__ macro.
+
+| Actual stage | Observation | Remaining obligation |
+|-
+| Whole current host sources | 34 objects completed; source snapshot unchanged | Host macro/read closure remains distinct from source envelope. |
+| Host link | Original incremental mode passes with framework-selected developer tools | Preserve actual command, SDK and object identities; no two-pass claim. |
+| Current source emission | Existing rest semantic case stops at targ-gen-label-return*, no return address in frame | Bind physical fp, logical entry frame, RA location and retry descriptor; no target C output yet. |
+| Target/self/A/family | Not run | Original gates and 5/12 remain unchanged. |
+
+The next Scheme change must establish a genuinely mapped old view for
+prewrite retry. The abstract old-map model assumes that view exists;
+it cannot supply a missing return slot in the actual compiler. Do not
+skip admission, widen a frame span, clip a cursor or weaken census to
+satisfy the model. A same-condition source control is still needed to
+attribute the missing-RA failure to earlier integration versus the new
+call ordering. No source-level claim of causality is made yet.
+
+The user confirmed the other Scheme writer was paused. The current
+source implementation now moves jump admission before return-address
+and aliased-callee register writes. It also restores raw-spill and
+frame-reset controls on normal and exceptional admission-emitter exits.
+Existing dirty changes were preserved. The existing frame-spec Scheme
+fixture executes the actual two named source definitions with controlled
+dependencies: normal/exceptional descriptor emission, reentrant admission
+and both aliased/non-aliased call prefixes pass 21 checks.
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-scheme-write-group.json][Scheme source execution and retained failures]]
+
+The first adapter failed with an ill-formed-expression diagnostic; the
+next exposed an uninitialized demand-label fixture binding. Both runs
+remain retained. The final source check naturally returned zero with
+FRAME-WRITE-GROUP-PASS 21. Namespace adaptation and dependency stubs
+make this a source-procedure test. It does not establish current target
+C emission, physical frame-map correctness or linked moving-GC behavior.
+Those remain the bootstrap and same-image A gates. No heap/census or
+original-family budget was changed; native progress remains 5/12.
+
+The existing =rest_frame_publication.qnt= now models the pending
+attempt, old map, handler backing, prospective room, repaired epoch,
+reload and unique group commit. Its legacy empty-return and guarded
+handler transitions reproduce cycles with no writes. Both are safe
+with respect to roots and still violate the explicit retry-progress
+condition. Separate negative histories reject pre-grant stores,
+post-adjustment return labels, changed attempts, missing reload and
+duplicate commit.
+
+Quint owns these finite temporal histories. Existing Lean obligations
+own configured frame geometry, offsets, containment and representation.
+The existing frame-publication Evidence recipe qualifies the model and
+records runtime admission as false. Source-linked declarations alone
+do not establish the pending-demand implementation or a native compiler
+termination proof.
+[[file:models/quint/rest_frame_publication.qnt][Existing extended model]]
+[[file:../../../evidence/fixtures/dev-rest-frame-publication/frame.recipe.json][Existing model flow]]
+
+The guard-publication model separates the poll trip from the processor
+field. The installed header copies =stack_trip= from
+=context.stack_limit= at refresh. A write that updates only the
+processor field does not move that trip. A four-word break pushed from
+the half base lands at offset -4, which census rejects. The measured
+heap publication, soft limit 9221 words before a 65536-word half and
+hard end one word before the half, plus one 9222-word burst, lands one
+word past the mapped half. Allocation of the old-frame descriptor is
+admitted only after refresh, with both cursors still inside. Repeated
+collection of an outside cursor is not a grant. These checks do not
+admit a runtime, a sealed GSI, or the 295/300 campaign. The sealed
+research engine provides Quint. Lean and OpenSysML are not providers
+in that engine, so their checks stay outside the receipt.
+[[file:models/quint/guard_publication.qnt][Guard publication histories]]
+[[file:../../architecture/runtime/gc/models/lean/GuardPublication.lean][Guard arithmetic]]
+[[file:../../architecture/runtime/gc/models/sysml/guard-publication.sysml][Guard requirements]]
+[[file:../../../evidence/fixtures/dev-guard-publication/module.recipe.json][Guard publication flow]]
+
+| Review order | Required producer or native witness |
+|-
+| Capture present diagnostic | Hash =gsi.cut-frame= and already linked inputs. Use available hooks for the observed rest cuts only. Keep single-word and missing cross-segment pin coverage open. |
+| Emitter and handler correspondence | Use the [[#family6-gate2-seven-sites][seven-site Gate 2 work order]]. Show preflight before target stores, prior backing for raw spills, the old descriptor and demand read, independently decoded unwind and first-store cursor, and no effect replay. Cover other positive adjustments and actual variable-size paths. |
+| Finite compiler progress | Using the same cache and GCC/C23 profile, compile the small existing input with the new GSC or stop at a bounded invariant failure. A bounded failure preserves diagnosis and still does not qualify the producer. Empty retry or recursive spill fails this gate. |
+| Complete A on a sealed product | Same GSI supplies full-extent one-short refusal, cross-segment source custody, current owner/epoch at GC, and two contenders for the final section. Preserve the same rest attempt through all three spellings. |
+| Original family | Only after producer and A qualification, run original p2 then p1 under 295 s inner / 300 s outer limits. Require natural completion, original assertions, exact workload and process custody. |
+
+B and C remain dependent on A's delivery. Baseline native progress is
+5/12; diagnostic images, model checks and a bounded compiler failure
+give zero family credit.

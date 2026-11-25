@@ -104,7 +104,7 @@ recorded only after the actual query calls complete.
 ## 5. Observed Operation/Role Baseline Results
 
 The real installed engine evaluated the registered downstream component on
-2026-10-20. The [operation/role baseline observation](../../../evidence/research/zig-native/dsl-query-observation-03.json)
+2026-10-20. The operation/role baseline observation (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/dsl-query-observation-03.json`; unavailable in a clean checkout)
 binds component/view/source hashes and the engine identity digest. It reports:
 
 | Relation | Observed rows / interpretation |
@@ -125,14 +125,14 @@ dependency and conflicting anchor diagnostics propagated; the wrong witness
 class left the native requirement open. Restoring facts recovered the original
 answers. No collector/VM/compiler workload was run.
 
-The [registered Clue read](../../../evidence/research/zig-native/registered-clue-read.json)
+The registered Clue read (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/registered-clue-read.json`; unavailable in a clean checkout)
 selected exactly `zig.role.R15`, completed evaluation/presentation, and exposed
 its open `Q-denv` premise. Both runtimeAdmitted and executionAuthorized remained
 false. This exercises the existing shared read interface, not just a standalone
 fixture of the new rules.
 
-The [initial observation](../../../evidence/research/zig-native/dsl-query-observation.json)
-and [overlay-signature refinement](../../../evidence/research/zig-native/dsl-query-observation-02.json)
+The initial observation (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/dsl-query-observation.json`; unavailable in a clean checkout)
+and overlay-signature refinement (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/dsl-query-observation-02.json`; unavailable in a clean checkout)
 are retained with their original input identities. Their earlier dependency
 counts are historical research stages, not the final graph or native receipts.
 Updating the model did not relabel those observations.
@@ -145,7 +145,7 @@ supported by [AR01-AR14](completion-admission-evidence.md). New exact references
 include `_gvm.scm`, `_t-c-1.scm` and `mem.h`. Primary upstream specification
 notes explicitly remain rolling web observations, not pinned LLVM binaries.
 
-The [new query observation](../../../evidence/research/zig-native/dsl-query-observation-04.json)
+The new query observation (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/dsl-query-observation-04.json`; unavailable in a clean checkout)
 reports 116 traceable research nodes, 139 evidence paths, 1,933 declared-ancestor
 pairs, 289 blocked claim/requirement pairs, and zero unbound references in the
 original declared dataset. The 15 role and 24 operation inventories remain.
@@ -174,14 +174,14 @@ restored original facts. Missing source/ordering and arithmetic diagnostics
 propagated; stronger validation requirements did not disappear.
 
 The first arithmetic declaration was rejected with `operator arity`. Its
-[attempt record](../../../evidence/research/zig-native/completion-query-attempt-01.json)
-and [original declaration](../../../evidence/research/zig-native/research-arithmetic-arity-attempt.ss)
+attempt record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/completion-query-attempt-01.json`; unavailable in a clean checkout)
+and original declaration (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/research-arithmetic-arity-attempt.ss`; unavailable in a clean checkout)
 are retained. Rewriting the arithmetic into equivalent binary expressions
 resolved construction; the later actual query and controls produced the new
 observation. The rejected construction was not counted as a passing control
 or native counterexample.
 
-The [registered completion Clue read](../../../evidence/research/zig-native/registered-completion-clue-read.json)
+The registered completion Clue read (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/registered-completion-clue-read.json`; unavailable in a clean checkout)
 selected `zig.reserve-contract`, completed evaluation/presentation and retained
 Q-reserve as unresolved. Runtime and execution admission remained false. Three
 new D2 diagrams were rendered and visually inspected. No G3/backend/collector
@@ -215,7 +215,7 @@ One source may support an architectural opportunity while limiting attribution
 to Zig. The `support` polarity on a question observation records that its design
 record exists; it does not assert a positive answer to its literal question.
 
-The [actual question-query observation](../../../evidence/research/zig-native/dsl-query-observation-05.json)
+The actual question-query observation (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/dsl-query-observation-05.json`; unavailable in a clean checkout)
 binds the revised component/view and all cited local inputs. It records 12
 question records, 53 consideration/source paths, 12 alternatives, 51 metric
 links, 25 question/open-premise pairs and zero declared question gaps. There
@@ -233,7 +233,7 @@ Missing/contradictory record diagnostics appeared and the wrong witness class
 left the value premise open. These are in-memory research controls, not tests
 of a compiler, collector, FFI implementation or speed claim.
 
-The [registered value Clue read](../../../evidence/research/zig-native/registered-value-clue-read.json)
+The registered value Clue read (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/registered-value-clue-read.json`; unavailable in a clean checkout)
 continues the earlier checkpoint, selects `zig.value.VQ04`, and shows both
 supporting and limiting links, B1 as an alternative, metric links, reversal
 conditions and the unresolved `Q-zig-increment`. Evaluation and presentation
@@ -276,15 +276,15 @@ allocating result conversion, invalidation-before-release and per-edge
 nonlocal-control containment. These are source observations/design inferences,
 not an implemented converter/adapter or reproduced native failure.
 
-The [first ForeignPlan observation](../../../evidence/research/zig-native/dsl-query-observation-06.json)
+The first ForeignPlan observation (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/dsl-query-observation-06.json`; unavailable in a clean checkout)
 records the 18-family/47-anchor map and ten actual research controls. Its
-[registered Clue read](../../../evidence/research/zig-native/registered-foreign-clue-read.json)
+registered Clue read (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/registered-foreign-clue-read.json`; unavailable in a clean checkout)
 selects `zig.foreign.plan` and exposes five open requirements, including
 source-site completeness, plan correspondence and native control containment.
 That observation predates the three kernel-use additions and retains its exact
 input identities.
 
-The [current kernel-use observation](../../../evidence/research/zig-native/dsl-query-observation-07.json)
+The current kernel-use observation (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/dsl-query-observation-07.json`; unavailable in a clean checkout)
 adds KU01-KU03: released-state query, release/error delivery and a real body-form
 c-lambda returning an address through size_t/U64 conversion. There are exactly
 three literal foreign source occurrences in the stated kernel interval. Their
@@ -308,7 +308,7 @@ propagation matched expectations; the wrong evidence classes left their
 requirements open. Removing runtime converters also removes KU03 traceability
 despite its remaining kernel citation. Restoring facts restores the answers.
 
-The [current registered kernel Clue read](../../../evidence/research/zig-native/registered-foreign-kernel-clue-read.json)
+The current registered kernel Clue read (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/registered-foreign-kernel-clue-read.json`; unavailable in a clean checkout)
 continues the prior checkpoint and selects KU03 with source observations and
 the scalar-conversion dependency. Runtime and execution admission remain
 false. Two D2 diagrams were rendered and visually inspected. No compiler,
@@ -340,7 +340,7 @@ Native-semantic and measured-cost requirements remain independent later duties.
 This revision changes declarations only. It does not run the ASCENT engine or
 native small tests, and does not reuse the previous query's counts as if they
 described the changed view. Observation 07 is the latest evaluated historical
-snapshot. The [theory design-update record](../../../evidence/research/zig-native/theory-design-update-01.json)
+snapshot. The theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-01.json`; unavailable in a clean checkout)
 binds the new declarations and sources and explicitly records engineEvaluated,
 empiricalTestExecuted and theoreticalGateAccepted as false. Static reference
 integrity or diagram rendering cannot supply a net-benefit witness.
@@ -375,7 +375,7 @@ retain the same logical owners and semantic obligations; any saving must be
 identified inside their support implementation and charged against the full
 language/control/provider burden.
 
-The [second theory design-update record](../../../evidence/research/zig-native/theory-design-update-02.json)
+The second theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-02.json`; unavailable in a clean checkout)
 binds the revised source declarations, the reviewed update to the earlier theory
 document, and the prior design record. No ASCENT execution or native small test
 occurs in this refinement. Observation 07 remains the last evaluated historical
@@ -408,7 +408,7 @@ open architecture requirement receives a witness.
 The source/declaration update adds these findings, a separate residency-demand
 question and the streaming alternative to the existing scenario. The optional
 resident topology is a consideration, not a mandatory prerequisite of every
-Zig use. The [third theory design-update record](../../../evidence/research/zig-native/theory-design-update-03.json)
+Zig use. The third theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-03.json`; unavailable in a clean checkout)
 preserves the previous input hashes and records each reviewed rebind. Observation
 07 remains historical; no engine execution, native test or implementation is
 performed. Static reference/link checks and diagram rendering are document
@@ -438,7 +438,7 @@ shared simplification, rather than recalculate optional tag helpers, duplicate
 identity maps or shared transport savings. Version-specific allocator/container,
 C translation, I/O and provider boundaries are charged only where selected.
 
-The [fourth theory design-update record](../../../evidence/research/zig-native/theory-design-update-04.json)
+The fourth theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-04.json`; unavailable in a clean checkout)
 binds these declarations, reviewed source references and the prior design record.
 No architecture/native requirement receives a witness, no existing caller is
 retired, and TG5 is not passed. Observation 07 remains the last evaluated
@@ -475,7 +475,7 @@ call sites are not three maintained algorithms; one packaging source site is
 not an executed compiler-process count. These limits are represented in the
 source declarations, not deferred to a misleading small timing experiment.
 
-The [fifth theory design-update record](../../../evidence/research/zig-native/theory-design-update-05.json)
+The fifth theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-05.json`; unavailable in a clean checkout)
 binds the new design, source/primary notes and reviewed prior-link update.
 Observation 07 remains the last evaluated historical dataset. No ASCENT run,
 implementation, native experiment, performance result or retirement occurs.
@@ -505,7 +505,7 @@ SC-ADT-C identity prevents product/results double counting. A conditional
 positive domain and a fixed-width/reusable-C small-shim countermodel are
 theoretical deductions, not chosen cost estimates or native observations.
 
-The [sixth theory design-update record](../../../evidence/research/zig-native/theory-design-update-06.json)
+The sixth theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-06.json`; unavailable in a clean checkout)
 binds these declarations, the prior record, exact local source identities and
 the reviewed link update. Existing TG4/TG5 and native provider/control gates
 receive no witness. Observation 07 remains the last evaluated historical
@@ -543,7 +543,7 @@ bound exists. The component has justified reconstruction duties, not a
 demonstrated Zig-language ROI. FM01-FM06 and the source ledger define the
 remaining work/capability closure without implementation or native tests.
 
-The [seventh theory design-update record](../../../evidence/research/zig-native/theory-design-update-07.json)
+The seventh theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-07.json`; unavailable in a clean checkout)
 binds these declarations, prior input update, matrix and D2 sources. It is
 distinct from the historical `dsl-query-observation-07.json`, which remains
 the last evaluated dataset. No ASCENT execution, theoretical/native witness,
@@ -573,7 +573,7 @@ demand. RNC01-RNC07 allocate concrete change events once. NJR01-NJR08 retain
 semantic generation, generic invoke/process runtime and residual legacy callers.
 Managed-route bypass does not establish global helper deletion or Zig-only gain.
 
-The [eighth theory design-update record](../../../evidence/research/zig-native/theory-design-update-08.json)
+The eighth theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-08.json`; unavailable in a clean checkout)
 binds the new declarations and current source/docs/diagram inputs. This is a
 declaration update, distinct from historical `dsl-query-observation-07.json`,
 which remains the last engine-evaluated dataset. No source requirement,
@@ -604,7 +604,7 @@ memory-model co-design, not copying its APIs, benchmarks or declaring every
 mechanism new in OCaml 5. Native-boundary engineering, enabling infrastructure
 and Gambit core-runtime evolution remain separate adoption/acceptance scopes.
 
-The [ninth theory design-update record](../../../evidence/research/zig-native/theory-design-update-09.json)
+The ninth theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-09.json`; unavailable in a clean checkout)
 binds current declarations, reviewed parent-link changes and inputs. Historical
 `dsl-query-observation-07.json` remains the last evaluated dataset. No engine
 run, implementation, native test, performance observation, cost-theory witness
@@ -634,7 +634,7 @@ arbitrary foreign attachment, cross-VM switching and collector changes remain
 new independently justified capabilities. Existing conditional root/entry/
 participant models and native history are not rerun or promoted.
 
-The [tenth theory design-update record](../../../evidence/research/zig-native/theory-design-update-10.json)
+The tenth theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-10.json`; unavailable in a clean checkout)
 binds these declarations and the reviewed modernization link extension.
 `dsl-query-observation-07.json` remains the last engine-evaluated historical
 dataset. No new native, cost-theory, retirement or runtime witness is supplied;
@@ -660,7 +660,7 @@ lock order and disabled-interrupt callers' checkpoints remain gates. Add-fd in
 selected select/poll helpers does not itself resize; constructor capacity
 admission can enter a collective operation and stays a separate effect.
 
-The [eleventh theory design-update record](../../../evidence/research/zig-native/theory-design-update-11.json)
+The eleventh theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-11.json`; unavailable in a clean checkout)
 binds the declaration update and reviewed parent links. It adds 67 claims and
 four unwitnessed architecture requirements; the Scheme engine is unchanged and
 not run. `dsl-query-observation-07.json` remains the last evaluated historical
@@ -687,7 +687,7 @@ RN01-RN10 credit actual existing C support; a Zig handle/status-only topology
 can be nonpositive. RMS00-RMS06 separate design and future native admission.
 Pending-join storage retention still needs a next-GC custodian/recovery argument.
 
-The [twelfth theory design-update record](../../../evidence/research/zig-native/theory-design-update-12.json)
+The twelfth theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-12.json`; unavailable in a clean checkout)
 adds 82 declarations and four unwitnessed architecture requirements.
 It rebinds reviewed owned-study follow-up links, new sources and a concurrent
 module-end managed-entry import relocation; the cited loader body is unchanged. The Scheme
@@ -713,7 +713,7 @@ SO/MA rows specify owners/modernity; LM01-LM14 distinguish shared reconstruction
 upstream reuse, language increments and optional features. FD01-FD09 require real
 selected C retirement; AG01-AG06 retain independent full theory/cost gates.
 
-The [thirteenth theory design-update record](../../../evidence/research/zig-native/theory-design-update-13.json)
+The thirteenth theory design-update record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-13.json`; unavailable in a clean checkout)
 adds 89 declarations and five unwitnessed architecture/economic requirements,
 reviews four parent scope/link changes and updates the durable value questions'
 current direction. No local control requirement is inherited as a mandatory
@@ -741,7 +741,7 @@ requirements; ten MQ questions retain explicit unresolved status and negative
 cases. The Go REDK runtime, Rust static toolkit and normative SysML definitions
 have separate capability/qualification boundaries.
 
-The [fourteenth design-artifact record](../../../evidence/research/zig-native/theory-design-update-14.json)
+The fourteenth design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-14.json`; unavailable in a clean checkout)
 binds this design-only projection and its source/declaration targets. No model
 extractor, new research relation, claim, witness or engine evaluation is added.
 The registered declaration file and Scheme engine are unchanged by this update;
@@ -778,7 +778,7 @@ The generated view needs its own producer-bound refresh; this study does not
 invoke that producer or equate a separately observed producer binding with a
 SysML/model result. No producer receipt is synthesized by this study.
 
-The [fifteenth design-artifact record](../../../evidence/research/zig-native/theory-design-update-15.json)
+The fifteenth design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-15.json`; unavailable in a clean checkout)
 binds this study and reviewed naming/reference changes. There are no new claim
 IDs, witness rows, research relations or engine results. MQ questions and all
 five Q-full requirements remain unresolved. SysML laws are unvalidated necessary
@@ -802,7 +802,7 @@ freshness and resource-indexed reclamation. PT06 excludes unconditional progress
 PT07 supplies a cost inequality and nonpositive countermodels. PX01-PX12 are
 logical traces, not executed tests, native failures or model-checker output.
 
-The [sixteenth design-artifact record](../../../evidence/research/zig-native/theory-design-update-16.json)
+The sixteenth design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-16.json`; unavailable in a clean checkout)
 binds the proof text, corrected operation/model/diagram and traceability changes.
 The snapshot model has eleven necessary laws; no Boolean discharges a premise.
 Claim IDs, witnesses, engine and registered declarations are unchanged by this
@@ -862,7 +862,7 @@ require real payload drain/transfer, not a refcount-only pin. Child reservations
 are counted before parent completion; retained unknown work keeps dependencies.
 Six handwritten arguments and fourteen logical countermodels do not constitute
 checked/native evidence, finite progress, retirement or positive cost bounds.
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-20.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-20.json`; unavailable in a clean checkout)
 binds this slice. No registered engine declaration, relation, witness or producer
 result is added/evaluated; all full architecture requirements remain unresolved.
 
@@ -877,7 +877,7 @@ Source-owned preparation, target-owned committed storage and accepted work have
 separate cuts; nested TLS storage, RC data roots and raw/managed server users
 remain real dependencies. A private still-list cursor keeps its producer permit;
 internal blocking-wait ranks apply only to a complete admitted wait graph.
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-21.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-21.json`; unavailable in a clean checkout)
 binds seven conditional arguments, seventeen logical countermodels and three D2
 views. No checked/native proof, registered claim/witness/relation, engine result,
 worker admission, retired path or positive economic bound is added. All five
@@ -895,7 +895,7 @@ prepares a protected same-heap cut; RootTransferReceipt follows membership and
 target-discovery publication. The receipt does not establish whole-heap last use
 or old scan-facility physical drain. Required GC remains live while existing
 users need it; failed post-membership publication retains actual VM/root custody.
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-22.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-22.json`; unavailable in a clean checkout)
 binds seven conditional arguments, sixteen logical countermodels, three new D2
 views and the corrected earlier payload view. No engine/model/prover/native
 execution, registered claim/witness/relation, retired path or positive net bound
@@ -914,7 +914,7 @@ mirrors, sync/resize body calls, teardown and late-bound ABI routes. Target cell
 have one writer/discovery route; workers remain active through root seeds and
 published derived work. A release/acquire completion edge precedes G publication;
 already enrolled commits can finalize during ClosingTransfers.
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-23.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-23.json`; unavailable in a clean checkout)
 binds seven handwritten conditional arguments, sixteen countermodels and three
 D2 views. Textual closure is not dynamic/native closure. No engine/model/prover/
 native execution, registered claim/witness/relation, worker profile, actual
@@ -935,7 +935,7 @@ context resume areas, persistent shards, root owners and phase work. Frozen
 GC RequestId membership and noncombined resize preserve selection/consumption
 obligations; child GC does not silently consume queued GC. A short T authority
 orders root-ready, publication, claims, activation and stable phase closure.
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-24.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-24.json`; unavailable in a clean checkout)
 binds eight handwritten conditional arguments, twenty countermodels and three
 D2 views. One concurrent research-view change predates this study and is recorded
 without evaluation/adoption. No engine/model/prover/native execution, new
@@ -955,7 +955,7 @@ Resize advances on matching stage/role action settlement; an error after topolog
 commit need not mean unchanged state. Physical sections, active halves, managed
 charge and outstanding quota are separately accounted, with existing C headroom
 and partial-growth behavior credited.
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-25.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-25.json`; unavailable in a clean checkout)
 binds eight handwritten conditional arguments, twenty-two logical countermodels
 and three D2 views. No engine/model/prover/native execution, registered
 claim/witness/relation, qualified worker, retired path or positive net bound is
@@ -975,7 +975,7 @@ publication, semantic visibility, actual free, carried credit and interval
 resume authority. Unknown effects retain real owners instead of permitting
 refund/reuse by timeout.
 
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-26.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-26.json`; unavailable in a clean checkout)
 binds eight handwritten implications, twenty-two counterexamples and three D2
 views, with the previous immutable record retained. Static trace/link/hash/span
 review and diagram rendering do not run the registered research engine, parser,
@@ -996,7 +996,7 @@ The map connects actual body/semantic endpoints, roots, source/destination
 epochs, incomplete copy work, sparse/overrun layout, interval check spans and
 physical/live/policy/allocation statistics to their selected source premises.
 
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-27.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-27.json`; unavailable in a clean checkout)
 retains the preceding immutable record and binds eight handwritten implications,
 twenty-four logical counterexamples and three D2 views. JSON/hash/link/span/
 metadata-DAG review and diagram rendering are static document work; no registered
@@ -1019,7 +1019,7 @@ connect target interfaces, actual ordered pre/post-check boxing, write/address
 high-water, dynamic probe/body endpoints, remaining helper work and static versus
 actual sparse metadata to their selected source and paper premises.
 
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-28.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-28.json`; unavailable in a clean checkout)
 binds the affirmative architecture recommendation without converting it into
 native feasibility or positive economics. Eight handwritten implications and
 twenty-four counterexamples remain conditional. Static JSON/metadata-DAG/hash/
@@ -1039,7 +1039,7 @@ logical falsifiers and [equal-capability matrix](scheme-function-zig-cost-matrix
 These are document research units, not newly registered ASCENT claims, relations
 or witnesses. The registered engine/views are not evaluated or adopted here;
 entry-versus-observed drift is recorded separately in the
-[design record](../../../evidence/research/zig-native/theory-design-update-29.json).
+design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-29.json`; unavailable in a clean checkout).
 All five full requirements remain unresolved. A failed Zig increment comparison
 changes carrier selection, not the Gambit semantic/runtime modernization goal.
 
@@ -1052,7 +1052,7 @@ explicitly funds both modern C reconstruction and direct Zig reconstruction
 from the current source. These are document research units and unevaluated
 review cases, not new ASCENT claims/relations/witnesses or engine results.
 All full architecture requirements remain unresolved. The
-[design record](../../../evidence/research/zig-native/theory-design-update-30.json)
+design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-30.json`; unavailable in a clean checkout)
 preserves entry/observed identities without adopting concurrent evidence.
 
 ## Native Runtime and GC Scope

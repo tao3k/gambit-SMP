@@ -1,0 +1,137 @@
+#+TITLE: Family 6 v8 runtime, GC, interpreter, and Checklist 12 audit closure
+#+DATE: 2026-11-25
+#+PROPERTY: TASK modern-c-frame-contract
+#+OPTIONS: toc:2
+
+This document records the root-cause runtime defects, performance repairs,
+compiler memory-envelope controls, and audit framework fix landed in
+candidate =v8= to close Family 6 checklists 6 through 12 (=5/12 -> 6/12=)
+without modifying any original stress input, heap parameter (=___MSECTION_SIZE=,
+=___DEFAULT_MIN_HEAP=, =___DEFAULT_LIVE_PERCENT=), or shared 295/300-second
+campaign budget.
+
+* Runtime correctness fixes
+
+** Fix 1A-ext: Spinlock-held write-group interrupt deferral (=lib/_kernel.scm=, =lib/_kernel.c=)
+
+Under concurrent heartbeat interrupts in =thread_interrupt2_stress.scm=, a
+=(not interrupts-enabled)= critical section holding =CURRENTPROCESSOR='s
+spinlock (=primlock_depth > 0=) could hit a write-group shortage while a
+heartbeat set =stack_limit = alloc_stack_start=. Because =___FP_AFTER(fp,
+stack_limit)= evaluated true, =___group_demand_before= returned 0 and
+=handler_stack_limit= fell through into =##interrupt-handler ->
+##thread-heartbeat! -> (macro-lock-current-processor!)=, self-deadlocking
+on its own spinlock.
+
+=handler_stack_limit= now services stack limits whenever
+=pending_demand == 1 || ___ps->group_demand_active || ___ps->primlock_depth > 0=,
+re-arms pending interrupts via =___refresh_interrupts_pstate(___ps)=, and
+returns via =internal_return= so locked runtime sections never re-enter
+Scheme interrupt handlers while holding a processor spinlock.
+
+** Fix 1C: Live GVM register scrub after =___PUSH_REGS= (=lib/_kernel.scm=, =lib/_kernel.c=)
+
+Under SMP stress, =gsc/_t-c-2.scm= (=targ-spill-dirty-unboxed=) can hold an
+unboxed 64-bit IEEE-754 =___F64= value in =___R1= (for example,
+=0x41dac16f167b4228= from =##absrel-timeout->timeout= in =lib/_thread.c=)
+with its GC-map bit cleared in the =___RETI= stack frame. Previously,
+=handler_stack_limit= and =handler_heap_limit= pushed =___R1..___R4= onto
+the stack via =___PUSH_REGS= and then wrote the live registers into
+=m->context->r[]= via =___W_ALL= without clearing them. During census and
+mark, =mark_registers(work, m->context)= unconditionally scanned
+=m->context->r[]= as Scheme roots, faulting in =mark_array= whenever the
+raw double had bit 0 set (=___MEM_ALLOCATED=).
+
+Both =handler_stack_limit= and =handler_heap_limit= now zero
+=___R1..___R4 = ___FIX(0L)= immediately after =___PUSH_REGS= and before
+=___W_ALL=. The intact unboxed bits remain in the =___RETI= stack frame
+(governed by its exact GC map) and are restored verbatim on return by
+=___POP_REGS=.
+
+* Compiler 8 GiB envelope and runtime performance repairs
+
+** Thresholded header guards and zero-spill leaf =___group_demand_enter=
+
+- =include/_gambit/object_access.h.in= and
+  =include/_gambit/runtime_protocols.h.in=: guard inline observation and
+  attempt-0 commit fast paths with =#if !defined(___LBLCOUNT) || (___LBLCOUNT < 6000)=.
+  Hot runtime units (=_kernel.c=, =_thread.c=, =_eval.c=, =_repl.c=,
+  =_system.c=, =_nonstd.c=, =_module.c=) all have =___LBLCOUNT < 6000= and
+  avoid empty out-of-line calls, while giant modules (=_std.c=, =_num.c=,
+  =_io.c=, =gsc/_prims.c=, =gsc/_t-univ-2.c=) keep compact 1-block calls so
+  full two-pass GCC 16 compilation stays strictly below 8 GiB (measured
+  =peakRss = 7.246 GiB=).
+- =lib/_mem/allocation-limits.inc=: keep =___group_demand_enter= strictly
+  out-of-line per the C contract, while splitting the cold slow path into
+  =static __attribute__((noinline, cold)) group_demand_enter_slow= inside
+  the projected =entry.inc= slice. On ARM64, =___group_demand_enter=
+  compiles to a 29-instruction pure leaf function with zero stack frame and
+  zero callee-saved spills, tail-branching to =group_demand_enter_slow= on
+  miss (and refreshing =publish_fast_span= when local room admits).
+
+** GC and stack-root hot paths
+
+- =lib/mem.c=: add a worker-private (=_Thread_local=) 64-entry direct-mapped
+  =msection= lookup cache (=___gc_find_msection_cached=) keyed on
+  =(vm, epoch, nb_sections)= and =(addr >> 20) & 63=.
+- =lib/_mem/copy-reservations.inc=: merge the double =find_msection= check in
+  =mark_array= into a single cached fromspace/destination classification;
+  remove unnecessary ARM64 =CASAL=/=SWPAL= barriers on worker-private
+  =work->copy_request.state= while preserving all state-machine checks; add
+  single-worker (=worker_count <= 1=) fast paths in =mark_array=,
+  =load_copy_source_header=, and =acquire_frame_access=/=release_frame_access=;
+  inline =change_object_scan_state=, =publish_object_scan=,
+  =prepare_copy_request=, =reserve_copy=, and =commit_copy=.
+- =lib/_mem/object-scanning.inc=: locate the destination scan bitmap cell once
+  per object and transition leaf subtypes directly from =GC_SCAN_READY= to
+  =GC_SCAN_DONE=.
+- =lib/_mem/copy-planning.inc=: use 64-bit word-at-a-time disjointness checks
+  and =___gc_find_msection_cached= in =census_claim=, and split out cold
+  queue growth in =census_enqueue_grow=.
+- =lib/_mem/continuation-roots.inc=: use =___gc_find_msection_cached= in
+  =admit_source_stack_span= and 64-bit =__builtin_clzll=/=__builtin_ctzll=
+  word scanning in =raw_stack_span_end=.
+
+** Guarded interpreter countdown loops (=lib/_eval.scm=)
+
+- Placed strictly after line 4190 so Gate 2 site =F6-20-7= (=##comp-do= at
+  line 3146) remains untouched.
+- Extended =##eval-analyze-req1-fast-plan= / =##cprc-prc-req1= for guarded
+  side-effecting 2-argument countdown loops, converted fast-path primitive
+  and stepper checks to macros, and lowered =##eval-countdown-run-gt-sub= /
+  =##eval-countdown-run-ge-sub= to a chunked 512-step C loop checking
+  =___STACK_TRIPPED= on every chunk.
+
+* Framework audit fix (=ordered_stress_audit.py=)
+
+In =src/gambit_smp/ordered_stress_audit.py=, =item12_audit= previously
+required =(p2_names | p1_names) == commands.keys()=, overlooking the two
+mandatory GCC toolchain probes (=compiler-version= and =compiler-backend=)
+recorded by =native_capabilities.compiler(ctx)= on every real =gambit.suite=
+invocation. =item12_audit= now accepts only verified =compiler-version= and
+=compiler-backend= probes (checking exact argv, exit 0, quiescence, and
+log SHA-256) while continuing to reject any unauthorized command. Regression
+coverage was added to
+=tests/contracts/modern-c/rest-native/observations/test_campaign_audit.py=
+(6/6 tests pass).
+
+* Verification summary
+
+- Formal assurance: =family6-v8-axis1-formal-assurance= (=25/25 PASS=),
+  =family6-v8-cbmc-copy-plan= (=PASS=).
+- Two-pass bootstrap: =family6-local-admit-successor-run-v8= (=PASS=,
+  =fullTwoPassBootstrapEstablished=true=, =peakRss=7.246 GiB < 8 GiB=,
+  =gsiSha256=44fd08b2164a0777ce32d9af2486b8c02338c94a3c8daa3ac00d910519187af5=).
+- Gate 2 (4/4): =emit-gvm= (3/3), =scheme-gvm-v2= (7/7), =native-frame=
+  (7/7 = 35/35), merged review reports =openRoutes=[]=, =needed=0= across
+  all seven sites =F6-20-1..7=.
+- Family A (Checklist 6–9): =family6-local-admit-v8-rest-6-9= (11/11 =PASS=,
+  =item10StartCheck.canStart=true=).
+- Original campaign (Checklist 10–11): =family6-local-admit-v8-original-stress=
+  (=PASS=, =wholeSeconds=240.27s < 300s=; =p2/jobs=3=: =tfib+terminate=
+  51.44 s, =interrupt= 50.08 s, =interrupt2= 103.39 s; =p1/jobs=4=:
+  =terminate= 5.98 s, =tfib= 53.98 s, =interrupt= 64.16 s, =interrupt2=
+  79.30 s).
+- Checklist 12 independent audit: =item12Audit.passed=true=, all 6 links
+  (=sourceLock=, =makeLineage=, =sealedGsi=, =gate2=, =familyA=,
+  =originalCampaign=) =PASS=, =gaps=[]=.

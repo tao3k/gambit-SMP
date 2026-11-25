@@ -39,7 +39,7 @@ not recompile it. Runtime identity and module hashes are retained. CPU capacity
 was host-derived; the recorded population is an observation, not a fixed limit.
 
 Portable archives are under
-`evidence/source-results/fixtures/sfun-owned-unwind/numeric-phase-loader-denial`,
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/numeric-phase-loader-denial`,
 `numeric-coverage-guard-denial`, and `numeric-sentinel-load`. Their file hashes,
 source lock, loader, original denial and controls are checked by
 `tests/test_numeric_phase_evidence.py`.

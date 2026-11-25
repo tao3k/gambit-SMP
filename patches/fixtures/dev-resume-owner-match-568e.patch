@@ -1,0 +1,1190 @@
+--- a/gsc/_t-c-1.scm
++++ b/gsc/_t-c-1.scm
+@@ -1141,13 +1141,226 @@
+ ;; for Scheme-only code; no module-size threshold or compiler flag selects it.
+ ;; Embedded C retains the configured layout until its host assumptions have
+ ;; an explicit contract. Lists and FrameSpecs in this private plan are read-only.
++;; The first admissible split is a return block with no local edges.
++;; The preceding global jump terminates, and POLL names the next entry.
++;; Only register moves may precede POLL in the moved block.
++(define (targ-plan-return-host obj)
++  (let* ((info (cadr obj))
++         (code (keep (lambda (x) x) (stretchable-vector->list (vector-ref info 0)))))
++    (define (operation x)
++      (and (pair? x) (car x)))
++    (define (return-label x)
++      (and (eq? (operation x) 'label)
++           (eq? (targ-lbl-val? (cdr x)) 'return)
++           (not (targ-lbl-goto? (cdr x)))
++           (cdr x)))
++    (let loop ((rest code) (before '()))
++      (if (and (pair? rest) (pair? (cdr rest)))
++          (let ((label (return-label (car rest))))
++            (or (and label
++                     (pair? before)
++                     (equal? (operation (car before)) "JUMPGLOSAFE")
++                     (let scan ((tail (cdr rest)) (block (list (car rest))))
++                       (and (pair? tail)
++                            (let ((op (operation (car tail))))
++                              (cond
++                               ((and (eq? op 'set-r)
++                                     (member (operation (caddar tail)) '(r "STK")))
++                                (scan (cdr tail) (cons (car tail) block)))
++                               ((and (equal? op "POLL")
++                                     (pair? (cdr tail))
++                                     (return-label (cadr tail))
++                                     (eq? (cadar tail) (targ-lbl-num (cdadr tail))))
++                                (vector label (reverse (cons (car tail) block))
++                                        (append (reverse before) (cdr tail))
++                                        (cdadr tail)))
++                               (else #f))))))
++                (loop (cdr rest) (cons (car rest) before))))
++          #f))))
++
++;; Prototype placement over structured instructions. Keep every local
++;; label reference and possible fallthrough in a component. Four hosts
++;; reproduce the native cost control; this is not a default policy.
++(define (targ-plan-cfg-hosts obj)
++  (let* ((info (cadr obj))
++         (code (stretchable-vector->list (vector-ref info 0)))
++         (blocks
++          (list->vector
++           (let split ((rest code) (block '()) (result '()))
++             (cond ((null? rest) (reverse (cons (reverse block) result)))
++                   ((and (pair? (car rest)) (eq? (caar rest) 'label))
++                    (split (cdr rest) (list (car rest)) (cons (reverse block) result)))
++                   (else (split (cdr rest) (cons (car rest) block) result))))))
++         (count (vector-length blocks))
++         (parents (make-vector count))
++         (labels (make-table 'test: eq?))
++         (owners (make-table 'test: eq?))
++         (groups (make-table 'test: eqv?))
++         (depth 0))
++    (define (find index)
++      (let ((parent (vector-ref parents index)))
++        (if (= index parent) index
++            (let ((root (find parent)))
++              (vector-set! parents index root)
++              root))))
++    (define (join left right)
++      (vector-set! parents (find left) (find right)))
++    (define (visit node index)
++      (if (pair? node)
++          (if (eq? (car node) 'glbl)
++              (let ((target (table-ref labels (cadr node) #f)))
++                (if target (join index target)))
++              (if (not (memq (car node) '(label line cell)))
++                  (begin (visit (car node) index) (visit (cdr node) index))))))
++    (let initialize ((index 0))
++      (if (< index count)
++          (begin
++            (vector-set! parents index index)
++            (let ((block (vector-ref blocks index)))
++              (if (> index 0)
++                  (table-set! labels (targ-lbl-num (cdar block)) index)))
++            (initialize (+ index 1)))))
++    (let connect ((index 0))
++      (if (< index count)
++          (let ((last #f) (argument-branch? #f))
++            (for-each
++             (lambda (node)
++               (if (and (pair? node) (not (memq (car node) '(label line))))
++                   (begin
++                     (visit node index)
++                     (set! last (car node))
++                     (cond
++                      ((equal? last "IF_NARGS_EQ")
++                       (set! argument-branch? #t))
++                      ((member last '("IF" "BEGIN_SWITCH" "BEGIN_SWITCH_FIXNUM"
++                                      "BEGIN_SWITCH_CHAR" "BEGIN_SWITCH_SYMKEY"))
++                       (set! depth (+ depth 1)))
++                      ((member last '("END_IF" "END_SWITCH" "END_SWITCH_FIXNUM"
++                                      "END_SWITCH_CHAR" "END_SWITCH_SYMKEY"))
++                       (set! depth (- depth 1)))))))
++             (vector-ref blocks index))
++            (if (and (< (+ index 1) count)
++                     (or argument-branch?
++                         (not (= depth 0))
++                         (not (member last '("GOTO" "JUMPGLOSAFE" "JUMPGLONOTSAFE"
++                                             "JUMPRET" "JUMPPRM" "JUMPGENSAFE"
++                                             "JUMPGENNOTSAFE" "JUMPEXTPRM" "JUMPEXT")))))
++                (join index (+ index 1)))
++            (connect (+ index 1)))))
++    (let collect ((index 0))
++      (if (< index count)
++          (let ((root (find index)))
++            (table-set! groups root (cons index (table-ref groups root '())))
++            (collect (+ index 1)))))
++    (let* ((weighted
++            (sort-list
++             (map (lambda (entry)
++                    (let ((indices (cdr entry)))
++                      (cons (apply + (map (lambda (i) (length (vector-ref blocks i))) indices))
++                            indices)))
++                  (table->list groups))
++             (lambda (a b) (> (car a) (car b)))))
++           (bins (make-vector 4 '()))
++           (weights (make-vector 4 0))
++           (block-hosts (make-vector count #f)))
++      (and (= depth 0)
++           (>= (length weighted) 4)
++           (begin
++             (for-each
++              (lambda (group)
++                (let lightest ((index 1) (best 0))
++                  (if (= index 4)
++                      (begin
++                        (vector-set! bins best (append (cdr group) (vector-ref bins best)))
++                        (for-each (lambda (block) (vector-set! block-hosts block best))
++                                  (cdr group))
++                        (vector-set! weights best (+ (car group) (vector-ref weights best))))
++                      (lightest (+ index 1)
++                                (if (< (vector-ref weights index) (vector-ref weights best))
++                                    index best)))))
++              weighted)
++             (let ((host-entries (make-vector 4 '())))
++               (for-each
++                (lambda (label)
++                  (let ((index (vector-ref block-hosts
++                                           (table-ref labels (targ-lbl-num label)))))
++                    (vector-set! host-entries index
++                                 (cons label (vector-ref host-entries index)))))
++                (vector-ref info 1))
++               (let emit-plan ((index 0) (result '()))
++                 (if (= index 4)
++                     (and (every? pair? (map (lambda (host) (vector-ref host 0)) result))
++                          (vector 'cfg (reverse result) owners))
++                     (let* ((indices (sort-list (vector-ref bins index) <))
++                            (pieces (apply append (map (lambda (i) (vector-ref blocks i)) indices)))
++                            (entries (reverse (vector-ref host-entries index))))
++                       (let bind ((rest entries) (slot 1))
++                         (if (pair? rest)
++                             (begin
++                               (table-set! owners (car rest) (cons index slot))
++                               (bind (cdr rest) (+ slot 1)))))
++                       (emit-plan (+ index 1) (cons (vector entries pieces) result)))))))))))
++
++(define (targ-cfg-host-name host index)
++  (if (= index 0) host
++      (list 'append host "_cfg_" (number->string index))))
++
++(define (targ-cfg-host-plan? plan)
++  (and plan (eq? (vector-ref plan 0) 'cfg)))
++
++;; Only the dominant procedure is eligible by default. An explicit #t also admits
++;; the experimental single return-host split.
++(define targ-indexed-host-layout? (make-parameter 'cfg))
++
++(define (targ-plan-procedure-hosts obj)
++  ;; User-authored C can refer to host-local state and labels outside
++  ;; the structured edge graph. Ordinary append nodes also carry
++  ;; compiler-owned constructs such as DEF_GLBL and remain eligible.
++  (let ((code (stretchable-vector->list (vector-ref (cadr obj) 0))))
++    (and (every? (lambda (node) (not (and (pair? node) (eq? (car node) 'opaque-c)))) code)
++         (or (targ-plan-cfg-hosts obj)
++             (and (eq? (targ-indexed-host-layout?) #t)
++                  (targ-plan-return-host obj))))))
++
++(define (targ-dominant-procedure procs)
++  ;; Compare logical entry counts before making any placement decisions.
++  ;; If there is no strict majority, no one procedure dominates the unit.
++  (let loop ((rest procs) (total 0) (best #f) (largest 0))
++    (if (null? rest)
++        (and (> largest (- total largest)) best)
++        (let ((entries (length (vector-ref (cadar rest) 1))))
++          (if (> entries largest)
++              (loop (cdr rest) (+ total entries) (car rest) entries)
++              (loop (cdr rest) (+ total entries) best largest))))))
++
+ (define (targ-plan-compilation-unit procs label-count c-decls c-procs c-inits c-objs)
+-  (vector (if (or (pair? c-decls) (pair? c-procs)
+-                  (pair? c-inits) (pair? c-objs))
+-              'configured
+-              'procedures)
+-          procs
+-          label-count))
++  (let* ((configured? (or (pair? c-decls) (pair? c-procs)
++                          (pair? c-inits) (pair? c-objs)))
++         (mode (targ-indexed-host-layout?))
++         (eligible
++          (cond (configured? '())
++                ((eq? mode #t) procs)
++                ((eq? mode 'cfg)
++                 (let ((dominant (targ-dominant-procedure procs)))
++                   (if dominant (list dominant) '())))
++                (else '()))))
++    (vector (if configured? 'configured 'procedures)
++            procs
++            label-count
++            (let loop ((rest eligible))
++              (if (null? rest)
++                  '()
++                  (let ((split (targ-plan-procedure-hosts (car rest))))
++                    (if split
++                        (cons (cons (car rest) split) (loop (cdr rest)))
++                        (loop (cdr rest)))))))))
++
++(define (targ-compilation-unit-return-host unit obj)
++  (let ((entry (assq obj (vector-ref unit 3))))
++    (and entry (cdr entry))))
++
++(define (targ-return-host-name host)
++  (list 'append host "_return_host"))
+ 
+ (define (targ-compilation-unit-host-layout unit) (vector-ref unit 0))
+ (define (targ-compilation-unit-procedures unit) (vector-ref unit 1))
+@@ -1218,6 +1431,10 @@
+       (case (targ-compilation-unit-host-layout unit)
+         ((procedures) '("HOST_LAYOUT_PROCEDURES"))
+         (else '("HOST_LAYOUT_CONFIGURED"))))
++    (if (eq? (targ-compilation-unit-host-layout unit) 'procedures)
++        (targ-macro-definition '("SHARED_PROCEDURE_DISPATCH") 1))
++    (if (pair? (vector-ref unit 3))
++        (targ-macro-definition '("INDEXED_HOST_ENTRIES") 1))
+     (targ-define-count "LBLCOUNT" (targ-compilation-unit-label-count unit))
+     (targ-define-count "OFDCOUNT" ofd-count)
+     (targ-macro-definition '("MODDESCR") (targ-heap-ref-obj module-descr))
+@@ -1925,7 +2142,9 @@
+ 
+   (targ-line)
+ 
+-  (for-each targ-dump-cod objs)
++  (for-each (lambda (obj)
++              (targ-dump-cod obj (targ-compilation-unit-return-host unit obj)))
++            objs)
+ 
+   (targ-code* '("END_M_SW"))
+ 
+@@ -1959,41 +2178,53 @@
+                            (targ-heap-ref-obj proc-info)
+                            (length val-lbls)
+                            (if c-name c-name 0)))
+-         (for-each
+-          (lambda (lbl)
+-            (let ((class (vector-ref lbl 2))
+-                  (info (vector-ref lbl 3)))
+-              (targ-display ",")
+-              (targ-code*
+-               (case class
+-                 ((proc)
+-                  (let ((nb-params (vector-ref info 0))
+-                        (nb-closed (vector-ref info 1)))
+-                    (list "DEF_LBL_PROC"
+-                          host
+-                          nb-params
+-                          nb-closed)))
+-                 ((return)
+-                  (let ((kind (targ-frame-spec-kind info))
+-                        (fs (targ-frame-spec-stored-fs info))
+-                        (link (targ-frame-spec-link info))
+-                        (gc-map (targ-frame-spec-gc-map info)))
+-                    (list
+-                     "DEF_LBL_RET"
+-                     host
+-                     (list
+-                      (if (targ-frame-spec-out-of-line? info) "OFD" "IFD")
+-                      (case kind
+-                        ((internal) '("RETI"))
+-                        ((task)     '("RETT"))
+-                        (else       '("RETN")))
+-                      fs
+-                      link
+-                      (targ-c-hex gc-map)))))
+-                 (else
+-                  (compiler-internal-error
+-                   "targ-dump-prc, unknown label type"))))))
+-          val-lbls)))
++         (let ((emit-labels (lambda (split)
++           (let loop ((labels val-lbls) (slot 1))
++           (if (pair? labels)
++               (let* ((lbl (car labels))
++                      (class (vector-ref lbl 2))
++                      (info (vector-ref lbl 3))
++                      (cfg? (targ-cfg-host-plan? split))
++                      (entry (and cfg? (table-ref (vector-ref split 2) lbl)))
++                      (moved? (and split (not cfg?) (eq? lbl (vector-ref split 0))))
++                      (physical-host (cond (cfg? (targ-cfg-host-name host (car entry)))
++                                           (moved? (targ-return-host-name host))
++                                           (else host)))
++                      (physical-slot (cond (cfg? (cdr entry)) (moved? 1) (else slot))))
++                 (targ-display ",")
++                 (targ-code*
++                  (case class
++                    ((proc)
++                     (let ((nb-params (vector-ref info 0))
++                           (nb-closed (vector-ref info 1)))
++                       (list "DEF_LBL_PROC_AT"
++                             physical-host
++                             nb-params
++                             nb-closed
++                             physical-slot)))
++                    ((return)
++                     (let ((kind (targ-frame-spec-kind info))
++                           (fs (targ-frame-spec-stored-fs info))
++                           (link (targ-frame-spec-link info))
++                           (gc-map (targ-frame-spec-gc-map info)))
++                       (list
++                        "DEF_LBL_RET_AT"
++                        physical-host
++                        (list
++                         (if (targ-frame-spec-out-of-line? info) "OFD" "IFD")
++                         (case kind
++                           ((internal) '("RETI"))
++                           ((task)     '("RETT"))
++                           (else       '("RETN")))
++                         fs
++                         link
++                         (targ-c-hex gc-map))
++                        physical-slot)))
++                    (else
++                     (compiler-internal-error
++                      "targ-dump-prc, unknown label type"))))
++                 (loop (cdr labels) (if moved? slot (+ slot 1)))))))))
++           (emit-labels (targ-compilation-unit-return-host unit obj)))))
+      objs))
+ 
+   (targ-code* '("END_LBL"))
+@@ -2089,7 +2320,7 @@
+      objs)
+     n))
+ 
+-(define (targ-dump-cod obj)
++(define (targ-dump-cod obj split)
+   (let* ((proc (car obj))
+          (p (cdr obj))
+          (name (proc-obj-name proc))
+@@ -2106,18 +2337,20 @@
+       (targ-code val)
+       (targ-line))
+ 
+-    (def "PH_PROC" host)
++    (define (emit-host physical-host labels pieces next)
++    (def "PH_PROC" physical-host)
+     (def "PH_LBL0" (caddr p))
+ 
+     (targ-begin-cod rd-res wr-res
+                     "BEGIN_P_COD" 'pd- 'pr- 'pw-
+-                    "BEGIN_P_HLBL" "DEF_P_HLBL_INTRO" "DEF_P_HLBL" "END_P_HLBL"
+-                    (list obj))
++                    (list "BEGIN_P_HLBL_AT" (length labels))
++                    "DEF_P_HLBL_INTRO_AT" "DEF_P_HLBL" "END_P_HLBL"
++                    (list obj) labels)
+ 
+     (targ-code* '("BEGIN_P_SW"))
+ 
+-    (stretchable-vector-for-each
+-      (lambda (x i)
++    (for-each
++      (lambda (x)
+         (if x
+           (cond ((and (pair? x) (eq? (car x) 'label))
+                  (let ((lbl (cdr x)))
+@@ -2143,7 +2376,9 @@
+                 (else
+                  (targ-display "   ")
+                  (targ-code* x)))))
+-      code)
++      pieces)
++
++    (if next (targ-code* (list "JUMPEXT" (list "LBL" (targ-lbl-num next)))))
+ 
+     (targ-track-source targ-line-number targ-filename)
+ 
+@@ -2153,10 +2388,30 @@
+ 
+     (targ-end-cod "END_P_COD")
+ 
+-    (targ-line)))
++    (targ-line))
++
++    (let ((labels (vector-ref info 1)))
++      (cond
++       ((targ-cfg-host-plan? split)
++        (let loop ((hosts (vector-ref split 1)) (index 0))
++          (if (pair? hosts)
++              (begin
++                (emit-host (targ-cfg-host-name host index)
++                           (vector-ref (car hosts) 0)
++                           (vector-ref (car hosts) 1)
++                           #f)
++                (loop (cdr hosts) (+ index 1))))))
++       (split
++        (emit-host host (keep (lambda (x) (not (eq? x (vector-ref split 0)))) labels)
++                   (vector-ref split 2) #f)
++        (emit-host (targ-return-host-name host) (list (vector-ref split 0))
++                   (vector-ref split 1) (vector-ref split 3)))
++       (else
++        (emit-host host labels (stretchable-vector->list code) #f))))))
+ 
+ (define (targ-begin-cod rd-res wr-res beg decl rd wr
+-                        beg-hlbl def-hlbl-intro def-hlbl end-hlbl objs)
++                        beg-hlbl def-hlbl-intro def-hlbl end-hlbl objs
++                        #!optional (selected-labels #f))
+   (let ((nb-res
+          (max (stretchable-vector-length rd-res)
+               (stretchable-vector-length wr-res))))
+@@ -2192,7 +2447,7 @@
+ 
+     (targ-code* (list beg))
+ 
+-    (targ-code* (list beg-hlbl))
++    (targ-code* (if (pair? beg-hlbl) beg-hlbl (list beg-hlbl)))
+ 
+     (for-each
+      (lambda (obj)
+@@ -2201,7 +2456,7 @@
+               (name (proc-obj-name proc))
+               (unique-name (targ-unique-name proc))
+               (info (car p))
+-              (val-lbls (vector-ref info 1)))
++              (val-lbls (or selected-labels (vector-ref info 1))))
+          (for-each
+           (lambda (lbl)
+             (if lbl
+@@ -2386,7 +2641,7 @@
+         ((bigfix)      (two-heads "BIGFIX"    (car tail) (cdr tail)))
+         ((gcmap)       (two-heads "GCMAP"     (car tail) (cdr tail)))
+         ((seq)         (targ-code-seq tail))
+-        ((append)      (targ-code-append tail))
++        ((append opaque-c) (targ-code-append tail))
+         ((cell)        (targ-code tail))
+         ((prc)         (one-head "PRC" tail))
+         (else          (one-head head tail))))
+--- a/gsc/_t-c-2.scm
++++ b/gsc/_t-c-2.scm
+@@ -185,7 +185,7 @@
+     (targ-emit
+       (targ-adjust-stack (targ-align-frame (+ fs targ-frame-reserve))))
+ 
+-    (let ((code (list 'append (c-proc-body c-proc))))
++    (let ((code (list 'opaque-c (c-proc-body c-proc))))
+       (if targ-inline-c-proc? ;; should C code be inlined?
+ 
+           ;; put C code inline with compiled Scheme code
+@@ -4204,10 +4204,10 @@
+                                        "}")))
+                   (if (null? rev-args)
+                     (begin
+-                      (targ-emit (cons 'append lst1))
++                      (targ-emit (cons 'opaque-c lst1))
+                       (if loc
+                         (targ-emit (targ-loc loc '("RESULT"))))
+-                      (targ-emit (cons 'append (reverse lst2))))
++                      (targ-emit (cons 'opaque-c (reverse lst2))))
+                     (let ((arg (car rev-args)))
+                       (loop (- i 1)
+                             (cdr rev-args)
+--- a/include/_gambit/gvm_operations.h.in
++++ b/include/_gambit/gvm_operations.h.in
+@@ -616,7 +616,7 @@
+         ? (var=___FIXMUL(x,y),1) \
+         : 0) \
+    : (y)==___FIX(-1) \
+-     ? (var=___FIXNEGP(x),1) \
++     ? ___FIXNEGP_NOTFALSEP(var,x) \
+      : ___EXPECT_TRUE(___FIX_BETWEEN(x,___FIX(___MAX_FIX/___INT(y)),___FIX(___MIN_FIX/___INT(y)))) \
+        ? (var=___FIXMUL(x,y),1) \
+        : 0)
+--- a/include/_gambit/label_types.h.in
++++ b/include/_gambit/label_types.h.in
+@@ -72,8 +72,9 @@
+   ___LABEL_ZERO_FILL \
+ }
+ 
+-#define ___DEF_LBL_PROC(id,nbp,nbc) \
+-{ ___LABEL_PLACEHOLDER1(0) \
++#define ___DEF_LBL_PROC(id,nbp,nbc) ___DEF_INDEXED_LBL_PROC(id,nbp,nbc,0)
++#define ___DEF_INDEXED_LBL_PROC(id,nbp,nbc,index) \
++{ ___LABEL_PLACEHOLDER1(___CAST(___FAKEVOIDSTAR,___CAST(___UWORD,index))) \
+   ___CAST_HOST_TO_FAKEHOST(___SM(___MH_PROC,id)), \
+   ___PRD(nbp,nbc), \
+   0 \
+@@ -81,8 +82,9 @@
+   ___LABEL_ZERO_FILL \
+ }
+ 
+-#define ___DEF_LBL_RET(id,frm) \
+-{ ___LABEL_PLACEHOLDER1(0) \
++#define ___DEF_LBL_RET(id,frm) ___DEF_INDEXED_LBL_RET(id,frm,0)
++#define ___DEF_INDEXED_LBL_RET(id,frm,index) \
++{ ___LABEL_PLACEHOLDER1(___CAST(___FAKEVOIDSTAR,___CAST(___UWORD,index))) \
+   ___CAST_HOST_TO_FAKEHOST(___SM(___MH_PROC,id)), \
+   ___MAKE_HD(0,___sRETURN,___PERM), \
+   frm \
+@@ -90,6 +92,14 @@
+   ___LABEL_ZERO_FILL \
+ }
+ 
++#ifdef ___INDEXED_HOST_ENTRIES
++#define ___DEF_LBL_PROC_AT(id,nbp,nbc,index) ___DEF_INDEXED_LBL_PROC(id,nbp,nbc,index)
++#define ___DEF_LBL_RET_AT(id,frm,index) ___DEF_INDEXED_LBL_RET(id,frm,index)
++#else
++#define ___DEF_LBL_PROC_AT(id,nbp,nbc,index) ___DEF_LBL_PROC(id,nbp,nbc)
++#define ___DEF_LBL_RET_AT(id,frm,index) ___DEF_LBL_RET(id,frm)
++#endif
++
+ #define ___END_LBL \
+ ___PADDING_LBL};
+ 
+--- a/include/_gambit/module_generation.h.in
++++ b/include/_gambit/module_generation.h.in
+@@ -1370,10 +1370,16 @@
+ #define ___MODULE_DESCR_THUNK         4
+ #define ___MODULE_DESCR_MODULE_STRUCT 5
+ 
++/* A negative size binds the descriptor to indexed host entry fixup.
++ * Older setup code compares this field to the positive structure size. */
++#define ___MODULE_STRUCT_SIZE_STAMP(flags) \
++(((flags) & ___USES_INDEXED_HOST_ENTRIES) ? \
++ -___CAST(int,sizeof(___module_struct)) : ___CAST(int,sizeof(___module_struct)))
++
+ #define ___BEGIN_MOD_SYM_KEY ___LOCAL ___module_struct ___module_descr = { \
+   ___VERSION, \
+   ___MODULE_KIND, \
+-  sizeof(___module_struct), \
++  ___MODULE_STRUCT_SIZE_STAMP(___MODULE_FLAGS), \
+   sizeof(___global_state_struct), \
+   sizeof(___virtual_machine_state_struct), \
+   sizeof(___processor_state_struct), \
+--- a/include/_gambit/stack_operations.h.in
++++ b/include/_gambit/stack_operations.h.in
+@@ -65,6 +65,17 @@
+ #define ___DEF_P_HLBL_INTRO ___SM(___NOTHING,___DEF_HLBL_INTRO)
+ #define ___DEF_P_HLBL(id)___SM(___NOTHING,___DEF_HLBL(id))
+ #define ___END_P_HLBL ___SM(___NOTHING,___END_HLBL)
++
++#ifdef ___INDEXED_HOST_ENTRIES
++#ifdef ___SINGLE_HOST
++#error "Indexed host entries require procedure hosts"
++#endif
++#define ___BEGIN_P_HLBL_AT(count) ___BEGIN_INDEXED_HLBL(count)
++#define ___DEF_P_HLBL_INTRO_AT
++#else
++#define ___BEGIN_P_HLBL_AT(count) ___BEGIN_P_HLBL
++#define ___DEF_P_HLBL_INTRO_AT ___DEF_P_HLBL_INTRO
++#endif
+ 
+ #define ___BEGIN_P_SW ___SM(___NOTHING,___BEGIN_SW)
+ #define ___END_P_SW ___SM(___NOTHING,___END_SW)
+@@ -168,12 +179,20 @@
+ 
+ #define ___USES_INDIRECT_GOTO 1
+ #define ___SETUP_FIXUP_DONE   2
++#define ___USES_INDEXED_HOST_ENTRIES 4
+ 
+ #ifdef ___USE_LABEL_VALUES
+ 
++#ifdef ___INDEXED_HOST_ENTRIES
++#define ___MODULE_FLAGS (___USES_INDIRECT_GOTO | ___USES_INDEXED_HOST_ENTRIES)
++#else
+ #define ___MODULE_FLAGS ___USES_INDIRECT_GOTO
++#endif
+ 
+ #define ___BEGIN_HLBL static void *___hlbltbl[]={
++/* Count slot, physical entries, and the existing trailing sentinel. */
++#define ___BEGIN_INDEXED_HLBL(count) \
++static void *___hlbltbl[(count)+2]={___CAST(void*,___CAST(___UWORD,count)),
+ #define ___DEF_HLBL_INTRO 0,
+ #define ___DEF_HLBL(id)&&id,
+ #define ___END_HLBL \
+@@ -192,8 +211,21 @@
+ 
+ #ifdef ___INLINE_JUMPS
+ 
++#if defined(___SHARED_PROCEDURE_DISPATCH) && \
++    ___HOST_LAYOUT == ___HOST_LAYOUT_PROCEDURES
++/* Keep one indirect dispatch per procedure host. Direct label jumps and
++   the ordinary path to the host epilogue do not use this entry. */
++#define ___END_SW \
++goto ___jumpext; \
++___shared_jump: \
++if (___EXPECT_FALSE(___LABEL_HOST_GET(___pc) != ___HOST_PROC)) \
++  goto ___jumpext; \
++goto *___LABEL_HOST_LABEL_GET(___pc); \
++___jumpext:
++#else
+ #define ___END_SW \
+ ___jumpext:
++#endif
+ 
+ #define ___JUMP(dest)___JUMPFAST(dest)
+ 
+@@ -211,15 +243,23 @@
+ 
+ #define ___JUMPEXT(dest){___pc=dest;goto ___jumpext;}
+ 
++#if defined(___SHARED_PROCEDURE_DISPATCH) && defined(___INLINE_JUMPS) && \
++    ___HOST_LAYOUT == ___HOST_LAYOUT_PROCEDURES
++#define ___JUMPFAST(dest){___pc=dest;goto ___shared_jump;}
++#else
+ #define ___JUMPFAST(dest) \
+ {___pc=dest; \
+  if (___EXPECT_FALSE(___LABEL_HOST_GET(___pc) != ___HOST_PROC)) \
+    goto ___jumpext; \
+  goto *___LABEL_HOST_LABEL_GET(___pc); \
+ }
+-
+-#else
+-
++#endif
++
++#else
++
++#ifdef ___INDEXED_HOST_ENTRIES
++#error "Indexed host entries require indirect goto"
++#endif
+ #define ___MODULE_FLAGS 0
+ 
+ #define ___BEGIN_HLBL
+--- a/lib/_mem/allocation-limits.inc
++++ b/lib/_mem/allocation-limits.inc
+@@ -54,6 +54,7 @@
+        */
+ 
+       ___msection *prev_stack_msection = stack_msection;
++      ___WORD *prev_alloc_stack_limit = alloc_stack_limit;
+       ___WORD *prev_alloc_stack_start = alloc_stack_start;
+       ___WORD *prev_alloc_stack_ptr = alloc_stack_ptr;
+       ___WORD *prev_stack_break = ___ps->context->stack_break;
+@@ -65,17 +66,11 @@
+        * Get a new stack msection.
+        */
+ 
+-      ___msection *ms = msection_free_list;
+-
+-      if (stack_msection != heap_msection &&
+-          ms != NULL)
+-        {
+-          /* we can reuse an existing one */
+-
+-          msection_free_list = ___CAST(___msection*,ms->base[0]);
+-
+-          set_stack_msection (___ps, ms);
+-        }
++      ___msection *ms = stack_msection != heap_msection
++        ? take_released_stack_section(___ps) : 0;
++
++      if (ms != 0)
++        set_stack_msection (___ps, ms);
+       else
+         {
+           /* we need to allocate a new msection */
+@@ -148,6 +143,7 @@
+        */
+ 
+       ___FP_ADJFP(alloc_stack_ptr,___FIRST_BREAK_FRAME_SPACE)
++      ___FP_SET_STK(alloc_stack_ptr,-___FIRST_BREAK_FRAME_STACK_MSECTION,0)
+ 
+       /*
+        * Because ___stack_limit is only called by the stack-limit
+@@ -217,7 +213,7 @@
+                             ___CAST(___WORD,prev_alloc_stack_ptr))
+               ___ps->context->stack_break = alloc_stack_ptr;
+ 
+-              fp = alloc_stack_ptr;
++              fp = prev_alloc_stack_ptr;
+ 
+               break;
+             }
+@@ -265,6 +261,9 @@
+             }
+         }
+ 
++      section_claim *parked=section_claim_at(prev_stack_msection,tospace_offset);
++      parked->stack_floor=prev_alloc_stack_limit;
++      parked->stack_state=STACK_PARKED;
+       stack_msection_stop_using (___ps, prev_alloc_stack_start, fp);
+     }
+ 
+@@ -285,32 +284,34 @@
+ 
+   ___msection *ms;
+ 
+-  if (stack_msection != heap_msection &&
+-      ___ps->context->stack_start == &___STK(-___FIRST_BREAK_FRAME_SPACE) &&
++  if (___ps->context->stack_start == &___STK(-___FIRST_BREAK_FRAME_SPACE) &&
+       (ms = ___CAST(___msection*,___STK(-___FIRST_BREAK_FRAME_STACK_MSECTION)))
+       != NULL)
+     {
+-      /*
+-       * The current stack msection is not shared with the heap and
+-       * the break frame is at the start of the stack msection and it
+-       * was created due to a stack section overflow, so the stack can
+-       * be moved to the previous stack msection.
+-       */
+-
+-      stack_msection->base[0] = ___CAST(___WORD,msection_free_list);
+-      msection_free_list = stack_msection;
++      ___msection *outgoing=stack_msection;
++      section_claim *active=section_claim_at(outgoing,tospace_offset);
++      section_claim *parked=section_claim_at(ms,tospace_offset);
++      ___WORD *break_frame;
++      ___WORD *next_frame;
++      if(active->heap_used)
++        return ___FAL; /* The logical break-handler copy remains available. */
++      if(active->stack_owner!=___ps || active->stack_state!=STACK_ACTIVE ||
++         parked->stack_owner!=___ps || parked->stack_state!=STACK_PARKED ||
++         !parked->stack_floor)
++        { rc_contract_error("Invalid stack section undo claim"); return ___FAL; }
++      break_frame=___CAST(___WORD*,___STK(-___FIRST_BREAK_FRAME_STACK_BREAK));
++      next_frame=___CAST(___WORD*,___STK(-___BREAK_FRAME_NEXT));
++      ___SET_STK(-___FIRST_BREAK_FRAME_STACK_MSECTION,0)
+ 
+       set_stack_msection (___ps, ms);
+-
+-      ___ps->context->stack_break =
+-        ___CAST(___WORD*,___STK(-___FIRST_BREAK_FRAME_STACK_BREAK));
+-
+-      alloc_stack_ptr =
+-        ___CAST(___WORD*,___STK(-___BREAK_FRAME_NEXT));
+-
++      alloc_stack_limit=parked->stack_floor;
++      parked->stack_floor=0;
++      ___ps->context->stack_break=break_frame;
++      alloc_stack_ptr=next_frame;
+       ___ps->context->stack_start = alloc_stack_start;
+ 
+       stack_msection_resume_using (___ps, alloc_stack_start, alloc_stack_ptr);
++      release_stack_section(___ps,outgoing);
+ 
+       prepare_mem_pstate (___ps);
+ 
+@@ -373,15 +374,12 @@
+      * Get a new heap msection.
+      */
+ 
+-    ___msection *ms = msection_free_list;
+-
+-    if (stack_msection != heap_msection &&
+-        ms != NULL)
++    ___msection *ms = stack_msection != heap_msection
++      ? take_released_stack_section(___ps) : 0;
++
++    if (ms != 0)
+       {
+-        /* we can reuse an existing one */
+-
+-        msection_free_list = ___CAST(___msection*,ms->base[0]);
+-
++        words_prev_msections += alloc_heap_ptr-alloc_heap_start;
+         set_heap_msection (___ps, ms);
+       }
+     else
+--- a/lib/_mem/capacity-resize.inc
++++ b/lib/_mem/capacity-resize.inc
+@@ -21,14 +21,20 @@
+   ___ps->context->stack_break = p2 - ___FIRST_BREAK_FRAME_SPACE;
+ 
+   while (p1 != start)
+-    *--p2 = *--p1;
++    {
++#ifdef ___GC_TEST_BEFORE_FINAL_RESTORE_READ
++      if (p1 == start + 1)
++        ___GC_TEST_BEFORE_FINAL_RESTORE_READ (p1 - 1);
++#endif
++      *--p2 = *--p1;
++    }
+ 
+   alloc_stack_ptr = p2;
+ 
+-  ___FP_SET_STK(alloc_stack_ptr,
+-                -___FIRST_BREAK_FRAME_STACK_MSECTION,
+-                ___CAST(___WORD,
+-                        ___CAST(___msection*,NULL))) /* not a stack section overflow */
++  /* The copied overflow link belongs to the first break, not the active
++   * frame at alloc_stack_ptr.  Restoration replaces its physical ownership
++   * just as capture does; use the same canonical first-break projection. */
++  ___INVALIDATE_STACK_OVERFLOW_UNDO
+ }
+ 
+ 
+--- a/lib/_mem/collection-round.inc
++++ b/lib/_mem/collection-round.inc
+@@ -308,6 +308,15 @@
+     rc_contract_error("Frozen root union publication refused");
+ 
+   BARRIER(); /* publishes the one RootTask/worker assignment */
++#if defined(___GC_SLOT_TEST_FROZEN) != defined(___GC_SLOT_TEST_REPAIRED)
++#error "GC slot observation requires both test cuts"
++#endif
++#ifdef ___GC_SLOT_TEST_FROZEN
++  /* Only the coordinator can plan from here. The other members stay at
++   * the decision barrier. No forwarding or parity flip has started. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    ___GC_SLOT_TEST_FROZEN(___ps,rc_epoch);
++#endif
+   if(___PROCESSOR_ID(___ps,___vms)==0)
+     ___COLLECTION(___vms).decision=plan_copy_round(___ps);
+   BARRIER(); /* acquire the one decision; no parity changed */
+@@ -349,8 +358,20 @@
+   BARRIER();
+ 
+ 
++#ifdef ___GC_SLOT_TEST_REPAIRED
++  /* The strong and weak scans have drained. Keep every member out of
++   * continuation restoration and reclamation until the observer returns.
++   * The test callbacks may inspect held slots but must not call Scheme,
++   * allocate managed objects or wait for a member at this barrier. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    ___GC_SLOT_TEST_REPAIRED(___ps,rc_epoch);
++  BARRIER();
++#endif
++
+   /* Weak descendants have drained on all W; each physical owner receives
+    * either one exclusive worker tail or its own disjoint empty resume span. */
++  if (!___gc_resume_owner_matches(&___RESUME(___vms,worker_id),___ps))
++    rc_contract_error("Restoration grant no longer belongs to its processor context");
+   if(active_worker) {
+     /* A final large-object section has no execution fudge. A counted fresh
+      * small grant restores that reserve before physical owner handoff. */
+@@ -375,6 +396,7 @@
+       rc_contract_error("Collector tail handoff lacks drained ownership");
+   } else if(!___gc_resume_without_arena(&___RESUME(___vms,worker_id),rc_epoch))
+     rc_contract_error("Context restoration lacks its physical grant");
++  section_claim_at(heap_msection,tospace_offset)->heap_used=1;
+   move_continuation(___PSPNC);
+   ___RESUME(___vms,worker_id).restored=1;
+   BARRIER();
+@@ -387,6 +409,12 @@
+ 
+   BARRIER();
+ 
++
++  /* Restoration and still/weak cleanup are past their old-space reads.
++   * Mutators stay stopped. Retire source claims before resizing can free a
++   * section or a future round can grant that parity as its destination. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    retire_section_claims(the_msections,(___MSECTION_SIZE>>1)-tospace_offset);
+ 
+   /* Resize heap */
+ 
+--- a/lib/_mem/heap-sections.inc
++++ b/lib/_mem/heap-sections.inc
+@@ -93,6 +93,35 @@
+ }
+ 
+ 
++/* The carrier alone edits its stack claims and private reuse list. A
++ * section used by a heap stays ineligible through the end of this parity,
++ * including after the heap cursor has moved elsewhere. */
++___HIDDEN ___msection *take_released_stack_section(___processor_state ___ps)
++{
++  ___msection *section=msection_free_list;
++  if(section!=0)
++    {
++      section_claim *claim=section_claim_at(section,tospace_offset);
++      if(claim->stack_owner!=___ps || claim->stack_state!=STACK_REUSABLE ||
++         claim->heap_used)
++        { rc_contract_error("Invalid stack section reuse claim"); return 0; }
++      msection_free_list=claim->reuse_next;
++      *claim=(section_claim){0};
++    }
++  return section;
++}
++
++___HIDDEN void release_stack_section(___processor_state ___ps, ___msection *section)
++{
++  section_claim *claim=section_claim_at(section,tospace_offset);
++  if(claim->stack_owner!=___ps || claim->stack_state!=STACK_ACTIVE ||
++     claim->heap_used)
++    { rc_contract_error("Stack section release lacks exclusive ownership"); return; }
++  claim->stack_state=STACK_REUSABLE;
++  claim->reuse_next=msection_free_list;
++  msection_free_list=section;
++}
++
+ ___HIDDEN void set_stack_msection
+    ___P((___processor_state ___ps,
+          ___msection *ms),
+@@ -101,6 +130,9 @@
+ ___processor_state ___ps;
+ ___msection *ms;)
+ {
++  section_claim *claim=section_claim_at(ms,tospace_offset);
++  claim->stack_owner=___ps;
++  claim->stack_state=STACK_ACTIVE;
+   stack_msection = ms;
+ 
+   alloc_stack_limit = start_of_tospace(ms);
+@@ -358,6 +390,7 @@
+ ___processor_state ___ps;
+ ___msection *ms;)
+ {
++  section_claim_at(ms,tospace_offset)->heap_used=1;
+   heap_msection = ms;
+ 
+   alloc_heap_start = start_of_tospace(ms);
+@@ -435,6 +468,7 @@
+  (___collector_worker *work, ___msection *section,
+   ___WORD *base, ___WORD *limit)
+ {
++  section_claim_at(section,___COLLECTION(work->vm).destination_offset)->heap_used=1;
+   work->arena.section = section;
+   work->arena.base = work->arena.cursor = base;
+   work->arena.physical_limit=limit-1;
+@@ -479,6 +513,16 @@
+     }
+   work->arena.refills++;
+   prepare_worker_msection(work,ms,base,limit);
++}
++
++
++/* Old-space roots, work queues, restore readers and cleanup are drained.
++ * The caller runs once, with all mutators still behind the GC barrier. */
++___HIDDEN void retire_section_claims(___msections *sections, ___SIZE_TS offset)
++{
++  ___msection *section;
++  for(section=sections->head; section; section=section->next)
++    *section_claim_at(section,offset)=(section_claim){0};
+ }
+ 
+ 
+--- a/lib/_mem/movable-sections.inc
++++ b/lib/_mem/movable-sections.inc
+@@ -2,6 +2,29 @@
+ /*---------------------------------------------------------------------------*/
+ 
+ /* Allocation of movable objects.  */
++
++/* Private ownership per semispace. Keep the public msection prefix and
++ * its scan bitmap unchanged. Old and destination claims can coexist until
++ * the collector has drained every old-space reader. */
++enum stack_claim_state { STACK_UNCLAIMED, STACK_ACTIVE, STACK_PARKED, STACK_REUSABLE };
++
++typedef struct
++{
++  ___processor_state stack_owner;
++  ___WORD *stack_floor;
++  ___msection *reuse_next;
++  enum stack_claim_state stack_state;
++  unsigned heap_used;
++} section_claim;
++
++#define SECTION_BYTES (___sizeof_msection(___MSECTION_SIZE)+2*sizeof(section_claim))
++
++___HIDDEN section_claim *section_claim_at(___msection *section, ___SIZE_TS offset)
++{
++  return ((section_claim *)(section->base+___MSECTION_SIZE+
++                          ___msection_scan_words(___MSECTION_SIZE)))+
++    (offset != 0);
++}
+ 
+ /*
+  * 'find_msection (ms, ptr)' finds the position in the 'ms->sections'
+@@ -184,7 +207,7 @@
+         {
+           ___msection *s = ___CAST(___msection*,
+                                    alloc_mem_aligned_heap
+-                                     (___WORDS(___sizeof_msection(___MSECTION_SIZE)),
++                                     (___WORDS(SECTION_BYTES),
+                                       1,
+                                       0));
+ 
+@@ -216,6 +239,8 @@
+               s->index = tl->index + 1;
+             }
+ 
++          *section_claim_at(s,0)=(section_claim){0};
++          *section_claim_at(s,___MSECTION_SIZE>>1)=(section_claim){0};
+           s->copy_gate=0;
+           s->pos = i;
+           s->prev = tl;
+--- a/lib/_mem/startup-reservation.inc
++++ b/lib/_mem/startup-reservation.inc
+@@ -70,7 +70,12 @@
+   nb_msections_stacks=r->saved_stacks;
+   alloc_msection=r->saved_cursor;
+   for (i=r->first;i<r->target;++i)
+-    { r->slots[i].stack=0; r->slots[i].heap=0; r->slots[i].phase=___RESIZE_EMPTY; }
++    {
++      ___resize_slot *slot=&r->slots[i];
++      *section_claim_at(slot->stack,tospace_offset)=(section_claim){0};
++      *section_claim_at(slot->heap,tospace_offset)=(section_claim){0};
++      slot->stack=0; slot->heap=0; slot->phase=___RESIZE_EMPTY;
++    }
+   /* Newly allocated free sections remain available, not charged to a context. */
+   heap_size=compute_heap_size();
+ }
+--- a/lib/collector.h
++++ b/lib/collector.h
+@@ -217,11 +217,19 @@
+  * ownership. Epoch checks are not substitutes for that physical boundary.
+  * Retired copied prefixes and the final interval enter context accounting
+  * exactly once; the RC/still/root domain is never copied or rebound. */
++static inline int ___gc_resume_owner_matches
++ (const ___gc_resume_space *r, ___processor_state processor)
++{
++  return processor != 0 && r->context != 0 && r->owner == processor &&
++         processor->context == r->context;
++}
++
+ static inline int ___gc_arena_handoff
+  (___gc_worker_arena *a, ___gc_resume_space *r, ___WORD epoch)
+ {
+   ___pstate_mem *m;
+-  if (a->handed_off || a->pending || !a->section || !r->context ||
++  if (a->handed_off || a->pending || !a->section ||
++      !___gc_resume_owner_matches(r,r->owner) ||
+       r->accepted || r->source_worker < 0 || a->epoch != epoch || r->epoch != epoch) return 0;
+   m = &r->owner->mem;
+   m->heap_msection_ = a->section;
+@@ -242,7 +250,8 @@
+  (___gc_resume_space *r, ___WORD epoch)
+ {
+   ___pstate_mem *m;
+-  if (!r->context || r->epoch != epoch || r->accepted || r->loan_used ||
++  if (!___gc_resume_owner_matches(r,r->owner) ||
++      r->epoch != epoch || r->accepted || r->loan_used ||
+       r->source_worker != -1 ||
+       !r->stack_section || r->loan_limit-r->loan_base <= 2) return 0;
+   m = &r->owner->mem;
+--- a/lib/gambit/vector/vector.scm
++++ b/lib/gambit/vector/vector.scm
+@@ -192,7 +192,8 @@
+           (vector-cas! vect k val oldval)
+           (##vector-cas! vect k val oldval))))))
+ 
+-(define-prim (##vector-inc! vect k val))
++(define-prim (##vector-inc! vect k #!optional (val 1))
++  (##vector-inc! vect k val))
+ 
+ (define-prim (vector-inc! vect k #!optional (v (macro-absent-obj)))
+   (macro-force-vars (vect k v)
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -1741,11 +1741,21 @@
+    * problems later.
+    */
+ 
+-  if (module->sizeof_module_struct != sizeof(___module_struct) ||
++  if (module->sizeof_module_struct != ___MODULE_STRUCT_SIZE_STAMP(module->flags) ||
+       module->sizeof_global_state_struct != sizeof(___global_state_struct) ||
+       module->sizeof_virtual_machine_state_struct != sizeof(___virtual_machine_state_struct) ||
+       module->sizeof_processor_state_struct != sizeof(___processor_state_struct))
+     return ___FIX(___MODULE_INCOMPATIBILITY_ERR);
++
++  if (module->flags & ___USES_INDEXED_HOST_ENTRIES)
++    {
++#ifndef ___SUPPORT_LABEL_VALUES
++      return ___FIX(___MODULE_INCOMPATIBILITY_ERR);
++#else
++      if (!(module->flags & ___USES_INDIRECT_GOTO))
++        return ___FIX(___MODULE_INCOMPATIBILITY_ERR);
++#endif
++    }
+ 
+   lblcount = module->lblcount;
+ 
+@@ -1949,7 +1959,7 @@
+               fixrefs (module, ___SUBTYPED_TO(lbl, ___LABEL_INFO), 1);
+ 
+ #ifdef ___SUPPORT_LABEL_VALUES
+-              if (hlbl_ptr != 0)
++              if (hlbl_ptr != 0 && !(flags & ___USES_INDEXED_HOST_ENTRIES))
+                 hlbl_ptr++; /* skip INTRO label */
+ #endif
+             }
+@@ -1968,17 +1978,32 @@
+ 
+                   if (___LABEL_HOST_GET(lbl) != current_host)
+                     {
+-                      ___ps->context->pc = ___FIX(0); /* special marker indicating that */
+-                                             /* we want the goto labels */
+-
++                      ___WORD saved_pc = ___ps->context->pc;
+                       current_host = ___LABEL_HOST_GET(lbl);
++                      if ((flags & ___USES_INDEXED_HOST_ENTRIES) && current_host == 0)
++                        return module_fixup_result(module,___FIX(___MODULE_INCOMPATIBILITY_ERR));
++                      ___ps->context->pc = ___FIX(0); /* request goto labels */
+                       current_host (___ps);
+                       hlbl_ptr = ___CAST(void**,___ps->context->pc);
+-                      hlbl_ptr++; /* skip INTRO label */
++                      if (flags & ___USES_INDEXED_HOST_ENTRIES)
++                        ___ps->context->pc = saved_pc;
++                      else
++                        hlbl_ptr++; /* skip INTRO label */
+                     }
+ 
+-                  ___LABEL_HOST_LABEL_SET(lbl,
+-                                          ___CAST_VOIDSTAR_TO_FAKEVOIDSTAR(*hlbl_ptr++));
++                  if (flags & ___USES_INDEXED_HOST_ENTRIES)
++                    {
++                      ___UWORD index = ___CAST(___UWORD,___LABEL_HOST_LABEL_GET(lbl));
++                      if (hlbl_ptr == 0 || index == 0 ||
++                          index > ___CAST(___UWORD,hlbl_ptr[0]) ||
++                          hlbl_ptr[index] == 0)
++                        return module_fixup_result(module,___FIX(___MODULE_INCOMPATIBILITY_ERR));
++                      ___LABEL_HOST_LABEL_SET(lbl,
++                                              ___CAST_VOIDSTAR_TO_FAKEVOIDSTAR(hlbl_ptr[index]));
++                    }
++                  else
++                    ___LABEL_HOST_LABEL_SET(lbl,
++                                            ___CAST_VOIDSTAR_TO_FAKEVOIDSTAR(*hlbl_ptr++));
+                 }
+ #endif
+ 
+--- a/tests/unit-tests/06-thread/issue_216.scm
++++ b/tests/unit-tests/06-thread/issue_216.scm
+@@ -2,9 +2,20 @@
+ 
+ ;;; Create some threads but don't start them.
+ 
+-(define t1 (make-thread (lambda () (thread-sleep! .02) (println "t1 ending"))))
++(define driver (current-thread))
+ 
+-(define t2 (make-thread (lambda () (thread-sleep! .02) (println "t2 ending"))))
++;; Keep the target alive until the driver finishes submitting interrupts.
++;; A relative sleep does not guarantee this under scheduler or host load.
++(define (waiting-thread name)
++  (make-thread
++   (lambda ()
++     (thread-send driver 'ready)
++     (thread-receive)
++     (println name " ending"))))
++
++(define t1 (waiting-thread "t1"))
++(define t2 (waiting-thread "t2"))
++(define delivered '())
+ 
+ (define t3 (make-thread (lambda () (println "t3 ending"))))
+ 
+@@ -18,11 +29,12 @@
+ 
+ (thread-start! t1)
+ 
+-(thread-sleep! .01)
++(test-eq 'ready (thread-receive))
+ 
+ (thread-interrupt! t1 (lambda () (println "t1 interrupt")))
+ 
+-(thread-sleep! .05)
++(thread-send t1 'done)
++(thread-join! t1)
+ 
+ 
+ ;;; Multiple interruptions has caused problems in the past:
+@@ -31,13 +43,19 @@
+ 
+ (thread-start! t2)
+ 
+-(thread-sleep! .01)
++(test-eq 'ready (thread-receive))
+ 
+-(thread-interrupt! t2 (lambda () (println "t2 interrupt #1")))
+-(thread-interrupt! t2 (lambda () (println "t2 interrupt #2")))
+-(thread-interrupt! t2 (lambda () (println "t2 interrupt #3")))
++(define (record-interrupt number)
++  (set! delivered (cons number delivered))
++  (println "t2 interrupt #" number))
+ 
+-(thread-sleep! .05)
++(thread-interrupt! t2 (lambda () (record-interrupt 1)))
++(thread-interrupt! t2 (lambda () (record-interrupt 2)))
++(thread-interrupt! t2 (lambda () (record-interrupt 3)))
++
++(thread-send t2 'done)
++(thread-join! t2)
++(test-equal '(3 2 1) delivered)
+ 
+ 
+ ;;; Interrupting a thread after it is started but before it begins

@@ -11,7 +11,7 @@ class WholeBudgetDominanceTests(unittest.TestCase):
     validation_domain = {"kind": "sealed-research", "budgetSeconds": 60, "workers": "auto", "processesPerWorker": 2}
 
     def setUp(self):
-        self.catalog = load_catalog(ROOT / "evidence/research/suite-review-rules.ss")
+        self.catalog = load_catalog(ROOT / "evidence/dsl/suite-review-rules.ss")
         self.facts = {
             "retry_marker": [[True]], "known_failure": [["old", "gsc"]],
             "selected_failure": [["old"]], "failure_category": [["old", "budget"]],
@@ -84,7 +84,7 @@ class WholeBudgetDominanceTests(unittest.TestCase):
         self.assertEqual([("DENY",)], self.evaluate()["decision"])
 
     def test_official_check_scope_projects_gsi_without_false_gsc(self):
-        contract = json.loads((ROOT / "evidence/research/ci/upstream-tests.json").read_text())
+        contract = json.loads((ROOT / "tests/recipes/ci/upstream-tests.json").read_text())
         targets = contract["targets"]
         facts = {
             "selected_make_target": [["check"]],

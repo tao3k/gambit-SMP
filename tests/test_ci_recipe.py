@@ -10,7 +10,7 @@ from gambit_smp.evidence_capabilities import facts, native_evaluate
 from gambit_smp.framework import ROOT, digest
 
 
-PATH = ROOT / "evidence/research/ci/three-flag-core.recipe.json"
+PATH = ROOT / "tests/recipes/ci/three-flag-core.recipe.json"
 
 
 class CIRecipeContracts(unittest.TestCase):

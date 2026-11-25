@@ -14,7 +14,7 @@ registration contracts, all four `bundle_facts` projections report exactly
 one checked model each. No Python schema or checker was changed.
 
 The previous 92-bundle bytes are preserved at
-`evidence/source-results/fixtures/thread-completion-contract/registry-before-interrupt-lifetime.json`
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/registry-before-interrupt-lifetime.json`
 with the original digest
 `4582a11c426cd420e982e13df285cfa2ab1c202541c122e88e3904bd3f7d3254`.
 The original 89-bundle parent and original registered Reflection are also

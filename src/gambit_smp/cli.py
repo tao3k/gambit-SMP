@@ -129,6 +129,12 @@ def main(argv=None, *, _callback=None):
         task = args.task or os.environ.get("GAMBIT_SMP_TASK_ID") or default_task(selected_root)
         if args.command=='tool' and args.arguments[:1]==['grok-event-wait']:
             return invoke()
+        if task and not maintenance and "--help" not in args.arguments:
+            from gambit_smp.work_items import admit_adapter
+            try:
+                admit_adapter(selected_root, task, args.command)
+            except ValueError as error:
+                parser.error(str(error))
         if args.command=='agent' and args.process:parser.error('provider sessions use the work-item execution owner; maintenance processes run bounded tools')
         if args.command=='agent':
             if args.task:

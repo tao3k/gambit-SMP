@@ -6,7 +6,7 @@ from gambit_smp.framework import ROOT, digest
 from gambit_smp.review_validation import changed_inputs
 
 
-BASE = "evidence/source-results/fixtures/sfun-owned-unwind"
+BASE = ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind"
 
 
 class RecursiveGraphWeakGcTests(unittest.TestCase):

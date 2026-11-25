@@ -36,7 +36,7 @@ if ARGV.first == '--shared'
   pairs=contract.fetch('producerConsumers').split(';').map{|s|s.split('->').map(&:strip)}
   guards=%w[direct-live-producer source-and-artifact-match toolchain-match original-cwd-match runtime-match successful-compile three-compiles-five-executions same-workspace-budgets]
   raise 'shared guards missing from SysML' unless guards.all?{|g|contract['qualification'].include?(g)}
-  controls='evidence/research/darwin-native-stage/shared-fixture-controls.json'
+  controls='.cache/research/legacy-evidence/evidence/research/darwin-native-stage/shared-fixture-controls.json'
   unit=JSON.parse(File.read(controls))
   raise 'current source-bound control certificate required' unless unit['tests']==113 && unit['exit']==0 && unit['nativeAccepted']==false
   unit.fetch('sourceHashes').each{|f,h|raise 'unit control source changed' unless sha.call(f)==h}

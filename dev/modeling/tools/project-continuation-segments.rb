@@ -20,6 +20,6 @@ File.read(roles).scan(/part\s+(\w+):Responsibility\s*\{/).flatten.each_with_inde
  %w[id domains owns excludes].each { |f| q<<["responsibilities.#{i}.#{f}","GambitVerificationResponsibilities::#{name}.#{f}"] }
 end
 File.write(b+'/native-queries.tsv',q.map { |x| x.join("\t") }.join("\n")+"\n")
-inputs=File.readlines('evidence/research/modern-c-bootstrap/resize-sysml-inputs.txt',chomp:true)+[p,roles]
+inputs=File.readlines('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-sysml-inputs.txt',chomp:true)+[p,roles]
 File.write(b+'/native-model-inputs.txt',inputs.uniq.join("\n")+"\n")
 File.write(b+'/read-native.sh',File.read('dev/modeling/tools/read-vm-resize-native.sh').sub('r=.cache/tasks/modern-c-frame-contract/cohort/resize-model',"r=#{b}"))

@@ -21,7 +21,7 @@ class InterruptPrefixOwnedFixtureTests(unittest.TestCase):
         self.assertFalse(lock["runtimeAdmitted"])
 
     def test_receipts_bind_current_inputs_and_preserve_component_boundary(self):
-        summary = json.loads((ROOT / f"evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
+        summary = json.loads((ROOT / f".cache/research/legacy-evidence/evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
         for path, expected in summary["inputs"].items():
             self.assertEqual(expected, digest(ROOT / path), path)
         self.assertNotRegex(json.dumps(summary), r"/(?:Users|home)/")

@@ -99,7 +99,7 @@ lower pause bought by excessive CPU or memory is not an unqualified speedup.
 
 ## Execution Contract
 
-`evidence/research/experimental-concurrent-gc/control.recipe.json` uses only
+`.cache/research/legacy-evidence/evidence/research/experimental-concurrent-gc/control.recipe.json` uses only
 existing sealed parse/typecheck/verify/Evidence capabilities. Its whole budget
 is initially 90 seconds and each model/check step is at most 15 seconds. The
 first executed campaign used 39.887 seconds and failed colored-profile type
@@ -149,7 +149,7 @@ coherence are not modeled. The baseline Gambit runtime has not acquired these
 barriers merely because the experimental models exist.
 
 The new sealed campaign is
-`evidence/research/experimental-relocation-lifecycle/control.recipe.json`.
+`.cache/research/legacy-evidence/evidence/research/experimental-relocation-lifecycle/control.recipe.json`.
 Attempt 001 retained a current fdset producer custody DENY: the successful seed
 journal's final artifact inventory was unavailable or changed. It did not run
 the models. Attempt 002 explicitly used a historical locked model fixture,

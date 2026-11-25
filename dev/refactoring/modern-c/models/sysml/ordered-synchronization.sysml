@@ -2,7 +2,7 @@ package GambitOrderedSynchronization {
   private import ScalarValues::*;
   ref part mailboxWriter:GambitMailboxPublication::Responsibility=GambitMailboxPublication::queue;
   ref part rootConsumer:GambitMailboxPublication::Responsibility=GambitMailboxPublication::roots;
-  attribute sourceLock:String="evidence/research/ordered-sync/initialization/source.lock.json";
+  attribute sourceLock:String=".cache/research/legacy-evidence/evidence/research/ordered-sync/initialization/source.lock.json";
   attribute profile:String="evidence/fixtures/gerbil-bazel-build-profile/profile.json";
   attribute scope:String="Ticket/primitive lock ownership, collective fixed-slot publication and physical GC stop/resume; Scheme shared mailbox values and multi-shot continuations remain unchanged";
   attribute storage:String="Naturally aligned Scheme/native word storage, GCC/Clang ordered builtins. This is a documented compiler-extension refinement, not a claim that ordinary Scheme slots have ISO _Atomic declared types";

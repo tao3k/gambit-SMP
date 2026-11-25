@@ -9,7 +9,7 @@ from gambit_smp import verify_protocols as verify
 class EagerChainWorkClosureTests(unittest.TestCase):
     def test_source_split_model_is_checked_without_claiming_native_acceptance(self):
         manifest = verify.load_manifest(index.ROOT / "evidence/eager-tail-scan-partition.json")
-        receipt = index.ROOT / "evidence/model-results/eager-tail-scan-partition/receipt.json"
+        receipt = index.ROOT / ".cache/research/legacy-evidence/evidence/model-results/eager-tail-scan-partition/receipt.json"
         missing = [name for name in manifest["contextInputs"] if not (index.ROOT / name).is_file()]
         if missing:
             with self.assertRaises(OSError):

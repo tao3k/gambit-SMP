@@ -1,0 +1,64 @@
+{
+  "baseRevision": "568e02766ba0bc091e623506224558490fbba267",
+  "scope": "Source review only",
+  "pathCount": 29,
+  "owners": {
+    "backend-residue": 2,
+    "build-inputs": 8,
+    "ci-consumer": 1,
+    "collector-source-review": 1,
+    "cost-fixture": 1,
+    "entry-write-authority": 3,
+    "root-worker-qualification": 13
+  },
+  "rows": [
+    {
+      "path": "lib/_mem/object-allocation.inc",
+      "versions": {
+        "head": "44f407539a35e8940fd213e48162e288596898caa61dcfe3753e28b10e1c63c0",
+        "index": "3426f8608b61c04440af349d55edd1591b120b761f6a199742c93bf1459abaeb",
+        "working": "3426f8608b61c04440af349d55edd1591b120b761f6a199742c93bf1459abaeb"
+      },
+      "indexPatch": "diff --git a/lib/_mem/object-allocation.inc b/lib/_mem/object-allocation.inc\nindex f8b5179a..d075ff27 100644\n--- a/lib/_mem/object-allocation.inc\n+++ b/lib/_mem/object-allocation.inc\n@@ -1,4 +1,4 @@\n-#line 1484 ___MEM_SOURCE_FILE\n+#line 1491 ___MEM_SOURCE_FILE\n /*---------------------------------------------------------------------------*/\n \n /*\n@@ -162,6 +162,13 @@ ___SIZE_TS bytes;)\n         invoke_gc:\n #endif\n \n+          /* Native release callbacks have an owner service, not a running\n+           * Scheme activation. No nested collective can wait on this round.\n+           * Return allocation failure before losing any initialization debt. */\n+          if (___VMSTATE_FROM_PSTATE(___ps)->gc_participants[\n+                ___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps))].phase\n+              != ___GC_RUNNING)\n+            return ___FIX(___HEAP_OVERFLOW_ERR);\n           if (___garbage_collect (___PSP words))\n             return ___FIX(___HEAP_OVERFLOW_ERR);\n         }\n",
+      "workingPatch": "diff --git a/lib/_mem/object-allocation.inc b/lib/_mem/object-allocation.inc\nindex f8b5179a..d075ff27 100644\n--- a/lib/_mem/object-allocation.inc\n+++ b/lib/_mem/object-allocation.inc\n@@ -1,4 +1,4 @@\n-#line 1484 ___MEM_SOURCE_FILE\n+#line 1491 ___MEM_SOURCE_FILE\n /*---------------------------------------------------------------------------*/\n \n /*\n@@ -162,6 +162,13 @@ ___SIZE_TS bytes;)\n         invoke_gc:\n #endif\n \n+          /* Native release callbacks have an owner service, not a running\n+           * Scheme activation. No nested collective can wait on this round.\n+           * Return allocation failure before losing any initialization debt. */\n+          if (___VMSTATE_FROM_PSTATE(___ps)->gc_participants[\n+                ___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps))].phase\n+              != ___GC_RUNNING)\n+            return ___FIX(___HEAP_OVERFLOW_ERR);\n           if (___garbage_collect (___PSP words))\n             return ___FIX(___HEAP_OVERFLOW_ERR);\n         }\n"
+    },
+    {
+      "path": "lib/_thread.scm",
+      "versions": {
+        "head": "446cccea27a341496dc5d20311cd5890d3978dcfe3c60681b89357b91eeef019",
+        "index": "446cccea27a341496dc5d20311cd5890d3978dcfe3c60681b89357b91eeef019",
+        "working": "65a7935301588b69b99d0dae9036dfcb03ca48a497f5edc57b0eaef46a70f9c9"
+      },
+      "indexPatch": "",
+      "workingPatch": "diff --git a/lib/_thread.scm b/lib/_thread.scm\nindex 83d169ac..5fb74c8b 100644\n--- a/lib/_thread.scm\n+++ b/lib/_thread.scm\n@@ -3229,6 +3229,8 @@\n   (macro-processor-init! (##current-processor) (##current-processor-id))\n \n   ;; enable interrupting this processor\n+  (if (##not (##startup-ready!)) (##error \"stale startup activation\"))\n+\n   (##enable-interrupts!)\n \n   ;; start scheduling threads on this processor\n@@ -3279,7 +3281,7 @@\n         thread))))\n \n (define (##cvmr n)\n-  (##current-vm-resize ##startup-processor! n))\n+  (##current-vm-resize-ready ##startup-processor! n))\n \n (define (##startup-parallelism!)\n   (let* ((level\n@@ -6961,6 +6963,8 @@\n     (##btq-insert! (macro-current-processor) thread)\n     )\n \n+  (if (##not (##startup-ready!)) (##error \"stale startup activation\"))\n+\n   (##enable-interrupts!)\n \n   (let loop ()\n@@ -6969,7 +6973,7 @@\n     (loop)))\n \n (define (##cvmr n)\n-  (##current-vm-resize ##startup-processor! n))\n+  (##current-vm-resize-ready ##startup-processor! n))\n \n (define (##startup-parallelism!)\n   (let* ((level\n"
+    },
+    {
+      "path": "lib/os_setup.c",
+      "versions": {
+        "head": "0a08a4f702a7d3db23548f882c3da60527ef08cd108cd7b8e3a2a77b50865341",
+        "index": "8983a977351fac7cb0eaa41fecd7469cdb6a29d01a787949f9e4e7df2e514782",
+        "working": "8983a977351fac7cb0eaa41fecd7469cdb6a29d01a787949f9e4e7df2e514782"
+      },
+      "indexPatch": "diff --git a/lib/os_setup.c b/lib/os_setup.c\nindex e3351ffc..7085b166 100644\n--- a/lib/os_setup.c\n+++ b/lib/os_setup.c\n@@ -3072,8 +3072,7 @@ ___HIDDEN void user_intr ___PVOID\n {\n   /**** belongs elsewhere */\n   /* send interrupt only to processor 0 of vm 0 */\n-  ___virtual_machine_state ___vms = &___GSTATE->vmstate0;\n-  ___raise_interrupt_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms), ___INTR_USER);\n+  ___raise_interrupt (___INTR_USER); /* registry-safe, still targets VM0/processor0 */\n }\n \n \n",
+      "workingPatch": "diff --git a/lib/os_setup.c b/lib/os_setup.c\nindex e3351ffc..7085b166 100644\n--- a/lib/os_setup.c\n+++ b/lib/os_setup.c\n@@ -3072,8 +3072,7 @@ ___HIDDEN void user_intr ___PVOID\n {\n   /**** belongs elsewhere */\n   /* send interrupt only to processor 0 of vm 0 */\n-  ___virtual_machine_state ___vms = &___GSTATE->vmstate0;\n-  ___raise_interrupt_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms), ___INTR_USER);\n+  ___raise_interrupt (___INTR_USER); /* registry-safe, still targets VM0/processor0 */\n }\n \n \n"
+    }
+  ],
+  "missingAtBase": [
+    "___GC_RUNNING",
+    "___gc_participant",
+    "##startup-ready!",
+    "##current-vm-resize-ready"
+  ],
+  "counterexamples": [
+    "A still allocation below the deferred threshold bypasses the proposed slow-path phase test entirely.",
+    "Registry user interrupt routing fans out across live VMs and member processors, changing the intended VM0/P0 target."
+  ],
+  "independentSmp": {
+    "closed": 1,
+    "total": 12,
+    "delta": 0
+  },
+  "nativeQualified": false,
+  "positiveNetBenefitProven": false,
+  "submissionAdmitted": false
+}

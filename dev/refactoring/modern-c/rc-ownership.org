@@ -1,0 +1,245 @@
+#+TITLE: RC source ownership: implementation and admission
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: VERIFYING READY | PUBLISHED
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %40ITEM(Responsibility) %STATUS(Status) %EVIDENCE(Evidence)
+
+* READY Registration, writes, scanning and retirement :rev:rc:ownership:
+:PROPERTIES:
+:CUSTOM_ID: REV-RC-OWNERSHIP
+:AUTHORITY: GambitRcOwnership
+:SOURCE: models/sysml/rc-ownership.sysml
+:PREDECESSOR: 43db0e3fc8eb139e28409cad18c6824095512140
+:SOURCE_TREE: b593b6586009c5c1b65b6456cab70a64610cb817
+:STATUS: Native and source review complete; exact-tree ASCENT admission required before publication
+:END:
+
+This is the successor to [[file:root-source-adapters-result.org][explicit root-source selection]]. The scope is one
+complete RC source lifecycle under the existing cooperative GC/resize roster.
+It does not introduce independent collector workers, RootTask scheduling,
+capacity planning, unknown-join recovery, or arbitrary raw CFFI entry admission.
+The authoritative boundary is [[file:models/sysml/rc-ownership.sysml][SysML]]; [[file:rc-ownership.d2][D2]] is its review view.
+
+** Exact predecessor counterexample :evidence:negative:
+
+The public-API source control compiled against =43db0e3f= in the existing
+workspace/profile. Its real moving collections reported:
+
+#+begin_example
+(RC-ROOT-ORIGIN 0 0 3)
+(RC-ROOT-ORIGIN 1 1 2)
+*** ERROR ... RC moving-root coverage incomplete (1 1 2)
+#+end_example
+
+Bit2 means that the ordinary Scheme root moved; bit1 means that the RC payload
+was rewritten to the same tagged word. Source1 moved but its RC cell was not
+updated. The control compares words without dereferencing the stale payload.
+This is a native predecessor failure, not an inferred model counterexample.
+The first compile attempt omitted the normal SDK directory aliases and failed
+before execution; its failure remains separate from this corrected native run.
+
+** Replacement and actual callers :source:ownership:
+
+| Endpoint | Old responsibility | Selected replacement |
+|----------+--------------------+----------------------|
+| =setup_rc= / =___register_rc= | Initialize/mutate an implicit carrier head | Construct one independently allocated source domain; first registration binds a private block to that domain |
+| VM setup / repeated processor setup | No separate RC source-slot admission | Initialize fixed source slots before first publication; reject overwriting an attached source before changing processor state |
+| =___alloc_rc_no_register= | Partly initialized native header | Fully initialized private header with checked byte extent; unsuccessful registration leaves caller ownership |
+| =___set_data_rc= | Unguarded payload store | Same-domain, current-owner write under OPEN source gate; public void signature retained, failed admission explicit |
+| =___addref_rc= / =___release_rc= | Unguarded count/unlink/free | Same source gate; unlink only after ordinary references and stable-cell borrows both reach zero |
+| =___data_rc= | Unguarded value load | Locked snapshot; it is not a root across allocating calls |
+| =___borrow_rc_root= / =___return_rc_root= | No stable-cell borrowing | Read-only root-cell address, separate borrow ownership; public references may reach zero while GC still rewrites the borrowed cell |
+| =mark_rc= / strong phase | Only processor0's RC chain scanned | Each active source freezes and is scanned once by its existing executor; gate spans actual source accesses |
+| resize / pstate cleanup | Publish smaller roster then bulk-free RC | Close departing sources before member publication; refusal preserves roster and rolls back prior close claims |
+| =cleanup_rc= | Free every node irrespective of native owner | Refuse Scheme payloads/borrows before still cleanup; detach byte-only native ownership and free its domain on final native release |
+
+Registered RC producers are the string conversion families in =lib/c_intf.c=,
+dynamic C closures in =lib/os_dyn.c=, TLS contexts and Win32 message events in
+=lib/os_io.c=, Win32 installation-directory storage in =lib/os_files.c=,
+and Tcl/Xlib example constructors. Feature-conditional source coverage is not
+native execution of those platforms. Payload writers outside the RC
+implementation are =___make_c_closure= in =os_dyn.c= and the Tcl constructor.
+The real payload snapshot consumers are the C-closure marker path in
+=c_intf.c= and Tcl callback/delete paths in =examples/tcltk/tcltk.scm=.
+Tcl stores a retained still vector; its in-flight ClientData acquisition and
+cross-library exception policy remain the later CFFI responsibility. Xlib and
+generated conversion epilogues release native byte blocks. Their public entry
+names and prototypes remain intact; =register_rc= and =refcount_rc= definitions
+are brought into agreement with their already-declared pointer/word returns.
+
+Existing marker construction has a separate =proc_or_false= pre-allocation
+root TODO. This RC cut does not claim to fix that non-RC constructor window or
+to make an unmanaged callback a GC participant.
+
+** Conditional C refinement :memory_order:proof:
+
+1. First registration requires exclusive ownership of an unregistered native
+   block. Its immutable domain pointer is installed before the caller publishes
+   the returned registered handle. A live reference or borrow is required
+   before loading that header; addref is not resurrection from a stale pointer.
+   A Scheme payload must obey the source VM's existing object-validity rules;
+   raw cross-VM Scheme-object transfer is not admitted by a domain pointer.
+2. A domain mutex orders registration, count changes, payload stores, freeze,
+   scan and close. It supplies release/acquire synchronization through the
+   existing POSIX or Win32 thread primitive; no-thread mode is sequential.
+3. Each cooperative participant closes its own RC source before the existing
+   pre-GC barrier. The scanner requires FROZEN and keeps the gate across every
+   list load and =mark_array= call. A racing unlink either precedes that scan or
+   follows its last source access; no RC cell address is queued for later use.
+4. Existing whole-round barriers finish root rewriting/copy/weak work before
+   source reopening and owner return. A borrow survives GC but a cached Scheme
+   value does not: the caller reloads the read-only cell after participation.
+5. Shrink preflight closes all departing domains under the old roster. An
+   existing Scheme payload or borrow refuses close. No native callback is
+   awaited under a gate; no Scheme GC is invoked by an RC helper. Pure byte
+   nodes retain an independent detached domain, not a pointer into freed PS/VM
+   storage. The final valid native reference releases both node and domain.
+
+Fresh VM setup must precede processor setup; these existing entrypoints are
+not concurrently callable on the same uninitialized VM. Duplicate processor
+setup now refuses while its RC source remains attached. This is not generation
+isolation for an unknown join or permission to reinitialize a live VM.
+
+FROZEN closes new registration, payload writes and new borrows. It does not
+forbid monotone native reference release. A node whose owners and borrows have
+both gone may be removed before enumeration; it is no longer an owed root.
+Once the scanner acquires the domain gate, its enrolled cells remain stable
+through all source accesses. Thus =rc_root_release= governs exclusion before
+enrollment and =root_store_projection= governs actual enrolled/live cells and
+borrow reload. Do not map the latter's fixed selected set to every physical
+node that happened to exist at freeze, or claim a full product simulation of
+the two models. No extra whole-list thaw pass is needed to retain ownerless
+nodes solely for a discarded root obligation.
+
+These arguments assume admitted cooperative participants and completed normal
+scanner/native operations. Unknown worker death, unregistered raw aliases,
+arbitrary reentrant fatal hooks and free-effect result loss have no recovery
+receipt here. Whole-GSTATE reclamation while other VMs remain active is not
+admitted. Gates cannot turn an untracked raw pointer into a lifetime lease.
+
+** Distinct verification duties :sysml:ascent:quint:lean:pbt:
+
+| Method | Obligation | Explicit limit |
+|--------+------------+----------------|
+| Existing =rc_root_release.qnt= | Owner/borrow/scan exclusion before unlink and domain retirement | Conditional finite abstraction; not a native allocator receipt |
+| Existing =root_store_projection.qnt= | Frozen source coverage, GC rewriting and borrow reload | One modeled epoch; no claim of arbitrary native interleavings |
+| Existing Lean frame laws | Frame coordinate/root coverage under unchanged =mark_array= consumers | No second RC state machine or new proof copied into Lean |
+| Native source refinement | Relate actual gate, list, count and close stores to those preconditions | Full C memory-model/data-race proof remains outside the bounded argument |
+| Stateful implementation properties | Typed slot operations exercise real RC APIs, moving GC, reference counts and read-only borrows | Fixed seeds and a bounded operation set; no automatic shrinking or schedule exhaustiveness claimed |
+| ASCENT | Require source-bound tests, benefit/cost account, current process, models and answered questions | Model or generated test success alone never admits the REV |
+
+PBT is worth adopting at the implementation boundary. [[https://quint.sh/docs/model-based-testing][Quint's own MBT guidance]]
+distinguishes model checking from implementation agreement; its current Connect
+library targets Rust. This C/Scheme runtime should not gain a Rust service or
+another model just to use that adapter. [[https://proper.hexdocs.pm/proper_statem.html][PropEr's state-machine contract]] is a
+useful reference for preconditions, postconditions and dependency-preserving
+shrinking. Reuse the existing Gambit test/build path for execution.
+
+The initial native fixture generates structured slot actions and keeps its
+reference oracle separate from C results. Illegal raw addresses are never
+generated as normal actions. Targeted invalid-admission tests must complement
+that legal generator. A later shrinker must preserve create/use dependencies,
+owner identity, GC boundaries and the failure oracle; it must retain seed,
+history and any scheduling constraints. Ordinary deletion minimization does
+not prove a globally smallest counterexample or explore the C memory model.
+
+** Gambit benefit and language choice :learning:questions:
+
+The compiler's Scheme semantics, exact tagged roots, frame descriptors,
+trampoline and multi-shot continuation consumers remain intact. The real
+gain is extending that precise-root discipline to foreign-held cells from
+every active source, rather than pinning Scheme objects or trusting carrier0.
+A stable native cell survives moving GC while its Scheme value is reloaded.
+Its lifetime is no longer the lifetime of an embedded PSTATE list sentinel.
+Future root-task dispatch can name the domain directly, but must add explicit
+task pins/claim/completion before relaxing the present synchronous roster.
+
+Modern C is sufficient for this mechanism: the private domain, existing OS
+mutex abstraction, const borrow view and existing GC consumers need no new
+language bridge. Zig would still need these ownership and publication rules;
+this result is not evidence of extra Zig net benefit. Central payload writes
+also create a real future integration point for generational root policies,
+without claiming to implement generations or barriers in this REV.
+
+** Benefit / added-cost matrix :measurement:
+
+| Change | Work or failure removed | Added work / retained cost | Acceptance |
+|--------+-------------------------+----------------------------+------------|
+| Source1 RC scan | Missing nonzero-origin root rewrite | One actual RC scan per active source | Matched native source control required |
+| Source ownership gate | Independent unsynchronized count/list/payload mutation | One mutex acquisition per admitted RC operation; scan holds gate across existing copy traversal | Real reference/borrow/GC fixture required |
+| Freeze/reopen | Payload mutation admitted during copying | Two source-gate acquisitions per GC/source plus scan gate | Existing frame/map/root consumers required |
+| Detached native bytes | Bulk free of externally owned byte handles at carrier cleanup | Domain survives until final handle; one native allocation per constructed source | Real shrink then survivor release required |
+| Refused root-bearing retirement | Freeing still payload storage before RC owners drain | One close inspection and shrink-only collective; refusal retains resources | Roster/refusal and later successful cleanup required |
+| Fixed source-slot initialization | Repeated setup overwriting attached ownership | MAX_PROCESSORS null-pointer stores per fresh VM and one duplicate-setup check | Registration/duplicate-setup native refusal control |
+| PBT action sequences | Only hand-picked API histories | Generator/oracle/replay maintenance and bounded runtime cost | Count actual executed actions; no coverage percentage invented |
+
+Matched configured-header measurements are: RC header32 ->48 bytes,
+processor920 ->896 bytes, VM80040 ->78504 bytes, and one new domain144 bytes.
+The configured VM saves1536 bytes by replacing64 embedded heads with pointers.
+For =D= live domains and =N= allocated RC blocks, the structural delta is
+=144D + 16N - 1536= bytes per VM cohort, excluding allocator rounding and
+payload lifetimes. At steady state =D= includes active sources and escaped
+byte-owning retired domains; growth also includes initialized but unpublished
+sources. At12 active sources with no detached domains, this is
+=192 + 16N= bytes, not a measured process-peak increase.
+
+Each detached domain has at least one outstanding native handle. Attached
+domains use bounded source slots; there is no unbounded identity registry
+independent of owned resources. Previously premature freeing of a native
+owner's payload is not a legitimate memory saving.
+
+Default-header =runtime-roles= self-layout uses a different feature context
+(candidate carrier904/VM79016). Those are not the runtime configuration's
+sizes. The private RC consumer and matched module/size controls use
+=HAVE_CONFIG_H=; their configured values above define the comparison.
+All290 existing layout assertions remain; they are not a universal ABI proof.
+No throughput, pause-time or whole-VM peak-memory gain is asserted.
+
+** Exact-tree native report :evidence:matrix:
+
+[[file:../../../evidence/research/retained/modern-c/rc-ownership/receipt.json][The repository evidence asset]] retains profile input, source/artifact hashes,
+the replayable baseline control, native results, counterexample and limits.
+It carries =complete=true= only for this component; original check and whole
+SMP remain explicitly false. Actual Git publication is recorded separately.
+
+| Gate evidence | Exact result | Boundary |
+|---------------+--------------+----------|
+| Final full bootstrap / stock core |184.122s /34.905s PASS; two complete phase1--4 passes | Same workspace, profile,600s outer/575s producer and120s core limits |
+| Existing execution/frame/exit |0.667s /7.100s /0.660s PASS |290 assertions; real multi-shot map/root consumers retained |
+| RC fixture |2.699s PASS |6 seed/origin cases,1440 draws,720 executed legal actions; explicit refusal/borrow/retirement and native handoff markers |
+| Original GSI |408/408 PASS72.801s |300s domain budget, no retry-to-green |
+| Official test8 |FAIL exit70, same6/6 sections,1/12 members,max_heap0 | Current LLDB stack reaches setup_mem_pstate Heap overflow; capacity endpoints unchanged; not repaired here |
+| Remaining independent official tests |9/10/12, entry, inline PASS | Full original check remains failed; not full compiled-unit coverage |
+| Held predecessor module |Baseline positive; new runtime rejects twice, flags1->1->1 | Same configured baseline header; no universal same-size ABI fingerprint |
+| Existing Quint regressions |5 +13 passing runs | Finite explicit runs, not new Lean proofs or exhaustive C memory-model checking |
+| PBT completeness |Replayable native sequences implemented | Automatic shrinking and controlled scheduler remain OPEN; exact native-reference/GC-step overlap not proved |
+
+The example Tcl/Xlib C strings still contain legacy single-argument RC calls;
+they are not thereby admitted to the multiple-threaded PSD calling convention.
+The public signatures are unchanged. Foreign cleanup affinity/provider lifetime,
+the global =c_closure_self= TODO, raw ClientData acquisition and marker setup
+remain later CFFI work. An ordinary native reference is required to clone a
+reference; a readonly borrow does not grant resurrection or external lookup.
+
+Source construction is qualified for successful allocation. Native metadata
+OOM was not fault-injected: =setup_rc= publishes no domain on malloc/init
+failure, but complete multi-source setup rollback is a separate caller
+obligation. The existing growth rollback in =___vm_resize_pstate= repeatedly
+passes =ps= after decrementing =i=, rather than selecting each earlier prepared
+source; this REV does not repair or admit that general partial-creation path.
+Do not infer OOM recovery or whole-VM reclamation from the tested registration
+refusal. Native TLS/provider destructor affinity and arbitrary library unload
+also require their own resource-lifetime admission.
+
+** Submission checklist :ascent:commit:
+
+- [X] Exact candidate bootstrap and existing consumer tests finish within existing limits.
+- [X] Source0/source1 moving-GC control and owner/borrow/retirement tests complete.
+- [X] Costs, measured metadata, failure custody and remaining boundaries recorded.
+- [X] Native SysML component/dependency projection and existing QNT controls checked; scoped ASCENT inputs reviewed.
+- [X] Complete audit fields and exact tree prepared; the submission service must bind them before admission.
+- [ ] Record actual admission/publication separately; never amend this frozen audit after submission.
+
+Do not submit while any required native result, retirement obligation or audit
+input is missing. This leaf does not wait for unrelated successor work.

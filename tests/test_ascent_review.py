@@ -146,7 +146,7 @@ class EvidenceProjectionTest(unittest.TestCase):
             model.write_text("model\n")
             source = root / "source.c"
             source.write_text("source\n")
-            out = root / "evidence/model-results/m"
+            out = root / ".cache/research/legacy-evidence/evidence/model-results/m"
             out.mkdir(parents=True)
             log, trace = out / "m.log", out / "m.trace.json"
             log.write_text("verified log\n")

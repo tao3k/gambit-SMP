@@ -256,7 +256,7 @@ def reusable_receipts(root, base, facts, inputs):
             if contract["model"] not in needed:
                 needed.add(contract["model"])
                 pending.append(contract["model"])
-    for path in sorted((root / "evidence/model-results").glob("*.json")):
+    for path in sorted((root / ".cache/research/legacy-evidence/evidence/model-results").glob("*.json")):
         saved = json.loads(path.read_text())
         if saved.get("schema") != "gambit-smp-model-receipt.v1":
             continue

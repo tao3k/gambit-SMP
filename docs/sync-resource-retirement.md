@@ -14,7 +14,7 @@ setup again on the same slot and observes four initializations, zero
 destructions and two reinitializations. GNU GCC compiles the extracted,
 unchanged function bodies. This establishes a source mechanism only: it is
 not a real pthread execution, a reproduced native crash, or a Darwin-only
-diagnosis. See `evidence/model-results/sync-resource-source-observation.json`.
+diagnosis. See `.cache/research/legacy-evidence/evidence/model-results/sync-resource-source-observation.json`.
 
 `SYNC_SEND_MSG` unlocks before signaling the receiver's condition variable.
 A fast-path receiver can consume the published flag before signaling is
@@ -30,7 +30,7 @@ retaining resources but reinitializing them, destroying before a late signal,
 and reusing resources while a sender retains the old generation.
 The drain-before-destroy contract exhausts 13 distinct / 18 generated states,
 depth 9, with an empty queue. The four admitted checks are recorded in
-`evidence/model-results/sync-resource-retirement.json`; negative traces are
+`.cache/research/legacy-evidence/evidence/model-results/sync-resource-retirement.json`; negative traces are
 under `models/gambit/counterexamples/`.
 
 Cross-generation signaling is a candidate ownership obligation, not proof

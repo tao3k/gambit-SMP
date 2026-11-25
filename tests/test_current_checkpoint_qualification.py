@@ -81,7 +81,7 @@ class CheckpointObserverTests(unittest.TestCase):
         root.mkdir()
         docs = root / "docs"
         docs.mkdir()
-        review_dir = root / "evidence/research/processor-interrupt-collective-wait"
+        review_dir = root / ".cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait"
         review_dir.mkdir(parents=True)
         milestone = "\n".join([
             "Historical stack-entry progress 6/12.",

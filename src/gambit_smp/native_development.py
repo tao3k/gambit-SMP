@@ -64,10 +64,8 @@ def generated_inventory(source):
 
 
 def generation_inputs(source):
-    names = [p for folder in ('lib', 'gsi', 'gsc')
-             for p in (source / folder).rglob('*.scm')]
-    names += [source / 'gsc-boot']
-    return {p.relative_to(source).as_posix(): digest(p) for p in names}
+    from gambit_smp.gambit_build_primitives import scheme_inputs
+    return {**scheme_inputs(source), 'gsc-boot': digest(source / 'gsc-boot')}
 
 
 def relocated_native_line(line, relocations):
@@ -138,11 +136,8 @@ def current_scheme_matches(original, checkout):
 
     This checks source equality, not purity of arbitrary macros/native I/O.
     """
-    def sources(root):
-        return {p.relative_to(root).as_posix(): digest(p)
-                for folder in ('lib', 'gsi', 'gsc')
-                for p in (root / folder).rglob('*.scm')}
-    if sources(original) != sources(checkout):
+    from gambit_smp.gambit_build_primitives import scheme_inputs
+    if scheme_inputs(original) != scheme_inputs(checkout):
         raise ValueError('current Scheme sources differ; explicit generation demand required')
 
 
@@ -195,7 +190,8 @@ def native_source_kind(name):
     if (name.startswith('lib/') and path.suffix in {'.c', '.inc', '.h'}
             and not path.name.startswith('_') and path.name!='gambit.h'):
         return 'runtime-header' if path.suffix == '.h' else 'runtime-c'
-    if name.startswith('include/_gambit/') and len(path.parts) == 3 and name.endswith('.h.in'):
+    if name == 'include/gambit.h.in' or (name.startswith('include/_gambit/')
+            and len(path.parts) == 3 and name.endswith('.h.in')):
         return 'native-header-template'
     if path.parent==Path('tests') and path.suffix=='.c':
         return 'test-c'
@@ -208,6 +204,17 @@ def native_header_invalidation(changed_configuration, changes):
     if headers and (headers != ['include/gambit.h'] or not declared):
         raise ValueError('native header output change requires declared internal template delta')
     return bool(headers)
+
+
+def validate_header_templates(root, templates):
+    from gambit_smp.source_capabilities import modular_header_files
+    dispatcher = 'vendor/gambit/include/gambit.h.in'
+    if dispatcher in templates:
+        required = {'vendor/gambit/' + name for name in modular_header_files(Path(root) / 'vendor/gambit')}
+        if not required <= set(templates):
+            raise ValueError('complete modular header template inventory required')
+    elif any(name.startswith('vendor/gambit/include/_gambit/') for name in templates):
+        raise ValueError('modular templates require their dispatcher')
 
 
 def validate(args, inputs):
@@ -223,7 +230,8 @@ def validate(args, inputs):
     templates=args['templates']
     if (not isinstance(templates,list) or len(templates)!=len(set(templates))
             or templates[:len(expected)]!=expected
-            or not set(templates[len(expected):])<=optional
+            or any(p not in optional and not re.fullmatch(r'vendor/gambit/include/_gambit/[A-Za-z0-9_]+\.h\.in',p)
+                   for p in templates[len(expected):])
             or any(p not in inputs for p in templates)):
         raise ValueError('complete declared native Make template set required')
     if args['generationDemand'] != 'reuse-explicit-artifact':
@@ -270,8 +278,6 @@ def apply_native_delta(ctx, source, delta):
         path=ctx.root/'vendor/gambit'/name
         if not path.is_file() or path.is_symlink() or digest(path)!=row['candidateSha256']:
             raise ValueError('native leaf differs from its declared source lock')
-        if native_source_kind(name)=='native-header-template' and '@' in path.read_text():
-            raise ValueError('native header delta cannot change configure substitutions')
         target=source/name
         cursor=source
         for part in Path(name).parts:
@@ -282,6 +288,16 @@ def apply_native_delta(ctx, source, delta):
             raise ValueError('native delta requires a regular leaf')
         if not target.exists() and name not in targets:
             raise ValueError('native delta must replace an existing regular leaf')
+        if native_source_kind(name)=='native-header-template':
+            if name == 'include/gambit.h.in':
+                # The qualified flat header remains a valid C-only input.
+                # Its existing configuration substitutions must be unchanged;
+                # do not require unrelated modularization or a generation run.
+                token=r'@[A-Za-z_][A-Za-z_0-9]*@'
+                if re.findall(token,target.read_text()) != re.findall(token,path.read_text()):
+                    raise ValueError('native header delta cannot change configure substitutions')
+            elif '@' in path.read_text():
+                raise ValueError('native header delta cannot change configure substitutions')
         if name in targets:
             old=targets[name];previous=source/old
             if previous.exists():
@@ -355,6 +371,7 @@ def execute_owned(args, ctx):
     from gambit_smp.bootstrap_artifacts import incremental_consumer
     from gambit_smp.build_profile import read_profile
     original = ctx.artifact(args['runtime'], 'source-runtime')
+    validate_header_templates(ctx.root, args['templates'])
     check_runtime(original, read_json(ctx.artifact(args['identity'], 'runtime-identity')))
     current_scheme_matches(original, ctx.root / 'vendor/gambit')
     ctx.bind([p for folder in ('lib', 'gsi', 'gsc')
@@ -438,7 +455,7 @@ def execute_owned(args, ctx):
     from gambit_smp.gambit_build_primitives import build_capacity
     jobs = build_capacity(available_processors())['makeJobs']
     common = [make, '-j' + str(jobs), 'GAMBOPT=p1']
-    phase_logs = compile_phases(ctx, source, common)
+    phase_logs=compile_phases(ctx,source,common)
     mark('objectsAndMake')
     after_generated = generated_inventory(source)
     if generation_inputs(source) != generator:

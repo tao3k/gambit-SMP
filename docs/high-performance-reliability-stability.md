@@ -28,7 +28,7 @@ or proof of native elapsed time.
 
 ### Lifecycle Admission Work
 
-The [source-bound admission rollback contract](../evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md)
+The source-bound admission rollback contract (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md`; unavailable in a clean checkout)
 checks correctness and work together. QNT rejects redundant VM visits even
 when rollback safety still holds, and retains cumulative work across its finite
 retry composition. The conditional Lean proof uses an arbitrary list of actual

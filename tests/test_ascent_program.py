@@ -243,7 +243,7 @@ class NativeAuditTests(unittest.TestCase):
         step = dict(id='runtime', capability='gambit.runtime-import', dependsOn=['source'], arguments={},
                     outcome='PASS', commands=[], runtimeAdmitted=False,
                     workspaceReuse=dict(sourceContentId='verified-content', mode='same-producer-workspace', copiedFiles=0))
-        catalog = load_evidence_catalog(ROOT/'evidence/research/incremental-builds/runtime-storage.ss',
+        catalog = load_evidence_catalog(ROOT/'.cache/research/legacy-evidence/evidence/research/incremental-builds/runtime-storage.ss',
                                         constructor='make-runtime-storage-observations', trusted=True)
         result, _ = evaluate(self.engine, facts({'steps':[step]}), catalog,
                              {'storage':'recorded_runtime_storage'})
@@ -303,6 +303,28 @@ class NativeAuditTests(unittest.TestCase):
             {"deny": "retry_denied", "review": "retry_review_required"})
         self.assertEqual(sorted(expected_denials), result["deny"])
         self.assertEqual(expected_review, result["review"])
+
+    def test_hang_guard_widening_is_only_the_recorded_600_second_ceiling(self):
+        catalog = load_catalog(ROOT / "evidence/dsl/suite-review-rules.ss")
+        facts = {"original_budget": [], "requested_budget": [], "claim_evidence": []}
+        cases = (
+            ("widened", 600000, 1800000, True, False),
+            ("ceiling", 600000, 3600000, True, False),
+            ("unrecorded", 600000, 1800000, False, True),
+            ("short-history", 8000, 9000, True, True),
+            ("above-ceiling", 600000, 3600001, True, True),
+        )
+        for route, old, new, recorded, _denied in cases:
+            facts["original_budget"].append([route, "suite-step", old])
+            facts["requested_budget"].append([route, "suite-step", new])
+            if recorded:
+                facts["claim_evidence"].append([
+                    route, "hang-guard-widened-for-progressing-stage",
+                    "causal-review", "reviewed", "record"])
+        result, _ = evaluate(self.engine, facts, catalog, {"denied": "retry_denied"})
+        denied = {row[0]: row[1] for row in result["denied"] if row[1] == "budget-expanded"}
+        self.assertEqual({"unrecorded": "budget-expanded", "short-history": "budget-expanded",
+                          "above-ceiling": "budget-expanded"}, denied)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ The correspondence auditor reconstructs the same source rather than reading
 the old candidate cache. Cache source roots are rejected as current inputs.
 
 The eight GNU GCC schedule controls were rerun against this source contract.
-Receipt `evidence/model-results/sync-retirement-submodule-003.json` preserves
+Receipt `.cache/research/legacy-evidence/evidence/model-results/sync-retirement-submodule-003.json` preserves
 the original function digest and all expected outcomes, including negative
 policies. After adding candidate 029's sixth header input to the provisioner,
 all eight controls were replayed into `sync-retirement-submodule-005.json`, now

@@ -10,6 +10,6 @@ package GambitVMResumeReservation {
   attribute open:String = "Caller B coverage, arbitrary foreign allocation, bounds on simultaneous allocation, memory ordering, owner death and all C-to-model refinements remain conditional; no commit admission.";
   attribute quint:String = "dev/refactoring/modern-c/models/quint/vm_resize_transaction.qnt";
   attribute lean:String = "dev/refactoring/modern-c/models/lean/VMResizeTransaction.lean";
-  attribute native:String = "evidence/research/modern-c-bootstrap/resize-resume-bootstrap.recipe.json";
+  attribute native:String = ".cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-resume-bootstrap.recipe.json";
   attribute runtimeAdmitted:Boolean = false;
 }

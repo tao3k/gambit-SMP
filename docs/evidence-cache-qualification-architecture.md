@@ -199,7 +199,7 @@ materialization binds source locks and actual patch bytes as observed inputs.
 Inspection rechecks those declared and observed hashes separately from output
 availability. Historical bindings must supply matching archived bytes; they
 are not inferred from a filename or a missing cache. Native milestone rules
-remain in `evidence/research/smp-threaded-vm-native-grid/milestone-rules.ss`.
+remain in `.cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/milestone-rules.ss`.
 Python must not invent a package-specific completion counter or grant a native
 gate because a Quint model passed.
 

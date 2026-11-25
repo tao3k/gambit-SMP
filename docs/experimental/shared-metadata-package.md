@@ -9,7 +9,7 @@ Do not change TLS, start native qualification or alter the other lane's source
 lock/checkpoint. No throughput or native-failure-causality claim follows here.
 
 Authority: Gambit `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882` plus the existing
-[overlay lock](../../evidence/research/processor-interrupt-collective-wait/source.lock.json)
+overlay lock (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout)
 and cumulative patch; line references below are overlay references unless a
 vendor path is given. Chez is `41d5ffca7a07cbfc8807e719dedcc70ed74811cd`;
 OCaml is `46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91`.

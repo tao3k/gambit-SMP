@@ -84,5 +84,5 @@ recovery together with five remaining source/native obligations.
 
 Portable evidence preserves the parent compiled RC PASS (0.825 seconds), parent
 reuse DENY and heap-probe compile DENY alongside all candidate observations:
-`evidence/source-results/fixtures/collective-resize-heap-guard/observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/collective-resize-heap-guard/observation.json`.
 These component results are not whole-runtime correctness or speedup admission.

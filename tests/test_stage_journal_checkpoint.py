@@ -149,6 +149,21 @@ class StageJournalCheckpointTests(unittest.TestCase):
         (self.run / "receipt.json").write_text(json.dumps(outer))
         return artifact
 
+    def test_declared_input_drift_is_repaired_without_authorizing_reuse(self):
+        self.retained_run()
+        recorded = digest(self.source)
+        self.source.write_text("later source")
+        with patch("gambit_smp.research_kernel.manifest_paths", return_value={"engineId": "fixture-engine"}):
+            proof, *_ = observe_journal(self.root, self.run, "seed")
+        repair = proof["inputRepair"]
+        self.assertEqual(repair["drift"], [{
+            "path": "source.c", "recordedSha256": recorded, "observedSha256": digest(self.source)}])
+        self.assertFalse(repair["bytesRestored"])
+        self.assertFalse(repair["rebuildAuthorized"])
+        self.assertFalse(repair["runtimeAdmitted"])
+        self.assertFalse(proof["runtimeAdmitted"])
+        self.assertFalse(proof["resumptionAuthorized"])
+
     def test_actual_persistent_journal_reads_without_reconstructing_child(self):
         self.retained_run()
         with patch("gambit_smp.research_kernel.manifest_paths", return_value={"engineId": "fixture-engine"}):

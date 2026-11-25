@@ -14,7 +14,7 @@ parent reaped and process group quiescent. There is no final child receipt and
 no complete suite acceptance. Eligibility is not a correctness result.
 
 The framework's interrupted observation collector retained this result at
-`evidence/source-results/fixtures/vm-registry-reader-lease/interrupted-compiled-configuration-grid/receipt.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/vm-registry-reader-lease/interrupted-compiled-configuration-grid/receipt.json`.
 Eleven process records exist: eight have observed completed exits and three
 remain STARTED without an observed result. All eight completed process exits
 were zero with no timeout. No file completion, suite acceptance, or outcome for

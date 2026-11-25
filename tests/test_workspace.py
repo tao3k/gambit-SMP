@@ -18,6 +18,51 @@ from gambit_smp.artifact_storage import runtime_output
 
 
 class WorkspaceTests(unittest.TestCase):
+    def test_source_checkpoint_skips_unretained_bytes_but_checks_external_links(self):
+        from gambit_smp import recipes
+
+        with tempfile.TemporaryDirectory() as directory:
+            build = Path(directory)
+            source = build / "source"
+            source.mkdir()
+            (source / "input.c").write_bytes(b"current source")
+            (source / "output.o").write_bytes(b"unretained output")
+            state = build / "source-state.json"
+            w.write(state, {"inputs": {"input.c": {}, "missing.c": {}}})
+            with patch.object(recipes, "digest", wraps=recipes.digest) as digest:
+                w.checkpoint_build_source(source)
+            digest.assert_called_once_with(source / "input.c")
+            checkpoint = json.loads(state.read_text())
+            self.assertEqual(checkpoint["observed"], {
+                "input.c": recipes.tree_identity(source)["input.c"],
+            })
+            (source / "external").symlink_to(state)
+            with self.assertRaisesRegex(ValueError, "external symlink"):
+                w.checkpoint_build_source(source)
+            self.assertEqual(json.loads(state.read_text()), checkpoint)
+
+    def test_global_retention_does_not_skip_independent_process_checks(self):
+        w.start(self.root,'repair',adopt=True)
+        record=self.root/'.state/work-processes/repair/audit.json'
+        record.parent.mkdir(parents=True,exist_ok=True);w.write(record,{'process':'audit'})
+        with patch('gambit_smp.task_retention.collect',side_effect=ValueError('missing retained payload')),patch.object(w,'collect_runs',return_value=[]) as runs,patch('gambit_smp.work_process.collect',return_value=['expired-run']) as processes:
+            result=w.collect(self.root)
+        runs.assert_called_once_with(self.root,'repair')
+        processes.assert_called_once_with(self.root,'repair','audit')
+        self.assertEqual('missing retained payload',result[0]['reason'])
+        self.assertEqual(['expired-run'],result[1]['removed'])
+
+    def test_gc_all_reuses_the_existing_global_collector(self):
+        from contextlib import redirect_stdout,redirect_stderr
+        import io
+        with patch.object(sys,'argv',['workspace','--root','/tmp','gc','--all']),patch.object(w,'collect',return_value=[]) as collector,redirect_stdout(io.StringIO()):
+            self.assertEqual(0,w.main())
+            collector.assert_called_once_with(Path('/tmp'))
+        for args in (['gc'],['gc','repair','--all']):
+            with patch.object(sys,'argv',['workspace',*args]),patch.object(w,'collect') as collector,redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):w.main()
+                collector.assert_not_called()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

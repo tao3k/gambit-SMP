@@ -87,7 +87,7 @@ class ReflectionTests(unittest.TestCase):
         from gambit_smp.output_observations import recorded, check_model
         from tests.support import published_digest
         root = Path(__file__).resolve().parents[1]
-        directory = root / "evidence/model-results/gc-source-wait-full-step-safety"
+        directory = root / ".cache/research/legacy-evidence/evidence/model-results/gc-source-wait-full-step-safety"
         record = json.loads((directory / "receipt.json").read_text())
         for name, expected in record["artifacts"].items():
             self.assertEqual(expected, published_digest(root, directory / name))

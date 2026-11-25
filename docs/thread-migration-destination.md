@@ -60,14 +60,14 @@ pin value. Continuation storage and GC roots must compose with the saved-stack
 retirement contract. The new failure is separate from the retained unpinned
 shrink timeout, which must not be blindly retried.
 
-Receipts are in `evidence/source-results/fixtures/startup-sync-flag-handoff`:
+Receipts are in `.cache/research/legacy-evidence/evidence/source-results/fixtures/startup-sync-flag-handoff`:
 `thread-migration-target.json` and `compiled-migration-target.json`.
 Full native, bootstrap, Gerbil and release correctness remain unqualified.
 
 The old destination-claim counterexample has eight distinct states. The fixed
 design passes safety and temporal completion over 14 distinct / 16 generated
 states, including initially pinned and unpinned cases. The source/native-bound
-receipt is `evidence/model-results/fixtures/startup-sync-flag-handoff/migration-destination-contract/receipt.json`.
+receipt is `.cache/research/legacy-evidence/evidence/model-results/fixtures/startup-sync-flag-handoff/migration-destination-contract/receipt.json`.
 It is registered in the Datalog bundle registry with five unresolved obligations.
 No lock implementation or concurrent pin-mutation correctness follows from the
 atomic model steps. The actual compiled failure is in `evidence/native-failures.json`

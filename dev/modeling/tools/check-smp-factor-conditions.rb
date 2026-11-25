@@ -13,7 +13,7 @@ raise 'adapter policy drift' unless sha.call('dev/modeling/ascent/frame-alias-co
 audit_path=File.dirname(ap)+'/source-witnesses.json'
 raise 'audit identity drift' unless sha.call(audit_path)==a['sourceWitnessesSha256']
 audit=JSON.parse(File.read(audit_path)); audit['files'].each { |p,h| raise 'source drift' unless sha.call(p)==h }
-candidate='evidence/research/modern-c-bootstrap/request-custody-source.lock.json'
+candidate='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json'
 JSON.parse(File.read(candidate))['files'].each { |p,h| raise 'candidate drift' unless sha.call('vendor/gambit/'+p)==h['candidateSha256'] }
 profile_path='evidence/fixtures/gerbil-bazel-build-profile/profile.json'
 profile=sha.call(profile_path); raise 'profile drift' unless profile==a['profileSha256']

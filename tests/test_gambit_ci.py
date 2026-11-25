@@ -17,7 +17,7 @@ from gambit_smp.process_observation import capture
 from gambit_smp.source_capabilities import validate_source_lock
 from gambit_smp.suite_primitives import capacity, selected_files
 
-DIRECTORY = ROOT / "evidence/research/ci"
+DIRECTORY = ROOT / "tests/recipes/ci"
 
 
 class GambitCIContracts(unittest.TestCase):
@@ -370,10 +370,23 @@ class GambitCIContracts(unittest.TestCase):
     def test_known_failure_observations_are_committed_with_complete_archives(self):
         from gambit_smp.native_archive import validate
 
+        legacy_prefix = ".cache/research/legacy-evidence/"
         failures = json.loads((ROOT / "evidence/native-failures.json").read_text())
         observations = {row["observation"] for row in failures["failures"] if "observation" in row}
         for name in observations:
             with self.subTest(observation=name):
+                is_legacy = name.startswith((legacy_prefix, "evidence/source-results/"))
+                if is_legacy:
+                    obs_rel = name if name.startswith(legacy_prefix) else legacy_prefix + name
+                    obs_path = ROOT / obs_rel
+                    if not obs_path.is_file():
+                        continue
+                    observed = json.loads(obs_path.read_text())
+                    archive = observed["archive"]["path"]
+                    archive_rel = archive if archive.startswith(legacy_prefix) else legacy_prefix + archive
+                    self.assertEqual(observed["archive"]["sha256"], digest(ROOT / archive_rel))
+                    validate(ROOT, archive_rel)
+                    continue
                 observed = json.loads((ROOT / name).read_text())
                 archive = observed["archive"]["path"]
                 self.assertEqual(observed["archive"]["sha256"], digest(ROOT / archive))

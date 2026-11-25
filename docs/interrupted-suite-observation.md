@@ -36,7 +36,7 @@ This is a contract correspondence, not a new formal verification receipt.
 
 The configuration Grid's original 300-second envelope ended at 300.297 seconds.
 Its portable interrupted observation is at
-`evidence/source-results/fixtures/vm-registry-reader-lease/interrupted-compiled-configuration-grid/receipt.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/vm-registry-reader-lease/interrupted-compiled-configuration-grid/receipt.json`.
 The selected source inventory contains 379 files. Eleven process records exist;
 eight have observed zero exits and three have no completion observation. There
 is no inferred passing-file count and no full SMP admission.

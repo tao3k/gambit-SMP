@@ -19,7 +19,7 @@
 
 The retained processor probe says **11**. The parent test driver used `-:p1` for the driver, while `run-unit-tests.scm` starts its gsi test child with its own original settings. Neither this report nor the model changes native topology. The crash contains ten reported native thread records; do not substitute either that count or the model's two abstract workers for the producer configuration.
 
-Machine-readable [binding and provenance](../evidence/research/smp-retirement-study/tfib-crash-binding.json) contains the complete SHA identities and immutable reference paths. Original captured material: `.cache/tasks/repair-9-12/processes/audit/runs/f41ad62f11d049ee96c824b3a4587878/outputs/tfib-crash-binding/`.
+Machine-readable binding and provenance (local execution locator: `../.cache/research/legacy-evidence/evidence/research/smp-retirement-study/tfib-crash-binding.json`; unavailable in a clean checkout) contains the complete SHA identities and immutable reference paths. Original captured material: `.cache/tasks/repair-9-12/processes/audit/runs/f41ad62f11d049ee96c824b3a4587878/outputs/tfib-crash-binding/`.
 
 ## Exact fault: invalid object-header read inside mark_array
 

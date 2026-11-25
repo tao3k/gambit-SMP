@@ -403,6 +403,52 @@ def append_observation(root, scope, inputs, results, backend, *, bound_inputs=No
     return identity
 
 
+@lru_cache(maxsize=256)
+def _build_start_projection(encoded_facts, source_bytes, registry_bytes):
+    with engine_api(retain=True) as (engine, _):
+        catalog = load_component_catalog(RULES.parent / 'components.json', entry='checkpoint-state',
+                                         constructor='make-build-start', trusted=True)
+        answers = query(json.loads(encoded_facts), catalog,
+                        {name:name for name in ('guarded_step', 'build_obligation', 'diagnostic_setup')},
+                        engine=engine)
+    if (RULES.with_name('checkpoint.ss').read_bytes() != source_bytes
+            or RULES.with_name('components.json').read_bytes() != registry_bytes):
+        raise ValueError('build-start declaration changed during native inference')
+    return dict(backend='ASCENT', facts=json.loads(encoded_facts), relations=answers, sourceInputs=catalog['sourceInputs'],
+                executionAuthorized=False, runtimeAdmitted=False)
+
+
+def build_start_analysis(header):
+    """Project typed capability effects through ASCENT, without choosing a repair."""
+    from gambit_smp.recipes import CAPABILITIES
+    steps = header.get('declaration', {}).get('steps', [])
+    facts = dict(step=[(s['id'], s['capability']) for s in steps],
+        dependency=[(s['id'], parent) for s in steps for parent in s.get('dependsOn', [])],
+        hosted_module=[(s['id'],) for s in steps
+                       if s.get('arguments', {}).get('syntaxCheck') is True
+                       and 'bootstrapHost' in s.get('arguments', {})],
+        capability_output=[(name, kind) for name in sorted({s['capability'] for s in steps})
+                           for _, kind in getattr(CAPABILITIES.get(name), 'outputs', ())])
+    source = RULES.with_name('checkpoint.ss')
+    registry = RULES.with_name('components.json')
+    result = _build_start_projection(canonical(facts), source.read_bytes(), registry.read_bytes())
+    if any(digest(Path(path)) != expected for path, expected in result['sourceInputs'].items()):
+        raise ValueError('build-start rule/source binding changed')
+    result = json.loads(canonical(result))
+    import sys
+    contract_modules = {'gambit_smp.recipes', __name__}
+    for step in steps:
+        capability = CAPABILITIES.get(step['capability'])
+        for field in ('validate', 'executor'):
+            function = getattr(capability, field, None)
+            if function is not None:
+                contract_modules.add(function.__module__)
+    result['contractInputs'] = {str(Path(sys.modules[name].__file__).resolve()):
+                               digest(Path(sys.modules[name].__file__))
+                               for name in sorted(contract_modules) if getattr(sys.modules.get(name), '__file__', None)}
+    return result
+
+
 def _native_build_keys(header):
     """Build dependency identities exclude attempt names, display IDs and budgets."""
     steps = {step["id"]: step for step in header.get("declaration", {}).get("steps", [])}
@@ -432,9 +478,8 @@ def _native_build_keys(header):
                                       "dependencies": sorted(identity(dep) for dep in step.get("dependsOn", []))})
         return memo[name]
 
-    costly = {"gambit.configure", "gambit.seed-core", "gambit.source-core", "gambit.bootstrap", 'gerbil.build',
-              'gambit.native-development'}
-    return {identity(name) for name, step in steps.items() if step.get("capability") in costly}
+    projection = build_start_analysis(header)
+    return {identity(name) for (name,) in projection['relations']['guarded_step']}
 
 
 def _guard_native_build_start(db, checkpoint, observation):
@@ -462,6 +507,7 @@ def _guard_native_build_start(db, checkpoint, observation):
     keys = _native_build_keys(header)
     if not keys:
         return
+    repair = header.get('repair', {})
     previous = None
     # The existing BEGIN IMMEDIATE covers both this read and the header insert.
     # No disposable directory scan or new scheduler/state database is involved.
@@ -478,14 +524,18 @@ def _guard_native_build_start(db, checkpoint, observation):
         if len(rows) != 1:
             raise ValueError("build start checkpoint lacks its immutable header")
         old_header = json.loads(rows[0])
+        old_repair = old_header.get('repair', {})
+        same_repair_cut = (repair and old_repair
+            and repair['failureRun'] == old_repair['failureRun']
+            and repair['plan']['failureStep'] == old_repair['plan']['failureStep'])
+        same_recipe = not repair and old_header.get("recipe") == header.get("recipe")
         if (old_header.get("schema") == "research-run-header.v1"
-                and (old_header.get("recipe") == header.get("recipe")
-                     or keys & _native_build_keys(old_header))):
+                and (same_repair_cut or same_recipe or keys & _native_build_keys(old_header))):
             previous = path
     if previous is None:
         return
     requested = header.get("requestedPrior")
-    if requested is None:
+    if requested is None and not repair:
         prior = header.get("request", {}).get("prior")
         requested = str(Path(prior).parent) if prior else None
     if requested is not None and str(Path(requested).resolve()) == previous:

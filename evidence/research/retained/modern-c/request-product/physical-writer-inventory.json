@@ -1,0 +1,31 @@
+{
+  "sourceTree": "48485f5c4b8f0f6f81ee756c6cdfa30e3e04ff5a",
+  "complete": true,
+  "readerSha256": "f4f2f08b56f3c6980774a8afc7456fbe7b28639dd02ca0de2ddb4e8ea15b0ae1",
+  "readerSource": "(declare (standard-bindings) (extended-bindings))\n(define calls '(##btq-insert! ##btq-remove! ##btq-reposition! ##toq-insert! ##toq-remove! ##toq-reposition! ##thread-btq-insert! ##thread-btq-remove! ##thread-toq-remove! macro-thread-btq-container-set! macro-thread-toq-container-set! macro-btq-init! macro-toq-init!))\n(define (inventory path)\n  (let ((rows '()))\n    (define (visit x owner)\n      (if (pair? x)\n          (if (and (eq? (car x) 'cond-expand) (pair? (cdr x)) (pair? (cadr x)) (eq? (caadr x) 'enable-smp))\n              (for-each (lambda (body) (visit body owner)) (cdadr x))\n          (if (and (symbol? (car x)) (memq (car x) '(define-prim define ##define-macro)) (pair? (cdr x)))\n              (let* ((head (cadr x)) (name (if (pair? head) (car head) head)))\n                (for-each (lambda (body) (visit body name)) (cddr x)))\n              (begin\n                (if (and (symbol? (car x)) (memq (car x) calls))\n                    (set! rows (cons (list owner (car x)) rows)))\n                (visit (car x) owner)\n                (let loop ((tail (cdr x)))\n                  (cond ((pair? tail) (visit (car tail) owner) (loop (cdr tail)))\n                        ((not (null? tail)) (visit tail owner)))))))))\n    (call-with-input-file path\n      (lambda (port)\n        (let loop ()\n          (let ((form (read port)))\n            (if (not (eof-object? form)) (begin (visit form 'top-level) (loop)))))))\n    (write (list path (reverse rows))) (newline)))\n",
+  "observations": [
+    {
+      "stage": "writer-reader",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.11619200000131968,
+      "markers": {
+        "##thread-migrate-to!": true,
+        "##thread-start-on!": true,
+        "##thread-lock-remove-btq-toq!": true
+      }
+    }
+  ],
+  "data": "physical-writer-inventory.sexp",
+  "scope": "Native Scheme reader over the active enable-smp branch; callsite inventory is not lock-ownership proof. Generated define-rbtree container writes require their separate generator mapping.",
+  "open": [
+    {
+      "owner": "##thread-effective-priority-changed!",
+      "operations": [
+        "##toq-reposition!",
+        "##btq-reposition!"
+      ],
+      "reason": "Caller owns Thread; complete queue lease and key-change transaction is not established. Do not close coverage or change scheduling policy from a timeout alone."
+    }
+  ]
+}

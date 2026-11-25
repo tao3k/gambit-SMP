@@ -10,7 +10,7 @@ class PublicationPartitionsTests(unittest.TestCase):
     def test_complete_policy_campaign_is_bound_without_native_admission(self):
         base = "evidence/fixtures/vm-constructor-owned-rollback/"
         manifest = load_manifest(ROOT / (base + "publication-rollback-contract.json"))
-        receipt = ROOT / "evidence/model-results/fixtures/vm-constructor-owned-rollback/publication-rollback-dedicated-init-dependency/receipt.json"
+        receipt = ROOT / ".cache/research/legacy-evidence/evidence/model-results/fixtures/vm-constructor-owned-rollback/publication-rollback-dedicated-init-dependency/receipt.json"
         cases = protocol_evidence.checked_rows(ROOT, manifest, receipt)
         rows = [row for _, case_rows in cases for row in case_rows]
         self.assertEqual(7, len(rows))

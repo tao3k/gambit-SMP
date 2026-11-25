@@ -11,7 +11,7 @@ The current producer is declared by
 [the numeric-host source lock](../evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json)
 and [its cumulative patch](../patches/fixtures/vm-registry-resize-grace-numeric-host.patch).
 The older producer and declared observer are distinct inputs in
-[the original interpreted observation](../evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md).
+the original interpreted observation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md`; unavailable in a clean checkout).
 Do not transfer that producer's successful stress result or timing to this one.
 Transient logs, binary identities and query checkpoints stay in task cache.
 
@@ -24,7 +24,7 @@ recursive busy-loop decrements. It starts 4,935,000 Scheme threads, including
 the outer 5,000. These are source operation counts, not elapsed-time bounds.
 The original comment calibrates a compiled delay; it does not calibrate GSI.
 
-The retained [sequential delay diagnostic](../evidence/research/processor-interrupt-collective-wait/native-observation.md)
+The retained sequential delay diagnostic (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/native-observation.md`; unavailable in a clean checkout)
 measured 1,000 interpreted delay calls in 2.110121 seconds on the older producer.
 Applying that coefficient to the full delay count gives about 20,816 sequential
 CPU-seconds, or about 10,408 seconds with ideal two-way parallel execution.
@@ -33,7 +33,7 @@ current-producer prediction, scaling theorem or substitute for original stress.
 Different source, observation, warm-up and CPU conditions remain material.
 
 The historical inventory explicitly selected two processors and one driver.
-The [current inventory Recipe](../evidence/research/ci/bazel-profile-gc-ffi-inventory.recipe.json)
+The [current inventory Recipe](../tests/recipes/ci/bazel-profile-gc-ffi-inventory.recipe.json)
 now leaves processor selection to the existing host-capacity default, with one
 driver. Existing `capacity` in
 [suite_primitives.py](../src/gambit_smp/suite_primitives.py) already derives a

@@ -147,6 +147,205 @@ claim a two-pass bootstrap, authorize a retry or admit native correctness.
 Run-specific descriptors and observation logs are local research inputs/results,
 not portable evidence to publish as if their cache paths were reproducible.
 
+### Make lineage transport preflight and retry diagnosis
+
+Managed `gambit.source-core` first checks the actual seed compiler on
+`lib/_kernel.scm`, `lib/_nonstd.scm` and `lib/_system.scm`. Each check freezes
+the compiled GSC, observes its system-loader closure, executes the configured
+single-module emission recipe into its own output directory and validates
+the emitted C with the configured library GCC flags and C23. GCC records its
+header closure; `-fsyntax-only` produces no object or link. A failed cut stops
+entry into the working source-core tree and whole core command. Its emitted
+file, native diagnostic and observation remain in the failed step artifacts.
+
+For independent diagnosis, `gambit.regenerate-module` accepts
+`"syntaxCheck": true` and a typed `seed-runtime` or `source-runtime` input.
+It reads the leased producer and writes only its own results. The existing
+dispatcher can print the complete focused Recipe from a checked-import Recipe:
+
+```sh
+.venv/bin/gambit-smp --task modern-c-frame-contract research \
+  --module-checks PATH/checked-import.recipe.json --step runtime \
+  --module lib/_system.scm
+```
+
+Omit `--module` to create three independent check steps. `--step` selects a
+`gambit.seed-checkpoint`, `gambit.runtime-import` or `gambit.completed-runtime`
+provider in the input declaration. Import ancestry containing a core, seed
+build, bootstrap or campaign is rejected. The command emits Recipe JSON;
+save it as a maintained source declaration and use the ordinary `research
+--seal` / `research --run` path. It never executes an import or compiler.
+The selected import still validates its real producer, source and remaining
+budget when the resulting Recipe runs. Missing or stale support does not
+trigger a build fallback. These checks do not qualify a production compiler.
+
+A changed source lock does not require a completed target bootstrap merely
+to diagnose emission. Use the existing interpreted source compiler with an
+explicit `gambit-bootstrap-host` specification instead:
+
+```sh
+.venv/bin/gambit-smp --task modern-c-frame-contract research \
+  --module-checks evidence/fixtures/dev-rest-original-runner/bootstrap.recipe.json \
+  --step configure \
+  --bootstrap-host evidence/fixtures/dev-rest-original-runner/interpreted-gsi-host.json \
+  --module lib/_system.scm
+```
+
+Here `--step` must select `gambit.configure`. The projected Recipe retains
+only its source/configure ancestry and the selected diagnostic checks. It
+does not contain `seed-core`, `source-core`, `bootstrap` or a completed-runtime
+import. `source-module-checks.recipe.json` in the same fixture directory is
+the maintained declaration for all three modules. Seal and execute it through
+the existing dispatcher; deriving JSON alone is not a successful native check.
+The adjacent `source-module-checks-kernel.recipe.json`,
+`source-module-checks-nonstd.recipe.json` and
+`source-module-checks-system.recipe.json` each schedule only their named module.
+Seal the updated framework before running them; an older sealed engine does
+not implement the hosted contract. Framework sealing does not rebuild Gambit.
+
+The hosted form of `gambit.regenerate-module` requires `source`, `bootstrapHost`,
+`module` and `syntaxCheck: true`. It freezes the declared interpreter bytes
+and observes the supported system loader before invoking the configured
+target's `gsc/igsc.scm`. The receipt binds the host specification and executable
+separately from the target source lock, Scheme closure, configured Make recipe,
+GCC and headers. A replaced host is refused. The temporary `GAMBIT_BOOT_GSI`
+binding is restored even on failure. Target GSI and compiled GSC files are not
+required. Outputs have only the `c-source` type; observations explicitly deny
+target-producer and Family admission. An older host is a tool, not a newly
+qualified producer for the current lock. Completed-runtime imports retain
+their exact source-lock checks.
+
+The three default cuts are examples, not a module permission whitelist.
+`--module lib/_NAME.scm` can select another explicit locked library source for
+a reduced reproduction through the same capability. Models may compose other
+registered observations and model checks in a Recipe instead of editing Python
+to install a prescribed repair sequence.
+
+Build-start arbitration now projects capability output contracts and dependency
+edges through the registered ASCENT `make-build-start` constructor in
+`checkpoint.ss`. It derives producer obligations, diagnostic consumers and
+their configuration ancestry. A configuration used only for diagnosis does not
+repeat a runtime producer; a configuration with a producer descendant retains
+its build guard. New producer capabilities are recognized by their output types.
+Additional observations need no Python allowlist. The projection retains its
+facts, rule source hashes and reasons; it grants no execution or native credit.
+
+After a denied launch, `research --read RUN` exposes a typed allocation repair
+context even when no header or receipt was written. Under the execution owner's
+lease, `research --run` can adopt an empty container at the same path and retain
+its inode. A nonempty unbound directory remains closed and no bytes are deleted.
+Durable build-start conflicts now retain a DENY receipt and the ASCENT analysis
+instead of leaving only an empty output and stderr. Existing prior-run and
+causal-change checks continue to apply. A renamed output is not a repair.
+
+Failed-step summaries include the final command's receipt-bound log excerpt
+even when its process returned zero. This preserves runtime exceptions and
+unknown diagnostics for model reasoning without a language-specific repair
+classifier. Failed evidence, zero-exit/missing-output failures and command
+timeouts remain failures. The model chooses hypotheses and source/tool changes;
+ASCENT checks their relations, and the existing executor validates custody,
+source/tool bindings, budgets and actual outcomes.
+
+### Model-selected repair for hosted module checks
+
+`research --read RUN` returns `repairContext` for a committed hosted-module
+failure. The context carries the parent checkpoint identity, failed step,
+command phase, receipt-bound diagnostic lines and ASCENT evidence gaps. A
+watchdog with an empty log leaves the cause open. A reported exception can
+localize a failure even when the emitter returned zero.
+
+Choose a locked Recipe and write a plan as JSON data in the agent's scratch
+directory. The model supplies its hypothesis and selects the verification step.
+
+```json
+{
+  "schema": "research-repair-plan.v1",
+  "baselinePrefix": "<repairContext.baselinePrefix>",
+  "failureStep": "<failed step id>",
+  "targetStep": "<candidate step id>",
+  "intent": "probe",
+  "hypothesis": "<what the selected change is intended to distinguish>"
+}
+```
+
+```sh
+.venv/bin/gambit-smp --task TASK research --run CANDIDATE.recipe.json \
+  --prior PRIOR_RUN --engine ENGINE --repair-plan PLAN.json
+```
+
+The review compares the candidate's selected module, pinned source and tools
+with retained evidence. ASCENT returns the localized cut, candidate deltas
+and eligibility reasons. Add `--out FRESH_RUN` to execute the choice through
+the existing task owner and sealed runner. Launch recomputes the review and
+records the decision, inputs and rule identities in the new receipt. The
+diagnostic lane accepts a selected hosted module check and bounded supporting
+observations. ASCENT checks the registered product types against the diagnostic
+scope. The executor applies the original diagnostic budget ceilings and
+durable build-start arbitration.
+
+`probe` permits a different or reduced module and records its observed outcome.
+`repair` targets the original module and requires fresh emitted C and a
+successful configured syntax check. Read the new run with `research --read`
+to inspect the verdict and any new failure context. To continue from an
+experiment while keeping the original failed cut, set `failureRun` in the
+plan to the repository-relative original run path and pass the latest
+experiment as `--prior`. The executor checks that both belong to the same
+committed repair lineage.
+
+A committed and quiescent attempt can carry `--prior` custody independently
+of its verification verdict. When a patch command or another dependency fails
+before emission, the next review keeps the original failed module as its
+evidence anchor and compares the candidate's inputs with the last committed
+selection. ASCENT reports the changed bindings and rejects an identical
+selection. Available preparation diagnostics are recorded separately and
+checked against their log hashes.
+
+`source_core_resume` no longer reads the old cohort workspace pointer. The
+declared frozen seed selects the registered `working-source-core` build role.
+The existing build configuration, source synchronization, task reconciliation
+and exclusive workspace lease own this directory. Different seed bytes select
+a different generation; they never overwrite or reclassify the prior tree.
+
+Reuse requires a journal-bound regeneration checkpoint with a completed,
+quiescent Make command, the exact seed/source/configuration binding, complete
+retained tree identity, loader identity and successful per-target Make origins.
+External object header dependencies are rechecked. A same-byte skipped target
+retains its original emission receipt; it does not gain a fresh generation edge.
+Unknown custody, changed bytes, missing evidence or an incomplete command fail
+before core without cleaning, reseeding or copying over the changed tree.
+Checkpoint-origin runs receive ordinary task retention pins. A failed child
+output is preserved under its action's `failed-output` and removed from Make's
+target path, so a partial C/object cannot satisfy the next invocation.
+
+A source-core stage followed by a witnessed bootstrap first runs a small
+two-pass transport fixture through the existing `ExecutionContext`. It takes
+the hook definitions, promotion command and `from-scratch` recipe from the
+configured Make inputs. The configured GCC builds a C copier; Make exercises
+Python imports, emitter preservation, loader inspection, object/archive/link
+children and bootstrap promotion through the managed birth/exec boundary.
+The fixture has its own output directory and grants no Gambit or Family credit.
+A transport failure stops entry into the expensive source-core command.
+A direct bootstrap import also requires this preflight. A successful check
+can be shared within one sealed run only while the hook/helper/tool bindings
+and retained preflight receipt remain identical. Stage budgets still apply.
+
+Before consuming a prior checkpoint, the child retains
+`run/checkpoint-consumption.json` and records the same plan in its receipt.
+Each stage names the existing reuse decision: absent/failed observation,
+changed contract, changed executor, non-consumable checkpoint or unreused
+dependency. A completed seed/core/bootstrap which cannot be replayed names
+the existing checked transport capability, without admitting that transport.
+Scheme checkpoint rules and the same-executor requirement retain authority.
+
+`gambit-smp --task TASK research --read RUN` and launch summaries expose a
+child-receipt-bound `executionSummary`: command/stage durations, failure
+boundary, reuse decisions and recorded native build candidates. A completed
+recipe is reported as `DECLARED_RECIPE_COMPLETE`, never native acceptance.
+Durations do not measure Python overhead or prove avoidable rebuild time.
+An old or changed executor must consume a completed producer through the
+existing explicit runtime/checkpoint import contract; a PASS label alone
+never permits reuse. No original native acceptance budget is changed.
+
 Pure Quint/Evidence capability graphs bind their declared model and DSL inputs;
 they do not require materializing a Gambit source tree. Adding a native or source
 build capability restores the locked native producer requirement.
@@ -256,6 +455,31 @@ separate. Validation fixtures run with isolated task environment while their
 actual parent lease stays held; test code must not borrow production task state.
 
 ## Two-calendar-day retention
+
+Run `.venv/bin/gambit-smp workspace gc --all` for the existing collectors across
+registered tasks, or `workspace gc TASK` for one task. This is maintenance,
+not a build or a native admission check. Independent dependency, task-run and
+process collectors report their own deferrals; one blocked owner does not
+suppress another collector's lease and reference checks.
+
+Process-attempt expiry honors explicit recovery pins, including a pinned child
+artifact inside an old attempt. Register only the exact currently consumed
+inputs and release those pins when replacements qualify. Do not pin complete
+task caches to avoid expiry. Source Git custody, active writers, unknown state
+and operational databases remain separate disposal conditions.
+
+Obsolete compilation workspaces are not ordinary cache hits. An explicit owner
+disposal uses the same storage module:
+`gambit-smp storage-retention --retire CACHE_CHILD --keep CURRENT_WORKING_DIRECTORY`.
+Repeat the flags for a reviewed group. Retained paths exclude ancestors and
+descendants from disposal. The operation checks live references and registered
+dependencies, preserves source history/dirty source and offline state bytes,
+then unregisters linked Git worktrees and deletes the old compilation directory.
+It does not retain the complete generated build as a source backup. A broken
+historical Git graph is recorded as incomplete; an actual source snapshot does
+not certify the missing history. Offline queue snapshots do not complete or
+replay pending requests. Current workspaces require an explicit owner decision,
+not an inferred age exception for every directory containing `.git`.
 
 Use Asia/Shanghai dates: on October 20 retain October 19–20. Workspace creation,
 explicit task finalization and `workspace gc` use the same collectors. Entering
@@ -379,7 +603,7 @@ sealed, running engine is not rewritten. Repair 9–12 declares only `gambit-cor
 and `gerbil` as build products in `docs/work-items.json`.
 
 The maintained CI Recipe and the authored successors in
-`evidence/research/incremental-builds/` select these products. Their migration
+`.cache/research/legacy-evidence/evidence/research/incremental-builds/` select these products. Their migration
 declaration binds the original Recipe bytes and an allowed successor. A real
 `--prior` carries expenditure and lineage through the existing checkpoint path;
 the migration authorizes no restored stages, process recovery or native result.
@@ -414,6 +638,29 @@ release the source to a new caller while a native consumer still holds its lock,
 even in the same long-lived worker/run. Across runs, prior task/process custody
 and actual child-group quiescence must also reconcile. Test fixture isolation
 clears inherited workspace metadata rather than borrowing production leases.
+
+Whole-suite workers use the same task's fixed `build/suite-tests/worker-N`
+directories, not a new `runs/RUN/shards` tree. Concurrent groups borrow at most
+the admitted worker population. The existing workspace lease covers the pool
+and its native children; a competing owner fails instead of creating another
+copy. Ordinary suites read the upstream input inventory directly. Explicit
+derived fixtures and isolated compiler diagnostics remain distinct observations.
+
+Each slot binds input bytes, runtime artifacts, working directory and a digest
+of the execution context. Equal inputs retain files without another transfer.
+A changed binding resets only that slot's owned test data. Foreign entries,
+escaping aliases and unknown child termination refuse reuse. An unresolved
+child retains its slot and outputs; cleanup requires actual quiescence.
+Neither a retained `.o1` file nor this byte reuse grants test completion or
+compiled-fixture reuse. Requested official suites still execute. Existing
+compiled-fixture completion and source/tool/runtime/cwd checks govern executable
+reuse; explicit compilation-cost experiments still perform their declared builds.
+
+Use the existing Make targets for an incompatible native build state in the
+same owned source workspace. Do not run `make clean` on every cache hit, erase
+bootstrap seeds to reset a test slot, or create a replacement source tree when
+an existing lease or unknown process prevents cleanup. Run receipts remain
+historical observations, separate from the reusable working directories.
 
 Attempt receipts stay separate from the stable build directories. Existing
 owner/child/reference protection and two-calendar-day retention apply to these
@@ -697,3 +944,26 @@ the durable removal plan. The normal update checkpoint records that plan before
 unlinking and completes it after an interruption. Real files, resolved links,
 unregistered links, source inputs and external targets are not cleaned by this
 rule. Publication and runtime consumption retain strict artifact-tree checks.
+
+## Research publication boundary
+
+The [SysML-owned publication policy](../dev/modeling/research-storage.org) distinguishes maintained inputs from execution output. New outputs use task run caches. Before publishing, run `python -m gambit_smp.research_publication --staged`; force-adding ignored files does not bypass the index gate.
+
+## Sampled resource protection for a bounded execution
+
+`workspace run` and `workspace process-run` accept `--rss-limit-bytes N`.
+The existing supervisor applies one limit to the union of process groups in
+that exact task/run journal, including nested sessions. It does not allocate
+N bytes independently to each worker. Native group-filtered process census
+and birth-checked RSS samples run at250ms intervals. Unreadable owned members
+refuse execution. This is not an OS hard limit: shared pages may be counted
+more than once and inter-sample spikes are not bounded. Per-job reservations
+and memory-aware scheduling are separate obligations.
+
+On an observed resource excess, timeout or cancellation, the supervisor freezes
+the driver, signals only groups with live same-boot birth anchors, and reaps the
+driver. Unknown identities retain unresolved custody. A returned driver with
+remaining registered sessions is refused with exit125 after cleanup. This does
+not guarantee recovery when the outer supervisor itself is killed; an external
+reaper is a separate missing mechanism. Existing stage deadlines, original
+negative controls and native/package admission requirements remain unchanged.

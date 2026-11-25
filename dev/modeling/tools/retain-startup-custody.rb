@@ -1,5 +1,5 @@
 require 'json';require 'digest';require 'fileutils';require 'open3'
-e='evidence/research/modern-c-bootstrap';b='.cache/tasks/modern-c-frame-contract/cohort';r='.cache/tasks/modern-c-frame-contract/runs/bazel-entry-custody-reviewed/run'
+e='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap';b='.cache/tasks/modern-c-frame-contract/cohort';r='.cache/tasks/modern-c-frame-contract/runs/bazel-entry-custody-reviewed/run'
 sha=->p{Digest::SHA256.file(p).hexdigest};read=->p{JSON.parse(File.read(p))};lock=e+'/entry-custody-source.lock.json';profile='evidence/fixtures/gerbil-bazel-build-profile/profile.json'
 read.call(lock)['files'].each{|p,h|raise 'source drift '+p unless sha.call('vendor/gambit/'+p)==h['candidateSha256']}
 campaign=read.call(r+'/receipt.json');raise 'campaign' unless campaign['outcome']=='PASS'&&campaign['inputsStable']&&campaign['inputs'][File.expand_path(lock)]==sha.call(lock)&&campaign['inputs'][File.expand_path(profile)]==sha.call(profile)
@@ -57,7 +57,7 @@ org=<<~ORG
 
 [[file:startup-custody.org][The source handoff analysis]] separates member publication, Scheme initialization
 and known native close. [[file:round-capacity.org][The pre-flip capacity contract]] is still a target, not an
-implemented planner. [[file:../../../evidence/research/modern-c-bootstrap/entry-custody-validation.json][The validation manifest]] binds retained native, formal and failure history.
+implemented planner. [[file:../../../.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/entry-custody-validation.json][The validation manifest]] binds retained native, formal and failure history.
 The unchanged Bazel profile completes the campaign in #{campaign['wholeSeconds'].round(3)} seconds,
 with official from-scratch #{summary[:native][:fromScratchSeconds].round(3)} seconds and four phases twice.
 These are durations, not a matched speedup result. No heap increase or repair

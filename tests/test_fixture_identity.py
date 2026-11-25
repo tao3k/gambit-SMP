@@ -128,7 +128,7 @@ class FixtureIdentityTests(unittest.TestCase):
                 self.assertIsNone(re.search(r"(?:source|candidate)[-_]?\d+", path), path)
 
     def test_materialization_recipe_uses_the_fixture_not_an_experiment_number(self):
-        recipe = json.loads((ROOT / "evidence/research/pstate-log-owned-rollback/source.recipe.json").read_text())
+        recipe = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/pstate-log-owned-rollback/source.recipe.json").read_text())
         self.assertEqual("pstate-log-owned-rollback-materialization", recipe["id"])
         lock = "evidence/fixtures/pstate-log-owned-rollback/source.lock.json"
         self.assertIn(lock, recipe["inputs"])

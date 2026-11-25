@@ -24,7 +24,7 @@ structure writer's type-field read. A separate message-only diagnostic still
 failed at that location. No complete Gerbil test run or release claim is made.
 The four open gates remain open; the aggregate stays **8/12**, with actual repairs,
 full inventories, source-bound controls and failures detailed in the
-[current checkpoint audit](../evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md).
+current checkpoint audit (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md`; unavailable in a clean checkout).
 
 
 ### 2026-10-19 Lifecycle Admission Rollback And Work Bound
@@ -48,7 +48,7 @@ and OS scheduling are not bounded by these proofs; 0.8 seconds is not a release
 performance guarantee. Both proofs use the existing bounded framework.
 
 The remaining four gates and their precise uncovered branches are recorded in
-[the source-bound observation](../evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md).
+the source-bound observation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md`; unavailable in a clean checkout).
 Constructor same-storage failure/retry, failed joins and sticky root failures
 keep lifecycle open. Complete GC/FFI, current Gerbil and release latency/build
 qualification remain open. No current-source full GSI/GSC/PR claim is inherited.
@@ -73,7 +73,7 @@ resource retirement. The final protocol exhausts 1944 distinct states. Both
 model positives and six negative controls pass within unchanged 15-second
 limits; all eight explicit trajectory tests pass. This is conditional finite
 protocol evidence, not a whole C weak-memory or unbounded signal-fairness proof.
-See the [source/native/model record](../evidence/research/processor-interrupt-collective-wait/registry-lifetime-native-observation.md).
+See the source/native/model record (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/registry-lifetime-native-observation.md`; unavailable in a clean checkout).
 
 The five items open at 7/12 now have these actual states:
 
@@ -105,8 +105,8 @@ of universal scheduling noninterference. The 300-second genuine-witness
 inactivity window is unchanged. GC progress alone grants neither mutator
 completion nor runtime admission; the original assertions and natural exit
 establish this stress result. See the
-[source-bound observation](../evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md)
-and [model/source audit](../evidence/research/processor-interrupt-collective-wait/gc-datagram-source-review.md).
+source-bound observation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md`; unavailable in a clean checkout)
+and model/source audit (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/gc-datagram-source-review.md`; unavailable in a clean checkout).
 
 The five gates cumulatively open at that checkpoint were:
 
@@ -161,7 +161,7 @@ The final generated kernel source matches the completed producer identity. All
 14 handwritten kernel ordinals align with actual label definitions, while
 dynamic-env-bind uses ordinary return 1 and internal stack-check continuation 2.
 Its metadata table also preserves ordinary-before-internal return classes. See
-`evidence/research/stack-entry-contract/abi-observation.json`. This is actual
+`.cache/research/legacy-evidence/evidence/research/stack-entry-contract/abi-observation.json`. This is actual
 generated-code evidence, not a captured historical fault PC.
 
 Processor discovery now exits zero in 0.812 seconds. Complete original compiled
@@ -183,7 +183,7 @@ and maps the fault to `##local->value`, taking CDR of the empty-list value.
 The partition allocator changes actual label ids, but debug-info generation
 still uses identity ids from emission order. Runtime continuation/environment
 lookup uses actual subprocedure ids, exposing a missing metadata projection.
-See `evidence/research/stack-entry-contract/interpreter-crash.json`. The source
+See `.cache/research/legacy-evidence/evidence/research/stack-entry-contract/interpreter-crash.json`. The source
 inconsistency is established; causality for every test failure and native repair
 still require validation. No unchanged full-inventory retry is authorized.
 
@@ -211,7 +211,7 @@ or a complete stress result. The bootstrap identity binds generated `_kernel.c`:
 inserted checks move the stack-handler body to label 4 while `setup.c` still
 selects label 2. This establishes an ABI mismatch, not a captured fault PC or
 proof that it causes this SIGSEGV. The native and source observations are retained
-in `evidence/research/stack-call-boundary-reserve/native-observation.json`.
+in `.cache/research/legacy-evidence/evidence/research/stack-call-boundary-reserve/native-observation.json`.
 
 Grok's source audit also finds that conditional jump folding treats `'stack`
 as a full interrupt poll. Its separate minimal delta and finite nine-pair model
@@ -237,7 +237,7 @@ review under the original sealed implementation and original 10-second review
 window exits zero naturally in 1.297 seconds, with its process group quiescent.
 It retains the original failed owner receipt and does not rerun or recover a
 failed native stage. The completed producer and revalidation hashes are bound by
-`evidence/research/current-source-full-bootstrap/darwin-stack-prepare-origin-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/darwin-stack-prepare-origin-completed-producer.json`.
 
 Framework corrections distinguish cache receipts from fixture-only source
 leases, resolve the checkout through Git rather than the disposable `.data`
@@ -276,7 +276,7 @@ Its parent `darwin-stack-write-boundary` completes both bootstrap passes and
 the final ASCENT review: phase1 through phase4 each execute twice; native make
 takes 230.872 seconds, the bootstrap stage 240.465 seconds, and the complete
 seed-consuming child 258.887 seconds. The completed producer is retained in
-`evidence/research/current-source-full-bootstrap/darwin-stack-write-boundary-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/darwin-stack-write-boundary-completed-producer.json`.
 Original configure/seed and the denied reviews remain retained separately.
 
 That parent's complete original compiled stress is **DENY**: two files pass,
@@ -382,7 +382,7 @@ normally reaped owner. The real compiled-stress review reports:
 - `retired_producer_decision`: the historical producer receipt.
 - `missing_step`: `stress-gsc`, independently of the retired accounting denial.
 
-The executable relation lives in `evidence/research/producer-decision-rules.ss`;
+The executable relation lives in `evidence/dsl/producer-decision-rules.ss`;
 the native answers are retained in the owned-undo compiled-stress run. Missing
 supersession evidence leaves the historical denial active; a different receipt
 cannot retire it. A new native failure cannot be retired by this accounting rule.
@@ -450,7 +450,7 @@ with exit zero and the exact eight-phase inventory. The original whole-run
 DENY from an undispatched final review remains immutable. That review alone
 was revalidated through the original sealed ASCENT runner, without rebuilding
 or recovering any failed native stage. Its completed producer is recorded in
-`evidence/research/current-source-full-bootstrap/darwin-section-pool-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/darwin-section-pool-completed-producer.json`.
 Complete compiled stress through the updated framework seal is DENY:
 three of four files pass, tfib exits with signal 11, zero timeouts;
 79.548 native-stage / 96.883 outer seconds. The matching image again faults
@@ -677,7 +677,7 @@ Each numerical-file phase retained its 90-second inactivity window; the
 original generated C, loader and assertion exit protocol were preserved.
 Checked ASCENT file coverage closes complete GSC and the six declared PR/GSC
 fixtures, not stress, all possible PR failures or performance. Portable
-receipt: `evidence/source-results/compiled-suite-coverage/receipt.json`.
+receipt: `.cache/research/legacy-evidence/evidence/source-results/compiled-suite-coverage/receipt.json`.
 The candidate is not adopted as a release optimization. See
 `darwin-dynamic-modulo-candidate.md`.
 
@@ -688,7 +688,7 @@ fixup and two rounds of cleared-node reuse, with distinct/all-equal priorities:
 controls fail as required. This is model-only progress, **not a sixth native
 gate**. Physical GC copying/scan identity and native caller lock handoffs remain
 uncomposed; see `btq-operational-model.md` and
-`evidence/source-results/compiled-stress-failure/operations-model.json`.
+`.cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/operations-model.json`.
 
 The next source-operation component executes one arena's local cursor/FIFO
 handoff, recursive copy and captured-frame private publication together:
@@ -854,7 +854,7 @@ DENY, with parent reaped and process group quiescent. It reused 2,243 files
 through copy-on-write, zero byte copies and zero hardlinks; the old parent
 remains DENY and the output is still only a seed. No complete producer export
 or native qualification follows. See
-`evidence/research/vm-registry-reader-lease/checked-seed-bootstrap-consumption.json`
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/checked-seed-bootstrap-consumption.json`
 for exact receipt bindings and all original failure expenditure.
 
 The source-stage cumulative charge is now 417.0321317510097 of the original
@@ -1069,7 +1069,7 @@ from other producers cannot silently discharge a current-producer gate.
 | Release performance | OPEN | Current-producer cold build/test and complete P55/P99 populations |
 
 The nine named additional obligations come from
-`evidence/research/smp-threaded-vm-native-grid/milestone-rules.ss`. Interpreted
+`.cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/milestone-rules.ss`. Interpreted
 inventory inclusion does not replace their separately declared campaigns.
 
 ### Bound Stack Observation: Failure Retained
@@ -1185,7 +1185,7 @@ is retained in the semantic evidence tree; see `smp-grid-causal-checkpoint.md`.
 Earlier whole compiled timeouts ended in numeric-file compilation;
 they did not reach `thread_start`, so its fixture repair is not asserted as their
 cause. The original parallel observation now has a verified semantic archive at
-`evidence/source-results/fixtures/thread-completion-contract/parallel-compiled-suite-history`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/parallel-compiled-suite-history`.
 The exact environment, resource-plan and compiler-options model/native-policy checks and remaining
 route boundaries are recorded in `smp-grid-causal-checkpoint.md`.
 
@@ -1248,7 +1248,7 @@ above; this earlier producer must not be substituted for it.
 | Registry protocol | Repeated retirement, terminal seal, capacity/replay and composed processor retirement bounded controls passed | Physical ordering, arbitrary signal progress and source refinement |
 | Native GNU objects | PASS, 82.121 seconds, stable source inputs | Not linked runtime acceptance |
 | Complete bootstrap | PASS, 246.472 seconds; sealed read CURRENT | O0 correctness investigation, not release performance |
-| Completed producer handoff | Exported typed, hashed reference under `evidence/research/vm-registry-reader-lease/owned-retirement-completed-producer.json` | Grid consumer must verify the exact reference, flags and source closure |
+| Completed producer handoff | Exported typed, hashed reference under `.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/owned-retirement-completed-producer.json` | Grid consumer must verify the exact reference, flags and source closure |
 | Native Grid | Not yet qualified for this producer | Both complete inventories, PR regressions, stress, registry lifetime, fault handling and GC/FFI |
 | Independent threaded VMs | Current same-producer fixture PASS, 40.321 seconds whole / 0.483 seconds execution | Fault injection, repeated retirement, direct user admission and full GC/FFI/stress coverage |
 | Gerbil and performance | Not yet qualified for this producer | Current staging, complete correctness, existing cold build/test gates and sustained stress |
@@ -1421,7 +1421,7 @@ that the prior timeouts were caused by or resolved by any particular change.
 ## Complete Bootstrap Gate Closed
 
 The source-bound recipe
-`evidence/research/smp-threaded-vm-bootstrap/bootstrap.recipe.json` completed
+`.cache/research/legacy-evidence/evidence/research/smp-threaded-vm-bootstrap/bootstrap.recipe.json` completed
 on engine `1a36e0a25873fa95098aae8c1e0f8840c78194f9512f36c149d13265feedff89`:
 
 | Measurement | Actual Observation |
@@ -1719,7 +1719,7 @@ above covers only the named controls. The retained complete-domain 60-second
 failure still requires a fresh matching qualification with the framework owner.
 
 Five failed compiled-suite histories now have portable, hash-checked archives
-under `evidence/source-results/fixtures/thread-completion-contract/`:
+under `.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/`:
 
 | Fixture | Original Boundary | Validated Evidence Files |
 | --- | --- | --- |
@@ -1797,7 +1797,7 @@ recipe constants. All three SMP/VM flags remain enabled.
 | Sealed child / complete invocation | 34.164 / 34.997 seconds under the original 300-second budget |
 | Process completion | Parent reaped, process group quiescent, no timeout |
 
-Reproduce through `evidence/research/vm-kernel-entry-lifecycle/native.recipe.json`
+Reproduce through `.cache/research/legacy-evidence/evidence/research/vm-kernel-entry-lifecycle/native.recipe.json`
 using the existing sealed research executor and a freshly bound completed
 bootstrap producer. `gambit.executable-test` checks the current producer,
 GNU compiler/driver, fixture and executable bytes before and after execution;
@@ -1855,7 +1855,7 @@ was host-selected, not a fixed recipe constant. The correctness driver uses
 `-O0` and disables GNU macro tracking; this is not a release performance result.
 
 Portable facts and raw-evidence digests are recorded in
-`evidence/source-results/fixtures/thread-completion-contract/current-bootstrap-numeric-phases/observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/current-bootstrap-numeric-phases/observation.json`.
 That record explicitly does not contain the complete raw archive: the verbose
 compiler log contains a personal include path and is kept local. It cannot
 satisfy an immutable raw-evidence review or grant retry/native admission.
@@ -1920,7 +1920,7 @@ removed or converted to a pass.
 Both this proposal and `vm_kernel_entry_lifecycle` are now registered in the
 existing `models/gambit/cases.json` and raw-log attestation catalog. Canonical
 framework receipts, redacted logs, counterexamples and exact model snapshots
-are durable under `evidence/model-results/vm-registry-interrupt-admission*` and
+are durable under `.cache/research/legacy-evidence/evidence/model-results/vm-registry-interrupt-admission*` and
 `vm-kernel-entry-lifecycle*`. Recovery diagnostic files referring to local
 working directories remain local, not Git evidence inputs. There is no new
 framework or legacy single-interpreter native adapter for the executable
@@ -1957,7 +1957,7 @@ verifier invocation could not bind its local compiler service inside the
 sandbox; this was an execution-environment error, not a model counterexample.
 
 The canonical receipt, redacted raw logs, negative traces and exact model
-snapshot are durable under `evidence/model-results/vm-registry-repeated-retirement*`.
+snapshot are durable under `.cache/research/legacy-evidence/evidence/model-results/vm-registry-repeated-retirement*`.
 The existing cases and raw-attestation catalogs register them; real compiled
 ASCENT catalog validation passed with 14 finite admissions. No separate Python
 framework or native adapter was introduced. Source implementation, physical C

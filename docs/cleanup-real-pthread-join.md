@@ -49,7 +49,7 @@ executed against actual Gambit objects. Ambient errno remained EDOM (33), while
 the candidate correctly preserved the returned join error identity.
 
 Evidence is under
-`evidence/source-results/fixtures/scheduler-retry-sync-participation/cleanup-real-pthread-join-strict-preprocessor/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/scheduler-retry-sync-participation/cleanup-real-pthread-join-strict-preprocessor/`.
 The preceding strict-preprocessor compilation denial is preserved under
 `cleanup-real-pthread-join/`, including its original fixture snapshot. A quote in
 the skipped non-Darwin #error directive caused that lexical warning; the fixed

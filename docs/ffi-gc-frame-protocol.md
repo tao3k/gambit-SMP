@@ -61,7 +61,7 @@ native mock observation strengthened the model's root identity invariant at
 host return. The receipt is preserved as DENY. With corrected expectations,
 attempt 002 passes all 12 cases: the unchanged current source passes all three
 GC counts, while each injected defect produces the expected failure/control.
-Portable receipts are in `evidence/model-results/ffi-*.json`.
+Portable receipts are in `.cache/research/legacy-evidence/evidence/model-results/ffi-*.json`.
 
 ## Decision
 

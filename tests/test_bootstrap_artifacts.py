@@ -145,7 +145,7 @@ class BootstrapArtifactsTests(unittest.TestCase):
             a.preserve(self.source, saved)
         self.assertFalse((saved.parent/'preservation.json').exists())
 
-    def test_host_requires_current_generator_graph_and_executable_hash(self):
+    def _host_producer_fixture(self):
         host=self.root/'host';host.write_text('AOT compiler');host.chmod(0o755)
         spec=dict(schema='gambit-bootstrap-host',kind='compiled-current-gsc',executable='host',
                   sha256=digest(host),qualification=dict(compilerSourceInputs=n.current_compiler_inputs(self.source)))
@@ -161,6 +161,19 @@ class BootstrapArtifactsTests(unittest.TestCase):
             processGroupQuiescent=True,childReceiptSha256=digest(child))))
         spec['qualification'].update(sourceReceipt=dict(path='producer/receipt.json',sha256=digest(outer)),targetRuntimeLinked=False)
         declaration=self.root/'host.json';declaration.write_text(json.dumps(spec))
+        return host, spec, declaration, outer, child, identity
+
+    def _publish_host_fixture(self, spec, declaration, outer, child, identity):
+        record=json.loads(child.read_text())
+        record['steps'][0]['outputs']['identity']['sha256']=digest(identity)
+        child.write_text(json.dumps(record))
+        record=json.loads(outer.read_text());record['childReceiptSha256']=digest(child)
+        outer.write_text(json.dumps(record))
+        spec['qualification']['sourceReceipt']['sha256']=digest(outer)
+        declaration.write_text(json.dumps(spec))
+
+    def test_host_requires_current_generator_graph_and_executable_hash(self):
+        host, spec, declaration, _, _, _ = self._host_producer_fixture()
         self.assertEqual(host, a.qualified_host(self.source, declaration, self.root)[0])
         (self.source/'gsc/a.scm').write_text('different generator')
         with self.assertRaisesRegex(ValueError, 'generator graph'):
@@ -169,6 +182,108 @@ class BootstrapArtifactsTests(unittest.TestCase):
         declaration.write_text(json.dumps(spec));host.write_text('different compiler')
         with self.assertRaisesRegex(ValueError, 'host bytes'):
             a.qualified_host(self.source, declaration, self.root)
+
+    def test_host_without_producer_proof_is_rejected_before_reading_a_directory(self):
+        _, spec, declaration, _, _, _ = self._host_producer_fixture()
+        spec['qualification'].pop('sourceReceipt')
+        declaration.write_text(json.dumps(spec))
+        with self.assertRaisesRegex(ValueError, 'producer receipt required'):
+            a.qualified_host(self.source, declaration, self.root)
+
+    def test_host_missing_receipt_files_are_bounded_qualification_failures(self):
+        _, spec, declaration, outer, child, identity = self._host_producer_fixture()
+        for path in (outer, child, identity):
+            saved=path.read_bytes();path.unlink()
+            with self.subTest(path=path.name), self.assertRaisesRegex(ValueError, 'receipt|identity'):
+                a.qualified_host(self.source, declaration, self.root)
+            path.write_bytes(saved)
+
+    def test_host_rejects_incomplete_or_unsettled_producer_with_valid_hashes(self):
+        host, spec, declaration, outer, child, identity = self._host_producer_fixture()
+        original_outer=outer.read_bytes();original_child=child.read_bytes()
+        mutations=(('missing-phase', lambda o,c: c['steps'][0]['phaseCounts'].update(phase4=1)),
+                   ('no-self-pass', lambda o,c: c['steps'][0].update(fullTwoPassBootstrapEstablished=False)),
+                   ('timeout', lambda o,c: o.update(timeout=True)),
+                   ('unreaped', lambda o,c: o.update(parentReaped=False)),
+                   ('unquiesced', lambda o,c: o.update(processGroupQuiescent=False)))
+        for name, change in mutations:
+            o=json.loads(original_outer);c=json.loads(original_child);change(o,c)
+            outer.write_text(json.dumps(o));child.write_text(json.dumps(c))
+            self._publish_host_fixture(spec,declaration,outer,child,identity)
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'producer'):
+                a.qualified_host(self.source,declaration,self.root)
+        outer.write_bytes(original_outer);child.write_bytes(original_child)
+        self._publish_host_fixture(spec,declaration,outer,child,identity)
+        self.assertEqual(host,a.qualified_host(self.source,declaration,self.root)[0])
+
+    def test_host_rejects_wrong_identity_even_when_receipt_hashes_are_resealed(self):
+        _, spec, declaration, outer, child, identity = self._host_producer_fixture()
+        original=identity.read_bytes()
+        for field in ('gscSha256','sourceFiles'):
+            record=json.loads(original)
+            if field=='gscSha256':record[field]='0'*64
+            else:record[field]['gsc/a.scm']='0'*64
+            identity.write_text(json.dumps(record))
+            self._publish_host_fixture(spec,declaration,outer,child,identity)
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'ancestry'):
+                a.qualified_host(self.source,declaration,self.root)
+
+    def test_host_target_linkage_requires_explicit_false(self):
+        _, spec, declaration, _, _, _ = self._host_producer_fixture()
+        for value in (True,None,0):
+            spec['qualification']['targetRuntimeLinked']=value
+            declaration.write_text(json.dumps(spec))
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'qualification'):
+                a.qualified_host(self.source,declaration,self.root)
+
+    def test_host_nested_macro_change_invalidates_current_source_identity(self):
+        nested=self.source/'lib/gambit/prim/prim#.scm'
+        nested.parent.mkdir(parents=True);nested.write_text('original macro')
+        host, _, declaration, _, _, _ = self._host_producer_fixture()
+        self.assertEqual(host,a.qualified_host(self.source,declaration,self.root)[0])
+        nested.write_text('changed macro')
+        with self.assertRaisesRegex(ValueError,'generator graph'):
+            a.qualified_host(self.source,declaration,self.root)
+
+    def test_host_nested_input_addition_and_removal_invalidate_source_identity(self):
+        nested=self.source/'gsc/support/layout.scm'
+        nested.parent.mkdir(parents=True)
+        _, _, declaration, _, _, _ = self._host_producer_fixture()
+        nested.write_text('new input')
+        with self.assertRaisesRegex(ValueError,'generator graph'):
+            a.qualified_host(self.source,declaration,self.root)
+        # Rebind a genuine fixture to the expanded source set, then remove it.
+        spec=json.loads(declaration.read_text())
+        spec['qualification']['compilerSourceInputs']=n.current_compiler_inputs(self.source)
+        declaration.write_text(json.dumps(spec))
+        nested.unlink()
+        with self.assertRaisesRegex(ValueError,'generator graph'):
+            a.qualified_host(self.source,declaration,self.root)
+
+    def test_compiler_input_envelope_rejects_external_symlink(self):
+        external=self.root/'external.scm';external.write_text('external macro')
+        (self.source/'lib/alias.scm').symlink_to(external)
+        with self.assertRaisesRegex(ValueError,'escapes source root'):
+            n.current_compiler_inputs(self.source)
+
+    def test_host_rejects_malformed_receipts_even_with_matching_digests(self):
+        _, spec, declaration, outer, child, identity = self._host_producer_fixture()
+        originals={p:p.read_bytes() for p in (outer,child,identity)}
+        for target in originals:
+            for payload in (b'[]',b'{'):
+                for path, data in originals.items():path.write_bytes(data)
+                target.write_bytes(payload)
+                if target==identity:
+                    self._publish_host_fixture(spec,declaration,outer,child,identity)
+                else:
+                    if target==child:
+                        record=json.loads(outer.read_text());record['childReceiptSha256']=digest(child)
+                        outer.write_text(json.dumps(record))
+                    spec['qualification']['sourceReceipt']['sha256']=digest(outer)
+                    declaration.write_text(json.dumps(spec))
+                with self.subTest(target=target.relative_to(self.root),payload=payload), \
+                        self.assertRaisesRegex(ValueError, 'receipt|identity'):
+                    a.qualified_host(self.source,declaration,self.root)
 
     def test_compiler_input_cannot_feed_runtime_semantic_test(self):
         producer=dict(id='input',capability='gambit.bootstrap-input')
@@ -322,6 +437,39 @@ class RegisteredArtifactCustodyTests(unittest.TestCase):
     from tests.test_workspace import WorkspaceTests
     setUp = WorkspaceTests.setUp
 
+    def test_generated_launch_alias_recovery_never_restores_a_stale_seed(self):
+        import shutil
+        from gambit_smp import workspace as w
+        w.start(self.root, 'modern-c', adopt=True)
+        with w.execution_scope(self.root, 'modern-c'):
+            build=w.build_output(self.root,'gambit-core',compiler=shutil.which('cc'),flags=['-O1'])
+            staged=build/'staged'
+            (staged/'bin').mkdir(parents=True)
+            (staged/'gsc').mkdir()
+            (staged/'gsc/gsc').write_bytes(b'old compiled seed')
+            (staged/'bin/gsc').symlink_to('../gsc/gsc')
+            w.sync_build_source(self.root,build,staged,mutable=['gsc/gsc'])
+            source=build/'source'
+            (source/'gsc/gsc').unlink()
+            aliases={'bin/gsc':'../gsc/gsc'}
+            w.checkpoint_build_source(source,broken_links=aliases)
+            with patch('gambit_smp.work_items.build_recovery_links',return_value=aliases):
+                (staged/'gsc/other').write_text('different source')
+                (staged/'bin/gsc').unlink()
+                (staged/'bin/gsc').symlink_to('../gsc/other')
+                with self.assertRaisesRegex(ValueError,'cannot remove a source input'):
+                    w.sync_build_source(self.root,build,staged,mutable=['gsc/gsc'])
+                self.assertTrue((source/'bin/gsc').is_symlink())
+                (staged/'bin/gsc').unlink()
+                (staged/'bin/gsc').symlink_to('../gsc/gsc')
+                (staged/'gsc/other').unlink()
+                receipt=w.sync_build_source(self.root,build,staged,mutable=['gsc/gsc'])
+            self.assertFalse((source/'bin/gsc').is_symlink())
+            self.assertFalse((source/'gsc/gsc').exists())
+            state=json.loads((build/'source-state.json').read_text())
+            self.assertNotIn('bin/gsc',state['inputs'])
+            self.assertEqual(receipt['retiredGeneratedLinks'],aliases)
+
     def test_development_reuses_one_tree_and_preserves_native_outputs_without_copy_or_clean(self):
         import shutil
         from types import SimpleNamespace
@@ -342,8 +490,17 @@ class RegisteredArtifactCustodyTests(unittest.TestCase):
                 self.assertEqual(receipt['sourceCopies'],1)
                 (first/'lib/mem.c').write_text('/* current native */')
                 (first/'lib/mem.o').write_bytes(b'current compiled object')
-                w.checkpoint_build_source(first,nativeObjectContext={'parameters':'completed-flags-A'})
+                (first/'lib/setup.c').write_text('/* recorded temporary source */')
+                w.checkpoint_build_source(first,phase='distribution-qualified',
+                    branchQualification={'completed':True},
+                    nativeObjectContext={'parameters':'completed-flags-A'})
                 before=(first/'lib/mem.o').stat().st_mtime_ns
+                # A qualified tree cannot silently absorb even mutable-input
+                # drift. Reopening is a checked transition, not a reset.
+                (first/'lib/mem.c').write_text('/* unobserved native */')
+                with self.assertRaisesRegex(ValueError,'incremental source drift'):
+                    a.incremental_consumer(ctx,source,mutable=['lib/mem.c','lib/mem.o'])
+                (first/'lib/mem.c').write_text('/* current native */')
                 second, receipt=a.incremental_consumer(ctx,source,mutable=['lib/mem.c','lib/mem.o'])
                 self.assertEqual(first,second)
                 self.assertEqual(copy.call_count,1)
@@ -351,8 +508,12 @@ class RegisteredArtifactCustodyTests(unittest.TestCase):
                 self.assertFalse(receipt['automaticClean'])
                 self.assertEqual((second/'lib/mem.o').stat().st_mtime_ns,before)
                 self.assertEqual((second/'lib/mem.o').read_bytes(),b'current compiled object')
+                self.assertEqual((second/'lib/setup.c').read_text(),'/* source */')
                 self.assertEqual(json.loads((second.parent/'source-state.json').read_text())['nativeObjectContext'],
                                  {'parameters':'completed-flags-A'})
+                state=json.loads((second.parent/'source-state.json').read_text())
+                self.assertEqual(state['phase'],'building')
+                self.assertNotIn('branchQualification',state)
                 self.assertEqual((source/'lib/mem.o').read_bytes(),b'old object')
                 (source/'lib/mem.c').write_text('/* different generation origin */')
                 with self.assertRaisesRegex(ValueError,'explicit fixed-workspace rebase'):

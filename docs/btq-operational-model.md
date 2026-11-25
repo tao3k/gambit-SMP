@@ -87,7 +87,7 @@ The strengthened source-operation run explored **6,356 distinct states**
 The missing-rotation-parent and missing-transplant controls both produced
 invariant violations. The whole child framework run took 34.444 seconds;
 individual check timings and exact receipt hashes are recorded in
-`evidence/source-results/compiled-stress-failure/operations-model.json`.
+`.cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/operations-model.json`.
 The earlier ordered-path, single-round result (854 states) and distinct-only
 two-round result (1,588 states) are superseded in scope, not rewritten. The earlier list/set type mismatch remains a failed
 receipt; it never launched model checking or native tests.

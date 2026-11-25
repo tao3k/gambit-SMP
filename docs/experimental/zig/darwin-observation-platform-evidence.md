@@ -34,7 +34,7 @@ Direct local links: [ES event/header](/Library/Developer/CommandLineTools/SDKs/M
 [shipped execsnoop](/usr/bin/execsnoop),
 [vendor reaper/process code](../../../vendor/gambit/lib/os_io.c),
 [Scheme process wrapper](../../../vendor/gambit/lib/gambit/process/process.scm),
-[materialized Darwin spawn code](../../../../../.data/ci-source-patch-check/src/gambit/lib/os_io.c),
+materialized Darwin spawn code (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/lib/os_io.c`; unavailable in a clean checkout),
 [spawn patch](../../../../../patches/gerbil-v19-darwin/0001-gambit-darwin-posix-spawn.patch),
 [historical invalid controls](../../../../../patches/gerbil-v19-darwin/receipts/d1510-object-request-cost.md).
 Platform links are host-local and may disappear/change with OS/SDK updates;

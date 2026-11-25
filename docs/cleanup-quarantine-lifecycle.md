@@ -35,7 +35,7 @@ reclaim and quarantine actions. The positive policy rejects setup and unload
 while resources remain live and makes repeated cleanup non-destructive.
 
 The published receipt is
-`evidence/model-results/fixtures/scheduler-retry-sync-participation/cleanup-lifecycle/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/scheduler-retry-sync-participation/cleanup-lifecycle/receipt.json`.
 TLC explored 33 distinct states / 64 generated states; safety and weak-fair
 completion passed in 3.945 seconds. Three deliberate unguarded policies produce
 the expected counterexamples (19, 17 and 33 distinct states). Worker counts were

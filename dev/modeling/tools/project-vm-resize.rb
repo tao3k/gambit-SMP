@@ -29,6 +29,6 @@ File.read(pq).scan(/part\s+(\w+)\s*:\s*Question\s*\{/).flatten.each_with_index d
 end
 %w[sourceLock profile].each{|a|qs<<["identity.#{a}","GambitVMResizeQualification::#{a}"]}
 File.write(r+'/native-queries.tsv',qs.map{|x|x.join("\t")}.join("\n")+"\n")
-inputs=File.readlines('evidence/research/modern-c-bootstrap/resize-sysml-inputs.txt',chomp:true)+[p,rp,fp,pq]
+inputs=File.readlines('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-sysml-inputs.txt',chomp:true)+[p,rp,fp,pq]
 File.write(r+'/native-model-inputs.txt',inputs.uniq.join("\n")+"\n")
 File.write(r+'/read-native.sh',File.read('dev/modeling/tools/read-vm-resize-native.sh').sub('r=.cache/tasks/modern-c-frame-contract/cohort/model',"r=#{r}"))

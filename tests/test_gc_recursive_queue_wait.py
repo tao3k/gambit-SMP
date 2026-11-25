@@ -70,7 +70,7 @@ class GCRecursiveQueueWaitTests(unittest.TestCase):
 
     def test_datalog_keeps_model_pending(self):
         facts, _ = evidence.bundle_facts(ROOT, "evidence/gc-recursive-queue-wait.json",
-                                       "evidence/model-results/gc-recursive-queue-wait/receipt.json")
+                                       ".cache/research/legacy-evidence/evidence/model-results/gc-recursive-queue-wait/receipt.json")
         self.assertEqual("gc_recursive_queue_wait", facts["protocol_model"][0][0])
         self.assertEqual([], facts["protocol_checked"])
         self.assertIn(("gc_recursive_queue_wait", "gc_processor_local_queue_topology"),
@@ -81,7 +81,7 @@ class GCRecursiveQueueWaitTests(unittest.TestCase):
         for name in ("gc-recursive-queue-wait-deny", "gc-recursive-queue-controls-parallel",
                      "gc-recursive-queue-wait-processor-local-deny",
                      "gc-recursive-queue-wait-eager-fields-deny", "gc-recursive-queue-wait-final-deny"):
-            directory = ROOT / "evidence/model-results" / name
+            directory = ROOT / ".cache/research/legacy-evidence/evidence/model-results" / name
             saved = json.loads((directory / "receipt.json").read_text())
             self.assertFalse(saved["accepted"])
             self.assertFalse(saved["runtimeAdmitted"])

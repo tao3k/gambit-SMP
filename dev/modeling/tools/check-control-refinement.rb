@@ -17,11 +17,11 @@ formal=JSON.parse(File.read(formalPath))
 raise 'formal evidence incomplete' unless formal['rows'].size==13 && formal['rows'].all? { |r| r['matched'] }
 formal['artifacts'].each { |p,h| raise 'formal artifact drift' unless sha.call(p)==h }
 formal['rows'].each { |r| raise 'formal log drift' unless sha.call(File.dirname(formalPath)+'/'+r['id']+'.log')==r['logSha256'] }
-candidatePath='evidence/research/modern-c-bootstrap/request-custody-source.lock.json'
+candidatePath='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json'
 candidate=JSON.parse(File.read(candidatePath))
 candidate['files'].each { |p,h| raise 'runtime candidate drift' unless sha.call('vendor/gambit/'+p)==h['candidateSha256'] }
 profile=sha.call(m['profile'])
-baseline=JSON.parse(File.read('evidence/research/modern-c-bootstrap/architecture-causal-validation.json'))
+baseline=JSON.parse(File.read('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/architecture-causal-validation.json'))
 raise 'profile drift' unless profile==baseline['profileSha256']
 files={};witnesses=[]
 m['witnesses'].each do |w|

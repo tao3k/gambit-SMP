@@ -11,12 +11,12 @@ package GambitVerificationResponsibilities {
   part quint:Responsibility {
     attribute :>> id="quint"; attribute :>> domains="control";
     attribute :>> owns="Transition ordering, concurrent interleavings and permit/task/root lifetime protocols within declared bounds";
-    attribute :>> excludes="Payload algebra, unbounded data-coherence proofs and claims of concrete native correctness";
+    attribute :>> excludes="Payload algebra, word-encoding/overflow arithmetic lemmas, unbounded data-coherence proofs and claims of concrete native correctness; imported data predicates are guards, not a second proof obligation";
   }
   part lean:Responsibility {
     attribute :>> id="lean"; attribute :>> domains="data";
     attribute :>> owns="General mathematical/data representation properties under explicit hypotheses";
-    attribute :>> excludes="A duplicate scheduler, bounded trace tests, wind interleavings and claims that premises automatically hold in C";
+    attribute :>> excludes="A duplicate scheduler, bounded trace tests, wind interleavings, protocol refusal/retention races and claims that premises automatically hold in C";
   }
   part source:Responsibility {
     attribute :>> id="source"; attribute :>> domains="source;semantics;refinement";

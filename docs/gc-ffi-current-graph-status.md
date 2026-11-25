@@ -25,7 +25,7 @@ independent trials or confidence intervals.
 These are successful declared tests, not the entire GC/FFI/fault inventory or
 all multi-VM destruction interleavings. `nativeGcPassed`, runtime admission and
 performance admission remain false. The raw parent/child receipts, process
-logs and full latency JSONL are in `evidence/source-results/gc-ffi-lifecycle/001`.
+logs and full latency JSONL are in `.cache/research/legacy-evidence/evidence/source-results/gc-ffi-lifecycle/001`.
 No executable or complete source tree is claimed to be archived there.
 
 ## Source And DSL Correspondence

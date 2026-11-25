@@ -39,7 +39,7 @@ Run the generic research framework with recipe IDs
 `pthread-returned-error-identity-wrappers` and
 `pthread-returned-error-identity-objects`, using an identified sealed engine.
 Inputs, native observations and the autoconf sandbox denial are bound in
-`evidence/source-results/fixtures/pthread-returned-error-identity/observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/pthread-returned-error-identity/observation.json`.
 The sandbox denial is retained; host-authorized compilation is a distinct run.
 
 ## Remaining Obligations

@@ -1,0 +1,48 @@
+--- a/completion-wait-restore.scm
++++ b/completion-wait-restore.scm
+@@ -73,11 +73,18 @@
+ (define internal-wait-frame? (c-lambda (scheme-object) bool
+   "___return(___FIELD(FRAME, ___arg1, 0) == ___ps->internal_return);"))
+ 
++(define poll-descriptor-matches? (c-lambda (scheme-object) bool #<<c-end
++___SCMOBJ frame = ___CONTINUATION_FRAME_FIELD(___arg1);
++___SCMOBJ poll = ___FIELD(FRAME,frame,___FRAME_RETI_RA);
++___return(___LABEL_DESCR_GET(poll) == 0x3f03022);
++c-end
++))
++
+ (define (project-live-wait-slot9 continuation generation)
+   (define (matches? row label word value)
+     (and (= (vector-ref row 0) 9) (= (vector-ref row 1) word)
+          (eq? (vector-ref row 2) label) (eq? (vector-ref row 3) value)))
+-  (let search ((p continuation) (fallback #f) (fuel 256))
++  (let search ((p continuation) (fuel 256))
+     (ensure (> fuel 0) "finite waiting frame walk")
+     (let* ((fs (and p (##continuation-fs p)))
+            (link (and p (##continuation-link p)))
+@@ -87,10 +94,11 @@
+            (value (and eligible? (##continuation-ref p 9)))
+            (exact? (and eligible? (= fs 17) (= link 1)
+                         (internal-wait-frame? frame) (##return? value)
++                        (poll-descriptor-matches? p)
+                         (= (##subprocedure-id value) 1)
+                         (eq? (##subprocedure-parent-name value)
+                              '##thread-execute-and-end!)))
+-           (selected (cond (exact? p) (p #f) (else fallback))))
++           (selected (and exact? p)))
+       (cond
+        (selected
+         (let* ((actual-frame (##continuation-frame selected))
+@@ -128,10 +136,9 @@
+                          (if exact? 'saved-thread-return 'other-live-slot)
+                          'reachable 'omission-rejected))
+             (newline))))
+-       (p (search (##continuation-next p)
+-                  (or fallback (and eligible? p)) (- fuel 1)))
++       (p (search (##continuation-next p) (- fuel 1)))
+        (else
+-        (write (list 'JOINT-WAIT-LIVE-SLOT9-UNAVAILABLE generation))
++        (write (list 'JOINT-WAIT-POLL-SAVED-R0-UNAVAILABLE generation))
+         (newline))))))
+ 
+ (define borrow-wait-generation! (c-lambda (int) bool #<<c-end

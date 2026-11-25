@@ -156,7 +156,7 @@ class BTQProvenanceDiagnosticTests(unittest.TestCase):
         for key in ("causeEstablished", "runtimeAdmitted", "sourceRefinementAdmitted",
                     "performanceAdmitted", "releaseAdmitted", "unchangedRetryAdmitted"):
             self.assertFalse(observed[key])
-        base = ROOT / "evidence/research/current-source-full-bootstrap"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap"
         self.check_recipe(json.loads((base / "darwin-btq-public-bootstrap.recipe.json").read_text()),
                           json.loads((base / "darwin-frame-ra-current-workspace-bootstrap.recipe.json").read_text()))
 
@@ -234,7 +234,7 @@ class BTQProvenanceDiagnosticTests(unittest.TestCase):
             self.assertFalse(review[name])
 
     def test_recipe_keeps_profile_and_original_bootstrap_stage_limits(self):
-        base = ROOT / "evidence/research/current-source-full-bootstrap"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap"
         parent = json.loads((base / "darwin-ffi-premise-bootstrap.recipe.json").read_text())
         for name in ("darwin-btq-provenance-bootstrap.recipe.json", "darwin-btq-public-bootstrap.recipe.json"):
             with self.subTest(recipe=name):

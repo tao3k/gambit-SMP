@@ -1,0 +1,230 @@
+#+TITLE: Modern C test necessity and consolidation
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never-export
+#+OPTIONS: toc:2
+
+* Scope and authority :review:
+:PROPERTIES:
+:CUSTOM_ID: test-necessity
+:AUTHORITY: GambitModularSmpValidation::TestReview
+:STATUS: SOURCE-REVIEWED; CHANGED-NATIVE-SCENARIOS-OPEN; NOT-COMMIT-ADMISSION
+:END:
+
+Official tests are the baseline: 408 ordinary units, four additional stress
+files, existing GSI/GSC modes, Make test3 for repeated continuation returns,
+and test7/test8 for allocation/conversion and embedded-library consumers.
+The official map unit already captures/resumes a continuation. No general claim
+that upstream SMP or continuation tests are absent is justified.
+
+** Per-file disposition
+#+NAME: test-review-matrix
+#+BEGIN: sysml-view :source models/sysml/modular-smp-validation.sysml :component TestReview
+| Original pending SCM | Disposition | Reused / surviving source | Official comparison | Distinct obligation or removal reason |
+|---+---+---+---+---|
+| tests/sfun-exit.scm | retain | tests/sfun-exit.scm | tests/mem.scm;tests/server.scm;tests/client.c | Generated nested callback exits must retain physical root-bank debt until actual C unwind; ordinary conversion/embedding tests do not inspect that new debt |
+| tests/smp/campaign.scm | remove |  | tests/run-unit-tests.scm | No distinct runtime property; duplicated process composition |
+| tests/smp/catalog.scm | remove |  | tests/run-unit-tests.scm | No distinct property; duplicate executable case catalog |
+| tests/smp/suite.scm | remove |  | tests/run-unit-tests.scm;tests/makefile.in | 317-line parallel process/hash/JSON/build service duplicates existing entrypoints |
+| tests/smp/control/dynamic-wind-multishot.scm | reuse | tests/frame-continuation.scm | tests/r4rstest.scm;tests/unit-tests/04-list/map.scm | Existing frame control already checks exact before/after winding order across three results and forced GC |
+| tests/smp/gc/shared-roots.scm | reuse | tests/smp/gc/worker-root-domains.scm | tests/mem.scm;tests/unit-tests/06-thread/tfib_stress.scm | Root-domain fixture retains cyclic aliases through unequal worker counts, repeated GC, continuation and owner cleanup |
+| tests/smp/gc/vm-lifecycle.scm | retain | tests/smp/gc/vm-lifecycle.scm | tests/client.c;tests/server.scm | Multi-VM registry refusal, retained destructor outcome, no replay and healthy primary VM collection are new lifecycle contracts |
+| tests/smp/gc/vm-lifecycle-host.scm | retain | tests/smp/gc/vm-lifecycle-host.scm | tests/client.c;tests/server.scm | Host main must observe real successful global cleanup after secondary acknowledgement; cannot run after retained-VM refusal in the same process |
+| tests/smp/gc/worker-arena-loan.scm | merge | tests/smp/gc/worker-arena.scm | tests/mem.scm | Exact deny-refill fault, restoration loan, interval bounds and second-round custody remain a distinct scenario in one compiled control |
+| tests/smp/gc/worker-arena-refill.scm | merge | tests/smp/gc/worker-arena.scm | tests/mem.scm | Physical worker refill and context restoration accounting are new private contracts, not only public allocation success |
+| tests/smp/gc/worker-role-handoff.scm | merge | tests/smp/gc/worker-arena.scm | tests/unit-tests/06-thread/current_processor.scm | Role bijection and idle/resume/arena debt checked with every arena round; incidental rotating worker-id formula removed from acceptance |
+| tests/smp/gc/worker-root-domains.scm | retain | tests/smp/gc/worker-root-domains.scm | tests/mem.scm;tests/unit-tests/04-list/map.scm;tests/client.c | W=1,2,3 over R=3, owner-affine derived cleanup, RC borrowing and nested callback conversion share one root-domain lifecycle |
+| tests/smp/gc/unknown-join-worker-domains.scm | retain | tests/smp/gc/unknown-join-worker-domains.scm | tests/unit-tests/06-thread/thread_join.scm | Native pthread join result fault and retained abort domain must permit healthy R=3 W=1 collection; Scheme thread-join tests do not inject this path |
+| tests/smp/gc/mailbox-epoch-handoff.scm | merge | tests/smp/scheduler/mailbox-permit-roots.scm | tests/unit-tests/06-thread/mutex_race_timeout.scm | Four blocked publishers,128 messages,per-sender order,shared identity and forced GC retained in permit case |
+| tests/smp/scheduler/mailbox-boundaries.scm | archive |  | tests/smp/scheduler/mailbox-publication.scm | Sender-only/receiver-only/no-GC diagnostics do not add independent acceptance; source and original failure history retained |
+| tests/smp/scheduler/mailbox-identity.scm | merge | tests/smp/scheduler/mailbox-publication.scm | tests/unit-tests/06-thread/thread_start.scm | Eight first publishers,64 messages and alias identity retained after original ordered64-message scenario |
+| tests/smp/scheduler/mailbox-permit-roots.scm | retain | tests/smp/scheduler/mailbox-permit-roots.scm | tests/unit-tests/06-thread/mutex_race_timeout.scm | GC while sender holds unpublished cell debt, selective cursor changes and exception cleanup absent from bounded official mailbox search |
+| tests/smp/scheduler/mailbox-publication.scm | retain | tests/smp/scheduler/mailbox-publication.scm | tests/unit-tests/06-thread/thread_start.scm | Actual retained message32 failure;64-message payload/order/GC witness remains intact before concurrent identity scenario |
+| tests/smp/scheduler/publication-evidence.scm | archive |  | tests/run-unit-tests.scm | Hardcoded local tool paths and campaign orchestration belong to historical diagnosis, not shipped runtime suite |
+| tests/smp/scheduler/publication-interleave.scm | archive |  | tests/smp/scheduler/mailbox-publication.scm | Source-projected receive template requires private hook substitution; preserve counterexample source, do not execute as standalone correctness test |
+#+END:
+
+* Execution and evidence :qualification:
+:PROPERTIES:
+:CUSTOM_ID: test-review-evidence
+:END:
+
+The suite/catalog/campaign files are withdrawn. Configure and Make build the
+runtime; the official run-unit-tests.scm owns interpreted/compiled unit runs.
+The proposed Gambit SMP workflow invokes those existing interfaces. It has not
+been published or qualified merely by defining it. The original ci.yml core
+and test commands remain intact.
+
+Eight retained component controls belong with their implementation REV. They
+are not an alternative test framework. Their compiler and runtime identities,
+applicable fault adapter, processor population and original limits must be
+qualified there. No new runner or metadata configuration source is added.
+
+The review inventory (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/review.json=; unavailable in a clean checkout),
+immutable original source custody (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/prior-sources.json=; unavailable in a clean checkout),
+source-preservation checks (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/source.json=; unavailable in a clean checkout), and
+native SysML / ASCENT source-review checks (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/model.json=; unavailable in a clean checkout), and
+current baseline / generation observations (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/tests.json=; unavailable in a clean checkout) are repository assets.
+Missing archive, source, official counterpart or surviving target rejects the
+review; a complete review still cannot supply native observations or any of
+the five submission gates. Existing QNT schedules and Lean representation laws
+keep their distinct owners; no duplicate formal models are introduced.
+
+Merged mailbox bodies remain byte-identical within their surviving programs:
+64 ordered messages plus eight concurrent publishers, and the blocked-cell /
+selective-cursor case plus four blocked publishers with128 messages. Wait5
+seconds and existing process budgets are unchanged. No historical message32
+failure is erased. Native results must identify which original scenario ran.
+
+The three arena sources become one compile product with refill and loan modes.
+Both workloads and assertions remain; each round also checks role/arena debt.
+Worker identity is checked as an in-range bijection, rather than assuming the
+incidental rotation (i+1)%R is the architectural contract. Loan still requires
+one participant; refill must actually occur. This change needs current private
+C compilation/execution before admission.
+
+The standalone winding case reuses the existing frame control's exact three
+results, before/after history and forced GC. Cyclic shared aliases reuse the
+root-domain lifecycle with R=3 and W=1,2,3,1. Reuse is a source coverage argument,
+not transfer of an old passing receipt to changed binaries.
+
+* Benefit and additional cost :matrix:
+#+NAME: test-consolidation-benefits
+| Quantity | Before | After | What this establishes |
+|---+---+---+---|
+| Pending new SCM files | 20 | 8 | 60% fewer source files; not a runtime speedup |
+| Pending Scheme source lines | 1548 | 900 | Source inventory only; no matched build-cost measurement |
+| Parallel runner/catalog/campaign lines | 389 | 0 | Existing official runner and Make retained |
+| Compile products for arena scenarios | 3 | 1 | Two runtime modes reuse one product; executions still required |
+| Compile products for mailbox scenarios | 4 | 2 | Original scenarios retained sequentially; no compile-time speedup measured |
+| Current native admission of eight controls | Unproven as a batch | Still open | Reader/generation checks cannot prove private C runtime semantics |
+| Official suite coverage | Existing | Reused | Processor populations are options, not copied source files |
+
+** Submission boundary
+No runtime, header, ownership, CFFI or worker change is qualified by reducing
+test count. Their five gates remain component-scoped. Archived executable
+source is historical evidence, not a second supported test location. The
+current branch cannot inherit patch-line 1-12 progress.
+
+* Current observations :results:
+:PROPERTIES:
+:SOURCE_IDENTITY: 0c3ef7e5a2dedf83bffdf5a73a7666491edfce02
+:BOUNDARY: DEFAULT-CI-RUNTIME; PRIVATE-CONTROLS-NOT-EXECUTED
+:END:
+| Check | Actual result | Limit / boundary |
+|---+---+---|
+| Official GSI units | 408/408,91.084s | Existing300-second domain; original files unchanged |
+| Official compiled thread and map selection | Passed,50.195s | Existing runner and original cases; default-CI runtime |
+| Existing frame consumers | Passed,8.208s | Actual map multi-shot and wide-root controls |
+| Eight candidate SCM readers | Passed | Reader only; no foreign C execution |
+| Eight Scheme-to-C actions | Passed | Generated C is not a C compiler / linker / runtime pass |
+| Entire local observation | 164.105s | Same existing cache; no source copy or heap increase |
+| Published GitHub CI | Five platform jobs passed on0c3ef7e5 | Linux/macOS/MinGW32/MinGW64/MSVC; pending working source excluded |
+| New private worker/lifecycle/FFI controls | Open | Must execute with their actual implementation cut |
+
+The first reader command accidentally left source paths for GSI to execute;
+its c-declare interpreter error is retained as a harness-command failure. The
+corrected command reads explicit paths as data and exits before script dispatch.
+No test body or original upstream failure standard was changed.
+
+** Current ABI-cohort producer
+The same cache and existing eleven-flag Bazel profile completed both source
+bootstrap passes: each phase1..4 appeared twice. Source bootstrap took207.765s;
+clean/dummy-seed/stock-core also passed; producer qualification took274.060s.
+No new SDK copy, heap increase or deadline extension was used.
+The exact producer receipt (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/runtime-producer.json=; unavailable in a clean checkout) binds the117-path working candidate, including
+the three explicitly retired native_scope sources. It is an ABI-cohort test
+tree, not a submitted REV or a passing record for all component consumers.
+The next native controls must use these exact artifacts.
+
+** Actual consolidated-control execution
+Current ABI-cohort native observations (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/runtime-tests.json=; unavailable in a clean checkout) completed in92.784s with the same
+producer identities. All eight C compilations and ten executable invocations
+passed: SFUN exit; retained-VM refusal; successful host global cleanup; arena
+loan plus refill on one/three processors from one compile product; R=3 with
+W=1,2,3,1; both consolidated mailbox cases; and calibrated unknown-join isolation.
+The original408 GSI units passed in64.312s on this SMP runtime; current map/frame
+consumers passed in6.091s. No old receipt was relabeled onto these binaries.
+This supersedes the earlier reader-only gap for these bounded cases, but not
+architecture-wide writer closure, physical capacity or five-gate admission.
+
+** Remaining REV blockers
+| Responsibility cut | Current evidence | What still prevents submission |
+|---+---+---|
+| Build resources | Prior bounded bootstrap and incremental controls | Pure build cut retains an earlier official timing failure; the newer ABI cohort cannot qualify a different smaller source tree |
+| Runtime roles / shared publication | Current bootstrap,8 controls,408 GSI and frame consumers pass | Exact intermediate tree and full source/QNT/Lean adapter premises remain to be closed; selected W<=R is not independent carrier migration |
+| Header organization | Current cohort compiles | Strict source admission reports37 blank-at-EOF fragment diagnostics; preserve lossless payload rather than silently trimming or suppressing checks |
+| C23 support range | Current GCC16/C23 profile passes | Unconditional -std=c23 / __STDC_VERSION__ check has no MSVC admission; published five-platform success cannot admit this pending configure change |
+| Test inventory / SMP workflow |20 dispositions,8 native controls; official runner reuse | Depends on the actual implementation cut, original stress and applicable official consumers; not published merely because YAML is valid |
+
+The stopped-writer and complete physical-packing obligations remain owned by
+RootWorkerExit and its existing QNT/Lean components. They are not duplicated
+or declared complete from a native success. No new commit is created while
+these scoped gates are unresolved.
+
+** Original entry failures retained
+The original consumer observations (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/original-consumer-failure.json=; unavailable in a clean checkout) retain two failures: Make check
+failed at test12 C compilation after408/408 test11 success (113.624s), because
+its fixture still addressed processor_scmobj/stack_start/stack_break through
+PSTATE; the separate interpreted four-stress observation reached300s and was
+terminated. Neither is a pass or an erased historical attempt. The official
+st target uses compiled mode; interpreted timeout does not establish the
+cause or result of the subsequent compiled campaign. Workloads remain intact.
+
+The test12 fixture now binds a zero-initialized execution_context and addresses
+only the moved fields through it; operations, nested/eligible loops, original
+predicates and memory comparisons are unchanged modulo that owner substitution.
+Exact source comparison (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/consumer-refinement.json=; unavailable in a clean checkout) records this two-owner fixture refinement. The
+new runtime-role C control also uses the already-published test-entry adapter.
+Only these C test sources change; the compiler, library, runtime objects,
+Scheme units and runner remain identical. This permits source-bound reuse of
+the actual completed test11 subtarget without a new bootstrap or408-case retry.
+The remaining Make check and compiled stress must still execute.
+
+** Refined consumer and official compiled stress
+The current consumer receipt (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/consumer-tests.json=; unavailable in a clean checkout) records successful remaining Make check
+(51.792s), reusing the exact408/408 test11 subtarget after only two standalone
+C-test changes. All original check prerequisites are covered by this source-
+bound composition; the earlier monolithic failure remains failed.
+
+The unchanged four official compiled stress cases ran with two processors:
+thread_interrupt2_stress, thread_interrupt_stress and thread_terminate_stress
+passed. tfib_stress exited via signal11; the whole campaign failed after103.320s.
+No iteration count, wait, heap or budget changed. The interpreted300s timeout
+and this compiled segmentation fault are distinct observations. They cannot
+be presented as the same failure cause or as branch SMP acceptance. The new
+SMP workflow and dependent runtime/test-inventory REVs remain blocked.
+
+** Official tfib failure anchor
+The sanitized crash observation (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-review/tfib-crash.json=; unavailable in a clean checkout) matches the actual GSI image UUID
+6B270AF4-6C1F-39D2-856E-EAA8E1B27A23, not another task's earlier crash. The
+faulting kernel PC is image offset311284 (+12104 in ___H___kernel), the
+break-handler return-address descriptor read. The load used x28=-44 and
+faulted at -37. The generated kernel source's caller-frame/return-label path
+and actual disassembly locate the failed consumer. This does not yet prove
+which producer corrupted the frame/link or whether GC restoration, section
+lifetime or coordinate mapping caused it. No crash-suppression check is added.
+
+* Scope correction :decision:
+:PROPERTIES:
+:CUSTOM_ID: scope-correction
+:AUTHORITY: GambitRevisionDelivery::currentScope
+:STATUS: TEST-REVIEW-COMPLETE; PUBLISHED-CI-PASSED; SMP-DIAGNOSIS-PARKED
+:END:
+
+The active delivery is the20-file necessity review and existing published-tree
+CI repair verification. Continuing from the official tfib failure into GC/
+frame producer diagnosis exceeded this responsibility cut and is stopped.
+No runtime repair or crash-suppression check was made from that diagnosis.
+The native outcomes above remain exploratory evidence for their actual trees;
+failed observations remain failed. They do not make unrelated scoped REVs
+responsible for solving every SMP deficiency.
+
+The eight consolidated controls accompany the later implementation REVs whose
+new contracts they exercise; they cannot be published against a baseline that
+lacks those interfaces. The two C-fixture owner/entry adaptations are parked
+with the runtime-ownership cohort. They do not enlarge the published CI repair.
+The existing passing CI applies only to0c3ef7e5. No new mixed runtime commit
+is created here. Future runtime work first selects a DEV architecture
+responsibility, shared contract and old-path retirement, then the relevant
+source/model/native evidence and five scoped submission gates.

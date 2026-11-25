@@ -14,7 +14,7 @@ remain distinct. An abstract protocol below is not a claim that C implements it.
 
 Gambit baseline is `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`.
 Current overlay authority is
-`evidence/research/processor-interrupt-collective-wait/source.lock.json`
+`.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`
 (SHA-256 `7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b`)
 and its declared cumulative patch. Candidate paths/lines below refer to that
 overlay, never a required cache checkout. Chez and OCaml gitlinks remain

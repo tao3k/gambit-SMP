@@ -6,12 +6,30 @@ import subprocess
 import sys
 import time
 import unittest
+from unittest.mock import patch
 from datetime import date
 from tests import test_workspace as fixtures
 from gambit_smp import workspace as w, work_process as p
 
 class WorkProcessTests(unittest.TestCase):
     setUp=fixtures.WorkspaceTests.setUp
+
+    def test_absent_old_output_does_not_scan_global_dependency_receipts(self):
+        w.start(self.root, 'repair', adopt=True)
+        with p.scope(self.root, 'repair', 'audit'):
+            pass
+        with patch('gambit_smp.task_dependencies.protected', side_effect=AssertionError('unnecessary global scan')):
+            self.assertEqual([], p.collect(self.root, 'repair', 'audit', today=date(2099, 1, 1), opened=[]))
+
+    def test_expired_process_output_with_explicit_recovery_pin_survives(self):
+        from gambit_smp.task_dependencies import adopt
+        w.start(self.root,'repair',adopt=True)
+        with p.scope(self.root,'repair','audit'):
+            out=w.task_output(self.root,'.cache/receipt.json')
+            out.parent.mkdir(parents=True,exist_ok=True);out.write_text('{}')
+        adopt(self.root,'repair',[str(out.relative_to(self.root))])
+        self.assertEqual([],p.collect(self.root,'repair','audit',today=date(2099,1,1),opened=[]))
+        self.assertTrue(out.is_file())
 
     def test_registered_work_items_and_bounded_roles(self):
         w.start(self.root,'repair',adopt=True)

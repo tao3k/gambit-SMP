@@ -126,7 +126,7 @@ class CompilerProbeArchiveTests(unittest.TestCase):
 
 class CompilerOptionsGridContractTests(unittest.TestCase):
     def test_complete_configuration_successor_preserves_inventory_caps_and_source(self):
-        base = ROOT / "evidence/research/smp-threaded-vm-native-grid"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
         old = json.loads((base / "current-compiled-pipe-driver.recipe.json").read_text())
         new = json.loads((base / "current-compiled-configuration.recipe.json").read_text())
         self.assertEqual(old["budgetSeconds"], new["budgetSeconds"])
@@ -147,7 +147,7 @@ class CompilerOptionsGridContractTests(unittest.TestCase):
                         <= {claim["id"] for claim in row["claims"]})
 
     def test_pipe_driver_successor_keeps_all_execution_contracts_and_requires_models(self):
-        base = ROOT / "evidence/research/smp-threaded-vm-native-grid"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
         old = json.loads((base / "current-compiled-options.recipe.json").read_text())
         new = json.loads((base / "current-compiled-pipe-driver.recipe.json").read_text())
         self.assertEqual(old["budgetSeconds"], new["budgetSeconds"])
@@ -167,7 +167,7 @@ class CompilerOptionsGridContractTests(unittest.TestCase):
             self.assertIn("build-driver-cause-review", {claim["id"] for claim in row["claims"]})
 
     def test_derived_grid_preserves_complete_inventory_producer_and_all_deadlines(self):
-        base = ROOT / "evidence/research/smp-threaded-vm-native-grid"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
         old = json.loads((base / "current-compiled-resource.recipe.json").read_text())
         new = json.loads((base / "current-compiled-options.recipe.json").read_text())
         self.assertEqual(old["budgetSeconds"], new["budgetSeconds"])
@@ -176,14 +176,14 @@ class CompilerOptionsGridContractTests(unittest.TestCase):
             current = next(row for row in new["steps"] if row["id"] == stage)
             self.assertEqual(previous, current)
         self.assertEqual(len(new["inputs"]), len(set(new["inputs"])))
-        self.assertFalse(any(name.startswith(("evidence/source-results/", "evidence/model-results/"))
+        self.assertFalse(any(name.startswith((".cache/research/legacy-evidence/evidence/source-results/", ".cache/research/legacy-evidence/evidence/model-results/"))
                              for name in new["inputs"]))
         review = next(row for row in new["steps"] if row["id"] == "review-gsc")
         self.assertTrue({"compiler-options-contract", "compiler-options-bypass-control",
                          "compiler-options-trajectories"} <= set(review["dependsOn"]))
 
     def test_numeric_intent_does_not_relabel_original_phase_or_expand_file_budget(self):
-        base = ROOT / "evidence/research/smp-threaded-vm-native-grid"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
         intent = json.loads((base / "current-gsc-compiler-options-intent.json").read_text())
         row = next(row for row in intent["failures"] if row["id"] == "021-numeric-compiler-phase-budget")
         self.assertEqual("/stages/1/accepted", row["failurePointer"])

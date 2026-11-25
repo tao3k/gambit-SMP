@@ -31,10 +31,17 @@ class RealSourceImpactTests(unittest.TestCase):
 
     @staticmethod
     def copy_fixture(root):
-        from tests.support import copy_live_view
-        document = copy_live_view(ROOT, root, VIEW)
-        shutil.copyfile(ROOT / 'evidence/scenarios/stack-header/clues.ss',
-                        root / 'evidence/scenarios/stack-header/clues.ss')
+        document = json.loads((ROOT / VIEW).read_text())
+        names = {VIEW, document['manifest'],
+                 'evidence/scenarios/stack-header/source-understanding.ss',
+                 'evidence/scenarios/stack-header/clues.ss',
+                 *(row['path'] for row in document['references'])}
+        for name in names:
+            target = root / name
+            if target.exists():
+                raise ValueError('fixture destination already contains source')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, target)
         (root / 'evidence/views.json').write_text(json.dumps({
             'schema': 'ascent.evidence-views.v1', 'views': [VIEW],
             'selection': json.loads((ROOT / 'evidence/views.json').read_text())['selection']}))
@@ -162,14 +169,13 @@ class RealSourceImpactTests(unittest.TestCase):
     def test_wire_retry_counts_utf8_and_rejects_mixed_source_generations(self):
         budgets = []
 
-        def observed(budget):
-            budgets.append(budget)
+        def observed(root, question, engine, **request):
+            budgets.append(request['display_bytes'])
             return dict(brief=dict(inputIdentity='first' if len(budgets) == 1 else 'changed',
                                   text='\u03b1' * 4096 if len(budgets) == 1 else ''),
                         checkpoint='clue-read:' + '0' * 64)
 
-        # Framing binds one source reader, then retries decreasing budgets on it.
-        with patch('gambit_smp.trajectory_exploration._repository_reader', return_value=observed):
+        with patch('gambit_smp.trajectory_exploration.repository_clues', side_effect=observed):
             with self.assertRaisesRegex(ValueError, 'source changed'):
                 _clue_output(self.root, dict(questions=['example'], displayBytes=262144),
                              object(), wire_bytes=6000)

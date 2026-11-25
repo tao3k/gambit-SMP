@@ -8,7 +8,7 @@ from gambit_smp import recipes
 
 class RetiredRcGcVisibilityTests(unittest.TestCase):
     def test_root_closure_imports_rc_protocol_without_weakening_inventory(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/vector-arity-retired-root-closure.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/vector-arity-retired-root-closure.recipe.json"
         recipes.load(ROOT, path)
         recipe = json.loads(path.read_text())
         model = (ROOT / "models/gambit/retired_root_closure.qnt").read_text()
@@ -41,7 +41,7 @@ class RetiredRcGcVisibilityTests(unittest.TestCase):
             self.assertNotIn(forbidden, program)
 
     def test_locked_model_recipe_has_independent_failure_controls(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/retired-rc-gc-visibility.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/retired-rc-gc-visibility.recipe.json"
         recipes.load(ROOT, path)
         recipe = json.loads(path.read_text())
         self.assertEqual(300, recipe["budgetSeconds"])
@@ -69,7 +69,7 @@ class RetiredRcGcVisibilityTests(unittest.TestCase):
         self.assertIn("expected-join-error", tail)
 
     def test_positive_native_control_uses_standard_rc_ffi_and_adaptive_population(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/vector-arity-retired-rc-positive.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/vector-arity-retired-rc-positive.recipe.json"
         recipes.load(ROOT, path)
         recipe = json.loads(path.read_text())
         native = next(row for row in recipe["steps"] if row["id"] == "retired-rc-control")
@@ -86,7 +86,7 @@ class RetiredRcGcVisibilityTests(unittest.TestCase):
             self.assertNotIn(forbidden, program)
 
     def test_exit_tail_control_compiles_exact_source_projection(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/retired-rc-exit-tail.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/retired-rc-exit-tail.recipe.json"
         recipes.load(ROOT, path)
         recipe = json.loads(path.read_text())
         self.assertNotIn("native.c-build", [row["capability"] for row in recipe["steps"]])
@@ -108,7 +108,7 @@ class RetiredRcGcVisibilityTests(unittest.TestCase):
         self.assertTrue(cases[1]["negativeControl"])
 
     def test_exit_tail_model_imports_parent_and_exact_trajectories(self):
-        recipe = json.loads((ROOT / "evidence/research/vm-registry-reader-lease/retired-rc-exit-tail.recipe.json").read_text())
+        recipe = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/retired-rc-exit-tail.recipe.json").read_text())
         sample = next(row for row in recipe["steps"] if row["capability"] == "quint.test")
         self.assertEqual(7, len(sample["arguments"]["expectedTests"]))
         self.assertEqual(5, sum(name.startswith("R::") for name in sample["arguments"]["expectedTests"]))

@@ -24,7 +24,7 @@ These are source observations, not installed toolchain or SMP overlay results.
 | S8 | [Direct Gerbil interface source audit](interface-construction-operations-and-state.md) | Current binding/phase/lexical state, publication/error behavior and C00-C17 obligations; read in the preceding refinement, not newly requalified here |
 | S9 | Vendor `lib/os_io.c:8503-8548` | SIGCHLD handler loops over `waitpid(-1, ..., WNOHANG)` then associates status with process devices; in-process competing child owners need a protocol |
 
-Workspace source entry links: [Gerbil driver](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss),
+Workspace source entry links: Gerbil driver (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss`; unavailable in a clean checkout),
 [Gambit request](../../../vendor/gambit/gsc/_gsclib.scm),
 [configured native driver](../../../vendor/gambit/bin/gambuild-C.unix.in),
 [child reaper](../../../vendor/gambit/lib/os_io.c).

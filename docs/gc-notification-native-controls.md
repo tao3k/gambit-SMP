@@ -46,7 +46,7 @@ assembly/link driver paths resolve through the controlled Apple-tool PATH.
 Their hashes identify selected drivers, not all payloads dispatched by Apple's
 tool shims. Neither multiple-SMP flags nor driver hashes alone qualify a runtime.
 
-The archive at `evidence/source-results/gc-notification-source-schedules-031/`
+The archive at `.cache/research/legacy-evidence/evidence/source-results/gc-notification-source-schedules-031/`
 contains 27 receipt, header, source-fragment, fixture and log artifacts. Effective
 argv, environment, budgets, raw/portable log hashes and observed parent exit
 are retained. No binary or personal absolute path is published. The Datalog

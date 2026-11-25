@@ -79,7 +79,7 @@ violations: six states for duplicate first-field marking (22.799 seconds),
 seven for early producer idling (16.663 seconds). The positive model passes
 safety and weak-fair progress over 74 distinct states, 114 generated, zero
 queued in 28.396 seconds. The source-bound portable bundle is
-`evidence/model-results/eager-tail-scan-partition/`. The control search may stop
+`.cache/research/legacy-evidence/evidence/model-results/eager-tail-scan-partition/`. The control search may stop
 at its first counterexample; it is not an exhaustive correctness claim.
 
 ## Engineering Gate

@@ -108,7 +108,7 @@ Campaign `gc-wait-count-restore-001` checked both independent controls (15 and
 checked safety and weak-fair progress over 31 distinct states, 39 generated,
 zero queued, in 35.996 seconds. Reviewed context remained stable. Portable logs,
 counterexamples and the receipt are in
-`evidence/model-results/gc-wait-count-restore/`. The two manifest/control-boundary
+`.cache/research/legacy-evidence/evidence/model-results/gc-wait-count-restore/`. The two manifest/control-boundary
 framework tests passed. This is model-only evidence; runtime and release
 admission both remain false.
 

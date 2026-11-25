@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
+from gambit_smp import task_processes as subprocess
 import sys
 import time
 import unittest
@@ -122,7 +122,8 @@ class NativeIncrementalAdapterTests(unittest.TestCase):
     def test_real_upstream_objects_use_the_same_owned_source_across_providers(self):
         self.compiler = gcc()
         self.tools, self.tool_environment = native.host_tools(self.compiler, [{'capability': 'gambit.configure'}],
-            dict(PATH=os.environ['PATH'], HOME=str(self.root), LANG='C'))
+            dict(PATH=os.environ['PATH'], HOME=str(self.root), LANG='C',
+                 **({'M4':os.environ['M4']} if 'M4' in os.environ else {})))
         (self.root / 'vendor').mkdir()
         subprocess.run(['git', 'clone', '--quiet', '--shared', '--no-checkout',
             str(REPOSITORY / 'vendor/gambit'), str(self.root / 'vendor/gambit')], check=True, capture_output=True)
@@ -215,7 +216,7 @@ echo stage0 >> "$(dirname "$0")/../../compiled.log"
 
     def test_unpublished_stage1_cannot_shadow_completed_bootstrap(self):
         from types import SimpleNamespace
-        from gambit_smp.gerbil_build import _withdraw_stage1_outputs
+        from gambit_smp.gerbil_build.batches import _withdraw_stage1_outputs
         import tempfile
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -252,7 +253,7 @@ echo stage0 >> "$(dirname "$0")/../../compiled.log"
             self.assertEqual(b'new partial', partial.read_bytes())
 
     def test_runtime_install_uses_flat_public_header_without_private_source_dependency(self):
-        from gambit_smp.gerbil_build import _install_runtime
+        from gambit_smp.gerbil_build.stage0 import _install_runtime
         self.prepare()
         fragments = self.payload / 'include/_gambit'
         fragments.mkdir()
@@ -321,7 +322,9 @@ echo stage0 >> "$(dirname "$0")/../../compiled.log"
         self.assertEqual(after,(source/'bootstrap/lib/gerbil/module.scm').read_text())
         self.assertEqual(stamp,untouched.stat().st_mtime_ns)
         self.assertTrue(any(row['stage'].startswith('gerbil-stage0-module-') for row in commands))
-        self.assertTrue(all(row['environment']['GAMBOPT']=='p1,file-settings=lf'
+        expected_options=('p1,file-settings=lf,p1,~~bin='+str(source/'build/bin')+
+                          ',~~lib='+str(source/'build/lib')+',~~include='+str(source/'build/include'))
+        self.assertTrue(all(row['environment']['GAMBOPT']==expected_options
                             for row in commands if row['stage'].startswith('gerbil-')
                             and row['stage'] not in {'gerbil-archive','gerbil-extract',
                                 'gerbil-overlay-inventory','gerbil-overlay'}))
@@ -343,7 +346,8 @@ echo stage0 >> "$(dirname "$0")/../../compiled.log"
             lock.update(patch=str(patch.relative_to(self.root)), patchSha256=digest(patch))
         path = self.root / 'evidence/gerbil.lock.json'; path.parent.mkdir(exist_ok=True); path.write_text(json.dumps(lock))
 
-    def build(self, provider='codex', payload_identity='one', *, pause=None, stage_cap=None):
+    def build(self, provider='codex', payload_identity='one', *, pause=None, stage_cap=None,
+              through_stage=None):
         from gambit_smp.gerbil_build import build
         with w.execution_scope(self.root, 'repair', provider=provider):
             out = w.task_output(self.root, self.root / '.cache/gerbil-adapter'); out.mkdir(parents=True)
@@ -373,13 +377,16 @@ echo stage0 >> "$(dirname "$0")/../../compiled.log"
                 def require(inner, name, argv, cwd, cap, **kwargs):
                     if name == 'gerbil-stage1' and stage_cap is not None:cap = min(cap, stage_cap)
                     return super().require(name, argv, cwd, cap, **kwargs)
-            environment = dict(PATH=os.environ['PATH'], HOME=str(self.root))
+            environment = dict(PATH=os.environ['PATH'], HOME=str(self.root),
+                               GAMBOPT='p1,file-settings=lf')
             if pause is not None:environment['GERBIL_TEST_PAUSE']=str(pause)
             context = ControlledContext(self.root, out, directory, environment,
                 time.monotonic() + 40, {}, receipt, self.tools)
             try:
-                result = build(dict(sourceLock=names[0], runtime={'step': 'runtime', 'output': 'runtime'},
-                    identity={'step': 'runtime', 'output': 'identity'}), context)
+                arguments = dict(sourceLock=names[0], runtime={'step': 'runtime', 'output': 'runtime'},
+                    identity={'step': 'runtime', 'output': 'identity'})
+                if through_stage is not None:arguments['throughStage'] = through_stage
+                result = build(arguments, context)
                 context.leased_tree_checks.verify()
                 return result, context.commands
             finally:

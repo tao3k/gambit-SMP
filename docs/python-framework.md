@@ -94,7 +94,7 @@ framework packaging and portability, not GC, bootstrap or Gerbil acceptance.
 The source-filled checkout also passed **205 tests in 31.543 seconds**. The new
 installed CLI reran the unchanged successful source-schedule adapter with GNU
 GCC, observing all eight expected schedules. Its new package input hashes are
-recorded in `evidence/model-results/sync-retirement-source-schedule-uv-001.json`;
+recorded in `.cache/research/legacy-evidence/evidence/model-results/sync-retirement-source-schedule-uv-001.json`;
 the correspondence manifest selects that new receipt, leaving both historical
 003 receipts untouched. This extracted-source/mock schedule check is not a
 native runtime rerun and does not admit GC or bootstrap.

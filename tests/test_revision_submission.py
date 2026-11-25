@@ -17,8 +17,6 @@ class RevisionSubmissionFixture(unittest.TestCase):
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self.git("init", "-q", "-b", "modern-c")
-        self.git("config", "user.name", "Fixture")
-        self.git("config", "user.email", "fixture@example.invalid")
         for name in ("a.c", "b.c"):
             (self.repo / name).write_text("base\n")
         self.git("add", ".")
@@ -123,6 +121,23 @@ class RevisionSubmissionTests(RevisionSubmissionFixture):
         self.assertEqual(submission.staged, self.git('ls-files', '--stage', '-z'))
         with self.assertRaisesRegex(ValueError, 'concurrent staging changed'):
             submission.check_custody()
+
+    def test_source_staging_reports_all_conflicts_without_mutation_or_source_dump(self):
+        (self.repo / "a.c").write_text("private pending a\n")
+        self.git("add", "a.c")
+        (self.workspace / "b.c").write_text("qualified b\n")
+        self.native["canonicalSources"]["b.c"] = self.sha(self.workspace / "b.c")
+        before = self.git("ls-files", "--stage", "-z")
+        working = {name: (self.repo / name).read_bytes() for name in ("a.c", "b.c")}
+        submission = self.submission()
+        with self.assertRaisesRegex(ValueError, "pending source merge conflict") as raised:
+            submission.stage_qualified_changes(["a.c", "b.c"], plan_only=True)
+        self.assertEqual({("a.c", "working"), ("a.c", "index"),
+                          ("b.c", "working"), ("b.c", "index")},
+                         {(row["path"], row["role"]) for row in submission.staging_conflicts})
+        self.assertEqual(before, self.git("ls-files", "--stage", "-z"))
+        self.assertEqual(working, {name: (self.repo / name).read_bytes() for name in working})
+        self.assertNotIn("private pending a", str(raised.exception))
 
 
     def test_cumulative_cut_does_not_trust_last_sync_path_list(self):
@@ -760,3 +775,136 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
             publish([first, dict(second, **change)])
             with self.assertRaisesRegex(ValueError, 'failed, skipped, unbound or missing'):
                 sub.delivery_contract()
+
+
+class IntegrationScopeTests(unittest.TestCase):
+    """Boundary changes require model review, not a new failed-test fact."""
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.case_file = self.root / 'cases.json'
+        self.packet = dict(sourceTree='tree', profileSha256='profile', cases=[
+            dict(id='real-case', role='execution'),
+            dict(id='before-refactor', role='historical-counterexample')])
+        self.case_file.write_text(json.dumps(self.packet))
+        self.boundary = dict(caseEvidence='cases.json', caseEvidenceSha256=hashlib.sha256(
+            self.case_file.read_bytes()).hexdigest())
+        self.acceptance = dict(sourceTree='tree', profileSha256='profile', facts=dict(
+            deliveryUnit=[['result', 'revision']], deliveryContext=[['tree', 'profile']],
+            deliveryRequiresAcceptance=[['result', 'real-case'], ['result', 'WHOLE']]))
+
+    def scope(self):
+        from gambit_smp.revision_submission import integration_scope
+        return integration_scope(self.root, self.acceptance, 'result', ['WHOLE'], self.boundary)
+
+    def test_scope_keeps_historical_failure_without_making_it_a_new_gate(self):
+        result = self.scope()
+        self.assertEqual(result['supportingCases'], ['real-case'])
+        self.assertEqual(result['historicalCases'], ['before-refactor'])
+        self.assertFalse(result['runtimeAdmitted'])
+
+    def test_unrelated_failure_cannot_extend_or_replace_required_population(self):
+        requirements = self.acceptance['facts']['deliveryRequiresAcceptance']
+        requirements.append(['result', 'unrelated-scheduler-failure'])
+        with self.assertRaisesRegex(ValueError, 'exact model-owned delivery boundary'):
+            self.scope()
+        requirements.pop()
+        requirements.pop(0)
+        with self.assertRaisesRegex(ValueError, 'exact model-owned delivery boundary'):
+            self.scope()
+
+    def test_historical_case_and_duplicate_cannot_become_admission_dependencies(self):
+        requirements = self.acceptance['facts']['deliveryRequiresAcceptance']
+        for entry in (['result', 'before-refactor'], ['result', 'real-case']):
+            requirements.append(entry)
+            with self.assertRaisesRegex(ValueError, 'exact model-owned delivery boundary'):
+                self.scope()
+            requirements.pop()
+
+    def test_case_mutation_or_source_period_drift_cannot_redefine_scope(self):
+        self.case_file.write_text(json.dumps(dict(self.packet, cases=[])))
+        with self.assertRaisesRegex(ValueError, 'model-pinned'):
+            self.scope()
+        self.case_file.write_text(json.dumps(self.packet))
+        self.acceptance['sourceTree'] = 'another-period'
+        with self.assertRaisesRegex(ValueError, 'another source/profile period'):
+            self.scope()
+
+    def test_injected_prerequisite_graph_cannot_reopen_the_delivery(self):
+        self.acceptance['facts']['deliveryDepends'] = [['other-result', 'result']]
+        with self.assertRaisesRegex(ValueError, 'no injected delivery graph'):
+            self.scope()
+
+
+class IntegrationReportTests(unittest.TestCase):
+    def test_published_coverage_binds_executed_sdk_roles(self):
+        root = Path(__file__).resolve().parents[1]
+        retained = root / 'evidence/research/retained/modern-c'
+        coverage = json.loads((retained / 'request-product/shared-slot-coverage.json').read_text())
+        baseline = json.loads((retained / 'owned-lifetime/source.json').read_text())
+        old = coverage['cohorts']['baseline']
+        new = coverage['cohorts']['candidate']
+        self.assertEqual(old['sourceTree'], coverage['baseRevision'])
+        self.assertEqual(old['runtimeArtifacts'], baseline['artifacts'])
+        self.assertNotEqual(old['runtimeArtifacts']['gsi/gsi'], new['runtimeArtifacts']['gsi/gsi'])
+        self.assertEqual(new['sourceTree'], coverage['sourceTree'])
+        followup = coverage['matchedFollowup']
+        self.assertEqual(95, len(followup['rows']))
+        self.assertEqual(coverage['baseRevision'], followup['roles']['baseline']['sourceTree'])
+        self.assertEqual(coverage['sourceTree'], followup['roles']['candidate']['sourceTree'])
+        self.assertEqual(['03-number/_num.scm'], followup['commonUnresolved'])
+        self.assertEqual(14, coverage['censorReview']['notStarted'])
+        self.assertEqual(5, coverage['censorReview']['startedWithoutCompletion'])
+
+    def test_model_owned_unit_recomputes_answers_and_binds_repository_evidence(self):
+        from copy import deepcopy
+        from gambit_smp.revision_submission import integration_report, digest
+        root = Path(__file__).resolve().parents[1]
+        packet = root / 'evidence/research/retained/modern-c/request-product'
+        acceptance = json.loads((packet / 'owner-closure-acceptance.json').read_text())
+        binding = json.loads((packet / 'model-binding.json').read_text())
+        # Caller-written conclusions cannot admit an unfinished runtime unit.
+        acceptance['answers'] = {'ready': [['request-product']], 'open': []}
+        if any(digest(root / name) != expected for name, expected in binding['inputs'].items()):
+            # The retained packet belongs to its original model epoch. Prove
+            # rejection first; never overwrite its hashes to call it current.
+            with self.assertRaisesRegex(ValueError, 'current integration model input'):
+                integration_report(root, acceptance, binding, 'GambitRequestProduct')
+            import os
+            import shutil
+            current = {name: digest(root / name) for name in binding['inputs']}
+            observed = run([shutil.which(os.environ.get('SYSML', 'sysml')),
+                            *binding['mode'], '-e', binding['selection'][0], *current],
+                           cwd=root, capture_output=True, text=True, timeout=60)
+            self.assertEqual(observed.returncode, 0, observed.stdout + observed.stderr)
+            self.assertEqual(json.loads(observed.stdout)['exit'], 0)
+            self.assertEqual(current, {name: digest(root / name) for name in current})
+            # Fresh native parse over the complete current source closure;
+            # this transient control is not the historical SDK receipt.
+            binding = dict(inputs=current, mode=binding['mode'])
+        report = integration_report(root, acceptance, binding, 'GambitRequestProduct')
+        self.assertFalse(report['ready'])
+        self.assertFalse(report['runtimeAdmitted'])
+        self.assertEqual(len(report['deliveryScope']['supportingCases']), 41)
+        self.assertEqual(len(report['deliveryScope']['historicalCases']), 2)
+        self.assertEqual(report['deliveryScope']['sourceTree'], acceptance['sourceTree'])
+        self.assertEqual({row['family']: row['status'] for row in report['requirements']},
+                         {'PRIORITY-PROPAGATION-EXIT': 'CLOSED',
+                          'WHOLE-PRODUCT': 'CLOSED', 'MATCHED-RELEASE': 'CLOSED'})
+        self.assertTrue(report['evidenceIdentities'])
+        for item in report['evidenceIdentities'].values():
+            self.assertEqual(item['sha256'], hashlib.sha256((root / item['path']).read_bytes()).hexdigest())
+        bad = deepcopy(acceptance)
+        bad['requiredFamilies'].remove('WHOLE-PRODUCT')
+        with self.assertRaisesRegex(ValueError, 'drop or invent'):
+            integration_report(root, bad, binding, 'GambitRequestProduct')
+        bad = deepcopy(binding)
+        bad['inputs'][next(iter(bad['inputs']))] = 'stale'
+        with self.assertRaisesRegex(ValueError, 'model input'):
+            integration_report(root, acceptance, bad, 'GambitRequestProduct')
+        bad = deepcopy(acceptance)
+        bad['integration']['evidence']['native'] = '../private.json'
+        with self.assertRaisesRegex(ValueError, 'repository-owned'):
+            integration_report(root, bad, binding, 'GambitRequestProduct')

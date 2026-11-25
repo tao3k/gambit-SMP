@@ -72,11 +72,11 @@ claimed, and the denied attempt remains evidence.
 
 - `evidence/research-audit.json`: current non-closed inventory and conditions.
 - `evidence/native-failures.json`: retained route history, not current defect count.
-- `evidence/source-results/fixtures/abandoned-result-state/two-pass-bootstrap/receipt.json`: parent bootstrap identity and result.
-- `evidence/source-results/fixtures/abandoned-result-state/remaining-thread-native/receipt.json`: 15 additional parent original files in both modes.
+- `.cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/two-pass-bootstrap/receipt.json`: parent bootstrap identity and result.
+- `.cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/remaining-thread-native/receipt.json`: 15 additional parent original files in both modes.
 - `evidence/fixtures/abandoned-result-state/remaining-thread-plan.json`: 25-file inventory and prior coverage.
-- `evidence/source-results/fixtures/thread-completion-contract/sealed-source-core/receipt.json`: new candidate source build, not full test admission.
-- `evidence/model-results/research/sealed-runtime-review-handoff/receipt.json`: bounded handoff model, no runtime admission.
+- `.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/sealed-source-core/receipt.json`: new candidate source build, not full test admission.
+- `.cache/research/legacy-evidence/evidence/model-results/research/sealed-runtime-review-handoff/receipt.json`: bounded handoff model, no runtime admission.
 - `docs/quint-lean-shared-driver.md`: unimplemented qualification obligations.
 - `docs/interrupt-requester-cancel-native-result.md`: two same-candidate compiled cancellation/GC observations and explicit limits.
 - `docs/interrupt-lifetime-registration.md`: new registration, preserved predecessors and actual new-input graph DENY.

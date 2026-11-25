@@ -6,7 +6,7 @@ The archived native SIGSEGV report matches PID 15021 and the executable Mach-O
 UUID `e8b96f0e-daa1-3955-9868-149370c7d2e4`. Its faulting frame is
 `##btq-remove!`, called from `##thread-schedule-with-acquired-processor!`.
 The selected crash projection omits personal paths and host identifiers:
-`evidence/source-results/fixtures/thread-migration-shared-regeneration-budget/concurrent-interrupt-crash.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-migration-shared-regeneration-budget/concurrent-interrupt-crash.json`.
 This locates the fault; it does not uniquely prove the interleaving.
 
 Source audit found that migration captured the continuation, detached current

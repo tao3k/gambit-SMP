@@ -23,7 +23,7 @@ Stopping admission and recording entry are atomic abstract transitions. This is
 not evidence for a specific signal-safe implementation or arbitrary concurrency.
 
 Campaign `.data/vm-list-retirement-model-001` retained stable input hashes.
-Portable evidence: `evidence/model-results/vm-list-reader-retirement-model/`.
+Portable evidence: `.cache/research/legacy-evidence/evidence/model-results/vm-list-reader-retirement-model/`.
 Four controls find stale-pointer reads after reclamation: stopping new callbacks
 only, holding a writer-only mutex, using an atomic pointer only, and waiting for
 late-registered pointer holders only. The last control retains the window between

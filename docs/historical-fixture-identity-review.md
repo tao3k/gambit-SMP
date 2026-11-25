@@ -7,7 +7,7 @@ hashes with current hashes would lose the tested identity and is not permitted.
 
 ## Exact Recovery
 
-`evidence/source-results/fixture-history/inputs.json` binds four original
+`.cache/research/legacy-evidence/evidence/source-results/fixture-history/inputs.json` binds four original
 observation SHA values and five explicitly recovered historical inputs:
 
 - The old failure inventory comes from Git
@@ -38,7 +38,7 @@ being admitted through the historical helper. Three negative controls find the
 expected result, participation and startup counterexamples. Positive safety
 and weak-fair progress pass 394 distinct / 684 generated states in 5.252 seconds.
 The fresh receipt is
-`evidence/model-results/fixtures/pthread-returned-error-identity/resize-commit-current-model/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/pthread-returned-error-identity/resize-commit-current-model/receipt.json`.
 Only the corresponding registry receipt pointer changes; old bundles remain.
 
 Global collection now returns 83 checked protocol models. Two remain without

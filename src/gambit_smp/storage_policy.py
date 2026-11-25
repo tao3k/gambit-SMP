@@ -10,6 +10,7 @@ import sys
 
 _scope = ContextVar('gambit_storage_scope', default=None)
 _retirements = ContextVar('gambit_storage_retirements', default=())
+_study = ContextVar('gambit_research_execution', default=None)
 _roots = set()
 _installed = False
 SHARED = {'fixtures','fixture-archives','fixture-evidence','research','history','reasoning',
@@ -34,6 +35,8 @@ def validate(root, path, *, task=None, deleting=False):
         path=root/str(path)[len(str(root))+1:]
     relative=path.relative_to(root)
     if not relative.parts:return
+    if not deleting and relative.parts[:3] == ('.cache', 'research', 'legacy-evidence'):
+        raise StoragePolicyError('historical cache is read-only; allocate a fresh task run')
     if '..' in relative.parts:raise StoragePolicyError('noncanonical storage path')
     resolved=(path.parent.resolve()/path.name) if deleting else path.resolve()
     if resolved.is_relative_to(root):
@@ -60,9 +63,16 @@ def validate(root, path, *, task=None, deleting=False):
     parts=resolved.relative_to(root).parts if resolved.is_relative_to(root) else relative.parts
     if len(parts)>3 and parts[:2]==('.data','worktrees'):
         parts=parts[3:]
-    if (not deleting and parts and parts[0].casefold() == 'evidence'
-            and Path(parts[-1]).suffix.casefold() in EVIDENCE_CACHE_SUFFIXES):
-        raise StoragePolicyError('compressed archives, compiled output, scratch text and scripts do not belong in evidence/: '+str(relative))
+    if not deleting and parts and parts[0].casefold() == 'evidence' and path.suffix:
+        from gambit_smp.research_publication import classify, POLICY
+        publication = classify('/'.join(parts))
+        if (publication['kind'] in {'execution-output', 'state-and-workspace'}
+                or (any('/'.join(parts).startswith(prefix.removesuffix('**'))
+                        for prefix in POLICY['uncuratedTrees'].split(';'))
+                    and publication['disposition'] != 'allow')
+                or (Path(parts[-1]).suffix.casefold() in EVIDENCE_CACHE_SUFFIXES
+                    and publication['disposition'] != 'allow')):
+            raise StoragePolicyError('execution output requires .cache/; '+publication['reason']+': '+str(relative))
     if not deleting and parts and parts[0].casefold() in SOURCE_AREAS:
         if any(part.casefold() in GENERATED_CONTAINERS for part in parts[1:]):
             raise StoragePolicyError('generated runtime directories require .cache/: '+str(relative))
@@ -126,7 +136,35 @@ def _directory_target(path, descriptor):
     return base / os.fsdecode(path)
 
 
+def _journal_target(study,path):
+    """Only an approved native command may publish its owned process records."""
+    from gambit_smp.research_flow import _approved_command
+    import re
+    directory=study.get('journal')
+    if directory is None or _approved_command.get() is None:return False
+    actual=Path(os.fsdecode(path)).absolute().resolve()
+    return actual.parent==directory and re.fullmatch(
+        r'process-[0-9a-f]{32}-(?:planned|started|spawn-failed|progress-[1-9][0-9]*)\.json(?:\.pending-[0-9a-f]{32})?',actual.name) is not None
+
+
 def _audit(event,args):
+    study = _study.get()
+    if study and event == 'os.link':
+        source=_directory_target(args[0],args[2]);target=_directory_target(args[1],args[3])
+        if not (_journal_target(study,source) and _journal_target(study,target)
+                and Path(source).name.startswith(Path(target).name+'.pending-')):
+            raise StoragePolicyError('research output cannot hard-link source or historical storage')
+    if study and event == 'os.rename':
+        original = _directory_target(args[0], args[2])
+        original = Path(os.fsdecode(original)).absolute().resolve()
+        if not (_journal_target(study,original) or original.is_relative_to(study['run']) or
+                any(original.is_relative_to(study['root']/prefix) for prefix in study['services'])):
+            raise StoragePolicyError('research cannot move source/history into its run cache')
+    if study and event == 'subprocess.Popen':
+        from gambit_smp.research_flow import check_command, _approved_command
+        from gambit_smp.spawn_protocol import _popen_authority
+        if not (_popen_authority.get() and _approved_command.get() is not None):
+            check_command(study, args[1])
     scope=_scope.get()
     if scope and event in {'subprocess.Popen','os.system','os.posix_spawn','os.fork','os.forkpty','os.exec'}:
         from gambit_smp.spawn_protocol import _popen_authority,_exec_authority
@@ -146,14 +184,40 @@ def _audit(event,args):
     elif event in {'os.rename','os.link','os.symlink'}:
         targets=[args[1]];descriptor=args[2] if event == 'os.symlink' else args[3]
     scope=_scope.get()
-    if not scope and deleting:return  # Custody-controlled removal never creates a forbidden root.
+    if not scope and deleting and not study:return  # Unscoped removal does not create a forbidden root.
     for target in targets:
         if not isinstance(target,(str,bytes,os.PathLike)):continue
         target = _directory_target(target, descriptor)
+        if study:
+            actual = Path(os.fsdecode(target)).absolute().resolve()
+            if not actual.is_relative_to(study['root']):
+                raise StoragePolicyError('research writes require the owned run cache: '+str(actual))
+            if actual != study['root']:
+                permitted = (_journal_target(study,actual) or actual == study['run'] or actual.is_relative_to(study['run'])
+                             or any(actual.is_relative_to(study['root']/prefix)
+                                    for prefix in study['services']))
+                if not permitted:
+                    raise StoragePolicyError('research writes require this fresh run cache; source/legacy output is forbidden: '+str(actual))
         if scope:
             validate(scope[0],target,task=scope[1],deleting=deleting)
         else:
             for root in tuple(_roots):validate(root,target,deleting=deleting)
+
+
+@contextmanager
+def study_writes(root, run, services, *, journal=None):
+    """A research run cannot overwrite source or another run's results."""
+    root, run = Path(root).resolve(), Path(run).resolve()
+    install(root)
+    journal=Path(journal).resolve() if journal is not None else None
+    if journal is not None and (not journal.is_relative_to(root/'.cache/tasks') or not run.is_relative_to(journal)):
+        raise StoragePolicyError('process journal must own the current managed run')
+    token = _study.set(dict(root=root, run=run, services=tuple(services),journal=journal))
+    try:
+        with runtime_environment(root):
+            yield _study.get()
+    finally:
+        _study.reset(token)
 
 
 def install(root):

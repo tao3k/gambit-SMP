@@ -36,7 +36,7 @@ Local source links:
 [scoped GC/FFI status](../../gc-ffi-current-graph-status.md),
 [VM entry audit](../../shared-runtime-vm-entry-audit-20261015.md),
 [owned retirement](../../vm-owned-retirement-contract.md),
-[candidate lock](../../../evidence/research/processor-interrupt-collective-wait/source.lock.json).
+candidate lock (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout).
 
 The candidate lock was read to preserve baseline/candidate identity. It is not
 applied, rebuilt or promoted here. Earlier successful workloads, finite models

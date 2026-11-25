@@ -20,7 +20,7 @@ filesystem maintenance, not inference, native admission or authorization.
 
 The first retirement selects only three ROOT source reproductions. Its source
 bindings and original materialization JSON are under
-`evidence/source-results/workspace-retention/036`. All 6261 omitted source files
+`.cache/research/legacy-evidence/evidence/source-results/workspace-retention/036`. All 6261 omitted source files
 were compared against the pinned Git archive plus candidate overlay. 6279 regular
 files are inventoried, 321908972 logical source bytes retired and 65439 bytes
 archived. These are logical sizes, not measured APFS disk savings. Working's

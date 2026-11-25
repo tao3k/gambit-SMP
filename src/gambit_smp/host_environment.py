@@ -16,6 +16,13 @@ def execution_environment(root, inherited):
         value = inherited.get(name)
         if isinstance(value, str) and value and "\0" not in value:
             result[name] = value
+    # Official Gerbil build capacity is an explicit caller input, not an
+    # arbitrary shell control. Preserve and record it before profile resolution.
+    cores = inherited.get('GERBIL_BUILD_CORES')
+    if cores is not None:
+        if not isinstance(cores, str) or not cores.isascii() or not cores.isdecimal() or int(cores) < 1:
+            raise ValueError('GERBIL_BUILD_CORES must be a positive integer')
+        result['GERBIL_BUILD_CORES'] = cores
     return result
 
 

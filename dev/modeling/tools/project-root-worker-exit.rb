@@ -3,7 +3,7 @@ if ARGV.first=='--protocols'
  _,b=ARGV
  m=JSON.parse(File.read(b+'/native-projection.json'))
  JSON.parse(File.read(b+'/native-inputs.json')).each{|p,h|raise 'model source drift' unless Digest::SHA256.file(p).hexdigest==h}
- inputs=%w[evidence/research/execution/entry.json evidence/dsl/execution.ss evidence/research/capacity-admission/protocol-tools.json dev/refactoring/modern-c/models/sysml/root-worker-exit.sysml dev/refactoring/modern-c/models/sysml/root-task-c-refinement.sysml]
+ inputs=%w[.cache/research/legacy-evidence/evidence/research/execution/entry.json evidence/dsl/execution.ss .cache/research/legacy-evidence/evidence/research/capacity-admission/protocol-tools.json dev/refactoring/modern-c/models/sysml/root-worker-exit.sysml dev/refactoring/modern-c/models/sysml/root-task-c-refinement.sysml]
  JSON.parse(File.read(inputs[2])).fetch('tools').each_value{|t|raise 'model tool drift' unless Digest::SHA256.file(t.fetch('path')).hexdigest==t.fetch('sha256')}
  inputs.concat(File.readlines(b+'/native-model-inputs.txt',chomp:true))
  steps=[]
@@ -25,7 +25,7 @@ if ARGV.first=='--protocols'
    steps<<{id:id+(negative ? '-control' : '-safety'),capability:'quint.verify',dependsOn:[test,parse],budgetSeconds:negative ? 15 : 25,arguments:{source:source,parsed:parse,initializer:binding.fetch('initializer'),step:transition,invariant:binding.fetch('invariant'),negative:negative}}
   end
  end
- steps<<{id:'verdict',capability:'evidence.evaluate',dependsOn:steps.map{|s|s[:id]},budgetSeconds:10,arguments:{dsl:'evidence/research/execution/entry.json',queries:{checked:'checked_step',missing:'missing_step'},expected:{missing:[]},recordedQueries:['checked']}}
+ steps<<{id:'verdict',capability:'evidence.evaluate',dependsOn:steps.map{|s|s[:id]},budgetSeconds:10,arguments:{dsl:'.cache/research/legacy-evidence/evidence/research/execution/entry.json',queries:{checked:'checked_step',missing:'missing_step'},expected:{missing:[]},recordedQueries:['checked']}}
  recipe={schema:'evidence-recipe.v2',id:'modern-c-capacity-host-protocols',scope:'SysML-selected existing QNT tests and finite-state safety/counterexamples; no C refinement or runtime admission',budgetSeconds:90,inputs:inputs.uniq,steps:steps}
  path=b+'/protocol.recipe.json';raise 'fresh protocol recipe required' if File.exist?(path)
  File.write(path,JSON.pretty_generate(recipe)+"\n");puts JSON.generate(protocols:m.fetch('protocolBindings').size,steps:steps.size,runtimeAdmitted:false)

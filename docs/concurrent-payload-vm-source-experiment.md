@@ -72,7 +72,7 @@ It has not been compiled/run or admitted. It tests neither borrowed movable
 Scheme pointers nor cross-VM callbacks. Those need separate real fixtures.
 
 The sealed Recipe is
-`evidence/research/experimental-payload-vm-transfer/control.recipe.json`.
+`.cache/research/legacy-evidence/evidence/research/experimental-payload-vm-transfer/control.recipe.json`.
 Attempt 001 failed schema validation before execution; the existing
 `expectedExit`/`negativeControl` fields corrected that error. Attempt 002
 completed all eight model controls but denied C build admission because the
@@ -123,7 +123,7 @@ compilation taking forty seconds. Attempt 003 exhausted its remainder before
 the corrected source-consuming C control reached execution.
 
 The distinct native-only first-execution Recipe is
-`evidence/research/experimental-rc-payload/control.recipe.json`. It does not
+`.cache/research/legacy-evidence/evidence/research/experimental-rc-payload/control.recipe.json`. It does not
 rerun or reuse the model checks as native admission. Its whole cap is 15
 seconds, below the old combined campaign cap and no larger than the old
 compiler-step cap. `.data/experimental-rc-payload-001` completed in 7.522264
@@ -135,7 +135,7 @@ single-thread RC component, not real Scheme/C FFI or moving concurrent GC.
 
 The actual compiled fixture was then submitted, without running a binary
 directly, through
-`evidence/research/experimental-scheme-ffi/control.recipe.json`. It declares
+`.cache/research/legacy-evidence/evidence/research/experimental-scheme-ffi/control.recipe.json`. It declares
 the latest Darwin source lock/completed producer, fixture SHA, full canonical
 failure inventory and review rules, 15-second suite cap and 30-second whole
 cap. `.data/experimental-scheme-ffi-001` rejected completed-source reuse before

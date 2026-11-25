@@ -132,7 +132,7 @@ PR 988's `exec_gc_polling` and `lazy_vm_startup` cases separately cover failed
 nonblocking configuration and failed resize after premature startup publication.
 Their repairs are abstract obligations, not accepted native patches. Recursive
 startup and process cleanup remain outside their bounds. The complete 36-file
-source/report audit is in `docs/pr988-complete-source-audit.md`; the generic
+source/report audit is in `docs/pr988-complete-source-audit.md`; the [PR988 scope index](native/pr988/index.org) separates the local fixture from all 36 upstream files; the generic
 `src/gambit_smp/upstream_audit.py` refuses incomplete or mismatched inventories.
 
 Requires Quint **0.33.0**, Java, and the Quint TLC/Apalache backend. Verification

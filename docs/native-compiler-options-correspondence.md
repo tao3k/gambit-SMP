@@ -49,7 +49,7 @@ failures, assertions, signals or expanded budgets.
   `41a5b9e739ee0fa40ef76fb533bbf4705f0473d8a7433d1de4cae786555dae4c`.
 
 Registered model: `native_compiler_options_correspondence`; model receipt and
-portable raw logs are versioned under `evidence/model-results`. Sealed policy
+portable raw logs are versioned under `.cache/research/legacy-evidence/evidence/model-results`. Sealed policy
 engine: `856600448b90e8ba3b6c15310923a838165e820d310e86bba7be034feceb96f6`.
 
 The complete compiled Grid still needs an exact retry intent and associated

@@ -12,7 +12,7 @@ part need3:Need { attribute :>> obligation="RR-STORAGE"; attribute :>> method="n
 part need4:Need { attribute :>> obligation="RR-PROFILE"; attribute :>> method="source"; attribute :>> artifact="evidence/fixtures/gerbil-bazel-build-profile/profile.json"; attribute :>> scope="roles:configuration-reference-only"; attribute :>> premise="Read-only exact profile/header projection; patch candidates are problem evidence and are not imported source"; }
 part need5:Need { attribute :>> obligation="RR-COHORT"; attribute :>> method="native"; attribute :>> artifact="vendor/gambit/lib/_kernel.scm"; attribute :>> scope="roles:source-generated-cohort-open"; attribute :>> premise="Regenerate Scheme embedded C and compiler/runtime cohort; execute real map/multi-shot/GC; no old runtime reuse"; }
 part need6:Need { attribute :>> obligation="RR-REFINE"; attribute :>> method="source-refinement"; attribute :>> artifact="dev/refactoring/modern-c/models/sysml/modernization-target.sysml"; attribute :>> scope="roles:whole-source-role-simulation-open"; attribute :>> premise="GC private work, all root writers, barriers, resize and failure paths need source/C/weak-memory composition"; }
-part need7:Need { attribute :>> obligation="RR-LIFETIME"; attribute :>> method="native"; attribute :>> artifact="evidence/research/processor-interrupt-collective-wait/repair-9-12-native-observation.json"; attribute :>> scope="roles:carrier-lifecycle-and-native-failures-open"; attribute :>> premise="Context-resource cleanup still follows PSTATE; independent retirement, joins, old handlers, callbacks and whole SMP scenes remain open; no 8/12 inheritance"; }
+part need7:Need { attribute :>> obligation="RR-LIFETIME"; attribute :>> method="native"; attribute :>> artifact=".cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/repair-9-12-native-observation.json"; attribute :>> scope="roles:carrier-lifecycle-and-native-failures-open"; attribute :>> premise="Context-resource cleanup still follows PSTATE; independent retirement, joins, old handlers, callbacks and whole SMP scenes remain open; no 8/12 inheritance"; }
 part def Use { ref part component:Cut; ref part need:Need; }
 part use0:Use { ref part :>> component=cut0; ref part :>> need=need0; }
 part use1:Use { ref part :>> component=cut0; ref part :>> need=need1; }
@@ -61,7 +61,7 @@ attribute programmeBoundary:String="The twelve SMP milestones remain programme a
 /* Delivery order over the existing architecture, not another runtime design.
  * These steps are not accepted commits. Existing mixed source must be partitioned
  * before selecting a step's exact tree and its five-gate observations. */
-ref part headerDelivery=GambitHeaderDelivery::unit;
+ref part headerDelivery=GambitHeaderDelivery::submission;
 ref part memoryDelivery=GambitMemoryDelivery::unit;
 part def DeliveryStep {
   attribute id:String; attribute scope:String; attribute exitCriterion:String;
@@ -79,7 +79,14 @@ part roleOwnership:DeliveryStep {
   attribute :>> scope="VM-owned execution, root-participant and collector-work storage with complete real accessor/caller migration under the existing synchronous adapter";
   attribute :>> exitCriterion="Old carrier payload fields removed; admitted synchronous root/frame/RC consumers coherent; storage controls, real multi-shot map/GC and scoped W/R observations on the exact submitted tree";
   attribute :>> excludes="Independent worker threads, live context migration, general owner-death recovery and a redesigned foreign interface";
-  attribute :>> status="source-present-unpartitioned";
+  attribute :>> status="execution-storage-intermediate-tree-selected;participants-and-worker-still-require-own-trees";
+}
+part executionStorage:DeliveryStep {
+  attribute :>> id="execution-context-storage";
+  attribute :>> scope="First role-ownership subcut:10 execution-root field families move from PSTATE into stable VM slots; existing flat public header, names, entrypoints, pstate_mem and GC algorithm remain";
+  attribute :>> exitCriterion="Exact19-handwritten-path selected source plus producer-qualified default generated C; early/regular setup bindings and all moved-field consumers; old-field compile rejection, real public accessor/root-bank controls, full bootstrap and applicable official/frame/map/embedding checks; five scoped ASCENT gates";
+  attribute :>> excludes="Allocator/RC/still ownership, new participant/worker protocol, header organization, W<R, independent retirement, build cleanup and tfib diagnosis";
+  attribute :>> status="actual-layout-and-module-controls-qualified;final-default-cohort-and-five-gates-pending";
 }
 part roundOwnership:DeliveryStep {
   attribute :>> id="round-ownership";
@@ -117,11 +124,11 @@ part qualification:DeliveryStep {
   attribute :>> status="programme-acceptance";
 }
 part def DeliveryDependency { ref part predecessor:DeliveryStep; ref part successor:DeliveryStep; }
-part delivery0:DeliveryDependency { ref part :>> predecessor=organization; ref part :>> successor=roleOwnership; }
+part delivery0:DeliveryDependency { ref part :>> predecessor=executionStorage; ref part :>> successor=roleOwnership; }
 part delivery1:DeliveryDependency { ref part :>> predecessor=roleOwnership; ref part :>> successor=roundOwnership; }
 part delivery2:DeliveryDependency { ref part :>> predecessor=roundOwnership; ref part :>> successor=lifecycle; }
 part delivery3:DeliveryDependency { ref part :>> predecessor=lifecycle; ref part :>> successor=foreignOwnership; }
 part delivery4:DeliveryDependency { ref part :>> predecessor=foreignOwnership; ref part :>> successor=generations; }
 part delivery5:DeliveryDependency { ref part :>> predecessor=generations; ref part :>> successor=qualification; }
-attribute deliveryBoundary:String="The current 149-path private candidate mixes several delivery steps and is not automatically one REV. The first organization-only submission tree is df434be1261f13ba139ce965caca57055abd39de with75 changed paths, including the inseparable completion of the existing context saved-root accessor family; later behavioral work remains in the research tree. Never remove an applicable failed regression or defer the safety of code still included in that tree. Later programme obligations are routed, not converted into pass observations. No new runtime changes are authorized merely by discovering another baseline SMP failure.";
+attribute deliveryBoundary:String="Earlier mixed and organization candidates remain historical observations, not the selected submission. Current architecture selection starts with executionStorage in the existing flat header; private header organization is not a prerequisite. The exact selected tree must include all moved-field consumers and its own generated products. Later participant/worker/lifetime obligations are routed, not converted into pass observations. Never remove an applicable failed regression or defer the safety of code still included in that tree. No new runtime changes are authorized merely by discovering another baseline SMP failure.";
 }

@@ -116,7 +116,7 @@ class SuiteObservationsTests(unittest.TestCase):
 
     def test_structured_recipe_preserves_original_workload_and_caps(self):
         from gambit_smp.framework import ROOT
-        folder = ROOT / "evidence/research/smp-threaded-vm-native-grid"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
         old = json.loads((folder / "vector-arity-busy-delay-observation.recipe.json").read_text())
         current = json.loads((folder / "vector-arity-structured-busy-delay.recipe.json").read_text())
         recipes.load(ROOT, folder / "vector-arity-structured-busy-delay.recipe.json")

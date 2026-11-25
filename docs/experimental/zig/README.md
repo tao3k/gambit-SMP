@@ -508,7 +508,7 @@ through the current ledger, including new prepared grants only once. Worker
 tails transfer disjoint interval rights with explicit alignment, chunk/gap/run
 layout, reserve and resume bindings; live prefixes remain VM-owned.
 
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-26.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-26.json`; unavailable in a clean checkout)
 binds 98 document trace units, 15 selected-source groups, 6 primary-reference
 groups, 8 handwritten conditional arguments, 22 logical counterexamples and
 three D2/SVG views. Ten support rows, six maintenance events and five net
@@ -532,7 +532,7 @@ Tentative check cursors, committed objects and used trigger reserve have distinc
 layout/accounting states. Compiler 4096, runtime F and the inspected unused check
 argument do not establish the complete target write bound.
 
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-27.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-27.json`; unavailable in a clean checkout)
 binds 108 document trace units, 18 source groups, 7 primary-reference groups,
 8 handwritten conditional arguments, 24 logical counterexamples and three
 D2/SVG views. Ten matched support rows, six maintenance events and five net
@@ -561,7 +561,7 @@ Selected no-handles source arithmetic supplies pair/box/vector and isolated
 small-object bounds, not a universal B. Rest/key finish capacity and native
 rebase/GC/error edges retain complete-root/continuation obligations.
 
-The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-28.json)
+The design-artifact record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-28.json`; unavailable in a clean checkout)
 binds 101 document trace units, 14 source groups, 7 primary-reference groups,
 10 conditional source cases, 8 handwritten arguments, 24 logical counterexamples
 and three D2/SVG views. Ten matched support rows, six maintenance events and
@@ -586,7 +586,7 @@ artifact supplies correspondence evidence, not newly reproduced output.
 Gambit's modernization is explicit language/runtime contracts and replaceable
 native products. Zig remains a candidate subject to equal-capability residual
 net cost; modern C and an independent LLVM/MLIR provider remain valid carriers.
-The [design record](../../../evidence/research/zig-native/theory-design-update-29.json)
+The design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-29.json`; unavailable in a clean checkout)
 binds this refinement without executing compiler/native/model/engine work or
 accepting a positive economic gate. No architectural generation name is added.
 
@@ -606,7 +606,7 @@ Modern C is a proposed reconstruction whose generator, services, integration
 and delivery cost must be paid. Zig can realize the architecture directly;
 no intermediate modern-C implementation is required. Compare C versus current,
 Zig versus current and Zig versus fully costed C as separate ledgers.
-The [design record](../../../evidence/research/zig-native/theory-design-update-30.json)
+The design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-30.json`; unavailable in a clean checkout)
 adds no implementation/native/model/engine execution, path retirement or accepted
 economic gate, and introduces no architectural generation naming.
 
@@ -619,7 +619,7 @@ GC and a declared C-facing ecosystem. Collector implementation migration,
 runtime-contract modernization and algorithm/generation/concurrency redesign
 are distinct decisions. Chez and OCaml supply explicit GC reference designs;
 no full collector/profile or positive economics is inferred. The
-[design record](../../../evidence/research/zig-native/theory-design-update-31.json)
+design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-31.json`; unavailable in a clean checkout)
 records this research-only extension and its D2 view.
 
 ## Current Collector and Complete Native GC Architecture
@@ -637,7 +637,7 @@ a complete generational/multicore research candidate. Read its
 [unevaluated cases](gc-native-runtime-cases.json) and
 [trace map](gc-native-runtime-traceability.json). Three D2/SVG views cover heap
 domains, phases and benefit attribution. The
-[design record](../../../evidence/research/zig-native/theory-design-update-32.json)
+design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-32.json`; unavailable in a clean checkout)
 preserves the earlier records. This is source/document research only: no native
 experiment, complete GC proof or accepted positive Zig net.
 
@@ -651,7 +651,7 @@ hypothetical inputs rather than timing or labor estimates. The
 [modernization direction](gambit-modernization-direction.md) and D2/SVG separate
 Gambit's required compiler/runtime architecture from the choice of C-G, C-ZT or
 direct Zig realization. Read the [local trace](modernization-benefit-traceability.json)
-and [design record](../../../evidence/research/zig-native/theory-design-update-33.json).
+and design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-33.json`; unavailable in a clean checkout).
 No native implementation/test, transferred OCaml speedup or accepted project-net
 bound is claimed.
 
@@ -665,7 +665,7 @@ and ReleaseCoordinator to actual native callers, shared support and retirement
 conditions. The scoped engineering estimate currently favors modern generated C;
 source establishes required work while person-day ranges remain low-confidence
 author estimates, not measured labor or a full-runtime bound. The
-[design record](../../../evidence/research/zig-native/theory-design-update-34.json)
+design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-34.json`; unavailable in a clean checkout)
 preserves the arithmetic/evidence boundary; no implementation or native test.
 
 ## Modern Generated C Native Contract Mainline
@@ -680,7 +680,7 @@ retaining distinct policies. Read the [provider and retirement plan](generated-c
 [inert examples](generated-c-contract-samples.json) and
 [local trace](generated-c-contract-traceability.json). Three D2/SVG views cover
 providers, shared support and retirement. The
-[design record](../../../evidence/research/zig-native/theory-design-update-35.json)
+design record (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/zig-native/theory-design-update-35.json`; unavailable in a clean checkout)
 preserves prior estimates and evidence; there is no implementation/native test.
 
 ## Map as a Modernization Architecture Test

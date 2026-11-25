@@ -40,7 +40,7 @@ def recover_original_numeric(root, out, *, failed_unbuffered_generation=None):
     import os
     root = Path(root).resolve(); out = Path(out); out.mkdir(parents=True, exist_ok=True)
     producer = root/'.cache/current-mutex-return-incremental-02/candidate-runtime'
-    gcc = Path(json.loads((root/'evidence/source-results/model-first-followthrough/real-graph-cold-r8-03/numeric/retained-full-graph/argv.json').read_text())[0])
+    gcc = Path(json.loads((root/'.cache/research/legacy-evidence/evidence/source-results/model-first-followthrough/real-graph-cold-r8-03/numeric/retained-full-graph/argv.json').read_text())[0])
     build = original_numeric_workspace(root, gcc)
     source = build/'source'; source.mkdir(exist_ok=True)
     target = source/'tests/unit-tests/03-number/_num.c'
@@ -155,7 +155,7 @@ def original_host_experiment(root, out, mode):
     root=Path(root).resolve(); out=Path(out); out.mkdir(parents=True,exist_ok=True)
     recovered=recover_original_numeric(root,out/'recovery-reuse')
     build=root/recovered['workspace']; source=build/'source'
-    history=root/'evidence/source-results/model-first-followthrough/real-graph-cold-r8-03/numeric/retained-full-graph/argv.json'
+    history=root/'.cache/research/legacy-evidence/evidence/source-results/model-first-followthrough/real-graph-cold-r8-03/numeric/retained-full-graph/argv.json'
     old=json.loads(history.read_text()); gcc=Path(old[0]).resolve(strict=True)
     compiler,environment,version=gnu_compiler(gcc)
     flags=old[old.index('-O1'):-1]
@@ -305,7 +305,7 @@ def numeric_representation_profile(root, out, variant):
     revision='-'+digest(wrapper)[:12] if variant=='outline-assertions' else ''
     directory=build/'experiments'/('profile-'+variant+revision+'-multiple');directory.mkdir(parents=True,exist_ok=True)
     receipt=directory/'receipt.json'
-    history=root/'evidence/source-results/model-first-followthrough/real-graph-cold-r8-03/numeric/retained-full-graph/argv.json'
+    history=root/'.cache/research/legacy-evidence/evidence/source-results/model-first-followthrough/real-graph-cold-r8-03/numeric/retained-full-graph/argv.json'
     old=json.loads(history.read_text());gcc=Path(old[0]);compiler,env,version=gnu_compiler(gcc)
     identity=dict(original=ORIGINAL_NUMERIC_SHA,header=ORIGINAL_HEADER_SHA,gcc=digest(gcc),
         wrapper=digest(wrapper) if variant!='original' else None,variant=variant,version='numeric-phase-profile-v1',budgetSeconds=60)
@@ -504,7 +504,7 @@ def retained_numeric_analysis(root, out):
     root = Path(root).resolve()
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    base = root / 'evidence/source-results/model-first-followthrough/real-graph-cold-r8-03/numeric/retained-full-graph'
+    base = root / '.cache/research/legacy-evidence/evidence/source-results/model-first-followthrough/real-graph-cold-r8-03/numeric/retained-full-graph'
     cfg = base / '_test.o1-_num.c.016t.cfg'
     ssa = base / '_test.o1-_num.c.024t.ssa'
     expected = {cfg: 'cef7105de2f7825ce1f33270bb2015e5920c3c488bc9f4e8bdb0356ef2276733',
@@ -565,7 +565,7 @@ def alias_pass_discrimination(root, out):
     from gambit_smp.compiler_phase_primitives import alias_passes_exercised
     import os
     root=Path(root).resolve();out=Path(out);out.mkdir(parents=True,exist_ok=True)
-    history=root/'evidence/source-results/model-first-followthrough/grok-numeric-audit-02/retained-run/glo-inline-n1024/argv.json'
+    history=root/'.cache/research/legacy-evidence/evidence/source-results/model-first-followthrough/grok-numeric-audit-02/retained-run/glo-inline-n1024/argv.json'
     old=json.loads(history.read_text());gcc=Path(old[0]).resolve(strict=True)
     fixture=root/'models/gambit/native/numeric-alias/probe.c'
     flags=old[4:-1]

@@ -5,7 +5,8 @@ from importlib import import_module
 TOOLS={name.replace('_','-'):name for name in (
     'grok_event_wait','locked_object','process_observation','induction_reuse',
     'source_provision','wakeup_fairness','fixture_storage','guard_projection',
-    'model_projection','view_materialize','unicode_campaign','notification_schedule','native_archive')}
+    'model_projection','view_materialize','unicode_campaign','notification_schedule','native_archive',
+    'research_flow_audit')}
 
 
 def main():

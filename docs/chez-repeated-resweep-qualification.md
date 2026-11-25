@@ -85,8 +85,8 @@ Candidate, shape-model and individual native-receipt source withdrawal each
 remove their dependent conclusions; restoration returns identical answers.
 This real DSL check exited 0 at 2.590852/15 seconds. Original facts are retained
 as `history/facts-001.json`. Model verification logs/traces and native compile/
-run logs are archived under `evidence/model-results/chez-repeated-resweep/004`
-and `evidence/source-results/gc-shape-retention/002`, with original bytes.
+run logs are archived under `.cache/research/legacy-evidence/evidence/model-results/chez-repeated-resweep/004`
+and `.cache/research/legacy-evidence/evidence/source-results/gc-shape-retention/002`, with original bytes.
 These selected observation archives do not include every executable/source
 tree and are not a standalone portable research-run admission certificate.
 

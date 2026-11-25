@@ -9,7 +9,7 @@ package GambitSynchronousPublication {
         attribute :>> quintSymbols = "init; initReference; initFusedExplicit; step; safe; allFourFusedTest; escapedErasureCounterexampleTest";
         attribute :>> leanSource = "models/gambit/lean/SynchronousPublication.lean";
         attribute :>> leanSymbols = "zeroOwnersDischargesAllDebt; receiptCoverageAloneInsufficient; reservePreserves; settlementPreserves; knownReturnPreserves";
-        attribute :>> evidenceReport = "evidence/research/sync-publication-assurance/checks.json";
+        attribute :>> evidenceReport = ".cache/research/legacy-evidence/evidence/research/sync-publication-assurance/checks.json";
         attribute :>> scope = "Four symbolic sites, two workers, three protocols, explicit notify/residual/unknown ownership; parametric debt and accounting lemmas; no source or weak-memory simulation";
         attribute :>> obligationIds = "SP-COVER; SP-FUSE; SP-LASTUSE; SP-EXIT; SP-SOURCE; SP-MEMORY";
     }

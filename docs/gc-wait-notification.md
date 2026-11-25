@@ -71,7 +71,7 @@ checking. Campaign `gc-wait-notification-001` found all three expected missed-wo
 notification counterexamples. Positive characterization completed safety and
 weak-fair progress across all four policies: 466 distinct states, 826 generated,
 zero queued in 38.665 seconds. Context remained stable; workers were detected
-from the host. Portable evidence is in `evidence/model-results/gc-wait-notification/`.
+from the host. Portable evidence is in `.cache/research/legacy-evidence/evidence/model-results/gc-wait-notification/`.
 No runtime repair or native test was run; runtime and release admission are false.
 
 After registration, the wait-notification, eager-chain, constructor-contract and

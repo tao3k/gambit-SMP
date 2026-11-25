@@ -4,7 +4,7 @@ package GambitFrameAliasContract {
   ref part bridge=GambitContinuationSegments::bridge;
   ref part writers=GambitContinuationSegments::writers;
   ref part nativeAcceptance=GambitContinuationSegments::nativeAcceptance;
-  attribute predecessor:String="evidence/research/control-refinement/validation.json";
+  attribute predecessor:String=".cache/research/legacy-evidence/evidence/research/control-refinement/validation.json";
   attribute profile:String="evidence/fixtures/gerbil-bazel-build-profile/profile.json";
   part def AdapterClause {
     ref part obligation:GambitContinuationSegments::Obligation;

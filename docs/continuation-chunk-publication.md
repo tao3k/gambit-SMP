@@ -58,7 +58,7 @@ showing that the same unchanged branch works once the committed pointer has
 caught up. No real frame representation, queue stealing, OS threads or Gambit
 native test is exercised by this source unit.
 
-Receipts: `evidence/model-results/continuation-chunk-publication.json` and
+Receipts: `.cache/research/legacy-evidence/evidence/model-results/continuation-chunk-publication.json` and
 `continuation-chunk-source-observation.json`; the latter's exact output is in
 `continuation-chunk-source-observation.log`. The frozen policy counterexample
 is `models/gambit/counterexamples/continuation_chunk_publication.json`.

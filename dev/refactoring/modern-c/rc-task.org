@@ -1,0 +1,164 @@
+#+TITLE: RC scan leases and RootTask submission
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: VERIFYING READY | PUBLISHED
+#+PROPERTY: header-args :eval never :exports code
+
+* READY RC source publication, claim and completion :rev:gc:ownership:
+:PROPERTIES:
+:CUSTOM_ID: REV-RC-TASK
+:AUTHORITY: GambitRcTask
+:SOURCE: models/sysml/rc-task.sysml
+:BASE_REVISION: 94b14f2483268e367e02846c782439bfcd377535
+:STATUS: Native/source review complete; actual ASCENT admission/publication recorded separately
+:SOURCE_TREE: 733e5e10c3dc6535fa8d4e5711515b3b07a887d3
+:END:
+
+[[file:models/sysml/rc-task.sysml][SysML]] owns this RC-only responsibility. [[file:rc-task.d2][D2]] projects the same
+boundary; [[file:branch-checklist.org][the branch checklist]] separates published architecture slices,
+local native evidence and whole-SMP acceptance. No patch-line8/12 or9/12 credit
+transfers. [[file:rc-ownership-result.org][The preceding RC REV]] remains a bounded historical observation.
+
+** Actual C chain and source ownership :source:refinement:
+
+| Actual endpoint | Responsibility / condition | Removed behavior |
+|-----------------+----------------------------+------------------|
+| =___root_task_publish= | Domain gate atomically closes writers, increments checked epoch, assigns executor/READY and takes one scan lease; retry of same publication does not add a lease | Frozen domain with no bound task obligation |
+| =___root_task_claim= | Same mutex checks source, epoch, published executor, current PSTATE and READY before CLAIMED | Scan eligibility inferred merely from caller/root head |
+| =mark_rc= through =___root_task_scan= | CLAIMED -> SCANNING; actual =mark_array= visits; SCANNED only after normal source-access completion | A metadata-only scan acknowledgement |
+| =___root_task_finish= | SCANNED -> DONE and lease1 ->0; duplicate known completion is idempotent | Early completion or duplicate decrement |
+| =reopen_rc_roots= | Private epilogue checks the same epoch/executor, DONE and zero lease after existing whole-round strong/weak/copy/cleanup barriers | Frozen bit alone authorizes reopening |
+| =rc_can_close= / =cleanup_rc= | Unfinished source lease refuses retirement; detached native byte domain clears executor as well as owner | A task retains a pointer into retired PSTATE/VM storage |
+
+The actual GC caller carries =rc_epoch= as an unboxed C integer through the
+existing phase calls. RC cell addresses still come from the task's domain;
+=___ps= continues to supply the existing copy resources. The source gate spans
+list reads and synchronous source-slot rewrites. Released ownerless nodes may
+disappear before enrollment, as in the preceding RC contract. No RC source
+address is queued as a child scan; copied-heap descendants remain owned by the
+existing collector protocol.
+
+A completed RC task is not a completed collection. Its source remains FROZEN
+after lease release. Existing barriers and the actual GC epilogue, not a public
+Boolean seal or root count, authorize reopen. No generic resume/requeue API is
+exposed to native callers. Unknown scan effects keep their lease/state; this
+does not implement worker-death progress recovery or healthy-VM isolation.
+
+Source attachment/closed-roster lifetime must protect the pointer before any
+task API loads metadata. Epoch checking does not resurrect a stale raw pointer.
+One inline record is reused only after the prior task completed and the round
+reopened the domain. Counter exhaustion rejects publication before mutation;
+recovery from that exhaustion is not a native claim. Current executor admission
+remains source-owner/current-PSTATE; this is not W!=R qualification.
+
+** Existing formal duties, not duplicate models :sysml:ascent:
+
+| Existing authority | Actual refinement | Limit |
+|--------------------+-------------------+-------|
+| =runtime_roles.qnt::root_dispatch= freeze/publish | C fuses one source freeze/publication under its gate | RC projection of the abstract complete census, not all root families |
+| =claim/enter/finish/queryDone= | Actual claim; scanner enters once; SCANNED is an internal cut; finish releases once; query observes known completion | Native source accesses and C memory ordering remain source obligations |
+| =acceptRoundSeal/drain= | Existing whole-round epilogue/barriers precede source reopen | Task DONE/lease0 cannot derive that premise |
+| Existing Lean =RuntimeRoles= coverage laws | Frame/adapter addresses and representation unchanged | No new protocol machine; arbitrary-cell coverage still needs complete census/faithful adapters |
+| Native stateful properties | Request/observation agreement on the real C implementation | Not another model checker or universal C data-race proof |
+
+The domain mutex gives release/acquire publication for the complete tuple.
+Native operations never hold it over a foreign callback or allocating Scheme
+call. Marking retains its existing collector traversal cost. Unknown killed
+holders, arbitrary raw writers and nonlocal failure hooks remain unqualified.
+
+** Replay and shrink contract :pbt:counterexample:
+
+The existing Scheme/Make test path builds =root-task.scm= once. Its structured
+trace contains an opcode, relative epoch and logical actor; it contains no raw
+address or opaque generated bytes. An independent observable oracle recomputes
+expected acceptance/state/phase/lease/epoch after every candidate edit.
+
+Each replay starts a fresh executable process and performs real warm GC before
+the trace. An unfinished prefix is never reset in-process to run another trial.
+The child drives the actual C task functions and byte-only RC scanner, writes
+its outcome and terminates without running Scheme allocation under a frozen
+source. This deliberate process boundary is not production unknown-task recovery.
+Real moving-object scans and normal reopen are tested separately by the existing
+RC, map/multi-shot and frame-root consumers.
+
+The negative calibration changes only the invocation adapter: a requested valid
+finish is sent with an old epoch. The C implementation must reject it and keep
+SCANNED/FROZEN/lease1. The oracle disagreement must survive replay and shrink
+to publish -> claim -> actual scan -> finish. The certificate means deletion
+1-minimality for that failure class; it is not global minimality. No new runtime
+fault flag, configuration layer, Python test or solver is introduced.
+
+The first native run passed24 positive cases/864 actions but correctly exposed
+the adapter's process-status decoding error during negative calibration:
+Gambit returns the raw wait status18176 for child exit71. That failure remains
+retained. The corrected adapter checks the encoded status; it does not turn a
+child mismatch into success. Controlled thread schedules remain future work.
+
+** Gambit mechanism and benefits :learning:matrix:
+
+The Scheme/GVM semantics, exact tagged roots, copying algorithm, trampoline and
+multi-shot continuation representation stay intact. This cut makes the native
+root source and scan obligation explicit, so a future executor can be selected
+without locating roots through its carrier. It does not replace Gambit's
+continuations with one-shot effects or assume Erlang's isolated heaps. Modern
+C provides the mechanism directly; Zig cannot remove these ownership duties.
+
+| Gain | Actual replacement | Added cost / condition |
+|------+--------------------+------------------------|
+| Source custody until known scan completion | One task/lease names the actual domain | One inline task and lease per domain; no GC-time task allocation |
+| No stale/duplicate work admission | Epoch/executor/state checked together | Claim and finish mutex acquisitions; publish fuses with existing freeze |
+| Physical completion witness | Only real scanner returns SCANNED | Existing copy work and source lock hold time remain |
+| Safe later native byte lifetime | Detached task clears executor | No PSTATE pointer may survive in the detached record |
+| Action-level failure diagnosis | Native fresh replay and dependency-preserving deletion | Process startup/shrink trial cost; no scheduling exhaustiveness |
+| Whole-round separation | DONE does not open source | Existing barrier/weak/copy/cleanup obligations retained |
+
+** Native observations and measured cost :evidence:matrix:
+
+[[file:../../../evidence/research/retained/modern-c/rc-task/receipt.json][Repository evidence]] records exact source, compiler, profile, producer and
+consumer identities. [[file:../../../tests/fixtures/rc-task/minimal.scm][The native replay trace]] is portable Scheme data; its first
+integer is a warm-GC count, not a version identifier. After compiling the
+committed =tests/root-task.scm= through the existing configured Make target,
+the executable's =--replay TRACE= path accepts this data. Its deliberate stale
+finish invocation must exit71 with mismatch, not be reported as a positive run.
+
+| Scope | Actual result | Boundary |
+|-------+---------------+----------|
+| Production bootstrap | Two phase1--4 passes199.430s; stock core39.535s | Same persistent workspace/profile;600s outer cap |
+| Final source tree |733e5e10; producer01ae9308 reused | Only extra test change checks detached executor/lease; all production/generated/artifact bytes identical; no fictitious second bootstrap |
+| Roles/frame/map/root/exit | PASS; all290 assertions;18 captured frames/36 wide live slots | Existing representation and multi-shot recovery, not independent-worker admission |
+| RC domain | Six origin/seed cases;1440 draws/720 legal actions; retirement/refusal/byte release PASS | Actual origins0/1 under p2; detached owner/executor both cleared |
+| New RootTask PBT |24 cases/864 actions;9.452s compile+execution | Real C scanner over byte-only/FAL cells; generated legal shapes include rejected semantic requests |
+| Negative shrink/replay |24 actions ->4; deletion1-minimal;56 total trials including positive cases | Injected stale-finish invocation, not a discovered production bug; observed0/SCANNED/FROZEN/lease1 |
+| Original GSI | First407/408 in61.080s; fixed second408/408 in61.713s | First thread_interrupt failure retained; stable whole-suite behavior not established |
+| Same single official interrupt case | Preserved94b14f24 and candidate both PASS | Does not prove causality of intermittent full-suite failure |
+| Original check | Test1--7 complete; test8 FAIL in18.503s | Fatal setup_mem_pstate,6/6 sections,1/12 members,max_heap0; capacity/copy endpoints unchanged |
+| Later official consumers |9/10/12/entry/inline PASS6.253s | Separately executed; full check/GSC/stress/Gerbil remain open |
+| Existing QNT |10 root_dispatch runs PASS;10000 samples,64-step bound, no violation | Finite sampling only; model bytes unchanged; Lean duties unchanged |
+| Native tools | SysML strict validation and D2 PASS | Final admission reprojects actual need/gate relationships through ASCENT |
+| Structural metadata | Task32 bytes; domain144 ->184; header48/carrier896/VM78504 unchanged | +40D bytes for D live/detached domains; at12 domains +480 bytes; excludes allocator rounding/process peak |
+| Synchronization | +3 mutex acquisitions per GC per RC domain | Prior epoch read, claim, finish; publish replaces freeze; actual scan/reopen still lock; no speedup claim |
+
+The first comparison launcher omitted =GAMBOPT=p1= and reached startup Heap
+overflow before the unit test on both binaries. That observation is rejected
+as an interrupt comparison; its receipt remains retained. The corrected
+comparison uses the exact original environment. No failed observation is
+overwritten. The initial SysML reserved-word defect is also retained and fixed
+using native validation, without a Python SysML parser.
+
+The current full-suite interrupt failure remains a nondeterministic observation,
+not an attributed RootTask regression or a proved pre-existing defect. This
+bounded REV's required task/custody controls and complete producer pass; reliable
+whole-SMP scheduling is a separate, still-open gate.
+
+This cut changes no public gambit.h layout or Scheme generator. Source1 moving
+roots, borrow-last, real retirement refusal/byte release, all290 layout assertions
+and map multi-shot restoration remain mandatory. Original test8 is still a
+separate capacity failure; original stress, Gerbil and release gates remain open.
+
+** Five submission gates :ascent:checklist:
+
+- [X] Exact production bootstrap and required RC/task consumers complete within unchanged limits; original failures explicitly disposed, not relabeled green.
+- [X] Real replay, shrink calibration, same failure replay and deletion-minimality verified.
+- [X] Source custody/round distinction, benefit and measured added costs reviewed.
+- [X] Native SysML validates; existing QNT/Lean roles and branch checklist are explicit; shared ASCENT reprojects the final source-bound obligations before committing.
+- [X] Nine-field audit prepared for the bounded source cut; publication requires all five actual admission rows and21 negative controls. The immutable publication result records whether that requirement actually passed.

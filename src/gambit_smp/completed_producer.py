@@ -412,6 +412,32 @@ def bootstrap_ancestry(root, rows, step):
     return seed, configured, materialized
 
 
+def campaign_configuration(root, producer):
+    """Use the completed bootstrap's configure record for a later campaign.
+
+    A consumer recipe cannot configure that source again. The qualified profile
+    and generated header hashes stay the ones recorded on the producer.
+    """
+    from gambit_smp.recipes import read_json, source_path
+    proof_path = source_path(root, producer)
+    proof = read_json(proof_path)
+    if proof.get("schema") != SCHEMA:
+        raise ValueError("ordered stress requires a completed bootstrap reference")
+    run = fixture_path(root, proof["run"])
+    child = read_json(run / "run/receipt.json")
+    rows = {row["id"]: row for row in child["steps"]}
+    _, configured, _ = bootstrap_ancestry(root, rows, rows[proof["step"]])
+    profile = configured["arguments"]["buildProfile"]
+    target = (root / profile).resolve()
+    recorded = next((sha for path, sha in child.get("inputs", {}).items()
+                     if path == profile or Path(path).resolve() == target), None)
+    files = configured["configurationFiles"]
+    bootstrap = rows[proof["step"]].get("configurationFiles")
+    if recorded is None or not files or (bootstrap is not None and bootstrap != files):
+        raise ValueError("ordered stress producer configuration changed after configure")
+    return {"profileSha256": recorded, "profile": configured.get("buildProfile"), "files": files}
+
+
 def configure_command(root, configured):
     """Read a real configure observation, including checked configuration reuse.
 
@@ -502,6 +528,12 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
     current_runtime = artifact_path(run / "run", output, root=root)
     if tree_identity(current_runtime) != output["identity"]:
         raise ValueError("completed runtime bytes unavailable or changed")
+    make_lineage = step.get("makeLineage")
+    if step["arguments"].get("makeLineage") and not make_lineage:
+        raise ValueError("completed producer lacks its required Make lineage")
+    if make_lineage:
+        from gambit_smp.make_lineage import verify_retained
+        verify_retained(run / "run", make_lineage, digest(current_runtime / "gsi/gsi"))
     command = configure_command(root, configured)
     if command["exit"] != 0 or command["timeout"] is not False or not FLAGS <= set(command["argv"]):
         raise ValueError("all three concurrency flags must be observed in the producer")
@@ -561,6 +593,16 @@ def prevent_duplicate_bootstrap(args, ctx):
         configuration = {**configured["arguments"], "source": seed["arguments"]["source"]}
         prevent_duplicate_configuration(configuration, ctx, stage="bootstrap")
         return
+    # source-core cites the seed by runtime, and the seed cites configure by source.
+    seen = set()
+    while "source" not in seed.get("arguments", {}):
+        if seed["id"] in seen:
+            raise ValueError("bootstrap source chain is cyclic")
+        seen.add(seed["id"])
+        runtime = seed.get("arguments", {}).get("runtime")
+        if not isinstance(runtime, dict) or runtime.get("step") not in rows:
+            raise ValueError("bootstrap source chain does not reach a configured source")
+        seed = rows[runtime["step"]]
     configured = rows[seed["arguments"]["source"]["step"]]
     prevent_duplicate_configuration(configured["arguments"], ctx, stage="bootstrap")
 
@@ -708,6 +750,12 @@ def reuse(args, ctx):
     from gambit_smp.recipes import artifact_path
     original = artifact_path(run / "run", step["outputs"]["runtime"], root=ctx.root)
     original_identity = relative(run / "run", step["outputs"]["identity"]["path"])
+    make_lineage = step.get("makeLineage")
+    if make_lineage:
+        from gambit_smp.make_lineage import verify_retained
+        ctx.bind(verify_retained(run / "run", make_lineage, digest(original / "gsi/gsi")))
+        if read_json(original_identity).get("makeLineage") != make_lineage:
+            raise ValueError("GSI identity and completed Make lineage differ")
     target, identity = ctx.directory / "runtime", ctx.directory / "identity.json"
     from gambit_smp.artifact_storage import transfer_tree
     if in_place:
@@ -736,5 +784,5 @@ def reuse(args, ctx):
                  "historicalReceiptSha256": proof["outerReceiptSha256"]}
                 if proof.get("completionRevalidation", {}).get("supersedesHistoricalDecision") else None),
             "producerExpenditure": expenditure, "runtimeAdmitted": False,
-            "storageTransfer": storage,
+            "storageTransfer": storage, **({"makeLineage": make_lineage} if make_lineage else {}),
             "claim": "same-source-completed-bootstrap-transfer-not-native-admission-or-performance"}

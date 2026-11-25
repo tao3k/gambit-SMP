@@ -55,7 +55,7 @@ temporal progress. Three accepted exit-1 counterexamples show:
 - Result publication occurs after a failed join without retirement completion.
 
 The portable receipt is
-`evidence/model-results/fixtures/interrupt-prefix-owned-lifecycle/resize-result-membership-design-contract/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/interrupt-prefix-owned-lifecycle/resize-result-membership-design-contract/receipt.json`.
 The registry and Reflection reference this exact receipt.
 
 Progress still assumes at most one join failure followed by successful recovery

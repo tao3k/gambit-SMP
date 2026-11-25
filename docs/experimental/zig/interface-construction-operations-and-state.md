@@ -28,10 +28,10 @@ overwrite the [historical report ledger](interface-construction-evidence.md).
 | S7 | `src/gerbil/runtime/control.ss:11-28`; `src/gambit/lib/_kernel.scm:1861-1921` | Atomic promise wraps inner force in mutex/dynamic-wind and a continuation-entry guard; underlying force stores a successful result after the thunk returns, not an exception at its throw site |
 | S8 | `src/gerbil/compiler/driver.ss:904-909`; `src/gerbil/compiler/compile.ss:1251-1270,1438-1497` | Expanded module code generates interface metadata and separate phase blocks/native loads; runtime declarations, syntax declarations and aliases have distinct producers |
 
-Workspace source links: [module lifecycle](../../../../../.data/ci-source-patch-check/src/gerbil/expander/module.ss),
-[bindings and phases](../../../../../.data/ci-source-patch-check/src/gerbil/expander/core.ss),
-[atomic promise wrapper](../../../../../.data/ci-source-patch-check/src/gerbil/runtime/control.ss),
-[underlying promise force](../../../../../.data/ci-source-patch-check/src/gambit/lib/_kernel.scm).
+Workspace source links: module lifecycle (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/expander/module.ss`; unavailable in a clean checkout),
+bindings and phases (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/expander/core.ss`; unavailable in a clean checkout),
+atomic promise wrapper (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/runtime/control.ss`; unavailable in a clean checkout),
+underlying promise force (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/lib/_kernel.scm`; unavailable in a clean checkout).
 These materialized-tree links require that local evidence tree; the identities
 and hashes are retained below for later reconstruction.
 

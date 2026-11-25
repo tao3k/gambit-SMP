@@ -27,7 +27,7 @@ class PendingJoinCandidateTests(unittest.TestCase):
             self.assertFalse(new[key])
 
     def test_object_recipe_keeps_default_profile_and_negative_control(self):
-        recipe = json.loads((ROOT / "evidence/research/vm-registry-reader-lease/"
+        recipe = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/"
                             "pending-join-bazel-objects.recipe.json").read_text())
         steps = {step["id"]: step for step in recipe["steps"]}
         self.assertEqual(300, recipe["budgetSeconds"])

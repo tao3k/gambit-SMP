@@ -8,7 +8,7 @@ from gambit_smp import recipes
 
 class CallbackRetirementNativeTests(unittest.TestCase):
     def test_official_roundtrip_keeps_original_budgets_and_model_controls(self):
-        path = ROOT / "evidence/research/vm-registry-reader-lease/vector-arity-callback-retirement-roundtrip.recipe.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/vector-arity-callback-retirement-roundtrip.recipe.json"
         recipes.load(ROOT, path)
         recipe = json.loads(path.read_text())
         self.assertEqual(300, recipe["budgetSeconds"])
@@ -39,7 +39,7 @@ class CallbackRetirementNativeTests(unittest.TestCase):
             self.assertNotIn(forbidden, program)
 
     def test_policy_probe_is_distinct_from_roundtrip(self):
-        probe = ROOT / "evidence/research/vm-registry-reader-lease/vector-arity-callback-retirement-admission.recipe.json"
+        probe = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/vector-arity-callback-retirement-admission.recipe.json"
         recipes.load(ROOT, probe)
         program = (ROOT / "models/gambit/native/callback_retirement_admission.scm").read_text()
         self.assertIn('live C frame retirement was admitted', program)

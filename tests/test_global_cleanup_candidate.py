@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RESEARCH = ROOT / "evidence/research/vm-registry-reader-lease"
+RESEARCH = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease"
 
 
 class GlobalCleanupCandidateTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class GlobalCleanupCandidateTests(unittest.TestCase):
             steps = {s["id"]: s for s in recipe["steps"]}
             self.assertEqual(300, recipe["budgetSeconds"])
             self.assertEqual(120, steps["independent-vms"]["budgetSeconds"])
-            self.assertEqual("evidence/research/vm-registry-reader-lease/global-cleanup-completed-producer.json",
+            self.assertEqual(".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/global-cleanup-completed-producer.json",
                              steps["producer"]["arguments"]["producer"])
             self.assertEqual("evidence/fixtures/vm-global-cleanup-preflight/source.lock.json",
                              steps["source"]["arguments"]["sourceLock"])
@@ -73,7 +73,7 @@ class GlobalCleanupCandidateTests(unittest.TestCase):
         self.assertEqual(120, step["budgetSeconds"])
 
     def test_complete_interpreted_successor_preserves_every_file_and_budget(self):
-        grid = ROOT / "evidence/research/smp-threaded-vm-native-grid"
+        grid = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
         old = json.loads((grid / "bazel-profile-interpreted.recipe.json").read_text())
         new = json.loads((grid / "global-cleanup-interpreted.recipe.json").read_text())
         old_steps = {s["id"]: s for s in old["steps"]}

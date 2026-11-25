@@ -86,7 +86,7 @@ class HistoricalInputTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name).resolve()
         self.original = "evidence/research/rules.ss"
-        self.archived = "evidence/source-results/fixtures/example/rules.ss"
+        self.archived = ".cache/research/legacy-evidence/evidence/source-results/fixtures/example/rules.ss"
         for name, content in ((self.original, "new rule"), (self.archived, "original rule")):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +96,7 @@ class HistoricalInputTests(unittest.TestCase):
         self.record = {"schema": history.SCHEMA, "receiptSha256": digest(self.receipt),
                        "inputs": [{"original": self.original, "sha256": digest(self.root / self.archived),
                                    "archive": self.archived}]}
-        self.manifest = "evidence/source-results/fixtures/example/inputs.json"
+        self.manifest = ".cache/research/legacy-evidence/evidence/source-results/fixtures/example/inputs.json"
         self.save()
 
     def save(self):

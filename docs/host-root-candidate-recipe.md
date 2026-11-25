@@ -5,7 +5,7 @@
 This continues [the handoff source map](host-root-participation-source-map.md)
 against the retained mutex-return candidate, not merely the pinned baseline.
 The reproducible identity is
-`evidence/research/processor-interrupt-collective-wait/runtime-mutex-return-source.lock.json`
+`.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/runtime-mutex-return-source.lock.json`
 (SHA-256 `df9277dff351209ad7b33d12589d07821089262f7cdac40b358988aea2fc0466`),
 Gambit revision `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`, and its versioned
 `patches/fixtures/runtime-mutex-return-cumulative.patch`

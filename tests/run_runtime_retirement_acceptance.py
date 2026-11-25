@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--dsl-log", type=Path, required=True)
     parser.add_argument("--mode-env", default="RUNTIME_RETIREMENT_MODE")
     args = parser.parse_args()
-    parent = ROOT / "evidence/source-results/root-signal-retirement/comparison/receipt.json"
+    parent = ROOT / ".cache/research/legacy-evidence/evidence/source-results/root-signal-retirement/comparison/receipt.json"
     inherited = json.loads(parent.read_text())
     assert inherited["status"] == "PASS"
     baseline = ROOT / ".cache/processor-interrupt-collective-wait/root-signal-acceptance-01/candidate-runtime"

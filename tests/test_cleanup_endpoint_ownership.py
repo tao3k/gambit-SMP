@@ -19,7 +19,7 @@ class CleanupEndpointOwnershipTests(unittest.TestCase):
         self.assertFalse(current["releaseAdmitted"])
 
     def test_model_inventory_preserves_both_faulty_policy_controls(self):
-        recipe, _ = load(ROOT, ROOT / "evidence/research/vm-registry-reader-lease/cleanup-endpoint-ownership.recipe.json")
+        recipe, _ = load(ROOT, ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/cleanup-endpoint-ownership.recipe.json")
         controls = {s["arguments"]["initializer"] for s in recipe["steps"]
                     if s["capability"] == "quint.verify" and s["arguments"]["negative"]}
         self.assertEqual({"initReacquire", "initLegacyReturns"}, controls)
@@ -27,7 +27,7 @@ class CleanupEndpointOwnershipTests(unittest.TestCase):
         self.assertEqual(5, len(tests["arguments"]["expectedTests"]))
 
     def test_supplemental_object_does_not_change_default_profile(self):
-        recipe, _ = load(ROOT, ROOT / "evidence/research/vm-registry-reader-lease/foreign-origin-lifecycle-ownership-objects.recipe.json")
+        recipe, _ = load(ROOT, ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/foreign-origin-lifecycle-ownership-objects.recipe.json")
         configure = next(s for s in recipe["steps"] if s["id"] == "configure")
         self.assertEqual("evidence/fixtures/gerbil-bazel-build-profile/profile.json",
                          configure["arguments"]["buildProfile"])

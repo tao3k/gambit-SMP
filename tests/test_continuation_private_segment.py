@@ -18,7 +18,7 @@ class ContinuationPrivateSegmentTests(unittest.TestCase):
         self.assertFalse(child["releaseAdmitted"])
 
     def test_wake_protocol_has_real_control_and_exhausted_positive_checks(self):
-        receipt = json.loads((ROOT / "evidence/model-results/fixtures/continuation-private-chunk-segment/wake-budget/receipt.json").read_text())
+        receipt = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/model-results/fixtures/continuation-private-chunk-segment/wake-budget/receipt.json").read_text())
         self.assertTrue(receipt["accepted"])
         self.assertFalse(receipt["runtimeAdmitted"])
         controls = [row for row in receipt["results"] if row["variant"] == "old"]

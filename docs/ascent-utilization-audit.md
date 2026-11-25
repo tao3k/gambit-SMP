@@ -30,7 +30,7 @@ policy; unsupported proof fragments must remain explicitly unsupported.
 ### F2: Current review views do not consume typed retry outcomes (P1)
 
 The active sealed suite/bootstrap path evaluates
-`evidence/research/suite-review-rules.ss` and archives `typed-suite-retry-review.v2`.
+`evidence/dsl/suite-review-rules.ss` and archives `typed-suite-retry-review.v2`.
 It can derive conditional `RETRY_ELIGIBLE` while keeping execution authority and
 runtime admission false. In contrast, `ascent_review.py:66-78` projects a
 historical/proposal view, leaves `Cause` empty, and uses the separate provider
@@ -228,7 +228,7 @@ started by this audit.
 
 These `.data` artifacts are local diagnostics. They are not committed durable
 evidence or model/native admission facts. The machine-readable audit index is
-`evidence/research/ascent-utilization/audit.json`; it explicitly keeps
+`.cache/research/legacy-evidence/evidence/research/ascent-utilization/audit.json`; it explicitly keeps
 `overallQualified=false` and records local references without importing passes.
 
 ## Primary Reference Boundary

@@ -85,6 +85,62 @@ class BuildStageTests(unittest.TestCase):
             self.assertIn("-o", execute.call_args.args[0])
             self.assertFalse(result["runtimeAdmitted"])
 
+    def test_interpreted_regeneration_binds_loaded_sources_and_explicit_processors(self):
+        self.check_interpreted_regeneration(False)
+
+    def test_interpreted_regeneration_rejects_loaded_source_drift(self):
+        self.check_interpreted_regeneration(True)
+
+    def test_interpreted_regeneration_refuses_an_unbound_gsi_override(self):
+        from gambit_smp.gambit_build_primitives import regenerate_module as regenerate_source_module
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            for name in ('lib/_thread.scm', 'gsc/igsc.scm'):
+                path = source/name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('fixture')
+            runner = BuildStages(source, source, {'GAMBIT_BOOT_GSI': '/unbound/gsi'})
+            with self.assertRaisesRegex(ValueError, 'bound in-tree GSI'):
+                regenerate_source_module(runner, source, 'lib/_thread.scm', 30,
+                                         interpreted=True, processors=1)
+
+    def check_interpreted_regeneration(self, drift):
+        from gambit_smp.gambit_build_primitives import regenerate_module as regenerate_source_module
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            source = out/'source'
+            for name in ('lib/_thread.scm', 'gsc/igsc.scm',
+                         'gsc/_prims.scm', 'gsi/main.scm', 'gsi/gsi'):
+                path = source/name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('fixture')
+
+            class Runner:
+                stdout = ''
+                def __init__(self):
+                    self.out = out
+                    self.argv = None
+                def run(self, stage, argv, cwd, budget):
+                    if stage == 'regeneration-recipe':
+                        self.stdout = '../gsc-boot -:~~lib=../lib -f -c -prelude "header" _thread.scm\n'
+                    else:
+                        self.argv = argv
+                        (out/'_thread.c').write_text('actual generated fixture')
+                        if drift:
+                            (source/'gsc/_prims.scm').write_text('changed')
+                    return 0, '', False, 0.1
+
+            runner = Runner()
+            ok, result = regenerate_source_module(runner, source, 'lib/_thread.scm', 30,
+                                                  interpreted=True, processors=1)
+            self.assertEqual(ok, not drift)
+            self.assertEqual(runner.argv[0], str(source/'gsc/igsc.scm'))
+            self.assertTrue(runner.argv[1].startswith('-:p1,'))
+            self.assertIn('gsc/_prims.scm', result['inputs'])
+            self.assertIn('gsi/main.scm', result['inputs'])
+            self.assertTrue(result['interpretedSourceCompiler'])
+            self.assertFalse(result['runtimeAdmitted'])
+
     def test_source_core_rejects_bootclean_that_leaves_generated_c(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source"

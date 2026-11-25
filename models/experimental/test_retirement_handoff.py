@@ -26,7 +26,7 @@ class RetirementHandoffExperimentalTests(unittest.TestCase):
         directory.mkdir(parents=True, exist_ok=True)
         cls.out = Path(tempfile.mkdtemp(prefix="run-", dir=directory))
         files = [cls.model, cls.proof, Path(__file__),
-                 ROOT / "evidence/research/retirement-handoff/facts.json",
+                 ROOT / ".cache/research/legacy-evidence/evidence/research/retirement-handoff/facts.json",
                  ROOT / "models/gambit/public_vm_retirement_composition.qnt",
                  cls.lean / "WorkAccounting.lean", cls.lean / "lakefile.toml",
                  cls.lean / "lean-toolchain"]
@@ -120,7 +120,7 @@ class RetirementHandoffExperimentalTests(unittest.TestCase):
                 self.fail("unrecognized negative control: " + initializer)
 
     def test_existing_scheme_exposes_proposal_not_native_acceptance(self):
-        path = ROOT / "evidence/research/retirement-handoff/facts.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/research/retirement-handoff/facts.json"
         facts = json.loads(path.read_text())["facts"]
         for _, source, sha, _ in facts["source"]:
             self.assertEqual(digest(ROOT / source), sha, source)

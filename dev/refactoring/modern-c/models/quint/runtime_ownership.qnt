@@ -132,3 +132,95 @@ module runtime_ownership {
  run oneShotNegativeTest=init.then(capture).then(consumeCapture).then(all{assert(not(safe)),s'=s})
  run nativeRetirementNegativeTest=init.then(enterNative(2)).then(park(1)).then(retirePinnedCarrier).then(all{assert(not(safe)),s'=s})
 }
+
+// Shared boundary protocol for contract instantiation. The concrete pre/post,
+// memory footprint, synchronization and source census remain edge-specific.
+module runtime_contract_boundary {
+  type Boundary = {
+    phase: str, accepting: bool, live: bool, generation: int, callerGeneration: int,
+    lease: bool, roots: bool, resultRoot: bool, resultUsed: bool,
+    demand: int, capacity: int, writes: int, outside: int, returned: bool
+  }
+  var b: Boundary
+  action init = b' = {
+    phase: "entry", accepting: true, live: true, generation: 1, callerGeneration: 1,
+    lease: false, roots: true, resultRoot: false, resultUsed: false,
+    demand: 2, capacity: 2, writes: 0, outside: 7, returned: false
+  }
+  val callerReady = b.accepting and b.live and b.callerGeneration == b.generation and
+    b.demand >= 0 and b.roots
+  val capacityFits = b.capacity >= b.demand
+  val currentLease = b.lease and b.live and b.callerGeneration == b.generation
+  action invoke = all {
+    b.phase == "entry", callerReady,
+    b' = {...b, phase: "active", lease: true}
+  }
+  action perform = all {
+    b.phase == "active", currentLease, capacityFits, b.writes == 0,
+    b' = {...b, writes: b.demand}
+  }
+  action suspend = all {
+    b.phase == "active", currentLease, b.roots,
+    b' = {...b, phase: "pending"}
+  }
+  action resume = all {
+    b.phase == "pending", currentLease, b.roots,
+    b' = {...b, phase: "active"}
+  }
+  action returnResult = all {
+    b.phase == "active", currentLease, b.writes == b.demand,
+    b' = {...b, phase: "returned", returned: true, roots: false, resultRoot: true}
+  }
+  action finishResultUse = all {
+    b.phase == "returned", b.resultRoot, currentLease,
+    b' = {...b, resultRoot: false, resultUsed: true, lease: false}
+  }
+  action closeAdmission = all { b.accepting, b' = {...b, accepting: false} }
+  action retire = all { not(b.accepting), not(b.lease), b.live, b' = {...b, live: false} }
+  action refuse = all {
+    (b.phase == "entry" and not(callerReady)) or
+      (b.phase == "active" and currentLease and not(capacityFits) and b.writes == 0),
+    b' = {...b, phase: "refused", lease: false}
+  }
+  action reuse = all {
+    not(b.live), b.generation < 2,
+    b' = {...b, generation: b.generation + 1, live: true, accepting: true}
+  }
+  val safe = all {
+    b.outside == 7, b.writes <= b.demand,
+    b.lease implies (b.live and b.callerGeneration == b.generation),
+    b.phase == "pending" implies (b.roots and currentLease),
+    b.phase == "refused" implies (b.writes == 0 and b.roots),
+    b.returned implies (b.writes == b.demand and (b.resultRoot or b.resultUsed)),
+    b.resultRoot implies currentLease
+  }
+  action step = any { invoke, perform, suspend, resume, returnResult, finishResultUse,
+    closeAdmission, retire, refuse, reuse, b' = b }
+  action retireAccepted = b' = {...b, live: false}
+  action losePendingRoots = b' = {...b, roots: false}
+  action replayEffects = b' = {...b, writes: b.writes + b.demand}
+  action overwriteOutside = b' = {...b, outside: 8}
+
+  run admittedCallReturnsWithCustodyTest = init.then(invoke).then(perform)
+    .then(returnResult).expect(safe and b.resultRoot and b.lease)
+  run closeAllowsAcceptedWorkToFinishTest = init.then(invoke).then(closeAdmission)
+    .then(perform).then(returnResult).then(finishResultUse).then(retire)
+    .expect(safe and b.returned and not(b.live))
+  run pendingKeepsLeaseAndRootsTest = init.then(invoke).then(suspend)
+    .then(closeAdmission).expect(safe and b.roots and b.lease)
+    .then(resume).then(perform).then(returnResult).expect(safe)
+  run shortRefusalHasNoEffectsTest = init.then(all { b' = {...b, capacity: 1} })
+    .expect(callerReady).then(invoke).then(refuse).expect(safe and b.writes == 0)
+  run validShortageMayWaitTest = init.then(all { b' = {...b, capacity: 1} })
+    .expect(callerReady).then(invoke).then(suspend).expect(safe and b.roots and b.lease)
+  run reusedGenerationRequiresFreshCallerTest = init.then(closeAdmission).then(retire)
+    .then(reuse).then(refuse).expect(safe and b.callerGeneration != b.generation)
+  run retireAcceptedControlTest = init.then(invoke).then(retireAccepted).expect(not(safe))
+  run losePendingCustodyControlTest = init.then(invoke).then(suspend)
+    .then(losePendingRoots).expect(not(safe))
+  run replayCommittedEffectsControlTest = init.then(invoke).then(perform)
+    .then(replayEffects).expect(not(safe))
+  run outsideFootprintWriteControlTest = init.then(invoke).then(overwriteOutside).expect(not(safe))
+  run returnedResultStillPinsBackingControlTest = init.then(invoke).then(perform)
+    .then(returnResult).then(retireAccepted).expect(not(safe))
+}

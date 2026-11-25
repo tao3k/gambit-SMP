@@ -1,0 +1,75 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-smp-thread-composition",
+  "scope": "Quint controls for one SMP epoch: a wake is not a settlement, a stale cursor cannot allocate, and a lost scan is not a grant. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 60,
+  "inputs": [
+    "dev/refactoring/modern-c/models/quint/smp_dev_composition.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-smp-thread-composition/binding.json",
+    "evidence/fixtures/dev-smp-thread-composition/observations.json",
+    "evidence/fixtures/dev-smp-thread-composition/composition.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {"source": "dev/refactoring/modern-c/models/quint/smp_dev_composition.qnt"}
+    },
+    {
+      "id": "qnt",
+      "capability": "quint.test",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/smp_dev_composition.qnt",
+        "parsed": "parse",
+        "main": "smp_dev_composition",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "delayedCompositionTest",
+          "earlyRetireControlTest",
+          "hiddenWorkControlTest",
+          "staleCursorControlTest",
+          "unknownReleaseControlTest",
+          "pendingRequestControlTest",
+          "lostScanReplyTest",
+          "unknownScanReleaseControlTest",
+          "prematureWakeControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["parse", "qnt"],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-smp-thread-composition/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

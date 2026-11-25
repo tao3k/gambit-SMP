@@ -25,7 +25,7 @@ Actual runtime identity was checked after execution, and independent sealed
 source-core read returned CURRENT/PASS with runtime/source admission false.
 Portable fixture snapshot, exact identity, logs, raw observation hashes and
 bounded summary are under
-`evidence/source-results/fixtures/interrupt-queue-payload-roots/native-diagnostic`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-queue-payload-roots/native-diagnostic`.
 
 ## Boundary
 

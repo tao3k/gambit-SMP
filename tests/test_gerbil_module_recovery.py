@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from gambit_smp import workspace as w
 from gambit_smp.recipes import ExecutionContext
-from gambit_smp.gerbil_build import _module_stage
+from gambit_smp.gerbil_build.custody import _module_stage
 from gambit_smp.task_processes import observe_group
 from tests import test_incremental_native_adapters as adapters
 
@@ -17,6 +17,27 @@ class GerbilPendingModuleRecoveryTests(unittest.TestCase):
     prepare = adapters.GerbilIncrementalAdapterTests.prepare
     lock = adapters.GerbilIncrementalAdapterTests.lock
     build = adapters.GerbilIncrementalAdapterTests.build
+
+    def test_core_query_does_not_publish_library_or_tool_readiness(self):
+        self.prepare()
+        result, commands = self.build(through_stage='stage1')
+        observation = result['observation']
+        self.assertEqual(observation['constructionOwner'], 'experimental-staged')
+        self.assertFalse(observation['ciBaselineEquivalent'])
+        self.assertTrue(observation['compilerCoreReady'])
+        self.assertFalse(observation['standardLibraryReady'])
+        self.assertFalse(observation['toolsReady'])
+        self.assertFalse(any(c['stage'] in {'gerbil-stdlib', 'gerbil-libgerbil',
+                                           'gerbil-lang', 'gerbil-tools'} for c in commands))
+        # The actual core-query product must be rejected by the full-test gate.
+        proof = self.root/'core-query.json'
+        proof.write_text(json.dumps(observation))
+        from types import SimpleNamespace
+        from gambit_smp.gerbil_build import test as full_test
+        context = SimpleNamespace(root=self.root, receipt={'workspacePolicy':'in-place'},
+                                  artifact=lambda *args: proof)
+        with self.assertRaisesRegex(ValueError, 'completed tools'):
+            full_test({'build':{'step':'core','output':'observations'}}, context)
 
     def test_independent_modules_overlap_without_borrowing_sibling_receipts(self):
         self.prepare()
@@ -30,7 +51,7 @@ class GerbilPendingModuleRecoveryTests(unittest.TestCase):
         def overlapping(context,name,argv,cwd,cap,**options):
             if name.startswith('gerbil-stage0-module-'):rendezvous.wait(timeout=3)
             return run(context,name,argv,cwd,cap,**options)
-        with patch('gambit_smp.gerbil_build.available_processors',return_value=5), \
+        with patch('gambit_smp.gerbil_build.consumer_tests.available_processors',return_value=5), \
              patch.object(ExecutionContext,'run',overlapping):
             result,commands=self.build()
         source=adapters.Path(result['observation']['workspace'])

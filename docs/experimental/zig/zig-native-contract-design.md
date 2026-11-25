@@ -61,7 +61,7 @@ Vendor Gambit is `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`; its tracked
 working tree was unchanged. Baseline references below use that vendor source.
 
 The current research candidate is described separately by
-[the source lock](../../../evidence/research/processor-interrupt-collective-wait/source.lock.json)
+the source lock (local execution locator: `../../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout)
 and [the cumulative patch](../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch).
 The lock SHA-256 is
 `7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b`;

@@ -54,7 +54,7 @@ the original 1000-probe loop refinement.
 
 The native Quint `enabled(step)` expression typechecks but Apalache 0.62.1
 rejects it as an unsupported `ENABLED` expression in a zero-step symbolic query.
-See `evidence/model-results/quint-symbolic-enabledness-unsupported/`. This is a
+See `.cache/research/legacy-evidence/evidence/model-results/quint-symbolic-enabledness-unsupported/`. This is a
 backend limitation, not a protocol counterexample; TLC support is a separate
 boundary. Do not repeat this symbolic query unchanged on the large model.
 
@@ -126,7 +126,7 @@ adding the control did not change them.
 The first wrapper omitted direct imports and failed with `QNT404` in 0.656
 seconds. This was a parse denial, not a protocol counterexample. All three
 attempts, source snapshots and logs are under
-`evidence/model-results/gc-rank-initial-bridge/`. No transition matrix was
+`.cache/research/legacy-evidence/evidence/model-results/gc-rank-initial-bridge/`. No transition matrix was
 rerun, no timeout increased, and every runtime/release/temporal admission flag
 remains false. The bridge closes actual-start rank inclusion only; generator
 coverage, action semantics and source fairness remain separate obligations.

@@ -28,7 +28,7 @@ def fixture():
 
 class GeneratorContractTests(unittest.TestCase):
     def test_archived_real_gc_ir_contract_matches_receipt(self):
-        archive = ROOT / "evidence/model-results/gc-induction-cartesian-contract-ir"
+        archive = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-induction-cartesian-contract-ir"
         receipt = json.loads((archive / "receipt.json").read_text())
         proof_ir = archive / "proof-ir.json"
         self.assertEqual(receipt["generatorContract"]["proofIrSha256"], digest(proof_ir))

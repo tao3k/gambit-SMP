@@ -17,7 +17,7 @@ class WakeupFairnessModelTests(unittest.TestCase):
         self.assertNotIn("spuriousUsed:", model)
 
     def ir(self):
-        path = ROOT / "evidence/model-results/gc-wakeup-fairness-ir/protocol-ir.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-wakeup-fairness-ir/protocol-ir.json"
         return json.loads(path.read_text())
 
     def test_real_ir_keeps_all_original_branches_except_explicit_wakeup_variant(self):

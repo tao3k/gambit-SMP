@@ -122,6 +122,15 @@ class FixtureStorageTests(unittest.TestCase):
                     transfer_tree(source, target)
                 self.assertFalse(target.exists())
 
+    def test_foreign_active_task_cannot_allocate_a_fixture_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);source=self.tree(root/'.cache/fixtures/source')
+            target=root/'.cache/tasks/repair/runs/another/source'
+            with patch.dict(os.environ,{'GAMBIT_SMP_TASK_ROOT':str(root/'different-owner')}):
+                with self.assertRaisesRegex(ValueError,'nested task stores cannot allocate another source tree'):
+                    transfer_tree(source,target)
+            self.assertFalse(target.exists())
+
     def test_maintained_product_and_explicit_transient_delta_do_not_need_another_fixture(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

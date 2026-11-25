@@ -22,7 +22,7 @@ observed entry, association, identity and reuse gaps from proposed remedies.
 
 ## Observed Disconnects
 
-1. [The native qualification audit](../evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md)
+1. The native qualification audit (local execution locator: `../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md`; unavailable in a clean checkout)
    retains an 8/12 report and four open contracts: lifecycle failure/rollback,
    complete GC/FFI, Gerbil correctness and release performance. Its last section
    still keeps all four open. [Current research](current-repair-research.md)
@@ -30,7 +30,7 @@ observed entry, association, identity and reuse gaps from proposed remedies.
    under repair. The scope is therefore all four open contracts, not only
    three later contracts. Do not infer canonical ordinal assignments merely
    from the table order below.
-2. [Retirement-window research](../evidence/research/host-root-publication/retirement-window-facts.json)
+2. Retirement-window research (local execution locator: `../.cache/research/legacy-evidence/evidence/research/host-root-publication/retirement-window-facts.json`; unavailable in a clean checkout)
    declares checked model interfaces but no `composition_binding` or `satisfies`.
    Its three obligations are source-correspondence gaps, not three gate IDs.
    Finite model completion cannot supply the missing C correspondence.
@@ -201,7 +201,7 @@ not causal proof for the observed Gambit failure. A new general root ABI,
 collector organization or host-attachment capability belongs in Experimental;
 the supported current entry's missing witness stays in current repair.
 
-The [consumer-interface qualification](../evidence/research/host-root-publication/repair-interfaces-validation.md)
+The consumer-interface qualification (local execution locator: `../.cache/research/legacy-evidence/evidence/research/host-root-publication/repair-interfaces-validation.md`; unavailable in a clean checkout)
 now refines two of these premises with executable negative/positive controls:
 OS-delivered invocation lifetime versus C admission, and declared-root resolution
 versus an in-flight last consumer. It binds exact checked model/proof identities

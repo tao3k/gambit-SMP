@@ -23,7 +23,7 @@ class GCHeaderWriteBoundaryCandidateTests(unittest.TestCase):
         self.assertFalse(contract["releaseAdmitted"])
 
     def test_current_position_mismatch_and_writer_controls_are_kept(self):
-        recipe = json.loads((ROOT / "evidence/research/current-source-full-bootstrap/shared-header-write-boundary.recipe.json").read_text())
+        recipe = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/shared-header-write-boundary.recipe.json").read_text())
         checks = {step["id"]: step["arguments"] for step in recipe["steps"]
                   if step["capability"] == "quint.verify"}
         self.assertFalse(checks["guarded-writes"]["negative"])
@@ -31,7 +31,7 @@ class GCHeaderWriteBoundaryCandidateTests(unittest.TestCase):
             self.assertTrue(checks[name]["negative"])
 
     def test_stress_inventory_and_original_watchdog_are_unchanged(self):
-        base = ROOT / "evidence/research/current-source-full-bootstrap"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap"
         old = json.loads((base / "darwin-shared-stack-reservation-stress-compiled.recipe.json").read_text())
         new = json.loads((base / "darwin-gc-header-write-boundary-stress-compiled.recipe.json").read_text())
         old_step = next(step for step in old["steps"] if step["id"] == "stress-gsc")

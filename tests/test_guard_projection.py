@@ -47,7 +47,7 @@ class GuardProjectionTests(unittest.TestCase):
             project(expression)
 
     def test_real_original_ir_projects_all_22_branches(self):
-        path = ROOT / "evidence/model-results/gc-ranking-all-components/protocol-ir.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-ranking-all-components/protocol-ir.json"
         ir = json.loads(path.read_text())
         result = projections(ir)
         self.assertEqual(22, len(result))
@@ -73,7 +73,7 @@ class GuardProjectionTests(unittest.TestCase):
             verify_generated(ir, guards)
 
     def test_extra_original_state_variable_is_not_silently_unassigned(self):
-        path = ROOT / "evidence/model-results/gc-ranking-all-components/protocol-ir.json"
+        path = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-ranking-all-components/protocol-ir.json"
         ir = json.loads(path.read_text())
         module = next(item for item in ir["modules"] if item["name"] == "gc_recursive_queue_wait")
         module["declarations"].append({"kind": "var", "name": "unassigned"})

@@ -26,6 +26,43 @@ class CompilerCostTests(unittest.TestCase):
             with self.assertRaises(ValueError):assertion_group_manifest(bad)
         with self.assertRaises(ValueError):assertion_group_manifest(rows,['include','test-eqv'])
 
+    def test_host_block_constraints_keep_conditional_and_private_edges(self):
+        from gambit_smp.compiler_phase_primitives import host_block_constraints
+
+        code = ["___DEF_SLBL(0,entry)", "___IF(cond)", "___GOTO(private)",
+                "___END_IF", "___POLL(1)", "___DEF_SLBL(1,resume)",
+                "___JUMPRET(value)", "___DEF_GLBL(private)", "___JUMPRET(value)"]
+        observed = host_block_constraints(code)
+        self.assertEqual(observed["localGotos"], 1)
+        self.assertEqual(observed["candidateSafepoints"], 1)
+        self.assertLess(observed["candidateLargest"], observed["strictLargest"])
+        wrong_slot = [line.replace("POLL(1)", "POLL(2)") for line in code]
+        self.assertEqual(host_block_constraints(wrong_slot)["candidateSafepoints"], 0)
+        with self.assertRaisesRegex(ValueError, "unresolved"):
+            host_block_constraints(code[:-2])
+
+    def test_host_entry_map_preserves_logical_order_across_recurring_hosts(self):
+        from gambit_smp.compiler_phase_primitives import verify_host_entry_map
+
+        labels = [(0, "intro", "_test#"), (1, "entry", 0),
+                  (2, "return", (4, 2, 3)), (3, "return", (8, 4, 9))]
+        hosts = {"A": [1, 3], "B": [2]}
+        entries = {1: ("A", 1), 2: ("B", 1), 3: ("A", 2)}
+        verify_host_entry_map(labels, labels, hosts, entries)
+
+        controls = [
+            (labels, hosts, entries | {3: ("A", 1)}),
+            (labels, {"A": [1, 3, 4], "B": [2]}, entries),
+            (labels, {"A": [1, 3], "B": [2, 3]}, entries),
+            ([labels[0], labels[1], labels[3], labels[2]], hosts, entries),
+            (labels[:-1] + [(3, "return", (8, 4, 0))], hosts, entries),
+            (labels[:2] + [(4, "intro", "new-host")] + labels[2:], hosts, entries),
+        ]
+        for emitted, tables, mapping in controls:
+            with self.subTest(emitted=emitted, tables=tables, mapping=mapping):
+                with self.assertRaises(ValueError):
+                    verify_host_entry_map(labels, emitted, tables, mapping)
+
     def test_phase_observer_rejects_peer_or_reparented_compiler(self):
         from gambit_smp.compiler_phase_primitives import owned_cc1
         parent=dict(pid=11,pgid=11,uid=501)

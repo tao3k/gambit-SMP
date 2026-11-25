@@ -72,7 +72,7 @@ def facts(root):
         model = relative(root, "models/gambit/" + case["id"] + ".qnt")
         inputs[str(model.relative_to(root))] = digest(model)
         result["model_progress_obligation"].append((case["id"], digest(model), case["scope"]))
-        path = root / "evidence/model-results/model-progress" / case["id"] / "receipt.json"
+        path = root / ".cache/research/legacy-evidence/evidence/model-results/model-progress" / case["id"] / "receipt.json"
         if not path.exists():
             continue
         inputs[str(path.relative_to(root))] = digest(path)
@@ -101,7 +101,8 @@ def main():
     manifest = json.loads((ROOT / MANIFEST).read_text())
     case = next(case for case in manifest["cases"] if case["id"] == saved["case"])
     checked(ROOT, case, source / "receipt.json")
-    target = ROOT / "evidence/model-results/model-progress" / case["id"]
+    from gambit_smp.artifact_storage import runtime_output
+    target = runtime_output(ROOT, ROOT / ".cache/tasks/publish-progress/runs/research" / case["id"])
     target.mkdir(parents=True, exist_ok=False)
     saved["outputs"] = {}
     for row in saved["results"]:

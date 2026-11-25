@@ -235,6 +235,24 @@ class UpstreamTestContracts(unittest.TestCase):
         self.assertEqual("DENY", row["outcome"])
         self.assertEqual(ctx.commands[-1]["processGroupQuiescent"], row["processGroupQuiescent"])
 
+    def test_timeout_refuses_all_three_teardown_deliveries(self):
+        from gambit_smp.process_observation import Observation
+        self.makefile("test1:\n\t@true\ntest5:\n\t@true\n")
+        for quiescent in (True, False, None):
+            with self.subTest(quiescent=quiescent):
+                ctx = Context(self.root)
+                observation = Observation("", "", -9, True, .1, 123,
+                                          "start", "end", quiescent)
+                with patch.dict(globals(), capture=lambda *a, **k: observation):
+                    with self.assertRaisesRegex(ValueError, "exit/timeout/teardown"):
+                        execute(self.args, ctx)
+                row = self.observations(ctx)
+                self.assertIs(row["timeout"], True)
+                self.assertEqual(-9, row["exit"])
+                self.assertIs(row["processGroupQuiescent"], quiescent)
+                self.assertEqual("DENY", row["outcome"])
+                shutil.rmtree(ctx.directory)
+
     def test_undeclared_target_and_shadowing_file_never_launch_make(self):
         self.makefile("test1:\n\t@echo one\ntest5:\n\t@echo five\n")
         ctx = Context(self.root)
@@ -295,24 +313,6 @@ class UpstreamTestContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'non-unit'):
             validate_target_processors({'targetProcessors':{'test1':1}},self.contract,['test1','test5'])
 
-    def test_timeout_refuses_all_three_teardown_deliveries(self):
-        from gambit_smp.process_observation import Observation
-        self.makefile("test1:\n\t@true\ntest5:\n\t@true\n")
-        for quiescent in (True, False, None):
-            with self.subTest(quiescent=quiescent):
-                ctx = Context(self.root)
-                observation = Observation("", "", -9, True, .1, 123,
-                                          "start", "end", quiescent)
-                with patch.dict(globals(), capture=lambda *a, **k: observation):
-                    with self.assertRaisesRegex(ValueError, "exit/timeout/teardown"):
-                        execute(self.args, ctx)
-                row = self.observations(ctx)
-                self.assertIs(row["timeout"], True)
-                self.assertEqual(-9, row["exit"])
-                self.assertIs(row["processGroupQuiescent"], quiescent)
-                self.assertEqual("DENY", row["outcome"])
-                shutil.rmtree(ctx.directory)
-
     def test_source_headers_and_scope_policy_are_actually_bound(self):
         self.contract_mock.stop()
         for name in POLICIES:
@@ -337,7 +337,7 @@ class UpstreamTestContracts(unittest.TestCase):
         with patch("gambit_smp.research_kernel.manifest_paths", return_value=manifest):
             with self.assertRaisesRegex(ValueError, 'headers'):
                 scope_contract(ctx, self.root / 'runtime')
-            declaration = 'evidence/research/incremental-builds/qualified-upstream-tests.json'
+            declaration = 'tests/recipes/support/incremental-builds/qualified-upstream-tests.json'
             contract, _ = scope_contract(ctx, self.root / "runtime", declaration=declaration)
             self.assertEqual(["test7"], contract["targets"]["test9"]["dependencies"])
             self.makefile(template.read_text().replace("test9: test7", "test9:"))
@@ -370,7 +370,7 @@ class UpstreamTestContracts(unittest.TestCase):
             make_operation_scope({**official, "makefileScope": "Makefile"})
 
     def test_reused_causal_intent_rejects_missing_or_duplicate_declared_ids(self):
-        intent = json.loads((ROOT / "evidence/research/current-source-full-bootstrap/interpreted-intent.json").read_text())
+        intent = json.loads((ROOT / "tests/recipes/support/current-source-full-bootstrap/interpreted-intent.json").read_text())
         selected = native_capabilities.select_review_intent(intent, ["018-thread-interrupt"])
         self.assertEqual(["018-thread-interrupt"], [row["id"] for row in selected["failures"]])
         self.assertEqual(len(intent["failures"]), 10)
@@ -381,7 +381,7 @@ class UpstreamTestContracts(unittest.TestCase):
                                                      ["018-thread-interrupt"])
 
     def test_source_bound_suite_inventory_is_exact_and_has_no_per_file_waiver(self):
-        recipe = json.loads((ROOT / "evidence/research/ci/threads.recipe.json").read_text())
+        recipe = json.loads((ROOT / "tests/recipes/ci/threads.recipe.json").read_text())
         args = next(step["arguments"] for step in recipe["steps"] if step["id"] == "gsi")
         native_capabilities.validate_suite(args, recipe["inputs"])
         source = self.root / "candidate"
@@ -475,7 +475,7 @@ class UpstreamTestContracts(unittest.TestCase):
                 native_capabilities.bind_source_successor(intent, successor, ctx, args, "evidence/base.json")
 
     def test_bound_upstream_review_uses_exact_declared_failure_slice(self):
-        intent_name = "evidence/research/current-source-full-bootstrap/interpreted-intent.json"
+        intent_name = "tests/recipes/support/current-source-full-bootstrap/interpreted-intent.json"
         intent_path = self.root / intent_name
         intent_path.parent.mkdir(parents=True)
         shutil.copyfile(ROOT / intent_name, intent_path)
@@ -494,7 +494,7 @@ class UpstreamTestContracts(unittest.TestCase):
         self.assertEqual("tests/makefile", self.preflight.call_args.args[1]["makefileScope"])
 
     def test_bound_upstream_review_includes_the_official_additional_fixture(self):
-        intent_name = "evidence/research/current-source-full-bootstrap/interpreted-intent.json"
+        intent_name = "tests/recipes/support/current-source-full-bootstrap/interpreted-intent.json"
         intent_path = self.root / intent_name
         intent_path.parent.mkdir(parents=True)
         shutil.copyfile(ROOT / intent_name, intent_path)

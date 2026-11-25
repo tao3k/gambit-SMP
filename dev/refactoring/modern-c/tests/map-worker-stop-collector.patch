@@ -1,0 +1,189 @@
+--- a/_mem/collection-round.inc
++++ b/_mem/collection-round.inc
+@@ -1,3 +1,4 @@
++extern void map_worker_carrier_cut(void *, unsigned);
+ #line 6614 ___MEM_SOURCE_FILE
+ ___HIDDEN void mark_reachable_from_marked
+    ___P((___collector_worker *work),
+@@ -308,6 +309,15 @@
+     rc_contract_error("Frozen root union publication refused");
+ 
+   BARRIER(); /* publishes the one RootTask/worker assignment */
++#if defined(___GC_SLOT_TEST_FROZEN) != defined(___GC_SLOT_TEST_REPAIRED)
++#error "GC slot observation requires both test cuts"
++#endif
++#ifdef ___GC_SLOT_TEST_FROZEN
++  /* Only the coordinator can plan from here. The other members stay at
++   * the decision barrier. No forwarding or parity flip has started. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    ___GC_SLOT_TEST_FROZEN(___ps,rc_epoch);
++#endif
+   if(___PROCESSOR_ID(___ps,___vms)==0)
+     ___COLLECTION(___vms).decision=plan_copy_round(___ps);
+   BARRIER(); /* acquire the one decision; no parity changed */
+@@ -330,12 +340,16 @@
+   ___ps->collector=active_worker?work:0;
+   if(active_worker) garbage_collect_setup_phase(work);
+   BARRIER();
++
++  map_worker_carrier_cut(___ps, 0);
+ 
+   /* Mark the objects that are reachable strongly */
+ 
+   if(active_worker) garbage_collect_mark_strong_phase(work,rc_epoch);
+ 
++  map_worker_carrier_cut(___ps, 1);
+   BARRIER();
++  map_worker_carrier_cut(___ps, 2);
+ 
+ 
+   if (___PROCESSOR_ID(___ps,___vms)==0 &&
+@@ -349,6 +363,16 @@
+   BARRIER();
+ 
+ 
++#ifdef ___GC_SLOT_TEST_REPAIRED
++  /* The strong and weak scans have drained. Keep every member out of
++   * continuation restoration and reclamation until the observer returns.
++   * The test callbacks may inspect held slots but must not call Scheme,
++   * allocate managed objects or wait for a member at this barrier. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    ___GC_SLOT_TEST_REPAIRED(___ps,rc_epoch);
++  BARRIER();
++#endif
++
+   /* Weak descendants have drained on all W; each physical owner receives
+    * either one exclusive worker tail or its own disjoint empty resume span. */
+   if(active_worker) {
+--- a/_mem/object-scanning.inc
++++ b/_mem/object-scanning.inc
+@@ -1,3 +1,4 @@
++extern void map_worker_weak_link(unsigned, uintptr_t);
+ #line 4389 ___MEM_SOURCE_FILE
+ ___HIDDEN ___SIZE_TS scan
+    ___P((___collector_worker *work,
+@@ -109,7 +110,8 @@
+             }
+ 
+           if(work->census==0) { body[0] = reached_gc_hash_tables;
+-            reached_gc_hash_tables = ___CAST(___WORD,body); }
++            reached_gc_hash_tables = ___CAST(___WORD,body);
++            map_worker_weak_link(work->id, (uintptr_t)body); }
+         }
+       break;
+ 
+--- a/_mem/root-tasks.inc
++++ b/_mem/root-tasks.inc
+@@ -1,3 +1,6 @@
++extern void map_worker_await_frontier(void);
++extern int map_worker_transferred_source(void *, uintptr_t);
++extern unsigned map_worker_rc_executor(void *, unsigned, uintptr_t);
+ /* RC publication and source freezing share one mutex/linearization point.
+  * Completion releases a scan lease, never the enclosing round's authority. */
+ /* These state transitions require source-specific exclusion: the RC gate or
+@@ -708,11 +711,19 @@
+           !___root_task_scan_symkey(&round->symkey_task,ps,epoch) ||
+           !___root_task_finish_symkey(&round->symkey_task,ps,epoch)) return 0;
+     }
++  int transfer=map_worker_transferred_source(round,epoch);
++  if (transfer >= 0 && (unsigned)___PROCESSOR_ID(ps,round->vm) !=
++      map_worker_rc_executor(round,transfer,epoch)) {
++    member=&round->members[transfer];
++    if (!___root_task_claim(member->rc,ps,epoch) ||
++        !___root_task_scan(member->rc,ps,epoch)) return 0;
++  }
+   for(id=___PROCESSOR_ID(ps,round->vm);id<round->participants;id+=round->collection.worker_count) {
+     member=&round->members[id];
+-  if (!___root_task_claim(member->rc,ps,epoch) ||
+-      !___root_task_scan(member->rc,ps,epoch) ||
+-      !___root_task_finish(member->rc,ps,epoch)) return 0;
++  if (id != transfer &&
++      (!___root_task_claim(member->rc,ps,epoch) ||
++       !___root_task_scan(member->rc,ps,epoch) ||
++       !___root_task_finish(member->rc,ps,epoch))) return 0;
+   if (!___root_task_claim_globals(&member->global_task,ps,epoch) ||
+       !___root_task_scan_globals(&member->global_task,ps,epoch) ||
+       !___root_task_finish_globals(&member->global_task,ps,epoch)) return 0;
+@@ -723,6 +734,13 @@
+       !___root_task_scan_bank(&member->bank_task,ps,epoch) ||
+       !___root_task_finish_bank(&member->bank_task,ps,epoch)) return 0;
+   }
++  if (transfer >= 0 && (unsigned)___PROCESSOR_ID(ps,round->vm) ==
++      map_worker_rc_executor(round,transfer,epoch)) {
++    member=&round->members[transfer];
++    map_worker_await_frontier();
++    if (!___root_task_scan(member->rc,ps,epoch) ||
++        !___root_task_finish(member->rc,ps,epoch)) return 0;
++  }
+   return 1;
+ }
+ 
+--- a/_mem/rc-allocation.inc
++++ b/_mem/rc-allocation.inc
+@@ -1,3 +1,5 @@
++extern int map_worker_transferred_source(void *, uintptr_t);
++extern unsigned map_worker_rc_executor(void *, unsigned, uintptr_t);
+ /* RC list membership, payload access, scan and retirement share one source gate.
+  * A domain outlives its carrier while byte-only native owners remain. */
+ ___HIDDEN void rc_contract_error(char *message)
+@@ -137,7 +139,7 @@
+       round->state==___ROOT_ROUND_DRAINING && round->epoch==epoch &&
+       id>=0 && id<round->participants && round->collection.worker_count>0 &&
+       round->members[id].rc==d && round->members[id].context==ps->context &&
+-      d->task.executor==round->members[id%round->collection.worker_count].owner &&
++      d->task.executor==round->members[map_worker_rc_executor(round,id,epoch)].owner &&
+       round->resume[id].epoch==epoch && round->resume[id].accepted &&
+       round->resume[id].restored;
+   } else completion_owner=completion_owner && d->task.executor==ps;
+--- a/_mem/rc-roots.inc
++++ b/_mem/rc-roots.inc
+@@ -1,3 +1,7 @@
++extern int map_worker_is_prefix(void *);
++extern void map_worker_begin_primary(uintptr_t, uintptr_t);
++extern void *map_worker_scan_frontier(void *, uintptr_t);
++extern void map_worker_publish_frontier(void *, void *, uintptr_t);
+ /* Frozen RC domain is the source; ___ps remains the existing copy executor. */
+ ___HIDDEN ___BOOL mark_rc
+    ___P((___PSD ___rc_domain *source, ___UWORD epoch),
+@@ -18,11 +22,24 @@
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+   if (work != 0) reference_location = IN_RC;
+ #endif
+-  h=source->head.next;
++  ___root_round *round=source->joined_round;
++  int transfer=round ? map_worker_transferred_source(round,epoch) : -1;
++  ___BOOL selected=transfer>=0 && source==round->members[transfer].rc;
++  ___rc_header *frontier=selected ? map_worker_scan_frontier(source,epoch) : 0;
++  h=frontier ? frontier : source->head.next;
+   while (h != &source->head)
+     {
+       ___rc_header *next=h->next;
+-      mark_array (work, &h->data, 1);
++      if (h != frontier) {
++        ___BOOL cut=selected && !frontier && map_worker_is_prefix(h);
++        if (cut) map_worker_begin_primary(epoch,h->data);
++        mark_array (work, &h->data, 1);
++        if (cut) {
++          map_worker_publish_frontier(source,h,epoch);
++          ___RC_UNLOCK(source);
++          return 1;
++        }
++      }
+       mark_array (work, ___CAST(___SCMOBJ*,h+1), h->root_count);
+       h=next;
+     }
+--- a/_mem/copy-planning.inc
++++ b/_mem/copy-planning.inc
+@@ -1,3 +1,4 @@
++extern int map_worker_retention_refuse(void *);
+ /* Closed-source, read-only preflight. This is not a second Scheme object
+  * scanner: scan()/mark_frame() provide the same typed edge visitor used by
+  * relocation. Only the sink (census_array) and structural frame walk differ.
+@@ -238,6 +239,7 @@
+   }
+   census_drain(work);work->census=0;ps->collector=0;
+   if(c->failed)goto refuse;
++  if(map_worker_retention_refuse(round))goto refuse;
+   /* Threshold markers each charge at least MSECTION_CHUNK successful words.
+    * Large requests are isolated events, not part of the small no-fit bound. */
+   if(!___gc_copy_section_bound(w,c->small_words,c->small_max,c->large_count,

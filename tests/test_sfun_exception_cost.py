@@ -8,7 +8,7 @@ from gambit_smp.framework import ROOT, digest
 from gambit_smp.protocol_evidence import bundle_facts
 
 
-BASE = "evidence/source-results/fixtures/sfun-owned-unwind"
+BASE = ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind"
 
 
 class SfunExceptionCostTests(unittest.TestCase):
@@ -83,7 +83,7 @@ class SfunExceptionCostTests(unittest.TestCase):
 
     def test_error_family_model_import_is_bound_and_complete(self):
         manifest = "evidence/fixtures/sfun-owned-unwind/exception-family-contract.json"
-        receipt = "evidence/model-results/fixtures/sfun-owned-unwind/error-family-composition/receipt.json"
+        receipt = ".cache/research/legacy-evidence/evidence/model-results/fixtures/sfun-owned-unwind/error-family-composition/receipt.json"
         facts, _ = bundle_facts(ROOT, manifest, receipt)
         self.assertEqual(len(facts["protocol_control"]), 5)
         self.assertEqual(len(facts["protocol_checked"]), 1)

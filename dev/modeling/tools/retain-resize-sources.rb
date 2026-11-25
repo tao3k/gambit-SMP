@@ -1,5 +1,5 @@
 require 'json'; require 'digest'; require 'fileutils'; require 'open3'
-e='evidence/research/modern-c-bootstrap';b='.cache/tasks/modern-c-frame-contract/cohort';r='.cache/tasks/modern-c-frame-contract/runs/bazel-request-custody';sha=->p{Digest::SHA256.file(p).hexdigest};read=->p{JSON.parse(File.read(p))}
+e='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap';b='.cache/tasks/modern-c-frame-contract/cohort';r='.cache/tasks/modern-c-frame-contract/runs/bazel-request-custody';sha=->p{Digest::SHA256.file(p).hexdigest};read=->p{JSON.parse(File.read(p))}
 lock=e+'/request-custody-source.lock.json';profile='evidence/fixtures/gerbil-bazel-build-profile/profile.json';identity=sha.call(lock)
 read.call(lock)['files'].each{|p,h|raise 'source drift '+p unless sha.call('vendor/gambit/'+p)==h['candidateSha256']}
 outer=read.call(r+'/receipt.json');raise 'aggregate timeout not preserved' unless outer['outcome']=='DENY'&&outer['timeout']&&outer['parentReaped']&&outer['processGroupQuiescent']&&outer['inputs'][lock]==identity&&outer['inputs'][profile]==sha.call(profile)
@@ -57,7 +57,7 @@ org=<<~ORG
 :COMMIT_ADMITTED: false
 :END:
 [[file:resize-source-custody.org][The implemented responsibility replacement]] has no new commit.
-[[file:../../../evidence/research/modern-c-bootstrap/request-custody-validation.json][The evidence manifest]] preserves exact source/profile, native, formal and failure
+[[file:../../../.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-validation.json][The evidence manifest]] preserves exact source/profile, native, formal and failure
 identities. The aggregate campaign is DENY at #{outer['wholeSeconds'].round(3)} seconds,
 within the original 600-second policy; no timeout or heap was enlarged. Official
 bootstrap passed all four phases twice (from-scratch #{boot['commands'].find{|c|c['stage']=='from-scratch'}['seconds'].round(3)} seconds).

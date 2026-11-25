@@ -15,7 +15,7 @@ base='.cache/tasks/modern-c-frame-contract'
 old=base+'/cohort/mailbox-source-witness/launch.stdout';fixed=base+'/cohort/mailbox-fixed-source-witness-launch.stdout'
 raise 'negative witness changed' unless File.read(old).include?('expected 32 observed #(33 (33 34)) writer-excluded #f gc-delta 0.')
 raise 'candidate witness changed' unless File.read(fixed).include?('expected 32 observed #(32 (32 33)) writer-excluded #t gc-delta 0.') && File.read(fixed).include?('SOURCE-MAILBOX-EXCLUSION-PASS messages=64')
-old_lock=JSON.parse(File.read('evidence/research/modular-smp-bootstrap/qualified/source.lock.json'))
+old_lock=JSON.parse(File.read('.cache/research/legacy-evidence/evidence/research/modular-smp-bootstrap/qualified/source.lock.json'))
 raise 'baseline source drift' unless sha.call(base+'/cohort/mailbox-baseline/thread.scm')==old_lock['files']['lib/_thread.scm']['candidateSha256']
 # AST files are exact executable Scheme evidence: the native projector requires
 # exactly one source point; identities bind those files and both source texts.

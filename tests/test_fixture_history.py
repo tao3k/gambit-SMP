@@ -16,8 +16,8 @@ class FixtureHistoryTests(unittest.TestCase):
         self.original = "models/original.qnt"
         self.archive = "evidence/frozen.qnt"
         self.live = "models/live.qnt"
-        self.observation = "evidence/source-results/fixtures/example/observation.json"
-        self.index = "evidence/source-results/fixture-history/inputs.json"
+        self.observation = ".cache/research/legacy-evidence/evidence/source-results/fixtures/example/observation.json"
+        self.index = ".cache/research/legacy-evidence/evidence/source-results/fixture-history/inputs.json"
         self.write(self.original, "new source")
         self.write(self.archive, "old source")
         self.write(self.live, "unchanged source")

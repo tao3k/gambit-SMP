@@ -1,0 +1,97 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-native-entry-close",
+  "scope": "Quint controls for one native entry close: a pin keeps the payload across delete, a parked call reloads after collection, and a child is accepted before the source is released. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "models/gambit/native_entry_close_cleanup.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-native-entry-close/binding.json",
+    "evidence/fixtures/dev-native-entry-close/observations.json",
+    "evidence/fixtures/dev-native-entry-close/close.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/native_entry_close_cleanup.qnt"
+      }
+    },
+    {
+      "id": "qnt",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/native_entry_close_cleanup.qnt",
+        "parsed": "parse",
+        "main": "native_entry_close_cleanup",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "pinWinsDeleteKeepsPayloadTest",
+          "deleteWinsLateEntryTest",
+          "nestedDeleteMustReturnWithoutOwnPinDrainTest",
+          "resultDeliveryBeforeLastPinReleaseTest",
+          "tombstoneOutlivesPayloadTest",
+          "parkGcContextReloadSameCallTest",
+          "acceptedChildBeforeSourceAckTest",
+          "unknownBorrowRetainsSourceTest",
+          "runNormalExitCleanupTest",
+          "runRethrowUsesOuterCleanupTest",
+          "markerFailureStillDropsRootTest",
+          "unknownMarkerDropRetainsRootTest",
+          "knownDroppedReceiptNoReplayTest",
+          "knownNotDroppedCanFinishTest",
+          "deleteCannotReleasePinnedPayloadCounterexampleTest",
+          "noPinsDoesNotProveDispatchDrainCounterexampleTest",
+          "rawBorrowAcrossGcCounterexampleTest",
+          "missingParkMapCounterexampleTest",
+          "sourceDropBeforeChildAcceptCounterexampleTest",
+          "rethrowSkippingKillCounterexampleTest",
+          "markerFailureSkippingRootExitCounterexampleTest",
+          "doubleMarkerDecrementCounterexampleTest",
+          "unknownCleanupCannotDropRootCounterexampleTest",
+          "unknownParentCannotAckAwaySourceCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "parse",
+        "qnt"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-native-entry-close/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

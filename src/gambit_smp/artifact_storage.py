@@ -479,7 +479,7 @@ def seal_workspace_state(root, source, destination, bindings):
     return {"path": destination.relative_to(root).as_posix(), "sha256": digest(destination)}
 
 
-def checked_workspace_state(root, reference, expected_identity, *, input_bindings=None):
+def checked_workspace_state(root, reference, expected_identity, *, input_bindings=None, repaired_inputs=None):
     """Check retained evidence without upgrading absent bytes into a runtime."""
     from gambit_smp.framework import digest, relative
     from gambit_smp.recipes import CACHE_PARTS, source_path
@@ -496,6 +496,7 @@ def checked_workspace_state(root, reference, expected_identity, *, input_binding
             or record.get("identity") != expected_identity
             or record.get("runtimeAdmitted") is not False or not record.get("bindings")):
         raise ValueError("retained workspace state does not match producer")
+    skipped = []
     for name, expected in record["bindings"].items():
         original = relative(root, name)
         if any(part.casefold() in CACHE_PARTS for part in
@@ -505,8 +506,12 @@ def checked_workspace_state(root, reference, expected_identity, *, input_binding
         bound = (source_path(root,str(Path(archived).relative_to(root))) if archived is not None
                  else source_path(root,name))
         if digest(bound) != expected:
+            if Path(name).as_posix() in (repaired_inputs or ()):
+                skipped.append(Path(name).as_posix())
+                continue
             raise ValueError("retained workspace input drift")
     return {"recordedStateBound": True, "currentBytesEstablished": False,
+            "repairedInputs": skipped,
             "runtimeAdmitted": False}
 
 

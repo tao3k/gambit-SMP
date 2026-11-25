@@ -31,7 +31,7 @@ not fabricate worker exit, successful cleanup, or permission to unload.
 ## Results
 
 Published receipt:
-`evidence/model-results/fixtures/scheduler-retry-sync-participation/cleanup-error-gc-drain/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/scheduler-retry-sync-participation/cleanup-error-gc-drain/receipt.json`.
 
 - Positive: 118 distinct / 296 generated states, safety and weak-fair
   explicit-outcome completion PASS in 4.022 seconds.

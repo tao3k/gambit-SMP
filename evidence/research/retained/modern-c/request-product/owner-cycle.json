@@ -1,0 +1,80 @@
+{
+  "schema": "gambit-smp.recorded-cases.v1",
+  "baseRevision": "3d42cc5b8604d184a3e4edbac2a09a93ea88c994",
+  "sourceTree": "3e9b6bc319e0715af9d955102a9594302374a23f",
+  "profileSha256": "884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69",
+  "sourceKind": "unpublished-git-tree",
+  "runtimeAdmitted": false,
+  "branchQualified": false,
+  "positiveExecutions": 1,
+  "compilations": 0,
+  "historicalCounterexamples": 0,
+  "cases": [
+    {
+      "id": "cyclic-owner-gc-progress",
+      "role": "execution",
+      "process": {
+        "exit": -9,
+        "timeout": true,
+        "seconds": 5.005248833011137,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      },
+      "markers": {
+        "CYCLE-READY": true,
+        "CYCLE-GC-DONE": false
+      },
+      "streamIdentitiesChecked": true,
+      "terminalStatus": "FAIL"
+    }
+  ],
+  "sameCaseText": "(define main (current-thread))\n(define gate (make-mutex))\n(define left (make-mutex))\n(define right (make-mutex))\n(mutex-lock! gate)\n(define (actor first second)\n  (make-thread (lambda ()\n    (mutex-lock! first)\n    (thread-send main 'ready)\n    (mutex-lock! gate)\n    (mutex-unlock! gate)\n    (thread-send main 'waiting)\n    (mutex-lock! second))))\n(define a (actor left right))\n(define b (actor right left))\n(thread-base-priority-set! a +nan.0)\n(thread-base-priority-set! b +nan.0)\n(thread-start! a)\n(thread-start! b)\n(thread-receive)\n(thread-receive)\n(mutex-unlock! gate)\n(thread-receive)\n(thread-receive)\n(define worker\n  (##thread-start-on! 1\n    (make-thread (lambda ()\n      (thread-sleep! 0.05)\n      (##gc)\n      (display \"CYCLE-GC-DONE\\n\") (force-output)))))\n(display \"CYCLE-READY\\n\") (force-output)\n(thread-base-priority-set! a +nan.0)\n(display \"CYCLE-SETTER-RETURNED\\n\") (force-output)\n",
+  "sameCaseSha256": "f4552c699785088294da6c250c7c63ae7392ba7e6bf09739f243471cd527600e",
+  "observations": [
+    {
+      "label": "baseline",
+      "exit": -9,
+      "timeout": true,
+      "seconds": 5.005227082991041,
+      "runtimeSha256": "762b0191ebf71efc0a2a48abc1315bd0b8a6b054585859073cd2084b306fcca5",
+      "caseSha256": "f4552c699785088294da6c250c7c63ae7392ba7e6bf09739f243471cd527600e",
+      "cycleReady": true,
+      "gcDone": true,
+      "setterReturned": false,
+      "process": {
+        "exit": -9,
+        "timeout": true,
+        "seconds": 5.005227082991041,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      },
+      "stdoutSha256": "8fd9ce4199c32be5eedbc7dcda7ceea8ccfbd466fe73fa2aaf8f8b055113d915",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "logSha256": "8fd9ce4199c32be5eedbc7dcda7ceea8ccfbd466fe73fa2aaf8f8b055113d915"
+    },
+    {
+      "label": "candidate",
+      "exit": -9,
+      "timeout": true,
+      "seconds": 5.005248833011137,
+      "runtimeSha256": "7b1c683018f0e1f4f3cce54fa1db3549f870641430cb64a8e5c5379195df19e7",
+      "caseSha256": "f4552c699785088294da6c250c7c63ae7392ba7e6bf09739f243471cd527600e",
+      "cycleReady": true,
+      "gcDone": false,
+      "setterReturned": false,
+      "process": {
+        "exit": -9,
+        "timeout": true,
+        "seconds": 5.005248833011137,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      },
+      "stdoutSha256": "d1cb50ff9f55607633faf3dcc5434922d0044c45efc2ed072e2e41971e00a5ef",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "logSha256": "d1cb50ff9f55607633faf3dcc5434922d0044c45efc2ed072e2e41971e00a5ef"
+    }
+  ],
+  "diagnosticLimitSeconds": 5,
+  "processors": 2,
+  "boundary": "Both setters remain nonreturning in this diagnostic. Baseline completes GC before the same deadline; candidate does not. Source shows a cyclic NaN recomputation with no poll while retaining all graph leases. This is a rejection witness for candidate GC progress, not a general timing theorem or a passed negative-control case."
+}

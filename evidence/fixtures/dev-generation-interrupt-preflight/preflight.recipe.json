@@ -1,0 +1,162 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-generation-interrupt-preflight",
+  "scope": "Quint controls for one generational root admission, one nested interrupt termination, and one stack-handler preflight: an unbarriered frame cannot be pinned, a lost root refuses termination, and a late stack check is not a reservation. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 220,
+  "inputs": [
+    "models/gambit/generational_root_admission.qnt",
+    "models/gambit/interrupt_nested_termination.qnt",
+    "models/gambit/stack_handler_preflight.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-generation-interrupt-preflight/binding.json",
+    "evidence/fixtures/dev-generation-interrupt-preflight/observations.json",
+    "evidence/fixtures/dev-generation-interrupt-preflight/preflight.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "gen-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/generational_root_admission.qnt"
+      }
+    },
+    {
+      "id": "gen",
+      "capability": "quint.test",
+      "dependsOn": [
+        "gen-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/generational_root_admission.qnt",
+        "parsed": "gen-parse",
+        "main": "generational_root_admission",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "rememberedFrameTest",
+          "registeredRCTest",
+          "overflowFallbackTest",
+          "cleanMatureSkipTest",
+          "unbarrieredFrameControlTest",
+          "rawEscapeControlTest",
+          "unregisteredRCControlTest",
+          "earlyDirtyClearControlTest",
+          "skippedDescendantControlTest"
+        ]
+      }
+    },
+    {
+      "id": "nested-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/interrupt_nested_termination.qnt"
+      }
+    },
+    {
+      "id": "nested",
+      "capability": "quint.test",
+      "dependsOn": [
+        "nested-parse"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/interrupt_nested_termination.qnt",
+        "parsed": "nested-parse",
+        "main": "interrupt_nested_termination",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "nestedTerminationTest",
+          "returnBeforeTerminationTest",
+          "throwBeforeDispatchTest",
+          "inactiveBeforeRequestTest",
+          "lostRootControlTest",
+          "deadWakeControlTest",
+          "partialDrainTest",
+          "gcDuringWakeTest",
+          "joinBeforeSignalTest",
+          "waitingJoinTest",
+          "inactiveAfterThrowTest",
+          "finishedMonitorTest",
+          "earlyUnlockControlTest",
+          "earlyJoinControlTest",
+          "lostWakeRootControlTest",
+          "retainedResultControlTest",
+          "lostSignalControlTest"
+        ]
+      }
+    },
+    {
+      "id": "pre-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/stack_handler_preflight.qnt"
+      }
+    },
+    {
+      "id": "pre",
+      "capability": "quint.test",
+      "dependsOn": [
+        "pre-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_handler_preflight.qnt",
+        "parsed": "pre-parse",
+        "main": "stack_handler_preflight",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "lateCheckCounterexampleTest",
+          "recordedStoreCounterexampleTest",
+          "boundedPreflightTest",
+          "unboundedBurstCounterexampleTest",
+          "midFrameCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "gen-parse",
+        "gen",
+        "nested-parse",
+        "nested",
+        "pre-parse",
+        "pre"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-generation-interrupt-preflight/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

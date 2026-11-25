@@ -124,7 +124,7 @@ schedules from restored source, preserving both direct-destruction negative
 outcomes. The 288 previously committed model-result files stayed byte-identical.
 The bounded observation is `evidence/source-026-clean-reproduction.json`;
 the new schedule logs and extracted source are hashed under
-`evidence/model-results/sync-retirement-submodule-clean-004/archive.json`.
+`.cache/research/legacy-evidence/evidence/model-results/sync-retirement-submodule-clean-004/archive.json`.
 This closes this audited slice/correspondence, not all historical model contexts,
 the full configured toolchain or the five pending native gates.
 
@@ -308,7 +308,7 @@ runtime admission. Do not rerun its unchanged timed-out positive merely to make
 this command green. Complete the processor-owned queue/local-scan model first.
 
 Portable model snapshots, raw-log-derived archives and diagnostic timing records
-are preserved under `evidence/model-results/`. Archive-only and controls-only
+are preserved under `.cache/research/legacy-evidence/evidence/model-results/`. Archive-only and controls-only
 receipts are explicitly non-admitted. See
 [Quint execution budget](quint-execution-budget.md) and
 [recursive composition](gc-recursive-queue-wait.md).

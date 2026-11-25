@@ -367,4 +367,51 @@ module darwin_development_work {
   pure def newWork(b: Budget): int = b.required + b.validation + b.added
   pure def positiveWork(b: Budget): bool = wellFormed(b) and b.validation + b.added < b.duplicated
   pure def parallelLatencyLowerBound(b: Budget): int = b.serialPrefix
+  // Whole-request TARGET projection. Synthetic unit-normalized cases below
+  // are arithmetic controls, not measurements or a second scheduler.
+  type TargetBudget={beforeD:int,afterD:int,beforeL:int,afterL:int,
+    removed:int,validation:int,coordination:int,interaction:int,floor:int,
+    cohortClosed:bool,semanticParity:bool}
+  pure def targetAdded(b:TargetBudget):int=b.validation+b.coordination+b.interaction
+  pure def targetBudgetValid(b:TargetBudget):bool=all{
+    b.beforeD>=0,b.afterD>=0,b.beforeL>0,b.afterL>0,b.removed>=0,
+    b.validation>=0,b.coordination>=0,b.interaction>=0,b.floor>=0,
+    b.floor<=b.afterD,b.afterD+b.removed==b.beforeD+targetAdded(b),
+    b.cohortClosed,b.semanticParity,b.afterL<=b.beforeL}
+  pure def meetsTarget(b:TargetBudget,num:int,den:int):bool=all{
+    num>0,den>0,targetBudgetValid(b),den*b.afterD<=num*b.afterL}
+  pure def targetSample(before:int,after:int,removed:int,added:int):TargetBudget={
+    beforeD:before,afterD:after,beforeL:4,afterL:4,removed:removed,
+    validation:added,coordination:0,interaction:0,floor:0,
+    cohortClosed:true,semanticParity:true}
+  run targetFourToTwoTest=all{meetsTarget(targetSample(16,8,8,0),2,1)}
+  run targetFiveToTwoTest=all{meetsTarget(targetSample(20,8,12,0),2,1)}
+  run targetFourToThreeHalvesTest=all{meetsTarget(targetSample(16,6,10,0),3,2)}
+  run targetFiveToThreeHalvesTest=all{meetsTarget(targetSample(20,6,14,0),3,2)}
+  run targetOverheadRejectsTest=all{not(meetsTarget(targetSample(16,9,8,1),2,1))}
+  run targetFloorRejectsTest=all{val b=targetSample(16,8,8,0);
+    not(meetsTarget({...b,floor:9},2,1))}
+  run targetLinuxMovesTest=all{val b=targetSample(16,8,8,0);
+    not(meetsTarget({...b,afterL:3},2,1))}
+  run targetRegressionRejectsTest=all{val b=targetSample(16,8,8,0);
+    not(meetsTarget({...b,afterL:5},2,1))}
+  run targetCohortRejectsTest=all{val b=targetSample(16,8,8,0);
+    not(meetsTarget({...b,cohortClosed:false},2,1))}
+  run targetParityRejectsTest=all{val b=targetSample(16,8,8,0);
+    not(meetsTarget({...b,semanticParity:false},2,1))}
+  pure def meetsAcceleration(b:TargetBudget,num:int,den:int):bool=all{
+    num>0,den>0,targetBudgetValid(b),num*b.afterD<=den*b.beforeD}
+  run targetTwofoldAccelerationTest=all{val b=targetSample(20,10,10,0);
+    all{meetsAcceleration(b,2,1),not(meetsTarget(b,2,1))}}
+  run targetAccelerationOverheadRejectsTest=all{
+    not(meetsAcceleration(targetSample(20,11,10,1),2,1))}
+  // Disjoint elapsed partition only. CPU sums and cross-cohort times cannot
+  // populate this record without a separate source/clock correspondence.
+  type ElapsedPartition={total:int,preparation:int,generation:int,objects:int,
+    finalLink:int,casesAndAdmission:int}
+  pure def partitionValid(p:ElapsedPartition):bool=all{p.total>0,
+    p.preparation>=0,p.generation>=0,p.objects>=0,p.finalLink>=0,p.casesAndAdmission>=0,
+    p.total==p.preparation+p.generation+p.objects+p.finalLink+p.casesAndAdmission}
+  pure def stageCannotDouble(total:int,stagePart:int):bool=all{
+    stagePart>=0,2*stagePart<total}
 }

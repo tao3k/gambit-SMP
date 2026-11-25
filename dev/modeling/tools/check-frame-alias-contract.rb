@@ -11,7 +11,7 @@ fpath='.cache/tasks/modern-c-frame-contract/cohort/continuation-segments-separat
 raise 'incomplete formal receipt' unless f['rows'].size==13&&f['rows'].all? { |r| r['matched'] }
 f['artifacts'].each { |p,h| raise 'formal input drift' unless sha.call(p)==h }
 f['rows'].each { |r| raise 'formal log drift' unless sha.call(File.dirname(fpath)+'/'+r['id']+'.log')==r['logSha256'] }
-candidate='evidence/research/modern-c-bootstrap/request-custody-source.lock.json'
+candidate='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json'
 JSON.parse(File.read(candidate))['files'].each { |p,h| raise 'runtime candidate drift' unless sha.call('vendor/gambit/'+p)==h['candidateSha256'] }
 files={};witnesses=m['witnesses'].map do |w|
  p=w['file'];h=sha.call(p);lines=File.readlines(p);a=w['firstLine'];z=w['lastLine']

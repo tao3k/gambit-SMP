@@ -79,4 +79,19 @@ theorem unknownCannotRefund (state : Nat) (unknown : state = 3) :
 -- mutator allocation fudge and the whole-round physical plan cover it.
 theorem generatedFrameCopyUpperBound (stored : Nat) (h : stored < 16384) :
     ((stored + 3) / 4) * 4 + 9 + 2 ≤ 16395 := by omega
+
+-- The C classifier uses a frozen offset of either zero or half a section.
+-- Alignment, section membership and C atomic publication remain refinement
+-- premises; QNT owns the revisit/initialization/Tail event histories.
+theorem fromspaceDestinationDisjoint (half offset position : Nat)
+    (phase : offset = 0 ∨ offset = half)
+    (source : half - offset ≤ position ∧ position < 2 * half - offset) :
+    ¬ (offset ≤ position ∧ position < offset + half) := by
+  rcases phase with zero | full <;> omega
+
+theorem sectionClassifiersCover (half offset position : Nat)
+    (phase : offset = 0 ∨ offset = half) (within : position < 2 * half) :
+    (half - offset ≤ position ∧ position < 2 * half - offset) ∨
+    (offset ≤ position ∧ position < offset + half) := by
+  rcases phase with zero | full <;> omega
 end Gambit.CopyCustody

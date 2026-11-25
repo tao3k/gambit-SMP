@@ -66,7 +66,7 @@ data, not a dependency on a cached line-list file.
   repositories and Git worktrees own separate caches. A missing Git repository
   or a cache symlink escaping that root is an error, not a fallback to `cwd`.
 - Recipe execution no longer automatically writes every intermediate tree inventory
-  into `evidence/research/workspace-states`. New observations go to
+  into `.cache/research/legacy-evidence/evidence/research/workspace-states`. New observations go to
   `.cache/research/workspace-states`, retain their exact hashes and still undergo
   source/binary identity checks. Missing cached state yields UNKNOWN/unavailable,
   not an invented successful runtime or automatic reconstruction.
@@ -109,7 +109,7 @@ digests are not refreshed to manufacture currentness. Existing selected failure
 results and native/formal outcomes are retained; scratch files need not be.
 
 The audit found 92 versioned workspace-state inventories (30,439,189 bytes).
-The 54 automatic records under `evidence/research/workspace-states` alone occupied
+The 54 automatic records under `.cache/research/legacy-evidence/evidence/research/workspace-states` alone occupied
 17,378,270 bytes. Those 54 payloads are removed from the current Git tree; their
 exact bytes are cached under `.cache/history/git/<sha256>/record.json`. Git keeps
 the explicit `evidence/storage-history.json` index: original path, original SHA-256,

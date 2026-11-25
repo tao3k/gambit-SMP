@@ -8,7 +8,7 @@ from gambit_smp.recipes import load
 
 class CheckedSeedBootstrapRecipeTests(unittest.TestCase):
     def setUp(self):
-        self.directory = ROOT / "evidence/research/vm-registry-reader-lease"
+        self.directory = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease"
         self.original, _ = load(ROOT, self.directory / "foreign-origin-lease-admission-bootstrap.recipe.json")
         self.candidate, _ = load(ROOT, self.directory / "foreign-origin-lease-checked-seed-bootstrap.recipe.json")
         self.old = {step["id"]: step for step in self.original["steps"]}

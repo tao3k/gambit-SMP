@@ -13,7 +13,7 @@ if ARGV.first == '--protocols'
   steps=child.fetch('steps').to_h{|s|[s.fetch('id'),s]}
   files=[__FILE__,run+'/receipt.json',run+'/run/receipt.json'];watched={}
     outer.fetch('inputs').each{|p,h|raise 'run input drift' unless sha.call(p)==h;files<<p;watched[p]=h}
-  tool_record='evidence/research/capacity-admission/protocol-tools.json'
+  tool_record='.cache/research/legacy-evidence/evidence/research/capacity-admission/protocol-tools.json'
   JSON.parse(File.read(tool_record)).fetch('tools').each do |name,t|
     raise 'model tool not observed' unless child.fetch('tools').fetch(name)==t.fetch('path') && sha.call(t.fetch('path'))==t.fetch('sha256')
   end
@@ -260,10 +260,10 @@ if %w[--native-phase --native-arena --native-domains --native-owner].include?(AR
   end
   fixed=File.expand_path('.cache/tasks/modern-c-frame-contract/build/gambit-core/16a8e0b205a5a975c3ac653b3533112191011eba983fc7145f197a1e4920b880/source')
   raise 'changed workspace or budget' unless w==fixed && File.realpath(w)==w && n['workspace']['sourceCopies']==0 && n['budgetSeconds']==400 && n['observedGenerationRecipeLines']==[] && n['generatedArtifacts'].size==51
-  lock=domains_mode ? n['arguments']['nativeDelta'] : 'evidence/research/worker-role-handoff/'+(arena_mode ? 'worker-arena' : 'root-phase')+'.lock.json'
-  owned_delta=lock.start_with?('evidence/research/worker-role-handoff/') || %w[evidence/research/section-copy-authority/source.lock.json evidence/research/copy-root-admission/source.lock.json evidence/research/copy-root-admission/settled-source.lock.json].include?(lock)
+  lock=domains_mode ? n['arguments']['nativeDelta'] : '.cache/research/legacy-evidence/evidence/research/worker-role-handoff/'+(arena_mode ? 'worker-arena' : 'root-phase')+'.lock.json'
+  owned_delta=lock.start_with?('.cache/research/legacy-evidence/evidence/research/worker-role-handoff/') || %w[.cache/research/legacy-evidence/evidence/research/section-copy-authority/source.lock.json .cache/research/legacy-evidence/evidence/research/copy-root-admission/source.lock.json .cache/research/legacy-evidence/evidence/research/copy-root-admission/settled-source.lock.json].include?(lock)
   raise 'noncanonical source delta' unless owned_delta && lock.end_with?('.lock.json') && File.realpath(lock)==File.expand_path(lock)
-  profile='evidence/research/worker-role-handoff/profile.json'
+  profile='.cache/research/legacy-evidence/evidence/research/worker-role-handoff/profile.json'
   l=JSON.parse(File.read(lock))
   raise 'source lock not bound' unless outer['inputs'][lock]==sha.call(lock)
   l['files'].each do |name,h|
@@ -289,7 +289,7 @@ if %w[--native-phase --native-arena --native-domains --native-owner].include?(AR
     'wide-map-host'=>'vendor/gambit/tests/frame-continuation-roots.scm',
     'worker-roles'=>'vendor/gambit/tests/smp/gc/worker-role-handoff.scm',
     'worker-roles-host'=>'vendor/gambit/tests/smp/gc/worker-role-handoff.scm',
-    'unknown-join-gc'=>'evidence/research/modern-c-bootstrap/entry-custody-isolation-multi.scm'}
+    'unknown-join-gc'=>'.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/entry-custody-isolation-multi.scm'}
   if arena_mode
     %w[worker-arena-refill worker-arena-refill-host].each do |name|
       expected_programs[name]='vendor/gambit/tests/smp/gc/worker-arena-refill.scm'
@@ -395,7 +395,7 @@ if %w[--native-phase --native-arena --native-domains --native-owner].include?(AR
     raise 'failed or unknown actual command' unless c['exit']==0 && c['timeout']==false && c['parentReaped'] && c['processGroupQuiescent'] && c['seconds']<=c['effectiveBudgetSeconds']
   end
   bound_controls=(build_run ? build_outer : outer).fetch('inputs')
-  candidates=(owner_mode ? %w[write-authority-object-controls.json write-authority-configure-controls.json] : %w[root-phase-controls.json]).map{|f|'evidence/research/worker-role-handoff/'+f}.select{|p|bound_controls.key?(p)}
+  candidates=(owner_mode ? %w[write-authority-object-controls.json write-authority-configure-controls.json] : %w[root-phase-controls.json]).map{|f|'.cache/research/legacy-evidence/evidence/research/worker-role-handoff/'+f}.select{|p|bound_controls.key?(p)}
   raise 'one source-bound framework certificate required' unless candidates.size==1
   cert=candidates.first;u=JSON.parse(File.read(cert))
   control_shape=owner_mode ? u['testModules']==%w[tests.test_native_development tests.test_bootstrap_artifacts tests.test_completed_producer tests.test_native_executable] : u['tests']==189
@@ -490,7 +490,7 @@ if %w[--native-phase --native-arena --native-domains --native-owner].include?(AR
     files+=[prior+'/receipt.json',prior+'/run/receipt.json',prior+'/run-header.json']
   end
   if owner_mode
-    layout='evidence/research/worker-role-handoff/owner-still-layout-move.json'
+    layout='.cache/research/legacy-evidence/evidence/research/worker-role-handoff/owner-still-layout-move.json'
     move=JSON.parse(File.read(layout))
     header=move.fetch('destination')
     header_key=header.delete_prefix('vendor/gambit/')
@@ -498,23 +498,23 @@ if %w[--native-phase --native-arena --native-domains --native-owner].include?(AR
     # native input identity is independently locked; the STILL ABI subject is
     # the exact definition span, not unrelated msection metadata in this file.
     raise 'still layout move is not source-bound' unless move['exactBytesPreserved'] && l.fetch('files').fetch(header_key).fetch('candidateSha256')==sha.call(header)
-    if lock=='evidence/research/section-copy-authority/source.lock.json'
-      predecessor='evidence/research/section-copy-authority/memory_state.h.in'
+    if lock=='.cache/research/legacy-evidence/evidence/research/section-copy-authority/source.lock.json'
+      predecessor='.cache/research/legacy-evidence/evidence/research/section-copy-authority/memory_state.h.in'
       raise 'historical header predecessor differs' unless sha.call(predecessor)==move.fetch('destinationSha256')
-      files+=%w[predecessor.json memory_state.h.in runtime_roles.h.in vm_state.h.in configured-header.gz header-review.json].map{|name|'evidence/research/section-copy-authority/'+name}
+      files+=%w[predecessor.json memory_state.h.in runtime_roles.h.in vm_state.h.in configured-header.gz header-review.json].map{|name|'.cache/research/legacy-evidence/evidence/research/section-copy-authority/'+name}
     end
     old=Zlib::GzipReader.open(move['originalArchive'], &:read)
     first=old.index('#define ___STILL_LINK 0');last=old.index("\n\n\n/* End internal memory fragment.",first)
     block=old[first...last]
     raise 'still prefix coordinates changed' unless Digest::SHA256.hexdigest(old)==move['originalSha256'] && Digest::SHA256.hexdigest(block)==move['definitionBlockSha256'] && block.bytesize==308 && File.read(header).scan(Regexp.new(Regexp.escape(block))).size==1
-    files+=[layout,move['originalArchive'],'evidence/research/worker-role-handoff/native-run-abi-lineage.json','evidence/research/worker-role-handoff/native-run-abi-failure.json']
-    files+=JSON.parse(File.read('evidence/research/worker-role-handoff/native-run-abi-lineage.json'))['records'].map{|r|raise 'baseline ABI excerpt drift' unless sha.call(r['archive'])==r['sha256'];r['archive']}
-    JSON.parse(File.read('evidence/research/worker-role-handoff/native-run-abi-failure.json'))['records'].each{|p,h|raise 'retained ABI crash/source drift' unless sha.call(p)==h;files<<p}
+    files+=[layout,move['originalArchive'],'.cache/research/legacy-evidence/evidence/research/worker-role-handoff/native-run-abi-lineage.json','.cache/research/legacy-evidence/evidence/research/worker-role-handoff/native-run-abi-failure.json']
+    files+=JSON.parse(File.read('.cache/research/legacy-evidence/evidence/research/worker-role-handoff/native-run-abi-lineage.json'))['records'].map{|r|raise 'baseline ABI excerpt drift' unless sha.call(r['archive'])==r['sha256'];r['archive']}
+    JSON.parse(File.read('.cache/research/legacy-evidence/evidence/research/worker-role-handoff/native-run-abi-failure.json'))['records'].each{|p,h|raise 'retained ABI crash/source drift' unless sha.call(p)==h;files<<p}
   end
   files+=outer['inputs'].keys
-  if lock=='evidence/research/copy-root-admission/settled-source.lock.json'
-    files+=%w[runtime_roles.h.in memory_state.h.in global_state.h.in runtime_protocols.h.in configured-header.gz header-review.json qualification.recipe.json source.lock.json source.patch].map{|name|'evidence/research/copy-root-admission/'+name}
-    failed='evidence/research/copy-root-admission/failed-campaign/receipt.json'
+  if lock=='.cache/research/legacy-evidence/evidence/research/copy-root-admission/settled-source.lock.json'
+    files+=%w[runtime_roles.h.in memory_state.h.in global_state.h.in runtime_protocols.h.in configured-header.gz header-review.json qualification.recipe.json source.lock.json source.patch].map{|name|'.cache/research/legacy-evidence/evidence/research/copy-root-admission/'+name}
+    failed='.cache/research/legacy-evidence/evidence/research/copy-root-admission/failed-campaign/receipt.json'
     files<<failed
     # Failure payloads have their own independently replayable repository
     # packet. Bind its receipt without nesting another copy of every gzip.
@@ -548,7 +548,7 @@ if %w[--native-phase --native-arena --native-domains --native-owner].include?(AR
     matrix[:heapIncreaseScope]='managed heap/profile limits only; native metadata accounted separately'
     matrix[:copyArbitrationCost]=model.fetch('realizations').find{|r|r['id']=='copy-before-reservation'}.fetch('overheads')
     matrix[:copyArbitrationOptimalityQualified]=false
-    if lock=='evidence/research/copy-root-admission/settled-source.lock.json'
+    if lock=='.cache/research/legacy-evidence/evidence/research/copy-root-admission/settled-source.lock.json'
       matrix[:copyRequestCost]=model.fetch('realizations').find{|r|r['id']=='source-bounded-request'}.fetch('overheads')
       matrix[:rootAdmissionCost]=model.fetch('realizations').find{|r|r['id']=='closed-root-domain'}.fetch('overheads')
       matrix[:wholeRoundCapacityAdmitted]=false
@@ -570,7 +570,7 @@ raise 'wrong contract counts' unless m['clauses'].size==9 && m['witnesses'].size
 git=->*args { s,e,x=Open3.capture3('git',*args); raise e unless x.success?; s.strip }
 raise 'OTP pin drift' unless git.call('-C','vendor/erlang-otp','rev-parse','HEAD')==m['upstreamCommit'] && git.call('-C','vendor/erlang-otp','status','--porcelain').empty?
 raise 'OTP gitlink drift' unless git.call('ls-files','--stage','vendor/erlang-otp').start_with?('160000 '+m['upstreamCommit']+' ')
-base='evidence/research/smp-factor-conditions/validation.json'; base_receipt=JSON.parse(File.read(base))
+base='.cache/research/legacy-evidence/evidence/research/smp-factor-conditions/validation.json'; base_receipt=JSON.parse(File.read(base))
 base_receipt['records'].each do |p,r|
  raise 'retained predecessor drift '+p unless sha.call(r['path'])==r['sha256']
  # Successor Org/index views may evolve; archived observations remain immutable.
@@ -581,7 +581,7 @@ end
 fpath=base_receipt['formal']['receipt']; f=JSON.parse(File.read(fpath)); raise 'formal receipt drift' unless sha.call(fpath)==base_receipt['formal']['sha256']
 f['artifacts'].each { |p,h| raise 'formal artifact drift' unless sha.call(p)==h }
 f['rows'].each { |r| raise 'formal log drift' unless r['matched'] && sha.call(File.dirname(fpath)+'/'+r['id']+'.log')==r['logSha256'] }
-candidate='evidence/research/modern-c-bootstrap/request-custody-source.lock.json'
+candidate='.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/request-custody-source.lock.json'
 JSON.parse(File.read(candidate))['files'].each { |p,h| raise 'candidate drift' unless sha.call('vendor/gambit/'+p)==h['candidateSha256'] }
 files={}; witnesses=m['witnesses'].map do |w|
  p=w['file']; h=sha.call(p); lines=File.readlines(p); lo=w['firstLine']; hi=w['lastLine']

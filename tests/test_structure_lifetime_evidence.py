@@ -12,7 +12,7 @@ NATIVE = ('structure-lifetime-native-cause', 'structure-lifetime-native-fix')
 
 class StructureLifetimeEvidenceTests(unittest.TestCase):
     def test_current_receipt_has_independent_controls_without_native_credit(self):
-        proof = json.loads((ROOT/'evidence/model-results/processor-interrupt-collective-wait/structure-independent-audit-01/receipt.json').read_text())
+        proof = json.loads((ROOT/'.cache/research/legacy-evidence/evidence/model-results/processor-interrupt-collective-wait/structure-independent-audit-01/receipt.json').read_text())
         self.assertEqual(proof['status'], 'PASS')
         self.assertTrue(proof['testsPassed'])
         self.assertEqual(proof['testCount'], 12)
@@ -21,7 +21,7 @@ class StructureLifetimeEvidenceTests(unittest.TestCase):
         self.assertFalse(proof['nativeAdmitted'])
         for name, sha in proof['inputs'].items():
             self.assertEqual(digest(ROOT/name), sha, name)
-        source_map = json.loads((ROOT/'evidence/research/processor-interrupt-collective-wait/structure-lifetime-source-map.json').read_text())
+        source_map = json.loads((ROOT/'.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/structure-lifetime-source-map.json').read_text())
         for row in source_map['mappings']:
             if not {'.cache', '.data'}.intersection(row['path'].split('/')):
                 self.assertEqual(digest(ROOT/row['path']), row['sha256'], row['path'])
@@ -31,7 +31,7 @@ class StructureLifetimeEvidenceTests(unittest.TestCase):
                 self.assertEqual(len(row['sha256']), 64)
                 self.assertEqual(proof['sourceMapping'], 'PARTIAL')
         from gambit_smp.output_observations import recorded
-        tests = recorded(ROOT, ROOT/'evidence/model-results/processor-interrupt-collective-wait/structure-independent-audit-01/tests.log')['passedQuintTests']
+        tests = recorded(ROOT, ROOT/'.cache/research/legacy-evidence/evidence/model-results/processor-interrupt-collective-wait/structure-independent-audit-01/tests.log')['passedQuintTests']
         for name in ('objectOnlyRelocateRefreshReadTest', 'typeOnlyRelocateRefreshReadTest', 'missingObjectRootReadTest', 'missingTypeRootReadTest', 'legalReadThenRelocateTest'):
             self.assertIn(name, tests)
 
@@ -49,7 +49,7 @@ class StructureLifetimeEvidenceTests(unittest.TestCase):
                 after, _ = evaluate(engine, changed, catalog, queries)
                 self.assertNotIn((CLAIM, WITNESS), after['applicable'], key)
             # Retained predecessor identity cannot authenticate current controls.
-            old = digest(ROOT/'evidence/model-results/processor-interrupt-collective-wait/structure-independent-audit-01/predecessor-model.qnt')
+            old = digest(ROOT/'.cache/research/legacy-evidence/evidence/model-results/processor-interrupt-collective-wait/structure-independent-audit-01/predecessor-model.qnt')
             changed = dict(facts, binding=[(w,k,old if k == 'model' else v) for w,k,v in facts['binding']])
             after, _ = evaluate(engine, changed, catalog, queries)
             self.assertNotIn((CLAIM,WITNESS), after['applicable'])

@@ -11,7 +11,7 @@ class RetainedSyncFixtureTests(unittest.TestCase):
 
     def test_interrupt_prefix_composes_sync_actions_and_preserves_early_global_owner(self):
         manifest = load_manifest(ROOT / f"evidence/fixtures/{self.fixture}/interrupt-prefix-design-contract.json")
-        receipt = ROOT / f"evidence/model-results/fixtures/{self.fixture}/interrupt-prefix-early-global-contract/receipt.json"
+        receipt = ROOT / f".cache/research/legacy-evidence/evidence/model-results/fixtures/{self.fixture}/interrupt-prefix-early-global-contract/receipt.json"
         rows = checked_rows(ROOT, manifest, receipt)[0][1]
         self.assertEqual(5, len(rows))
         self.assertEqual(4, sum(row["variant"] == "old" and row["exit"] == 1 for row in rows))
@@ -29,7 +29,7 @@ class RetainedSyncFixtureTests(unittest.TestCase):
         self.assertIn("interrupt_ownership_source_repair", manifest["cases"][0]["openObligations"])
 
     def test_failed_composition_conversions_are_not_accepted_counterexamples(self):
-        base = ROOT / f"evidence/model-results/fixtures/{self.fixture}"
+        base = ROOT / f".cache/research/legacy-evidence/evidence/model-results/fixtures/{self.fixture}"
         for name in ("interrupt-prefix-conversion-deny", "interrupt-prefix-dependency-deny", "interrupt-prefix-binding-deny"):
             record = json.loads((base / name / "receipt.json").read_text())
             self.assertFalse(record["accepted"])
@@ -52,7 +52,7 @@ class RetainedSyncFixtureTests(unittest.TestCase):
         self.assertIn("+      cleanup_sync_op_pstate (___PSTATE_FROM_PROCESSOR_ID(i,___vms));", patch)
 
     def test_native_receipts_keep_denial_and_real_posix_reuse_distinct(self):
-        summary = json.loads((ROOT / f"evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
+        summary = json.loads((ROOT / f".cache/research/legacy-evidence/evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
         for path, expected in summary["inputs"].items():
             self.assertEqual(expected, digest(ROOT / path), path)
         self.assertFalse(summary["runtimeAdmitted"])

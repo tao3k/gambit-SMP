@@ -79,7 +79,7 @@ do not infer a percentage gain from a censored default run, or adopt compiler
 flags solely to fit a diagnostic cutoff. No source/release profile changed.
 
 The modulo-only recipe is
-`evidence/research/current-source-full-bootstrap/fdset-numeric-modulo-diagnostic.recipe.json`.
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/fdset-numeric-modulo-diagnostic.recipe.json`.
 Its completed run is `.data/fixtures/fdset-numeric-modulo-phase-observation-run`:
 outer receipt SHA-256
 `9e495c0f87d849bb037c620606daa4540f0c88f2a971bea4a27c5e0238692ef1`,
@@ -105,7 +105,7 @@ control from an undeclared unchanged retry; neither a control nor a candidate
 can promote itself to release acceptance. Focused interface/Recipe regressions
 passed 65/65 before execution.
 
-Recipe: `evidence/research/current-source-full-bootstrap/fdset-numeric-default-control.recipe.json`.
+Recipe: `.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/fdset-numeric-default-control.recipe.json`.
 Sealed executor: `b1c6a1de37b83733842e74b9db9d67fc4fde9fa21da10924555e2f8b78ec6c02`.
 The default-control QNT check passed before the native phases. Generated C
 again matched SHA-256

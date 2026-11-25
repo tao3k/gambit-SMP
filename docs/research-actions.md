@@ -91,7 +91,7 @@ The Python API is `gambit_smp.research_actions.discover/select/observe`. A disco
 request has this shape:
 
 ```json
-{"recipes": ["evidence/research/source-schedule-revalidation/control.recipe.json"]}
+{"recipes": [".cache/research/legacy-evidence/evidence/research/source-schedule-revalidation/control.recipe.json"]}
 ```
 
 Without an engine, the returned action is blocked by `sealed-engine`.

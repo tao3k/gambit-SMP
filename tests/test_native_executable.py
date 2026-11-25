@@ -374,7 +374,7 @@ class NativeExecutableTests(unittest.TestCase):
     def test_complete_grid_requires_both_modes_and_independent_vms(self):
         from gambit_smp.framework import ROOT
         from gambit_smp.recipes import read_json
-        grid = read_json(ROOT / "evidence/research/smp-threaded-vm-native-grid/native.recipe.json")
+        grid = read_json(ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/native.recipe.json")
         steps = {step["id"]: step for step in grid["steps"]}
         target = steps["independent-vms"]
         self.assertTrue({"native-gsi", "native-gsc", "entry-safe-binding",

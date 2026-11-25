@@ -1,0 +1,208 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-interrupted-recovery",
+  "scope": "Quint controls for one interrupted producer recovery, one retained completion revalidation, one cleanup endpoint, and one still-init recovery: an interrupted producer is not a completed receipt, a retained completion must be revalidated, and cleanup does not take an endpoint it does not own. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 280,
+  "inputs": [
+    "models/gambit/interrupted_producer_recovery.qnt",
+    "models/gambit/retained_completion_revalidation.qnt",
+    "models/gambit/cleanup_endpoint_ownership.qnt",
+    "models/gambit/still_init_recovery.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-interrupted-recovery/binding.json",
+    "evidence/fixtures/dev-interrupted-recovery/observations.json",
+    "evidence/fixtures/dev-interrupted-recovery/recovery.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "recover-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/interrupted_producer_recovery.qnt"
+      }
+    },
+    {
+      "id": "recover",
+      "capability": "quint.test",
+      "dependsOn": [
+        "recover-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/interrupted_producer_recovery.qnt",
+        "parsed": "recover-parse",
+        "main": "interrupted_producer_recovery",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "resumedCommittedTest",
+          "interruptedRunningTest",
+          "expiredCheckpointTest",
+          "postRecoveryDriftTest",
+          "missingReceiptControlTest",
+          "staleOutputControlTest",
+          "liveProcessControlTest",
+          "deadlineResetControlTest"
+        ]
+      }
+    },
+    {
+      "id": "reval-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/retained_completion_revalidation.qnt"
+      }
+    },
+    {
+      "id": "reval",
+      "capability": "quint.test",
+      "dependsOn": [
+        "reval-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/retained_completion_revalidation.qnt",
+        "parsed": "reval-parse",
+        "main": "retained_completion_revalidation",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "retainedCompletionTest",
+          "failedStageControlTest",
+          "driftControlTest",
+          "resetControlTest"
+        ]
+      }
+    },
+    {
+      "id": "clean-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt"
+      }
+    },
+    {
+      "id": "clean",
+      "capability": "quint.test",
+      "dependsOn": [
+        "clean-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt",
+        "parsed": "clean-parse",
+        "main": "cleanup_endpoint_ownership",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "singleVmOwnedCleanupTest",
+          "checkedBusyReturnTest",
+          "legacyBusyFatalTest",
+          "reacquireClosedGateControlTest",
+          "legacyReturnControlTest"
+        ]
+      }
+    },
+    {
+      "id": "still-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/still_init_recovery.qnt"
+      }
+    },
+    {
+      "id": "still",
+      "capability": "quint.test",
+      "dependsOn": [
+        "still-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/still_init_recovery.qnt",
+        "parsed": "still-parse",
+        "main": "still_init_recovery",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "partialReadbackTest",
+          "unknownOwnerContinuesTest",
+          "inFlightReadTest",
+          "bodyDoneBeforeRootTest",
+          "completeUndeliveredTest",
+          "transferPrefixTest",
+          "transferLostAckTest",
+          "rejectedTransferTest",
+          "pendingTransferRetainsTest",
+          "publishAfterLastProgressTest",
+          "acceptedLostReplyTest",
+          "duplicateQueryTest",
+          "preserveUserWriteTest",
+          "cancelBeforeAcceptTest",
+          "cancelAfterAcceptTest",
+          "atomicPartialAbortTest",
+          "unknownAbortRetainsTest",
+          "repeatedIoControlTest",
+          "inputLeaseLostControlTest",
+          "prefixResetControlTest",
+          "duplicateWriteControlTest",
+          "inFlightTransferControlTest",
+          "staleOwnerWriteControlTest",
+          "earlyReadyControlTest",
+          "unrootedCompleteControlTest",
+          "rootGapControlTest",
+          "duplicateDeliveryControlTest",
+          "unknownRefundControlTest",
+          "pointerPartialAbortControlTest",
+          "earlySourceCleanupControlTest",
+          "unknownRetireControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "recover-parse",
+        "recover",
+        "reval-parse",
+        "reval",
+        "clean-parse",
+        "clean",
+        "still-parse",
+        "still"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-interrupted-recovery/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

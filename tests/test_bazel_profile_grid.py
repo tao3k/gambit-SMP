@@ -5,16 +5,16 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT / "evidence/research/smp-threaded-vm-native-grid"
+BASE = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
 
 
 class BazelProfileGridTests(unittest.TestCase):
     def test_default_profile_topology_preserves_models_fixture_and_budgets(self):
-        base = ROOT / "evidence/research/vm-registry-reader-lease"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease"
         old = json.loads((base / "host-topology-grid.recipe.json").read_text())
         current = json.loads((base / "bazel-profile-host-topology-grid.recipe.json").read_text())
-        producer = "evidence/research/vm-registry-reader-lease/bazel-profile-completed-producer.json"
-        historical = "evidence/research/vm-registry-reader-lease/resize-grace-complete-historical-producer.json"
+        producer = ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/bazel-profile-completed-producer.json"
+        historical = ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/resize-grace-complete-historical-producer.json"
         self.assertIn(producer, current["inputs"])
         current["inputs"] = [historical if name == producer else name for name in current["inputs"]]
         step = next(step for step in current["steps"] if step["id"] == "producer")

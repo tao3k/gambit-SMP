@@ -17,7 +17,7 @@ class GCInductionTests(unittest.TestCase):
 
     def test_protocol_actions_unchanged_by_pure_predicate_extraction(self):
         current = ROOT / "models/gambit/gc_recursive_queue_wait.qnt"
-        prior = ROOT / "evidence/model-results/gc-recursive-queue-wait-sequential-probes-deny/gc_recursive_queue_wait.qnt"
+        prior = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-recursive-queue-wait-sequential-probes-deny/gc_recursive_queue_wait.qnt"
         def actions(path):
             text = path.read_text()
             declarations = list(re.finditer(r"^  (?:action|(?:pure )?val|(?:pure )?def) (\w+)",

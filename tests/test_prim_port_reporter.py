@@ -22,7 +22,7 @@ class PrimPortReporterTests(unittest.TestCase):
         self.assertEqual([line for line in suffix.splitlines() if line.startswith("+") and not line.startswith("+++")], ["+           (##failed-test"])
 
     def test_complete_successor_preserves_original_scope_and_budgets(self):
-        base = ROOT / "evidence/research/smp-threaded-vm-native-grid"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
         old = json.loads((base / "global-cleanup-interpreted.recipe.json").read_text())
         new = json.loads((base / "reporter-preservation-interpreted.recipe.json").read_text())
         self.assertEqual(old["budgetSeconds"], new["budgetSeconds"])
@@ -44,7 +44,7 @@ class PrimPortReporterTests(unittest.TestCase):
         ])
 
     def test_recipe_uses_current_producer_and_unchanged_file_budget(self):
-        recipe = json.loads((ROOT / "evidence/research/vm-registry-reader-lease/prim-port-reporter.recipe.json").read_text())
+        recipe = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/prim-port-reporter.recipe.json").read_text())
         steps = {step["id"]: step for step in recipe["steps"]}
         args = steps["reporter"]["arguments"]
         self.assertEqual(recipe["budgetSeconds"], 300)
@@ -58,7 +58,7 @@ class PrimPortReporterTests(unittest.TestCase):
         self.assertEqual(fixture["sha256"], hashlib.sha256((ROOT / fixture["source"]).read_bytes()).hexdigest())
         self.assertIn(fixture["source"], recipe["inputs"])
         self.assertEqual(steps["producer"]["arguments"]["producer"],
-                         "evidence/research/vm-registry-reader-lease/global-cleanup-completed-producer.json")
+                         ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/global-cleanup-completed-producer.json")
         self.assertIn("Does not replace", recipe["scope"])
 
 

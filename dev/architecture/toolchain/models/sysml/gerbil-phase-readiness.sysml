@@ -4,7 +4,7 @@ package GerbilPhaseReadiness {
  part def ActionFamily {
   attribute key : String;
   attribute number : Integer;
-  attribute predecessors : String;
+  attribute phaseInputs : String;
   attribute sourceAnchor : String;
   attribute labelText : String;
   attribute contract : String;
@@ -12,7 +12,7 @@ package GerbilPhaseReadiness {
  part macroInterface : ActionFamily {
  attribute :>> key = "macroInterface";
  attribute :>> number = 0;
- attribute :>> predecessors = "Set()";
+ attribute :>> phaseInputs = "Set()";
  attribute :>> sourceAnchor = "iter/macros.ss:4-39";
  attribute :>> labelText = "Coherent macro interface";
  attribute :>> contract = "Generated SSI plus producer and phase-input identity; file existence alone cannot execute for";
@@ -20,7 +20,7 @@ package GerbilPhaseReadiness {
  part phaseSupport : ActionFamily {
  attribute :>> key = "phaseSupport";
  attribute :>> number = 1;
- attribute :>> predecessors = "Set(0)";
+ attribute :>> phaseInputs = "Set(0)";
  attribute :>> sourceAnchor = "iter/macros.ss:10-32,41-84; expander/module.ss:839-875";
  attribute :>> labelText = "Executable phase closure";
  attribute :>> contract = "Compiled transformer and all executed helpers, including required native/runtime support; full closure remains an admission premise";
@@ -28,7 +28,7 @@ package GerbilPhaseReadiness {
  part facade : ActionFamily {
  attribute :>> key = "facade";
  attribute :>> number = 2;
- attribute :>> predecessors = "Set(0, 1)";
+ attribute :>> phaseInputs = "Set(0, 1)";
  attribute :>> sourceAnchor = "iter/api.ss:4-24; iter.ss:4-5";
  attribute :>> labelText = "Re-exported phase program";
  attribute :>> contract = "Aggregate two re-export hops; fresh mutable context is constructed per consumer, not reused";
@@ -36,7 +36,7 @@ package GerbilPhaseReadiness {
  part expandA : ActionFamily {
  attribute :>> key = "expandA";
  attribute :>> number = 3;
- attribute :>> predecessors = "Set(2)";
+ attribute :>> phaseInputs = "Set(2)";
  attribute :>> sourceAnchor = "string/misc.ss:34-35,227-234";
  attribute :>> labelText = "Expand string/misc";
  attribute :>> contract = "Candidate independent session; all other imports are fixed complete inputs";
@@ -44,7 +44,7 @@ package GerbilPhaseReadiness {
  part expandB : ActionFamily {
  attribute :>> key = "expandB";
  attribute :>> number = 4;
- attribute :>> predecessors = "Set(2)";
+ attribute :>> phaseInputs = "Set(2)";
  attribute :>> sourceAnchor = "sync/wg.ss:4-6,37-38";
  attribute :>> labelText = "Expand sync/wg";
  attribute :>> contract = "Candidate independent session; channel and error dependency closure fixed and must not alias mutable expansion state";
@@ -52,7 +52,7 @@ package GerbilPhaseReadiness {
  part nativeA : ActionFamily {
  attribute :>> key = "nativeA";
  attribute :>> number = 5;
- attribute :>> predecessors = "Set(3)";
+ attribute :>> phaseInputs = "Set(3)";
  attribute :>> sourceAnchor = "compiler/driver.ss:621-641,647-705";
  attribute :>> labelText = "Compile string/misc runtime";
  attribute :>> contract = "Native action includes all target ABI and consumed optimization inputs";
@@ -60,7 +60,7 @@ package GerbilPhaseReadiness {
  part nativeB : ActionFamily {
  attribute :>> key = "nativeB";
  attribute :>> number = 6;
- attribute :>> predecessors = "Set(4)";
+ attribute :>> phaseInputs = "Set(4)";
  attribute :>> sourceAnchor = "compiler/driver.ss:621-641,647-705";
  attribute :>> labelText = "Compile sync/wg runtime";
  attribute :>> contract = "May overlap nativeA under declared budget; does not imply one-VM true parallelism";
@@ -68,7 +68,7 @@ package GerbilPhaseReadiness {
  part runtimeOnly : ActionFamily {
  attribute :>> key = "runtimeOnly";
  attribute :>> number = 7;
- attribute :>> predecessors = "Set(0)";
+ attribute :>> phaseInputs = "Set(0)";
  attribute :>> sourceAnchor = "iter/iterators.ss:9-22; compiler/driver.ss:707-747";
  attribute :>> labelText = "Certified runtime-only remainder";
  attribute :>> contract = "Optional nonempty remainder only after separating every phase-executed helper; otherwise collapse into phaseSupport";
@@ -76,7 +76,7 @@ package GerbilPhaseReadiness {
  part link : ActionFamily {
  attribute :>> key = "link";
  attribute :>> number = 8;
- attribute :>> predecessors = "Set(5, 6, 7)";
+ attribute :>> phaseInputs = "Set(5, 6, 7)";
  attribute :>> sourceAnchor = "std/make.ss:583-621";
  attribute :>> labelText = "Example combined load/link closure";
  attribute :>> contract = "Synthetic common request for both consumers; not a claimed existing executable target";

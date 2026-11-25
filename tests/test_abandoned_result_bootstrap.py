@@ -10,7 +10,7 @@ from gambit_smp.output_observations import recorded, TRANSCRIPT_SUFFIXES
 
 class AbandonedResultBootstrapTests(unittest.TestCase):
     def test_two_pass_identity_flags_and_post_bootstrap_coverage(self):
-        folder = ROOT / "evidence/source-results/fixtures/abandoned-result-state"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state"
         bootstrap = folder / "two-pass-bootstrap"
         archive = json.loads((bootstrap / "archive.json").read_text())
         for name, sha in archive["files"].items():
@@ -56,11 +56,11 @@ class AbandonedResultBootstrapTests(unittest.TestCase):
 
     def test_native_success_corrected_the_wrong_dispatch_abstraction(self):
         manifest = "evidence/fixtures/abandoned-result-state/waiter-dispatch-contract.json"
-        folder = "evidence/model-results/fixtures/abandoned-result-state/waiter-dispatch"
+        folder = ".cache/research/legacy-evidence/evidence/model-results/fixtures/abandoned-result-state/waiter-dispatch"
         facts, _ = bundle_facts(ROOT, manifest, folder + "/receipt.json")
         self.assertEqual(len(facts["protocol_control"]), 2)
         self.assertEqual(len(facts["protocol_checked"]), 1)
-        audit = ROOT / "evidence/model-results/fixtures/abandoned-result-state/waiter-transfer/source-dispatch-audit/archive.json"
+        audit = ROOT / ".cache/research/legacy-evidence/evidence/model-results/fixtures/abandoned-result-state/waiter-transfer/source-dispatch-audit/archive.json"
         correction = json.loads(audit.read_text())
         self.assertFalse(correction["runtimeDefectEstablished"])
         for name, sha in correction["files"].items():

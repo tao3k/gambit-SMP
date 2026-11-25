@@ -46,7 +46,7 @@ hashes describe inspected snapshots, not a claim that this PR publishes them.
 | Its `phase-index.json` | `7bc8edf90fe278de1a8c4d73293f307423b8285599c7979f0d703aea8a952d10` |
 | `.cache/grok-root-handler-quiescence-20261020/report.md` | `6e08b17bde8af1c19e14a8838162bd3ae86b7ee4d1aa062843bf41e1cebf3f7b` |
 | `.cache/grok-runtime-cancel-20261020/EARLY-REPORT.md` | `48f85fb5938a821c1fb65d4e6d7eb05be0e180d08fd162f398bf176a04fc233d` |
-| Owner-local `structure-lifetime-source-map.json` under `evidence/research/processor-interrupt-collective-wait/` | `7c2d7f810c8efa5e8657e7a9a7d3048d0cb678043ddbed86f73ba24d46401533` |
+| Owner-local `structure-lifetime-source-map.json` under `.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/` | `7c2d7f810c8efa5e8657e7a9a7d3048d0cb678043ddbed86f73ba24d46401533` |
 
 The supplied root-signal source lock pins `setup.c` to `bc6867d...`, while the
 inspected mutable candidate file hashes to

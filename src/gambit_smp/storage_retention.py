@@ -108,6 +108,108 @@ def remove_tree(path):
     shutil.rmtree(path)
 
 
+def retire(root, targets, *, keep, opened=None):
+    """Explicit owner disposal of obsolete caches, preserving source and state bytes.
+
+    This is not age-based source disposal. Callers supply reviewed targets and
+    retained working directories. Native/research admission is never inferred.
+    """
+    from contextlib import ExitStack
+    from gambit_smp.task_dependencies import protected
+    from gambit_smp.task_retention import inventory, unchanged_remainder
+    from gambit_smp.git_custody import preserve
+    root=Path(root).resolve(strict=True)
+    retained=[bounded(root,p) for p in keep]
+    if not retained:raise ValueError('explicit working-directory retention required')
+    requested=[bounded(root,p) for p in targets]
+    def overlap(a,b):
+        a,b=str(a).casefold(),str(b).casefold()
+        return a==b or a.startswith(b+os.sep) or b.startswith(a+os.sep)
+    for path in requested:
+        relative=path.relative_to(root)
+        if relative.parts[0]!='.cache' or len(relative.parts)<2 or relative==Path('.cache/tasks'):
+            raise ValueError('explicit cache child required')
+        if path.is_symlink() or any(overlap(path,p) for p in retained):
+            raise ValueError('retained working directory or alias')
+        if any(path!=other and path.is_relative_to(other) for other in requested):
+            raise ValueError('overlapping disposal targets')
+    result=dict(at=now().isoformat(),keep=[str(p.relative_to(root)) for p in retained],removed=[],deferred=[],nativeAdmitted=False)
+    with ExitStack() as stack:
+        stack.enter_context(lease(root,'storage-retention'))
+        tasks={p.relative_to(root).parts[2] for p in requested if p.relative_to(root).parts[:2]==('.cache','tasks')}
+        for task in sorted(tasks):stack.enter_context(lease(root,task))
+        occupied=active_paths() if opened is None else opened
+        for path in requested:
+            if not path.exists():continue
+            name=str(path.relative_to(root))
+            if protected(root,path) or referenced(path,occupied):
+                result['deferred'].append(dict(path=name,reason='registered dependency or live reference'));continue
+            token=hashlib.sha256(name.encode()).hexdigest()
+            receipt=bounded(root,'.state/storage/explicit-retirement/'+token+'.json')
+            previous=json.loads(receipt.read_text()) if receipt.exists() else {}
+            if previous.get('state')=='removing':
+                identity=previous.get('identity')
+                if identity is None:
+                    # Older interrupted native Git removals predate the saved
+                    # inventory. Reconcile only an explicitly reviewed source
+                    # disposal, preserving every byte of the actual remainder.
+                    identities=[]
+                    for registry in bounded(root,'.state/task-dependencies').glob('*.json'):
+                        for row in json.loads(registry.read_text()).get('released',[]):
+                            if row['path']==name and row.get('sourceDisposal'):
+                                identities.append(row['sourceDisposal']['observedIdentity'])
+                    st=path.stat()
+                    if [st.st_dev,st.st_ino] not in identities:raise ValueError('legacy partial disposal needs source-owner reconciliation')
+                    baseline=inventory(path);recovery=preserve(root,path,remaining=True)
+                    unchanged_remainder(path,baseline)
+                    previous.update(identity=[st.st_dev,st.st_ino],inventory=baseline,legacyRemainderReconciled=True,
+                                    recovery=previous.get('recovery',[])+recovery)
+                    write(receipt,previous)
+                if [path.stat().st_dev,path.stat().st_ino]!=previous['identity']:
+                    raise ValueError('interrupted disposal root replaced')
+                unchanged_remainder(path,previous['inventory'])
+                if referenced(path,active_paths() if opened is None else opened):
+                    result['deferred'].append(dict(path=name,reason='late live reference'));continue
+                remove_tree(path);previous['state']='removed';write(receipt,previous)
+                result['removed'].append(name);write(bounded(root,'.state/storage/explicit-retirement.json'),result);continue
+            baseline=inventory(path)
+            # Disposal needs recoverable source bytes, not a costly repack of
+            # every historical Git ref for each otherwise duplicate build.
+            recovery=preserve(root,path,pack_history=False)
+            records=archive_records(root,path)
+            try:unchanged_remainder(path,baseline)
+            except ValueError:
+                current=inventory(path)
+                changes=[dict(path=k,before=baseline.get(k),after=v) for k,v in current.items() if baseline.get(k)!=v]
+                token=hashlib.sha256(name.encode()).hexdigest()
+                write(bounded(root,'.state/storage/retirement-drift/'+token+'.json'),dict(path=name,changes=changes,removedEntries=sorted(baseline.keys()-current.keys()),nativeAdmitted=False))
+                result['deferred'].append(dict(path=name,reason='metadata changed during preservation',drift=token));continue
+            if referenced(path,active_paths() if opened is None else opened):
+                result['deferred'].append(dict(path=name,reason='late live reference'));continue
+            st=path.stat()
+            row=dict(path=name,at=now().isoformat(),state='removing',identity=[st.st_dev,st.st_ino],inventory=baseline,
+                     archivedRecords=records,recovery=recovery,nativeAdmitted=False)
+            write(receipt,row)
+            from gambit_smp.task_processes import run
+            for saved in sorted(recovery,key=lambda r:len(r.get('source','')),reverse=True):
+                tree=saved.get('linkedWorktree')
+                if tree:
+                    outcome=run(['git','--git-dir='+tree['common'],'worktree','remove','--force',tree['path']],capture_output=True,timeout=180)
+                    row.setdefault('gitRemovals',[]).append(dict(path=tree['path'],exit=outcome.returncode,
+                        stderrSha256=hashlib.sha256(outcome.stderr).hexdigest()))
+                    write(receipt,row)
+                    if outcome.returncode:
+                        # Git can remove registration and tracked files before
+                        # failing on read-only ignored build directories. Only
+                        # the unchanged original remainder may then be removed.
+                        unchanged_remainder(path,baseline)
+            if path.exists():remove_tree(path)
+            row['state']='removed';write(receipt,row);result['removed'].append(name)
+            write(bounded(root,'.state/storage/explicit-retirement.json'),result)
+    write(bounded(root,'.state/storage/explicit-retirement.json'),result)
+    return result
+
+
 def apply(root, manifest, expected_sha, *, resume=False):
     root = Path(root).resolve(strict=True)
     if hashlib.sha256(manifest.read_bytes()).hexdigest() != expected_sha:
@@ -231,7 +333,15 @@ def main():
     parser.add_argument('--integration-checkout',type=Path,help='read-only canonical Git-flow comparison target')
     parser.add_argument('--path',action='append',help='explicit registered custody path, including recent Git inputs')
     parser.add_argument('--archive-queues',action='store_true',help='preserve verified historical test queues; never complete or replay jobs')
+    parser.add_argument('--retire',action='append',help='explicitly dispose of an obsolete cache after preserving source/state recovery bytes')
+    parser.add_argument('--keep',action='append',help='working directory excluded from explicit disposal, including ancestors and descendants')
     args = parser.parse_args()
+    if args.retire or args.keep:
+        if not args.retire or not args.keep or args.apply or args.audit_task or args.resume or args.sha256 or args.archive_queues or args.path or args.integration_checkout:
+            parser.error('--retire and --keep form a separate explicit owner disposal request')
+        value=retire(args.root,args.retire,keep=args.keep)
+        print(json.dumps(dict(removed=len(value['removed']),deferred=value['deferred'],nativeAdmitted=False)))
+        return 0
     if args.audit_task:
         if args.apply or args.resume or args.sha256:parser.error('custody audit cannot apply a legacy deletion manifest')
         from gambit_smp.storage_custody import audit

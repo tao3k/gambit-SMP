@@ -5,6 +5,8 @@ import selectors
 import subprocess
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from gambit_smp import reasoning_history as history
 from gambit_smp.research_kernel import retain_run_record
@@ -65,6 +67,81 @@ class BuildStartCustodyTests(unittest.TestCase):
         header['declaration']['steps'][0]['arguments']['buildWorkspace'] = 'gambit-core'
         with self.assertRaisesRegex(history.CheckpointConflict, 'durable attempt'):
             self.publish(run, header)
+
+    def diagnostic(self, name, module):
+        run, header = self.header(name)
+        header['recipe'] = 'diagnostic-' + module
+        header['inputs']['host.json'] = 'host-spec-sha'
+        header['declaration']['steps'].append(dict(id='check', capability='gambit.regenerate-module',
+            dependsOn=['configure'], arguments=dict(source={'step':'configure', 'output':'source'},
+                bootstrapHost='host.json', module='lib/_' + module + '.scm', syntaxCheck=True)))
+        return run, header
+
+    def test_module_diagnosis_does_not_reopen_the_whole_build(self):
+        self.publish(*self.header('whole-build'))
+        for module in ('kernel', 'nonstd', 'system'):
+            self.publish(*self.diagnostic('check-' + module, module))
+        run, header = self.diagnostic('repeat-kernel', 'kernel')
+        header['recipe'] = 'renamed-diagnostic'
+        with self.assertRaisesRegex(history.CheckpointConflict, 'check-kernel'):
+            self.publish(run, header)
+
+    def test_repair_arbitrates_by_actual_cut_and_never_accepts_a_lineage_bypass(self):
+        original, header = self.diagnostic('original', 'kernel')
+        self.publish(original, header)
+        unrelated, header = self.diagnostic('unrelated', 'system')
+        header['recipe'] = 'diagnostic-nonstd'
+        self.publish(unrelated, header)
+        latest, header = self.diagnostic('latest', 'nonstd')
+        header['requestedPrior'] = str(original)
+        header['repair'] = dict(status='eligible', prior=str(original), failureRun=str(original),
+                                plan={'failureStep': 'check'}, lineage=[str(original)])
+        self.publish(latest, header)
+        stale, header = self.diagnostic('stale', 'kernel')
+        header['requestedPrior'] = str(original)
+        header['repair'] = dict(status='eligible', prior=str(original), failureRun=str(original),
+                                plan={'failureStep': 'check'}, lineage=[str(original), str(latest)])
+        with self.assertRaisesRegex(history.CheckpointConflict, str(latest)):
+            self.publish(stale, header)
+
+    def test_diagnostic_cannot_hide_an_added_producer_or_unchecked_emission(self):
+        self.publish(*self.header('whole-build'))
+        for capability in ('gambit.seed-core', 'gambit.source-core', 'gambit.bootstrap',
+                           'gambit.native-development', 'native.c-build', 'gerbil.build'):
+            run, header = self.diagnostic('hidden-' + capability, 'system')
+            header['declaration']['steps'].append(dict(id='hidden', capability=capability,
+                                                       arguments={}, dependsOn=['configure']))
+            with self.subTest(capability=capability), self.assertRaisesRegex(history.CheckpointConflict, 'whole-build'):
+                self.publish(run, header)
+        run, header = self.diagnostic('unchecked', 'system')
+        header['declaration']['steps'][-1]['arguments']['syntaxCheck'] = False
+        with self.assertRaisesRegex(history.CheckpointConflict, 'whole-build'):
+            self.publish(run, header)
+
+    def test_ascent_frontier_accepts_additional_observations_without_a_python_allowlist(self):
+        _, header = self.diagnostic('diagnostic', 'system')
+        before = history._native_build_keys(header)
+        header['declaration']['steps'].append(dict(id='new-observation', capability='source.contract',
+                                                   dependsOn=['configure'], arguments={}))
+        self.assertEqual(before, history._native_build_keys(header))
+        projection = history.build_start_analysis(header)
+        self.assertEqual(projection['backend'], 'ASCENT')
+        self.assertEqual(projection['relations']['guarded_step'], [['check']])
+        self.assertTrue(projection['sourceInputs'])
+        self.assertFalse(projection['executionAuthorized'])
+
+    def test_ascent_derives_new_producer_from_output_contract_not_its_name(self):
+        self.publish(*self.header('whole-build'))
+        run, header = self.diagnostic('future-producer', 'system')
+        header['declaration']['steps'].append(dict(id='future', capability='fixture.new-producer',
+                                                   dependsOn=['configure'], arguments={}))
+        with patch.dict('gambit_smp.recipes.CAPABILITIES', {
+                'fixture.new-producer': SimpleNamespace(outputs=(('product', 'native-object'),))}):
+            projection = history.build_start_analysis(header)
+            self.assertIn(['configure', 'configuration-with-producer'],
+                          projection['relations']['build_obligation'])
+            with self.assertRaisesRegex(history.CheckpointConflict, 'whole-build'):
+                self.publish(run, header)
 
     def test_source_changes_still_require_lineage_and_another_task_is_distinct(self):
         first, header = self.header("first")

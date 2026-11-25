@@ -23,7 +23,7 @@ fairness assumptions. No rank proof exists yet.
 
 ## Real Checker Controls
 
-The portable archive `evidence/model-results/quint-induction-phase-audit/`
+The portable archive `.cache/research/legacy-evidence/evidence/model-results/quint-induction-phase-audit/`
 contains the exact fixture, raw-log hashes, redacted logs and diagnostic receipt.
 The updated five-control campaign completed in 22.119 seconds:
 
@@ -51,7 +51,7 @@ invariant to share the same safety definitions without copied formulas.
 
 Three actual closure counterexamples were obtained:
 
-| Archive under `evidence/model-results/` | Seconds | Missing relationship |
+| Archive under `.cache/research/legacy-evidence/evidence/model-results/` | Seconds | Missing relationship |
 | --- | ---: | --- |
 | `gc-induction-discovery-premises-deny` | 12.145 | Private copy can have invalid owner in the broad domain |
 | `gc-induction-publication-premises-deny` | 15.664 | Pre-publication queue can differ from copier's queue |
@@ -166,7 +166,7 @@ Every receipt retains `accepted=false`, `runtimeAdmitted=false` and
 After adding the child-discovery premise and completed-region normalization,
 both actual initial policies satisfied the full generated domain and candidate
 invariant in 14.798 seconds. The snapshot and result are preserved in
-`evidence/model-results/gc-induction-initial-membership/`. This establishes
+`.cache/research/legacy-evidence/evidence/model-results/gc-induction-initial-membership/`. This establishes
 initial inclusion only, not arbitrary-step preservation or temporal progress.
 Use `GAMBIT_SMP_GC_OBLIGATION=initial` for this query. The original protocol's
 action bodies are checked byte-for-byte against the sequential-probe archive;
@@ -178,7 +178,7 @@ not a positive whole-model proof.
 The unchanged `countOrRetry` transition then preserved the entire domain and
 strengthened invariant from arbitrary candidate states in 17.157 checker seconds
 (17.160 seconds for the supervised test). Its portable snapshot and raw-log
-attestation are in `evidence/model-results/gc-induction-termination-step/`.
+attestation are in `.cache/research/legacy-evidence/evidence/model-results/gc-induction-termination-step/`.
 This is one transition's induction obligation only. Preservation for the other
 transitions, complete implication, enabledness, ranking/fairness and source/native
 refinement remain open. Use `GAMBIT_SMP_GC_OBLIGATION=termination-step` to reproduce

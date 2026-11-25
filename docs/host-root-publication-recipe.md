@@ -93,10 +93,10 @@ These are conditional contracts, not model-to-C refinement proofs.
 
 ## Reproduction And Promotion Boundary
 
-The [manifest](../evidence/research/host-root-publication/manifest.json) runs only
+The manifest (local execution locator: `../.cache/research/legacy-evidence/evidence/research/host-root-publication/manifest.json`; unavailable in a clean checkout) runs only
 this composition through the existing `verify` command with host-auto resources.
 The focused test runs the real Scheme relations and guarded Lean process. Exact
-commands and results belong in the [validation](../evidence/research/host-root-publication/validation.md).
+commands and results belong in the validation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/host-root-publication/validation.md`; unavailable in a clean checkout).
 No bootstrap, original stress test or unchanged failed native route is rerun.
 
 General host registration, collector-visible independent carriers, source-defined

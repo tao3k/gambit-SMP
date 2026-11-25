@@ -6,6 +6,7 @@ runtime. Native adapters and Evidence rules must authorize any consumption.
 import hashlib
 import json
 import math
+import stat
 import time
 from pathlib import Path
 from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_path
@@ -16,23 +17,96 @@ from gambit_smp.framework import digest, relative
 SCHEMA = "successful-step-checkpoint.v1"
 
 
+def repair_journal_inputs(root, recorded):
+    """Keep a journal bound to its recorded input hashes when workspace bytes move.
+
+    Current bytes are reported, not substituted for the producer and not treated
+    as permission to rebuild or resume. A missing input is not repaired.
+    """
+    drift = []
+    for name, sha in recorded.items():
+        path = relative(root, name)
+        if not path.is_file() or path.is_symlink():
+            raise ValueError("journal original input changed")
+        actual = digest(path)
+        if actual == sha:
+            continue
+        drift.append({"path": path.relative_to(root.resolve()).as_posix(),
+                      "recordedSha256": sha, "observedSha256": actual})
+    if not drift:
+        return None
+    return {"schema": "journal-input-repair.v1", "drift": drift,
+            "bytesRestored": False, "rebuildAuthorized": False, "runtimeAdmitted": False,
+            "claim": "recorded input identity retained; current bytes are not the producer"}
+
+
+class _BindingRead:
+    """One inspection's byte observations, revalidated before returning facts."""
+    def __init__(self, root):
+        self.root = Path(root)
+        self.paths = {}
+        self.observed = {}
+
+    @staticmethod
+    def signature(path):
+        try:
+            value = path.stat()
+        except OSError:
+            return None
+        return (value.st_dev, value.st_ino, value.st_mode, value.st_size,
+                value.st_mtime_ns, value.st_ctime_ns)
+
+    def inventory(self, inventories):
+        expected = []
+        for inventory in inventories:
+            for name, sha in inventory.items():
+                path = Path(name)
+                if not path.is_absolute():
+                    path = self.root / path
+                if path not in self.paths:
+                    self.paths[path] = str(path.resolve())
+                expected.append((self.paths[path], sha))
+        return expected
+
+    def read(self, inventories):
+        expected = self.inventory(inventories)
+        observed = {}
+        for key, _ in expected:
+            if key not in self.observed:
+                path = Path(key)
+                before = self.signature(path)
+                sha = None
+                if before is not None and stat.S_ISREG(before[2]):
+                    try:
+                        sha = digest(path)
+                    except OSError:
+                        pass
+                if self.signature(path) != before:
+                    raise ValueError("checkpoint binding changed during inspection")
+                self.observed[key] = (before, sha)
+            _, sha = self.observed[key]
+            if sha is not None:
+                observed[key] = sha
+        return expected, list(observed.items())
+
+    def verify(self):
+        for path, key in self.paths.items():
+            if str(path.resolve()) != key:
+                raise ValueError("checkpoint binding path changed during inspection")
+        for key, (signature, _) in self.observed.items():
+            if self.signature(Path(key)) != signature:
+                raise ValueError("checkpoint binding changed during inspection")
+
+
 def _observe_bindings(root, inventories):
     """Observe bytes only; matching and dependency propagation belong to Scheme."""
-    expected, observed = [], []
-    for inventory in inventories:
-        for name, sha in inventory.items():
-            path = Path(name) if Path(name).is_absolute() else root / name
-            key = str(path.resolve())
-            expected.append((key, sha))
-            try:
-                if path.is_file():
-                    observed.append((key, digest(path)))
-            except OSError:
-                pass
-    return expected, observed
+    bindings = _BindingRead(root)
+    result = bindings.read(inventories)
+    bindings.verify()
+    return result
 
 
-def support_inventory(root, header, row, tools, observation_inputs=None):
+def support_inventory(root, header, row, tools, observation_inputs=None, *, bindings=None):
     """Seal the enumerator's declared scope separately from receipt custody."""
     declaration = header.get("declaration")
     if not isinstance(declaration, dict) or not header.get("engineId"):
@@ -44,10 +118,11 @@ def support_inventory(root, header, row, tools, observation_inputs=None):
     if any(name not in header.get("inputs", {}) for name in declaration.get("inputs", [])):
         return None
     keys = ("id", "capability", "arguments", "dependsOn", "budgetSeconds")
-    declared_inputs, _ = _observe_bindings(root, [header.get("inputs", {})])
-    observed_inputs, _ = _observe_bindings(root, [observation_inputs or {}])
+    bindings = bindings if bindings is not None else _BindingRead(root)
+    declared_inputs = bindings.inventory([header.get("inputs", {})])
+    observed_inputs = bindings.inventory([observation_inputs or {}])
     recorder_inputs = {key: value for key, value in observed_inputs if key not in dict(declared_inputs)}
-    expected, _ = _observe_bindings(root, [header.get("inputs", {}), recorder_inputs, tools, row.get("observedInputs", {})])
+    expected = bindings.inventory([header.get("inputs", {}), recorder_inputs, tools, row.get("observedInputs", {})])
     return {"scope": declaration["scope"], "declaration": content_id(declaration),
             "receipt": content_id({key: value for key, value in row.items() if key != "journal"}),
             "checker": header["engineId"], "contract": content_id({key: declared.get(key) for key in keys}),
@@ -56,18 +131,19 @@ def support_inventory(root, header, row, tools, observation_inputs=None):
             "commands": [[str(i), command.get("expectedExit", 0)] for i, command in enumerate(row.get("commands", []))]}
 
 
-def _support_inventories(root, records):
+def _support_inventories(root, records, *, bindings=None):
     """Read immutable enumeration witnesses, never infer closure from a PASS."""
     if not records:
         return {}
     header = records[0]["payload"]
+    bindings = bindings if bindings is not None else _BindingRead(root)
     inventories = {}
     for entry in records[1:]:
         record = entry["payload"]
         if record.get("schema") != "research-step-observation.v1":
             continue
         inventory = record.get("supportInventory")
-        if inventory is not None and inventory == support_inventory(root, header, record["step"], record["toolInputs"], entry["inputs"]):
+        if inventory is not None and inventory == support_inventory(root, header, record["step"], record["toolInputs"], entry["inputs"], bindings=bindings):
             inventories[record["step"]["id"]] = inventory
     return inventories
 
@@ -80,7 +156,8 @@ def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, qu
     facts = {key: [] for key in (
         "requirement", "dependency", "contract", "receipt", "verified",
         "support_declaration", "support_witness", "required_command",
-        "binding", "required_binding", "current_binding", "command", "command_observation",
+        "current_binding", "binding_group",
+        "receipt_binding_group", "support_binding_group", "command", "command_observation",
         "prerequisite", "quiescent", "material", "available", "withdrawn",
         "required_step", "recorded_failure", "receipt_checked", "campaign_pass",
         "output_retained", "execution_quiescent", "campaign_required", "campaign_enumerated",
@@ -104,6 +181,16 @@ def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, qu
     for row in inspection.get("artifactAvailability", {}).get("outputs", []):
         availability[(row["step"], row["output"])] = row["status"]
     identities = {row["id"]: content_id(row) for row in rows}
+    binding_groups = set()
+
+    def binding_group(pairs):
+        members = sorted(set(pairs))
+        identity = content_id(members)
+        if identity not in binding_groups:
+            facts["binding_group"].extend((identity, key, sha) for key, sha in members)
+            binding_groups.add(identity)
+        return identity
+
     for row in rows:
         name = row["id"]
         identity = identities[name]
@@ -119,12 +206,13 @@ def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, qu
             scope, declaration, checker = inventory["scope"], content_id(inventory), inventory["checker"]
             facts["support_declaration"].append((name, declared_contract, scope, declaration, checker,
                 len(inventory["bindings"]), len(inventory["commands"]), len(set(inventory["dependencies"]))))
-            facts["required_binding"].extend((name, declared_contract, key) for key in inventory["bindings"])
+            facts["support_binding_group"].append(
+                (name, declared_contract, binding_group(inventory["bindings"].items())))
             facts["required_command"].extend((name, declared_contract, *command) for command in inventory["commands"])
             facts["dependency"].extend((name, parent) for parent in inventory["dependencies"])
             if checked and dict(expected) == inventory["bindings"]:
                 facts["support_witness"].append((identity, scope, declaration, checker))
-        facts["binding"].extend((identity, key, sha) for key, sha in expected)
+        facts["receipt_binding_group"].append((identity, binding_group(expected)))
         facts["current_binding"].extend(observed)
         # An independent producer admission failure must remain visible even
         # when every observable file still matches (for example an invalid seal).
@@ -162,6 +250,10 @@ def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, qu
         "support_declaration", "support_witness", "closed_support",
         "execution_pending", "execution_frontier", "execution_unattributed", "execution_detached",
         "failed_attempt_history")}
+    # ASCENT relations are sets. Preserve distinct conflicting observations,
+    # while transmitting shared tool/current bindings only once per relation.
+    facts = {name: list(dict.fromkeys(tuple(row) for row in rows))
+             for name, rows in facts.items()}
     answers = query(facts, catalog, queries)
     if any(digest(Path(path)) != sha for path, sha in catalog["sourceInputs"].items()):
         raise ValueError("checkpoint rules changed during resumption inspection")
@@ -190,20 +282,21 @@ def resumption(root, run, inspection, *, required=None):
     names = list(required if required is not None else outer.get("stepBudgets", {}))
     quiescent = (checked and outer.get("parentReaped") is True
                  and outer.get("processGroupQuiescent") is True)
-    support = {row["id"]: _observe_bindings(root, [outer.get("inputs", {}), row.get("observedInputs", {})])
-               for row in rows}
+    bindings = _BindingRead(root)
     from gambit_smp.reasoning_history import read_execution_checkpoint
     records = read_execution_checkpoint(root, run)["records"]
-    inventories = _support_inventories(root, records)
+    inventories = _support_inventories(root, records, bindings=bindings)
+    support = {}
     # A completed child names all tool inputs independently of its input list.
     for row in rows:
-        if row["id"] in inventories:
-            support[row["id"]] = _observe_bindings(root, [outer.get("inputs", {}),
-                inventories[row["id"]]["recorderBindings"], inventories[row["id"]]["toolBindings"], row.get("observedInputs", {})])
+        inventory = inventories.get(row["id"], {})
+        support[row["id"]] = bindings.read([outer.get("inputs", {}),
+            inventory.get("recorderBindings", {}), inventory.get("toolBindings", {}), row.get("observedInputs", {})])
     answers, rules = _resumption_relations(rows, names, inspection, checked=checked,
                                           campaign_pass=outer.get("outcome") == "PASS", quiescent=quiescent,
                                           support=support, inventories=inventories,
                                           declaration=records[0]["payload"].get("declaration") if records else None)
+    bindings.verify()
     if (outer_path.read_bytes() != outer_bytes or
             (child_bytes is not None and child_path.read_bytes() != child_bytes)):
         raise ValueError("checkpoint changed during resumption inspection")
@@ -554,7 +647,7 @@ def content_id(value):
     return hashlib.sha256(raw).hexdigest()
 
 
-def journal_closure(root, run, outer, header, observations, target):
+def journal_closure(root, run, outer, header, observations, target, repaired=None):
     """Read immutable stage records, without inventing a final child receipt."""
     from gambit_smp.reasoning_history import normalized
     from gambit_smp.recipes import read_json
@@ -595,7 +688,9 @@ def journal_closure(root, run, outer, header, observations, target):
         for source, value in body.get("inputs", {}).items():
             source_path = Path(source) if Path(source).is_absolute() else relative(root, source)
             if digest(source_path) != value:
-                raise ValueError("journal generator or input changed")
+                recorded = source_path.relative_to(root.resolve()).as_posix()
+                if recorded not in (repaired or ()) or outer.get("inputs", {}).get(recorded) != value:
+                    raise ValueError("journal generator or input changed")
             bound_sources[str(source_path.resolve(strict=True))] = value
         for source, value in outer.get("inputs", {}).items():
             if bound_sources.get(str(relative(root, source))) != value:
@@ -710,10 +805,9 @@ def observe_journal(root, run, target, *, historical=False):
             or header["engineId"] != outer["engineId"] or header["recipe"] != outer["recipe"]
             or header["inputs"] != outer["inputs"]):
         raise ValueError("journal header differs from original producer")
-    for name, sha in outer["inputs"].items():
-        if digest(relative(root, name)) != sha:
-            raise ValueError("journal original input changed")
-    closure, references = journal_closure(root, run, outer, header, history, target)
+    input_repair = repair_journal_inputs(root, outer["inputs"])
+    repaired = {row["path"] for row in input_repair["drift"]} if input_repair else None
+    closure, references = journal_closure(root, run, outer, header, history, target, repaired)
     if historical:
         # An ancestry witness is not an importable executable generation.
         from gambit_smp.artifact_storage import checked_workspace_state
@@ -727,7 +821,7 @@ def observe_journal(root, run, target, *, historical=False):
                                      root=root)["status"] != "AVAILABLE":
                     raise ValueError("journal historical artifact unavailable or changed")
     else:
-        state = inspect_outputs(run / "run", closure, root=root)
+        state = inspect_outputs(run / "run", closure, root=root, repaired_inputs=repaired)
         if (state["status"] not in {"AVAILABLE", "RETAINED"} or
                 any(row["status"] != "AVAILABLE" for row in state["outputs"] if row["step"] == target)):
             raise ValueError("journal final artifact inventory unavailable or changed")
@@ -735,13 +829,16 @@ def observe_journal(root, run, target, *, historical=False):
         raise ValueError("journal checkpoint has no typed artifacts")
     if outer_path.read_bytes() != raw or digest(path) != reference["sha256"]:
         raise ValueError("journal producer changed during observation")
-    return {"schema": "successful-stage-journal.v1", "run": fixture_name(root, run),
+    proof = {"schema": "successful-stage-journal.v1", "run": fixture_name(root, run),
             "outerReceiptSha256": hashlib.sha256(raw).hexdigest(), "engineId": outer["engineId"],
             "step": target, "stageReferences": {
                 name: {**ref, "path": Path(ref["path"]).relative_to(root).as_posix()}
                 for name, ref in references.items()}, "campaignOutcome": outer["outcome"],
             "runtimeAdmitted": False, "resumptionAuthorized": False,
-            "missingChildReceiptReconstructed": False}, outer, closure, engine
+            "missingChildReceiptReconstructed": False}
+    if input_repair is not None:
+        proof["inputRepair"] = input_repair
+    return proof, outer, closure, engine
 
 
 def stage_commands(root, row, seen=None):

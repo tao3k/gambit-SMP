@@ -9,7 +9,7 @@ from gambit_smp.framework import ROOT, digest
 
 class GenerationRecoveryEvidenceTests(unittest.TestCase):
     def test_model_has_actual_cross_generation_counterexample(self):
-        proof = json.loads((ROOT / 'evidence/model-results/processor-interrupt-collective-wait/generation-recovery-qualified-04/receipt.json').read_text())
+        proof = json.loads((ROOT / '.cache/research/legacy-evidence/evidence/model-results/processor-interrupt-collective-wait/generation-recovery-qualified-04/receipt.json').read_text())
         self.assertTrue(proof['accepted'])
         self.assertTrue(proof['contextStable'])
         for name, sha in proof['inputs'].items():

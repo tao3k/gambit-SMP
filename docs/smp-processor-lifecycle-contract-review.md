@@ -83,7 +83,7 @@ debt. No lock is held across Scheme callbacks, GC, barrier wait or blocking join
 ## Reviewable QNT correspondence
 
 New supplement: `models/gambit/lifecycle_contract_review.qnt`, checked by
-`evidence/research/smp-retirement-study/verify-lifecycle-contract-review.py`.
+`.cache/research/legacy-evidence/evidence/research/smp-retirement-study/verify-lifecycle-contract-review.py`.
 It checks four sequential operations (two epochs in each of two campaigns),
 same modeled producer, immutable owner/incarnation/key, pending before exit,
 two abstract GC observations, real-result transition before publication/acquire,
@@ -110,7 +110,7 @@ failure, not successful recovery. Model campaign tokens are not two native runs.
 Reproduce the supplement in registered audit scope with existing30s per-case cap:
 
 ```sh
-.venv/bin/python evidence/research/smp-retirement-study/verify-lifecycle-contract-review.py
+.venv/bin/python .cache/research/legacy-evidence/evidence/research/smp-retirement-study/verify-lifecycle-contract-review.py
 ```
 
 ## Two native campaigns: implementation and review prerequisites
@@ -178,9 +178,9 @@ claim. The GC/FFI, Gerbil TYPEID and release gates remain independent and open.
 
 ## Post-join transfer refinement
 
-See `../evidence/research/smp-retirement-study/post-join-transfer-protocol.md` for the current checked preflight, complete-splice ownership log, scan-domain removal and checked empty-donor destruction protocol. Generic cleanup can invoke foreign release and ignores scan-lock destruction outcome; it is not a non-failing finalizer. Partial recovery is roll-forward between complete units, not arbitrary mid-write rollback. The later per-file c86 observation binds the new native-tail ordering but does not certify the user-reported smoke binary. The lifecycle contract remains inactive at8/12.
+See `../.cache/research/legacy-evidence/evidence/research/smp-retirement-study/post-join-transfer-protocol.md` for the current checked preflight, complete-splice ownership log, scan-domain removal and checked empty-donor destruction protocol. Generic cleanup can invoke foreign release and ignores scan-lock destruction outcome; it is not a non-failing finalizer. Partial recovery is roll-forward between complete units, not arbitrary mid-write rollback. The later per-file c86 observation binds the new native-tail ordering but does not certify the user-reported smoke binary. The lifecycle contract remains inactive at8/12.
 
 
 ## Finalizer authority and fatal-disposition follow-up
 
-`../evidence/research/smp-retirement-study/finalizer-tail-handoff.md` specifies a persistent per-donor resource pin across keyed finalizer claim and worker-tail release, shared before-destruction admission, known common-result refusal and isolated local quarantine. Unknown shared guard/misc/sync unlock cannot safely rely on that transport or current callback/exit-based fatal_error; proposed raw process fail-stop is a distinct, host-compatibility-reviewed failure disposition, never successful lifecycle recovery. New finite22 controls distinguish successful cleanup, retained debt and process termination. Native refinement remains open; count8/12.
+`../.cache/research/legacy-evidence/evidence/research/smp-retirement-study/finalizer-tail-handoff.md` specifies a persistent per-donor resource pin across keyed finalizer claim and worker-tail release, shared before-destruction admission, known common-result refusal and isolated local quarantine. Unknown shared guard/misc/sync unlock cannot safely rely on that transport or current callback/exit-based fatal_error; proposed raw process fail-stop is a distinct, host-compatibility-reviewed failure disposition, never successful lifecycle recovery. New finite22 controls distinguish successful cleanup, retained debt and process termination. Native refinement remains open; count8/12.

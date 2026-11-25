@@ -1,0 +1,1684 @@
+#+TITLE: Shared-Heap SMP: Paper Mechanisms and Gambit Architecture Choices
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:2 num:nil
+#+PROPERTY: header-args :eval never :tangle no
+#+TODO: RESEARCH SELECTED | QUALIFIED REJECTED
+
+* RESEARCH Scope and architectural owner :papers:smp:gc:
+:PROPERTIES:
+:CUSTOM_ID: shared-heap-smp-learning
+:AUTHORITY: GambitRuntimeComposition; GambitSharedHeapSmp
+:EVIDENCE_CLASS: primary-literature-and-conditional-design
+:PROGRESS_DELTA: 0
+:END:
+
+This study supports [[file:../../refactoring/modern-c/runtime-blueprint.org::#modern-smp-whole-delivery][the existing whole runtime blueprint]], not another runtime
+or progress counter. Its current responsibility, cost and closure authority is
+[[file:../../refactoring/modern-c/models/sysml/shared-heap-smp.sysml][SysML]], projected through the existing OpenSysML/ASCENT flow.
+The root-freeze proof is one prerequisite, not the whole modernization goal.
+Keep Scheme shared identity, tail calls, multi-shot control and portable C while
+redesigning the execution/root/work/scheduling/resource boundaries together.
+
+* Paper facts, Gambit inference and transfer limits
+:PROPERTIES:
+:CUSTOM_ID: primary-mechanism-ledger
+:END:
+
+#+NAME: primary-smp-mechanisms
+| Primary source and exact scope | Mechanism read in the paper | Gambit-specific inference | Limit / counterargument |
+|-------------------------------+-----------------------------+---------------------------+--------------------------|
+| [[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][Feeley/Miller, PVM, sections2 and2.3]] | Front/back-end cooperation conveys machine and control information; explicit frame-size information supports target frame strategies | Scheme should produce FrameSpec, PointId, liveness and allocation obligations; C consumes them rather than rediscovering meaning at every runtime transition | Historical PVM is not a proof of current SMP, complete modern frame maps or a chosen GC algorithm |
+| [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][Sivaramakrishnan et al., ICFP2020, sections4.3-4.4]] | The paper compares private concurrent minors with a coordinated parallel minor permitting cross-minor references; the latter avoids the proposed read-barrier/C-safepoint changes | Evaluate the VM-wide young cut against Gambit's shared objects and C roots; context-local allocation need not imply isolated heaps | Rendezvous and promotion still cost work. This is not a claim that current OCaml internals or its control semantics should replace Gambit's |
+| [[https://simonmar.github.io/bib/papers/parallel-gc.pdf][Marlow et al., ISMM2008, sections3.5-3.6 and5.3]] | Block work needs producer-aware termination; scarce work can remain serial; copied-byte balance is a diagnostic and does not guarantee wall-clock speedup | Separate root partitioning, work export, claim/initialization and whole termination; measure graph span and synchronization as well as copied work | Block size/locality trade off with sharing latency. No GHC speedup, lazy thunk heuristic or C memory-order proof transfers to Gambit |
+
+These are reviewed mechanism sources, not a historical ranking of languages.
+The PVM insight is amplified by exporting more semantic information, while GC
+research informs where that information can support independent work and safe
+reentry. A correct typed model does not establish a favorable runtime cost.
+
+* SELECTED Architecture decisions and falsifiers :architecture:tradeoff:
+:PROPERTIES:
+:CUSTOM_ID: mechanism-selection
+:END:
+
+#+NAME: smp-mechanism-selection
+| Runtime responsibility | Current candidate choice | Work/coupling to remove | Added cost and falsifier |
+|------------------------+--------------------------+-------------------------+-------------------------|
+| Semantic generator / control | One Scheme-owned frame/root/checkpoint contract for current, captured and repeatedly restored computation | Repeated layout/liveness inference and inconsistent root consumers | Metadata/lowering and alias-writer coverage; invalid if reflection, serialization or dynamic-wind no longer obey supported semantics |
+| Execution / safepoint | Stable context and revocable execution grant; explicitly parked native borrows and acquired reload | Carrier impersonation and incomplete roots at a stop | Rendezvous latency and grant/refresh work; cannot promise bounded pauses with an unqualified native reader or unbounded polling interval |
+| Root partition / worker work | R root sources, W worker grants, canonical slot views and work export independent of carrier count | Fixed R=W scheduling and repeated source discovery | Task/lease and queue traffic, imbalance and graph span; W<R correctness alone establishes no speedup |
+| Copy / capacity / termination | Reserve continuous destination intervals, preserve unique initialization/Tail owner, close every producer before finish | Duplicate reservation, unowned private work, queue-empty termination and resume-without-space | Census/packing, CAS, slack and metadata; near-sequential graph dependencies or bandwidth saturation can dominate |
+| Scheduler / requests / exit | Waiting computation differs from service activation; accepted queue/result/resource ownership survives abnormal exit | Repeated waiter materialization, duplicate queue membership and join-only reclamation | Publication/pin/drain costs; same heap cannot move with an unknown live writer, even if a different VM may collect |
+| Generational policy | Local young allocation, VM-wide parallel minor candidate, remembered source writes and explicit major policy | Eligible repeated mature scanning/copying between majors | Every store/log overflow, residual edge, promotion reserve and major/weak phase must be charged; high survival or mutation can erase benefit |
+
+The generational selection and mature-space alternatives remain owned by
+[[file:../../architecture/runtime/gc/modern-c-generational-design.org][the existing GC design]]. Concurrent major collection, different generation
+policies, Actor isolation and build/Darwin work retain separate admission units.
+They are not added implicitly to the current joint five-obligation delivery.
+
+* Quantification without invented performance numbers :cost:span:memory:
+:PROPERTIES:
+:CUSTOM_ID: useful-parallelism-budget
+:EVIDENCE_CLASS: accounting-model; not-native-measurement
+:END:
+
+For a chosen post-rendezvous GC interval, let A(W) be total normalized worker CPU
+work, S(W) its dependency span, M(W) actual memory traffic and beta a justified
+upper bound on available bandwidth. A useful lower-bound model is
+=T_gc >= T_enter + max(A(W)/W, S(W), M(W)/beta)=. Keep units consistent; actual
+elapsed time also pays scheduling, phase boundaries and resource effects. This
+is our accounting requirement, not a paper benchmark or a proved C cost bound.
+
+The entry term depends on the last required participant; adding workers cannot
+remove it. Report work export delay, serial root prefix, queue/CAS traffic,
+destination revisits, private/Tail debt and phase waits separately. Copied bytes
+alone miss revisits and pointer-only scanning. Preserve pairwise same-work
+baseline/candidate identities and the existing heap/watchdog limits.
+
+#+NAME: smp-benefit-admission
+| Claim | Required numerical observation | Refutation boundary |
+|-------+--------------------------------+---------------------|
+| Less repeated work | Same-work capture/materialization, root visits, lookup and reservation counts; normalize units before combining costs | Removed operations may be outweighed by gates, metadata and synchronization |
+| Useful parallel collection | Per-worker CPU/scan/copy work, W, export/start delays, critical phase times and total wall time | Balanced counts with serialized execution, scarce work or bandwidth saturation |
+| Better minor collection | Complete allocation interval and major cycle: mature work avoided versus barriers, dirty scanning, promotion and extra majors | Mature scan reduction without accounting for changed frequency/major work |
+| Safe bounded capacity | Simultaneously live physical copy/restore/retained intervals, actual backing and peak | A later refund or virtual reservation is not an earlier physical peak reduction |
+| Robust lifecycle | Fault/unknown paths with exact retained roots/resources and healthy independent-VM progress | Successful local cleanup, process-wide fatal exit or dropping an unknown debt does not prove isolation |
+
+All current values for these prospective claims remain UNMEASURED in this study.
+Historical regressions in [[file:../../refactoring/modern-c/post-delivery.org][the source-bound cost ledger]] remain counterevidence.
+There is no unconditional speedup or constant-space claim for arbitrary shared
+graphs, retained continuations, external arrivals or native blocking.
+
+* Whole delivery sequence and unanswered research questions :process:
+
+** RESEARCH Concrete work publication and termination chain :source:ownership:
+:PROPERTIES:
+:CUSTOM_ID: concrete-work-chain
+:AUTHORITY: GambitSharedHeapSmp::wholeWorkPublication; GambitRuntimeAssurance::work
+:STATUS: SOURCE-ARGUMENT; COMPLETE-C-REFINEMENT-OPEN
+:END:
+
+The [[https://simonmar.github.io/bib/papers/parallel-gc.pdf][ISMM2008 discussion, sections3.5-3.6]], relates active-producer accounting,
+pending blocks and scarce-work export. Gambit's actual mechanisms below must be
+qualified under their own C/VM contracts; the paper's counter protocol or tuning
+threshold is not transplanted. These are one composed chain, not separate REVs.
+
+#+NAME: concrete-work-ownership
+| Boundary / actual source | Established source mechanism | Remaining complete-owner requirement |
+|--------------------------+------------------------------+--------------------------------------|
+| Root union -> collector: root-tasks.inc | Root tasks retain source kind/context/epoch while executor assignment can use W workers for R domains | All sources publish complete views; W<R must not confuse source observation with scanner authority |
+| Initialization -> object scan: copy-reservations.inc / object-scanning.inc | Forwarding/canonical repair may precede payload copying. publish_object_scan sets UNPUBLISHED->READY; scan takes READY->OWNED and completes OWNED->DONE for movable objects | READY requires initialized body; copying owner retains first-field Tail. Duplicate OWNED/DONE returns skip field mutation but retain the first owner's debt |
+| Private chunk -> FIFO: heap-sections.inc end_heap_chunk | Writes end marker, transitions chunk0->1, publishes link/tail with ordering barriers under chunk_gate, then signals | All payload/link/boundary state visible before an acquired reader can traverse; publisher remains counted through final publication and private use |
+| FIFO -> private scanner: take_heap_chunk | Successful gate acquisition changes1->2 and advances head before returning; failure to acquire returns0 | Return0 can mean contention, not emptiness. Dequeued/active chunk remains owned until scan_complete_heap_chunk changes2->3 or an accepted handoff occurs |
+| Local frontier / Tail: scan_movable_objs_to_scan, finish_tail | Scans completed chunks then its incomplete local region; cursor tracks progress. Tail is copying-worker debt, not generic scan permission | Cursor, current object, private remainder and Tail must be empty or transferred before idle/exit. Chunk DONE does not settle every object or region lifetime |
+| Phase termination: collection-round.inc mark_reachable_from_marked | Scans still/local work, steals, decrements phase count under termination mutex; zero broadcasts, nonzero waits and reactivates | Every potential publisher is counted until its last use. No late uncounted helper/native producer, hidden claim or phase-crossing publication; wake predicates and C ordering need refinement |
+| Phase/restore -> lifecycle: heap-sections.inc and collection-round.inc | Strong/weak counts start at W; R participants join phase barriers and restore spans before root union retirement | Worker terminal state is not source/context/OS-thread death. Reserve and last-user debt remain separate from queue completion |
+
+The state distinctions are essential: a complete queue element, a unique object
+scan owner, an outstanding first-field Tail and the source/root lifetime are
+different things. A duplicate visit can be semantically harmless while still
+costing a queue traversal, state probe or cache miss. A busy queue gate cannot
+supply an absence proof. The selected atomic/backend barriers remain part of
+the C refinement; source comments alone do not discharge it.
+
+There is also a granularity question beyond worker count. =mark_rc= visits one
+slot and calls =mark_array= before advancing the RC chain; =mark_array= can follow
+a first-field Tail before returning. Partitioning root domains therefore does
+not prove that all independent root work becomes available promptly. A graph's
+true dependency chain is unavoidable, while delayed export of independent work
+is a different, potentially removable serialization. This distinction requires
+matched source/workload observations rather than inference from W alone.
+
+The architectural option is bounded root-range and initialized-prefix work
+export under the same source lease. A published prefix must have a valid closed
+layout and a unique claimant; the publisher retains its unexported cursor,
+reserved interval and Tail. Source completion waits for every child range.
+This is not permission to expose a half-initialized object or merely signal the
+condition variable earlier. More frequent publication pays extra markers,
+locking, metadata, cache traffic and possibly unusable tail slack. Choose no
+unmeasured constant threshold or extra configuration knob. This remains a
+source-refinement and cost candidate in the whole collector delivery, not an
+implemented early-export feature or a new progress item.
+
+** RESEARCH One last-publication / idle / phase / exit contract :memory:termination:
+:PROPERTIES:
+:CUSTOM_ID: publication-idle-exit
+:AUTHORITY: GambitSharedHeapSmp::wholeWorkPublication
+:SUPPORT_FACTORS: GW-publication-source; GW-termination-source
+:STATUS: CONDITIONAL-SOURCE-ARGUMENT; NATIVE-REFINEMENT-OPEN
+:END:
+
+The two source factors are conjunctive requirements of the same existing joint
+packet. Publication establishes what a claimant may read; termination establishes
+that no unaccounted producer may change that fact after closure. Neither factor
+can authorize resume or reclamation by itself. This section refines the existing
+case; it adds no REV, completion denominator, runtime record or parallel model.
+
+#+NAME: last-publication-responsibility-chain
+| Cut / actual consumer | Required fact and ordering | Responsibility retained on failed or unknown outcome |
+|-----------------------+----------------------------+-----------------------------------------------------|
+| Initialize / publish_object_scan | Body/layout initialization precedes READY; forwarding may already be visible, so the initializer retains its incomplete body and first-field Tail | Failure after forwarding cannot return the object to undiscovered state; preserve destination interval, roots and unique initialization authority |
+| Close chunk / end_heap_chunk | End marker and valid object layout precede FIFO link/tail; queue-gate release publishes both. Chunk0->1 occurs before queue linkage, so state1 alone is not queue reachability | Publisher owns the unpublished or incompletely linked range until the publication transaction is known complete; do not republish blindly |
+| Claim / take_heap_chunk | Successful gate acquisition precedes pointer reads; queued1->claimed2 and head removal happen under exclusion | Busy CAS is no observation. A claimed node no longer in the FIFO belongs to the claimant even before active_scan_chunk is set; unknown stop retains that transient ownership |
+| Final use / scan_movable_objs_to_scan | Own completed FIFO, incomplete frontier and synchronously spawned scan/Tail work are drained before idle; new work discovered while scanning stays inside active lifetime | A duplicate transport skip does not finish another owner's Tail. A private cursor or outstanding copier cannot disappear from the lifetime projection |
+| Idle / mark_reachable_from_marked | Termination mutex serializes count decrement and zero observation. Each potential publisher is counted until final publication and use; count initialization and membership are fixed for the phase | Zero is conditional on full producer coverage. A missed steal, queue-empty sample or timeout cannot substitute for a no-late-publisher cut |
+| Wake / same function | Nonterminal wake increments count before further stealing; notification only invites recheck and transfers no chunk/root ownership | Prove the predicate and scheduling route separately from data visibility. A signal is not a durable task or completion record |
+| Phase / garbage_collect_mark_weak_phase | Strong closure precedes weak process_wills production; W workers cover R sources, run a second drain, then all-R restore and cleanup barriers close their own debts | Strong zero and root DRAINING do not retire weak producer, restore, still cleanup or native-resource authority |
+| Retire / setup.c and _setup/vm-lifecycle.inc | Data-write closure, join outcome, root drain and last use of launch/VM/gate are separate facts; physical reuse requires all applicable facts | Unknown join retains descriptor/control/native resources. If same-heap writes remain unknown, moving GC is refused there; unrelated VM progress requires genuinely separate resources |
+
+#+NAME: current-publisher-caller-census
+| Actual callsite family in the admitted _mem sources | Held responsibility through its last use | Closure that cannot be inferred from a textual inventory |
+|----------------------------------------------------+------------------------------------------+----------------------------------------------------------|
+| copy-reservations.inc contiguous reserve/refill calls end_heap_chunk | Current worker owns capacity request and previous closed range before arena refill | Failure after a reservation/forwarding must settle or retain its physical grant, not decrement active count |
+| copy-reservations.inc mark_array payload/filler publication and full-chunk close | Current worker owns copied body plus pending first-field Tail and can discover another object | publish_object_scan or commit_copy alone cannot discharge recursive Tail discovery |
+| continuation-roots.inc frame copy calls publish_object_scan and end_heap_chunk | Frame-access owner retains next-frame cursor, source forwarding and destination-link repair | Multiple wrappers sharing a frame do not create independent frame-copy owners; frame READY is not whole chain closure |
+| object-scanning.inc own FIFO and collection-round.inc stolen FIFO call take_heap_chunk | Claimant retains the removed chunk even before scan_complete_heap_chunk records active_scan_chunk | The C interval between return and active recording is real private debt; no queue census can see it |
+| collection-round.inc strong root scan and weak process_wills both call mark_reachable_from_marked | Strong and weak phase grants separately cover W workers and all assigned R sources | A future helper or cleanup callback must join a covered phase or be deferred; it cannot silently become an uncounted publisher |
+| memory-lifecycle.inc / configuration.inc VM-local count/wait resources | VM retains synchronization until every possible publisher/waiter/returning owner leaves | Field locality and shutdown guards are not complete last-user proofs |
+
+These are the direct callers inspected in this source epoch. Resolving their
+transitive callers, selected conditional branches and excluded native writers
+is still required. The inventory is not proof that there can be no additional
+producer; any admitted helper must appear in the lifetime projection before
+the no-late-publisher premise can hold.
+
+*** Backend and wait protocol refinement
+
+The maintained atomic definitions are in
+=include/_gambit/activity_log.h.in=, not the generated monolithic header. The
+selected branch must be observed from an actual existing build profile before
+claiming platform support. Source configuration availability is not selection.
+
+#+NAME: collector-memory-order-refinement
+| Source backend | Concrete synchronization candidate | Remaining qualification |
+|----------------+------------------------------------+-------------------------|
+| sync builtins | CAS acquires chunk gate; fetch-and-and clear releases it; explicit synchronize calls remain inside publication | GCC documents these operations as full barriers. Check exact compiler implementation/target, word alignment, atomic-only access to gate and every payload/link read under the gate or independent ownership. Do not infer Clang/Darwin qualification from GCC documentation alone |
+| POSIX emulated | CAS and clear each lock the same address-selected hash mutex; checkout now has a C23 seq_cst fence, while the captured historical cache barrier is empty | Same gate address implies the same hash mutex. Its unlock/lock chain may publish preceding payload writes; establish mutex lifetime and every access route. Neither the historical empty barrier nor a current fence alone establishes quiescence or legalizes a racing plain/atomic access; complete gate/fence edges still require proof |
+| Win32 | Existing Interlocked gate operations and MemoryBarrier | Preserve selected widths, alignment and condition-variable contract; no Win32 native evidence issued here |
+| Sequential | Plain operations / empty barrier | Only a single-threaded qualification; cannot serve as the SMP publication adapter |
+
+The official [[https://gcc.gnu.org/onlinedocs/gcc/_005f_005fsync-Builtins.html][GCC sync builtins reference]] supports the GCC ordering premise,
+not a whole C23 happens-before proof. A future explicit acquire/release C23
+adapter must replace the existing atomic abstraction consistently. Mixing atomic
+and plain concurrent accesses, or merely removing the two barriers, is not
+authorized by this design. No runtime change is made here.
+
+Apple's archived [[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/pthread_cond_wait.3.html][pthread_cond_wait]] describes atomic mutex release plus wait;
+[[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/pthread_cond_signal.3.html][pthread_cond_signal]] wakes a waiter. These sources do not make a notification
+sent before the wait into a stored task. Current end_heap_chunk signals outside
+scan_termination_mutex. That observation alone is *not* a demonstrated lost-work
+bug: an active publisher can still drain its own FIFO/frontier before decrement.
+The adapter must show both that route's completeness and whether useful steal
+opportunities can be missed. Safety and prompt parallel progress are separate.
+
+A source-level adversarial schedule is: thief misses a busy gate; publisher
+unlocks and signals; thief later decrements and waits. To claim actual lost work,
+one must additionally defeat the publisher's own-drain obligation or introduce
+an uncounted producer. That last premise has not been demonstrated in current C.
+The previous QNT idle guard forbade *any* queued item. That mismatch is now
+removed in the existing model: =localDrained= excludes only work for which the
+idling worker holds custody, including published items. =producerCoverage=
+requires every outstanding private, queued or claimed item to have a counted
+owner. Other workers' queued items may remain when this worker idles. The
+changed count is a real =idle= step, not hidden as a stutter. A nonterminal wake
+may re-count a worker even with no visible queue item, matching the C spurious
+wake route. The conditional mapping below closes this abstract guard mismatch;
+it does not establish all of its C layout and producer premises automatically.
+
+*** Conditional C-to-QNT counted-work refinement
+:PROPERTIES:
+:CUSTOM_ID: local-idle-count-refinement
+:STATUS: GUARD-MISMATCH-CORRECTED; TOTAL-C-SIMULATION-OPEN
+:END:
+
+Let =U(w)= be work currently held by worker w: initialization/copy remainder,
+first-field Tail, unscanned local range, its published-but-unclaimed ranges,
+still-list remainder, and removed-but-not-finished chunks. Queue location alone
+does not determine the owner: successful dequeue transfers custody to the
+active claimant even before =active_scan_chunk_= records it. Let =A(w)= mean
+counted active in this phase, and =C=sum A(w)=. The composed invariant is:
+
+#+BEGIN_EXAMPLE
+every outstanding item has exactly its current custodian
+item in U(w) => A(w)
+C = sum of counted active workers
+idle(w) requires U(w) empty, a fresh own-queue empty observation,
+and no unsettled take; it does not require all other U(v) empty
+#+END_EXAMPLE
+
+This is a finite-model abstraction of item custody; a real range can stand for
+many items. The publication transaction before FIFO linkage is private debt,
+not an unowned queued node. The logical phase witness is VM/round/phase, not an
+invented extra C API or field. C must establish that witness through control
+location, fixed membership and phase barriers.
+
+#+NAME: local-scan-count-step-correspondence
+| C interval / linearization | Existing QNT correspondence | Required source premise and retained debt |
+|----------------------------+-----------------------------+------------------------------------------|
+| scan_still_objs_to_scan removes head, then calls scan | Work stays scanning/private until scan returns; removal is not finish | configuration.inc maps still_objs_to_scan to this work record; mark_array successful still-mark CAS pushes onto the discovering worker's list, not an idle victim's list |
+| scan_movable_objs_to_scan follows completed links, claims own FIFO, then incomplete prefix until ptr equals arena.cursor | Complete owned ranges before localDrained becomes true | Prove linked-layout partition and own-FIFO exhaustion at the return edge; a lexical cursor equality alone is insufficient. Only this active worker extends its arena; Tail returns synchronously before idle |
+| Another worker succeeds at take_heap_chunk | acquire changes current custodian to active thief | Queue gate serializes head/claim; the transient returned pointer remains a private claim before active_scan_chunk is set |
+| take_heap_chunk fails gate CAS | busyTake stutters with no queue observation | It cannot clear queued debt or justify any empty-queue observation, including the owner's local FIFO |
+| end_heap_chunk publishes body/link/tail | publish preserves counted publisher until claim or local drain | All writes and intermediate transaction debt belong to an active initializer; READY alone does not discharge Tail |
+| Under scan_termination_mutex, decrement count | idle removes exactly one active owner whose U is empty | No external/native/helper producer can assign new work to that inactive owner; queued work elsewhere still has an active custodian |
+| condvar return with count nonzero, followed by increment | wake re-counts before subsequent stealing, including a spurious wake | Successful mutex reacquisition; neither queue visibility nor an owned task is required to re-count |
+| Last decrement observes zero under mutex | done follows from no counted owner and coverage, not queue sampling | Under complete private/published coverage, zero excludes unfinished work. New admitted publishers must not appear after this cut |
+| All-R strong barrier, then process_wills and second drain | arrive/nextPhase introduce the next admitted producer cohort | The model resets its small graph as abstract weak work; actual weak work can overlap already marked identities. No old-phase operation or last user may cross the barrier |
+
+Preservation is local: publication leaves its producer counted; acquire moves
+custody to another counted worker; discovery assigns new work to its active
+scanner; finish removes debt; idle removes an owner only when its U is empty;
+wake adds a counted owner. Therefore all other unfinished items retain counted
+owners after idle. At zero there are none. This argument uses no global FIFO
+empty snapshot and no persistent-notification assumption. It is a conditional
+source argument backed by bounded transition checks, not a proved arbitrary-C
+forward simulation or liveness theorem.
+
+The existing Lean =PublishedLifetimeSafe= predicate supplies the data bridge:
+queued work, just like private work, implies a counted custodian.
+=zeroCountAndProducerCoverageExcludeHiddenWork= derives queue emptiness and
+reuses the earlier zero-count theorem; =missingPublishedLifetimeCounterexample=
+shows why private-only coverage is insufficient. Lean does not re-prove the QNT
+transition invariant, wake behavior or phase changes.
+
+The existing =gc_work_closure= histories include local idle while
+foreign queued work remains, a failed steal with no observation, spurious wake,
+the queued-owner early-idle counterexample and stale-phase rejection/control.
+The earlier histories are retained. Positive source claims still require the
+real linked-layout, Tail, all-producer and memory-order premises in the table.
+
+**** Actual source obstruction: own FIFO busy is treated as drained
+
+=scan_movable_objs_to_scan= uses =while ((ptr=take_heap_chunk(work,work)) != 0)=
+before switching to the incomplete allocation chunk. =take_heap_chunk= returns
+zero both on failed gate CAS and on an acquired empty FIFO. Therefore an owner
+that loses this CAS can leave that loop without an authoritative empty result.
+The later cursor-equals-arena return and =mark_reachable_from_marked= count
+decrement do not independently recheck its FIFO under the gate. This blocks the
+localDrained premise, even after the former global-empty guard mismatch is fixed.
+
+A conditional schedule has an active thief holding the owner's gate while
+claiming one chunk, with another chunk still queued. The owner's own-FIFO call
+can fail and its local drain loop ends. This establishes an ambiguous control
+edge, not a demonstrated global premature-termination bug: to establish that
+bug one must also show the remaining active workers can all stop without taking
+the queued work. That complete layout/gate/progress schedule is not proved by
+the current two-item QNT or a lexical source trace.
+
+=busyOwnQueueCannotCertifyIdleControlTest= preserves this missing-premise
+counterexample in the existing model: a no-observation result plus omitted
+localDrained allows a queued custodian to become inactive and violates
+producerCoverage. The deliberate fault is not a native C reachability claim.
+
+The complete runtime responsibility replacement must distinguish three results
+at the existing queue boundary: acquired chunk, acquired-empty observation, and
+no observation/busy. An opportunistic thief may return on busy; an owner's drain
+cannot certify emptiness from it. Existing lock_chunk_fifo provides a candidate
+authoritative gate acquisition, but adopting it requires lock order, last-user,
+unknown holder and progress qualification. No runtime change is made here.
+The owner must retain custody across the last local frontier, initialization,
+Tail and published FIFO until that authoritative cut; phase closure consumes
+that cut and closed publisher admission. An unknown outcome retains the claim,
+queue/arena and gate, rather than retrying or decrementing responsibility.
+
+**** DECIDED Typed three-outcome contract and the complete admission chain
+:PROPERTIES:
+:CUSTOM_ID: queue-three-outcome-contract
+:AUTHORITY: GambitSharedHeapSmp::queueObservationToIdle
+:STATUS: MODELLED; C-ADAPTER-OPEN
+:END:
+
+The existing QNT now uses the sum type =QueueObservation= with =Acquired(item)=,
+=ConfirmedEmpty= and =Unobserved=. A returned outcome is interpreted only for a
+settled operation. This is the semantic contract for the existing queue
+boundary, not a new runtime namespace, runner or unbounded receipt registry.
+
+#+NAME: queue-observation-custody
+| Settled outcome | Observation and linearization | Work and resource custodian | Permission withheld |
+|-----------------+-------------------------------+-----------------------------+---------------------|
+| Acquired(item) | Under target gate, claim and queue removal select exactly this initialized item | Active claimant owns the removed chunk/private scan; publisher keeps every other unpublished or queued range. VM retains queue/control storage | Receipt is not scan completion, Tail completion, idle permission, restore or physical reclaim |
+| ConfirmedEmpty | Successful gate acquisition observes empty head/tail for the identified queue, VM/round/phase and logical revision | Existing private/frontier/still/initialization/Tail holders keep their debts; queue/control lifetime remains with its lifecycle owner | Empty own queue alone does not prove local drain; empty foreign queue cannot certify own idle; the observation is not a permanent no-publisher seal |
+| Unobserved | Known unsuccessful gate acquisition; no queue observation was obtained | This operation transfers no node. Every pre-existing publisher/claimant keeps its responsibility; gate holder owns exclusion only, not all queued work | No inference of empty, no decrement, no phase arrival, no replay or reclaim authority |
+
+The identity includes target queue separately from caller. The QNT empty
+witness is tied to the caller's own queue before idle; acquisitions can claim
+another queue's item. Busy against that foreign queue does not qualify the
+caller's queue. The model keeps one current observation slot per worker;
+replacing it with Unobserved removes its empty-witness authority. This bounded
+model bookkeeping is not an instruction to store matching fields in runtime C.
+
+The full protocol is:
+
+1. Keep the active owner's root/work/arena/control lifetime before attempting
+   the gate. Gate acquisition failure does not leave that lifetime.
+2. Interpret only a settled result. Acquired installs private custody before
+   queue reachability disappears; ConfirmedEmpty records a scoped observation;
+   Unobserved leaves all work custody with the prior holders.
+3. To become idle, conjoin a fresh own-queue empty observation with complete
+   private/frontier/still/initialization/Tail drain and no unresolved claim.
+   Publication increments the logical queue revision and invalidates an older
+   empty observation. The model's revisions are proof witnesses, not another
+   proposed runtime counter.
+4. Under the termination protocol, decrement exactly once. Other queues may
+   remain nonempty only while their work retains a counted owner. Nonterminal
+   wake re-counts before new work and requires a new observation before idle.
+5. Only whole phase closure and admitted arrivals permit nextPhase. Earlier
+   empty witnesses are invalid in the next phase; strong closure still does
+   not finish weak, restore, cleanup or native/control resource users.
+6. If a claim committed but result delivery was lost, do not manufacture any of
+   the three outcomes. The operation is unsettled. QNT retains the exact item,
+   claimant and count; finishScan, new queue result and idle are blocked until
+   identity settlement delivers the already acquired item without a second
+   scan claim. Physical owner death remains an existing last-user obligation,
+   not a new implicit settlement or a timeout-based release.
+
+The unsettled example models the committed-claim/lost-delivery branch, not
+every crash point. Unknown-before-commit, interrupted linkage and real native
+stop still need source adapters. A source with no settlement path must retain
+the affected resources; this is safe blocking, not a liveness result. An
+independent healthy VM is admitted only by the separate non-sharing/last-user
+proof, not by a queue outcome.
+
+Lean =QueuePost= specifies the data relation at one operation's linearization:
+Acquired moves one exact head item to private custody; ConfirmedEmpty requires
+an empty source queue and performs no transfer; Unobserved performs no transfer.
+Its four laws establish no-observation custody preservation, the empty premise,
+acquired work-count conservation, and a busy/nonempty counterexample. A no-effect
+law does not assert two arbitrary concurrent queue snapshots are equal; other
+operations have their own linearization. QNT alone owns freshness and ordering.
+
+The retained deterministic histories include busy with queued work, empty while
+private debt remains, empty invalidated by publication, acquired-but-unfinished
+work, unsettled claim and exact settlement, busy replacing an empty witness,
+foreign empty rejected for own idle, and old-phase rejection. Existing bounded
+exploration is retained. Neither the
+sum type nor these checks proves the actual C's current zero return implements
+three distinct outcomes; that source obstruction remains explicitly OPEN.
+
+The count/wait path also ignores platform operation return values at these
+callsites. Successful mutex/wait behavior is therefore a source-admission
+premise; erroneous/unknown waits cannot be treated as normal reacquisition or
+proof that a worker stopped. This remains OPEN, without raising timeouts.
+
+*** DECIDED Whole C queue adapter and caller replacement :adapter:ownership:
+:PROPERTIES:
+:CUSTOM_ID: c-queue-caller-adapter
+:AUTHORITY: GambitSharedHeapSmp::queueCallerAdapter
+:SOURCE_BINDING: Exact modern-c head and working bytes in retained receipt; no historical native credit transfer
+:STATUS: DESIGN-SPECIFIED; C-IMPLEMENTATION-AND-NATIVE-ACCEPTANCE-OPEN
+:END:
+
+The chosen design replaces the existing private =take_heap_chunk= result
+contract with a typed status and a nonaliasing caller-owned chunk output:
+
+#+BEGIN_EXAMPLE
+take_heap_chunk(work, owner, &chunk)
+  -> Acquired | ConfirmedEmpty | Unobserved
+
+Acquired:       chunk identifies this operation's committed claim
+ConfirmedEmpty: chunk is null; acquired target gate observed empty
+Unobserved:     chunk is null; gate acquisition obtained no observation
+#+END_EXAMPLE
+
+This is a contract sketch, not runtime C. Keep the current internal operation,
+place its private type/declaration with the existing collector definitions and
+convert all callers in one responsibility delivery. No public Scheme name,
+configuration profile, waiting knob, parallel namespace or executor is added.
+Do not retain a pointer-or-zero wrapper that preserves the ambiguity.
+
+#+NAME: complete-c-queue-callsite-inventory
+| Maintained source / actual role | Current access | Required replacement / admissible completion |
+|--------------------------------+----------------+----------------------------------------------|
+| heap-sections.inc take_heap_chunk | Sole claim/head-removal core; zero collapses busy and acquired-empty | Three-state result, clear non-acquired output, validate live queue identity and record claim custody before externally completed removal |
+| object-scanning.inc own-FIFO while loop | Direct take caller1; zero ends FIFO drain and switches to incomplete prefix | Switch on status: scan Acquired outside gate; keep cursor/count and reprobe on Unobserved; only ConfirmedEmpty can leave this FIFO subloop |
+| collection-round.inc victim loop | Direct take caller2; nonzero scans then returns to local work | Acquired consumes the registered claim; Empty/Unobserved may skip that victim, neither certifies own drain. Keep existing steal budget |
+| heap-sections.inc end_heap_chunk | Sole runtime link/tail publisher under queue gate | Preserve initialized layout and barriers; publication invalidates earlier own-empty proof and remains counted through final signal/use |
+| object-scanning.inc scan_complete_heap_chunk | Records active_scan_chunk/scan_origin only after take returns, then marks chunk2->3 | Validate the already registered private claim instead of creating authority late; finish2->3 and clear it only after complete scan |
+| collection-round.inc idle/wake | Counts idle under termination mutex; wake resumes victim loop | Consume complete local fixed-point proof with no unsettled claim; nonterminal wake refreshes local closure before next decrement |
+| collection-round.inc post-weak restore | Reads head/tail and scan cursor without gate, then arena handoff | Admit only as a quiescent postcondition after phase/worker last-use closure; no concurrent-empty query or permission inferred from this raw comparison |
+| heap-sections.inc setup_stack_heap_vmstate | Resets sentinel/head/tail and scan state; strong/weak counters start at W | Previous queue/gate/claim users must be closed before reuse; resetting is not recovery of unknown work |
+| rc-allocation.inc setup_rc / cleanup_rc; root.h | Freshly zeroes and eventually frees the root round containing workers[ MAX_PROCESSORS ] | Constructor zeroing is valid only before exposure; free waits for all gate/queue/private/native/control last users, not RC-chain closure alone |
+| copy-planning.inc plan_copy_round | Refuses selected prior allocation, arena, copy and Tail debts | Extend source closure argument to queue/gate/claim last users; this guard is not already a complete last-user receipt |
+| configuration.inc / collector.h | Active queue aliases resolve to worker fields | Preserve worker/arena identity separately from R source/PSTATE identity, including W<R |
+| include/_gambit/memory_state.h.in / generated gambit.h | Legacy PSTATE layout declarations remain | These are not additional active FIFO writers through the current aliases. Do not delete or rewrite their layout in this queue adapter; external/raw accesses need separate admission review |
+
+The maintained-source search finds two direct take callers, one claim core,
+one publisher, one queue reset and a post-weak raw read. =mem.c= includes the
+fragments in one translation unit. This enumerates inspected callsites; selected
+conditional branches, binary symbol access or external native readers require
+their own source qualification. Generated =gambit.h= is a product, not another
+hand-maintained implementation.
+
+**** Normal call and local fixed-point algorithm
+
+The output location must be live caller storage and must not alias a queue,
+worker-control or payload field. Clear it before attempting the gate. On busy,
+return Unobserved without reading queue links or altering work custody. Under
+successful exclusion, empty head/tail returns ConfirmedEmpty. For an acquired
+node, validate chunk transition1->2, install the existing private claim fields,
+update head and output, then release the gate before returning. The exact
+multi-store order and interruption boundaries remain a C refinement duty.
+
+No caller scans, copies, allocates, executes a callback or reenters Scheme while
+holding this queue gate. Such work can recursively publish chunks. In particular,
+moving =scan_complete_heap_chunk= inside the critical section would introduce a
+self-publication deadlock rather than establish the contract.
+
+The owner retries a known Unobserved result while retaining its cursor, roots,
+arena and counted authority. Use the existing CAS/CPU_RELAX synchronization
+mechanism; introduce no new spin threshold, yield, timeout or enlarged watchdog.
+A normal thief may move to the next victim on either non-acquired status. The
+two caller policies differ in authority, not in return-value decoding.
+
+The owner loop must not immediately return on the incomplete-prefix
+cursor-equals-arena edge. It needs an authoritative own-FIFO observation at the
+movable fixed point; if Acquired, scan the claim outside the gate and revisit
+the frontier, since scanning can create more chunks. =mark_reachable_from_marked=
+then repeats its existing still/movable loop if moving work discovered still
+work. Only the combined local fixed point supplies =localDrainReady=.
+Successful stealing also restarts that local path. Nonterminal wake refreshes it
+before another idle decrement. The intended loop uses existing control labels;
+this changes collector admission, not Scheme scheduling policy.
+
+The own-empty observation can remain valid across the final steal attempts only
+under the admitted single-publisher rule for this worker queue: no external
+helper may append to it while the owner is idle. A successful own publication,
+new private claim, reentry or phase change invalidates the relevant local proof.
+The model's revision stamps express this premise; they do not mandate matching
+runtime counters. An implementation may establish it by control-flow confinement
+and synchronization if that covers every producer.
+
+**** Unknown fragments, lifecycle and retirement
+
+Installing =active_scan_chunk_= earlier closes the normal return gap using an
+existing field. It does not make claim transition, head update and output write
+one hardware transaction. An unknown stop inside the fragment retains the gate,
+node, queue/arena and enclosing round; it grants neither a fresh claim nor a
+forced gate unlock. Before the private record is complete, the critical fragment
+itself retains responsibility. After commit with lost delivery, exact settlement
+must recover the same claim without incrementing claim/execution counts again.
+No generic crash-repair implementation is supplied by this design.
+
+Every normal gate holder/waiter/publisher remains inside an admitted counted
+worker's phase lifetime. If that coverage is complete, no independent per-queue
+publication counter is needed. This avoids proposing two extra atomic counter
+updates per operation; it does not claim to remove such updates from current C,
+which has no such counter here. External/native observers, asynchronous helpers
+and returning postludes must instead be covered by their existing lifecycle
+authority; they cannot be silently included in W.
+
+Strong zero is followed by the admitted all-R cut, weak production/drain, then
+the weak barrier and restoration. Raw post-weak head/tail comparisons are valid
+only after these users are quiescent. =setup_stack_heap_vmstate= must not erase
+old pointers during an unknown claim; =cleanup_rc= must not free the root round
+while a holder/waiter or postlude can still touch an embedded gate. RC root
+closure, data_closed and native join remain different facts. Known join does not
+close helpers automatically; unknown join retains native/control storage.
+
+An unknown same-heap writer can block that collection. An independent healthy
+VM may progress only if the retained gates, storage and registry permissions
+really do not obstruct it. Never hold a global registry permission while waiting
+for an uncertain per-VM queue user. No latency guarantee follows from retrying
+the existing gate; progress requires admitted platform operation and scheduling
+premises.
+
+**** Whole acceptance and old-duty retirement
+
+#+NAME: queue-adapter-whole-acceptance
+| Evidence owner | Required whole observation | Current boundary |
+|----------------+----------------------------+------------------|
+| Existing QNT | Busy owner reprobe -> acquired thief -> complete local drains -> all arrivals -> next phase; wake refresh; unresolved claim blocks closure | Current declared work histories and existing bounded exploration; not a C-memory or arbitrary-population theorem |
+| Existing Lean | Actual acquired/status/output data satisfies QueuePost, preserves exact transfer/count, and busy supplies no empty premise | Existing data laws reused; C decoding must establish their premises |
+| Native component | Exercise the actual private operation at both callers with controlled gate contention, stale output, claimed-before-return and unknown fragment | Existing gc-root-task.c/root-task component boundaries can be reused only if linked to the actual operation, not a copied helper; private-operation access/link qualification remains OPEN |
+| Existing Scheme consumers | root-task/root-task-replay, frame-continuation-roots and worker/root/arena consumers preserve GC and multi-shot behavior under W<R | Fixture existence or historic binaries give no current pass |
+| Existing unknown-join consumer | Retain actual modern-c lifecycle/root/queue storage and collect an independently healthy VM | unknown-join-worker-domains.scm contains historical private resize-field access; bind/review against the current lifecycle interface before reuse, with no pass transfer |
+| Source / lifecycle | All two take callers, publisher, reset, raw restore read and storage free refine one exact epoch/last-user contract | The source adapter remains OPEN; all five joint obligations remain required |
+
+Only after this whole adapter is qualified may the pointer-or-zero result,
+zero-as-local-empty loop exit, late claim registration and cursor-only movable
+return retire together. Keep object/frame scanning, multi-shot continuation,
+weak/will semantics, existing barriers, heap capacity, public build entrypoints
+and existing workload/watchdog limits. Do not turn this delivery into a general
+allocator, scheduler, CFFI or generational-policy rewrite.
+
+#+NAME: c-queue-adapter-operation-costs
+| Path / mechanism | Structural work bound or reuse | Added cost / net-benefit condition |
+|------------------+--------------------------------+-----------------------------------|
+| Busy attempt | One failed gate CAS, no queue-link read and no node transfer | Owner may need k failed attempts plus a successful probe; k is not bounded by this study. No timeout increase or speedup claim |
+| Confirmed empty | Successful gate acquisition, head/tail comparison, gate release | A final movable fixed point and wake refresh may add probes; source confinement may permit reuse only if proven |
+| Acquired | Existing gate, chunk transition, head update and release; move two existing private-claim stores earlier | Status/output and validation work; actual generated instructions/ABI costs are unmeasured; no per-node heap allocation is proposed |
+| Phase lifetime reuse | Existing active count covers synchronous gate accesses when the full caller census holds | No proposed extra per-queue publication counter; external users still require lifecycle protection |
+| Unknown custody | Retain existing queue/round/arena/native storage until exact settlement | Retained memory contributes to peak concurrently with eligible healthy work; eventual refunds do not lower that peak |
+
+The design can remove false-empty admission and return-gap ambiguity, and can
+avoid duplicate claim replay under an implemented settlement protocol. Current
+model changes alone remove no runtime work. Whole CPU/pause/throughput/peak net
+benefit is unmeasured and must exceed added probes, validation and retention.
+
+*** RESEARCH Claim fragments, exact query and settlement :interruption:custody:
+:PROPERTIES:
+:CUSTOM_ID: claim-fragment-settlement
+:AUTHORITY: GambitSharedHeapSmp::claimInterruptionSettlement
+:STATUS: MODELLED-CONDITIONAL-PROTOCOL; NATIVE-ADAPTER-OPEN
+:END:
+
+Current =take_heap_chunk= orders =require_chunk_transition(1,2)=, head store,
+=chunks_claimed_++=, gate clear and pointer return. =scan_complete_heap_chunk=
+registers the active private pointer later. A complete interruption contract
+must identify each intervening effect; neither a C function call nor an early
+pointer store makes the whole sequence atomic.
+
+#+NAME: claim-fragment-custody-and-query
+| Real/proposed cut | Work and storage custodian | Query/settlement permitted under a valid identity |
+|-------------------+----------------------------+--------------------------------------------------|
+| Before intent publication | Original publisher retains queue item; caller/VM retain entry and source protection | Vacant/not-current is an observation only. It cannot prove no late admission or authorize source ACK/free without closed entry |
+| Complete intent, no claim yet | Item remains queued under publisher; worker/VM retain critical fragment and gate | Report partial pending. Known unclaimed abort needs original/helper writer closure plus actual chunk/head readback, not progress stage alone |
+| Chunk1->2 happened, progress word still says intent | Claimant owns the item even though it is still physically linked | Keep both queue/control storage and private claim debt. Do not run claim again or treat linkage as another independent work item |
+| Head changed, progress word still says claimed | VM-owned claim record retains removed node/arena and active worker responsibility | Readback may advance existing fragment under writer exclusion; never call take again to discover what happened |
+| Diagnostic count write uncertain | Same claim custodian; count is not ownership | Do not replay ++ after a lost log store. Reconcile deterministic before/after data under exclusion, or derive the diagnostic from committed records |
+| Commit decision visible, gate-use closure unconfirmed | Claim result is known, control/gate lifetime remains retained | Query may report committed/release-unconfirmed; it cannot authorize scan takeover, unlock, storage free or a delivered result |
+| Gate cleared, closure receipt not yet published | Claim/round retained; original postlude may still write its record | Physical zero is not a last-user receipt. Wait for real gate-use closure or separately qualified stopped-writer settlement |
+| Closure known, result delivery lost | Exact existing claim stays in VM-owned slot; no new claim is issued | Match key and settle this recorded item once; delivery ACK does not mean scan completion |
+| Delivered, scanning or old query still active | Claim execution and query lifetime have distinct owners | Keep slot generation and immutable data until scan/operation/query last users close. Old queries cannot authorize a replacement claim |
+
+The selected representation is one bounded take slot attached to each existing
+VM-owned worker, not a new identity table. Its logical key contains VM incarnation,
+collection epoch, phase, worker slot and operation generation. The caller must
+know the expected key before the fallible call. A key must not be invented by
+reading a potentially reused pointer after the return was lost.
+
+The slot needs immutable queue/item/expected-head information and an atomically
+published decision/progress view. Initialize immutable fields before release
+publication; queries acquire that publication and pin the live slot before
+reading. The existing active pointer/origin can serve normal execution, but do
+not contain all these identity, commit, delivery and query-grace facts. This
+extends the earlier normal-return design rather than claiming those fields
+already provide recovery. Actual field types, alignment and backing are source
+refinement duties; no runtime record is implemented here.
+
+The QNT now retains separate effects for claim versus its progress store, head
+removal versus its progress store, and gate clear versus closure publication.
+A logical item in state3 is claimed-but-linked: physical reachability does not
+create a second owner. Pending slot/gate/work stay counted through these cuts.
+Completed atomic acquire remains the existing abstract fast path; the microsteps
+expose interrupted prefixes, not a second queue algorithm. Atomic record
+publication and each source-effect step are abstractions, not machine-store or
+weak-memory proofs.
+
+**** Query, ACK and reuse protocol
+
+1. Enter the existing VM/control lifetime before deriving any worker pointer.
+   Pin the exact slot generation; merely matching a numeric key does not make
+   freed storage readable.
+2. Read a coherent acquired decision plus immutable identity/data. Classify
+   partial, committed/release-unconfirmed, committed/return-pending, delivered,
+   known-unclaimed-abort or not-current observation. These are operation query
+   states, not extra normal queue-result variants.
+3. Query is read-only with respect to queue head, chunk state, claim counters
+   and execution authority. Repeat it without issuing another take. A partial
+   result retains custody; a stale/vacant result does not prove non-admission.
+4. Settle only the exact committed claim after actual gate-use closure. Return
+   its recorded item; ACK delivery once without incrementing claim counts.
+   Duplicate query may observe delivered, but must not grant a second executor.
+5. Reuse the fixed slot only after prior claim/operation completion and query
+   grace. The finite model represents one reader and blocks reuse while pinned;
+   arbitrary readers and native counter exhaustion are not thereby proved.
+   Native generations must not wrap into a live key: reject admission before
+   exhaustion or prove a complete incarnation/grace reset, without erasing debt.
+
+Lean =ClaimKey/ClaimReceipt= and the two lookup laws supply only the immutable
+data interpretation: a mismatching key supplies no item; a successful lookup
+supplies exactly the recorded item. QNT owns pin/reuse and once-only settlement.
+Constructing a valid receipt from current C still requires coherent publication,
+correct committed classification and live storage; lookup is not a memory-safety
+or physical-stop certificate.
+
+**** Owner loss and helpers
+
+An unknown owner remains a possible writer. It may not be replaced concurrently,
+even by a helper intending the same idempotent store: concurrent unsynchronized
+C writes are not justified by equal values. VM custody retains the slot, queue,
+node, arena, roots and synchronization backing. It may read coherent published
+state, but may neither force a gate open nor infer stop from timeout or gate zero.
+
+A helper may finish an existing fragment only after original *and previous
+helper* write permissions are closed, last users drained and a unique replacement
+generation admitted. Under that exclusion, reconcile actual chunk/head state
+against immutable intent, advance the same record, and never invoke ordinary
+take as a recovery probe. If readback is ambiguous, retain; if claim has not
+occurred, known abort preserves publisher custody; after claim, finish/transfer
+the existing responsibility rather than restoring it to an unclaimed queue.
+The helper's own interruption repeats the same retained obligation. No generic
+helper recovery or stopped-thread oracle is implemented by this study.
+
+The finite model's unknown-owner observation changes no authority. Cooperative
+cancellation and completion steps are legal original-owner actions, or require
+separately established source-closed helper premises. Existing retirement models
+retain ownership of those stop/last-user premises; model actions do not certify
+actual owner death. An uncertain same-heap writer can block its collection;
+healthy-VM progress still requires independent retained resources.
+
+There is a real exceptional edge beyond imagined asynchronous death:
+=require_chunk_transition= calls =___fatal_error= before the queue gate is
+cleared. =os_base.c= calls =setup_params.fatal_error= before =___exit_process=.
+The default path exits the process; a configured callback can attempt reentry
+or escape. It is not a normal resumable busy/empty outcome. The adapter must
+keep diagnostic/user effects outside an authorized normal claim span, or retain
+and close the affected VM on exceptional escape. No callback return/escape can
+stand in for rollback, gate-use closure or native last-user drain. Preserving
+the hook's effect boundary is part of this adapter, not permission to redesign
+unrelated CFFI or Scheme exception semantics here.
+
+#+NAME: claim-fragment-acceptance-and-cost
+| Evidence/mechanism | Required claim or charge | Remaining boundary |
+|--------------------+--------------------------+--------------------|
+| Existing QNT | Claim histories cover physical/log lag, repeated query/delivery, gate-close gap, unknown owner, pinned reuse/stale key and known unclaimed abort | Retained work histories plus bounded schedules; two workers/two objects, one modeled reader, no arbitrary crash/fairness/weak-memory theorem |
+| Existing Lean | Exact-key immutable receipt lookup only | Source constructs coherent committed receipts under a live pin; no duplicate transition proof |
+| C/native | Interrupt each real store boundary, diagnostic hook escape, stalled late writer, old helper and exact query settlement | Current C has no bounded take outcome/query implementation or helper closure proof; all five joint gates remain OPEN |
+| Fixed slot storage | Allocated worker capacity C times align_up(sizeof(TakeSlot),alignment), per live or retained VM | Existing root round allocates MAX_PROCESSORS workers, so charge allocated capacity, not active W alone. Concrete byte size is not selected or measured |
+| Query | Direct pinned slot/key lookup, O(1) in this layout; no queue traversal or claim CAS | Entry/pin/acquire/key validation and grace costs; real cache traffic and latency unmeasured |
+| Progress/settlement | Additional ordered progress/decision publication and delivery acknowledgment | Benefit requires preventing actual duplicate/lost work or unsafe reuse; preserving uncertainty can retain peak memory indefinitely |
+
+The new metadata cost is necessary for queryable interrupted outcomes; moving
+the active pointer alone has a smaller normal-path cost but supplies less
+recovery information. No runtime speedup, bounded recovery time, exact byte
+overhead or new SMP progress is claimed by this design-only delivery.
+
+*** DECIDED Fixed-slot C layout, publication and retirement :layout:atomic:grace:
+:PROPERTIES:
+:CUSTOM_ID: take-slot-layout-publication
+:AUTHORITY: GambitSharedHeapSmp::takeSlotPublicationRetirement
+:STATUS: DESIGN-SPECIFIED; NATIVE-LAYOUT-AND-MEMORY-REFINEMENT-OPEN
+:END:
+
+The chosen layout is embedded in the existing worker/VM-owned round. The access
+classes below are normative; spellings are layout roles, not new exported names
+or an implemented typedef. Use the existing ordered-word/full-RMW service
+consistently on naturally aligned control storage. =volatile= alone supplies
+no synchronization. Introducing standard C23 =_Atomic= storage would require
+converting the accessors consistently; casting it through incompatible legacy
+aliases is not an admitted shortcut.
+
+#+NAME: take-slot-c-layout
+| Field group / C representation | Access and lifetime rule | Charged storage |
+|-------------------------------+--------------------------+-----------------|
+| query_gate: naturally aligned atomic-access word | low bit closed, remaining value2*n reader pins; all concurrent access through selected atomic service | One word |
+| writer_gate: naturally aligned atomic-access word | closed bit plus exclusive writer borrow; normal states0/1/2/3; owner and helper share this gate | One word |
+| writer_generation: atomic-access word | advanced only with writer gate closed and zero borrowers; compared after pin | One word |
+| decision and gate_use_closed: atomic-access words | release-published readiness/progress and actual gate-last-use fact; acquire snapshots | Two words |
+| operation key: VM incarnation, collection, phase, worker slot, operation generation | plain immutable scalar fields after header publication, never overwritten while query/writer pins survive | Five word-sized scalar roles; exact C integer choices need ABI qualification |
+| queue route and intent: target worker, expected head, node, successor, diagnostic-before value | naturally aligned typed pointers/scalar; intent read only after its acquired readiness, then immutable until retirement | Four pointer roles plus one size role |
+
+The fifteen word-sized roles are a layout budget, not =sizeof= or an instruction
+count. Enclosing fields may remove redundant role storage only after a lifetime
+proof; padding, pointer/size widths and alignment must be measured from the
+selected C layout. Allocated worker capacity C, not active W alone, determines
+fixed cost =C * align_up(sizeof(TakeSlot), alignment)= for each live/retained VM.
+There is no per-query allocation or unbounded identity map.
+
+**** Header and intent publication
+
+The immutable header is prepared under exclusive construction while both
+admissions are closed and no old borrower exists. Release-opening query admission
+publishes that header. The caller can then observe Reserved without reading
+uninitialized node fields. Under the one admitted writer, fill intent before
+release-publishing IntentReady. A query acquires one decision snapshot and reads
+only the prefix certified by that snapshot. Reserved does not authorize an
+intent read; a later acquired readiness can authorize it once.
+
+Once a prefix is published, keep its plain fields immutable until full
+retirement. Progress/decision changes use atomic words. Do not use an optimistic
+seqlock retry to justify concurrent plain reads and writes: retry does not remove
+the C23 data race. The QNT prepare step abstracts complete publication, so torn
+fields and the actual release/acquire edges remain source/native obligations.
+
+The source has a related, distinct pattern: =lifecycle.h= uses closed bit/+2
+borrows in VM entries; =vm-registry.inc= performs CAS admission/release. That is
+engineering evidence for reuse of the mechanism, not proof that VM entry pins
+already protect a take slot. The existing ordered-word service has native and
+legacy branches; each selected branch still needs actual compiler qualification.
+
+**** Pin before identity, then seal and drain
+
+1. Acquire existing VM/control lifetime before the first raw slot address use.
+2. Load query_gate atomically. If closed, return unavailable/retained without
+   reading key or payload. If open and adding2 is representable, CAS the same
+   word to add a reader pin with acquire semantics; retry only the CAS race.
+3. Now check the immutable operation key. On mismatch, drop this pin and report
+   a not-current observation, not a proof of no prior admission. On match,
+   acquire the decision and copy only its certified immutable prefix.
+4. Release the pin with a release RMW. This is the query's last slot access;
+   later native postlude remains covered by its enclosing VM/control lifetime.
+5. Reuse closes the same gate by CAS setting its low bit while preserving the
+   count. A prior pin wins and is included, or close wins and admission fails.
+   Mutate no plain payload until acquired closed-and-zero is established.
+
+A delayed caller may pin a newer generation after the gate word returns to its
+open encoding. Post-pin identity validation makes that safe: it protects the
+new storage while rejecting the old semantic key. It does not borrow an old
+generation's counter. Pin-before-key is essential; check-key-then-pin is unsafe.
+Queries never wait for commit or GC completion while holding a pin. An unknown
+query release cannot be guessed or forcibly subtracted.
+
+Use full ordered RMWs for seal/admission/retirement where the current service
+does not provide the required weaker operation. Do not silently assign release
+ordering to an acquire-only CAS. Reject admission before reader-count overflow;
+the current source's checked word range can be reused after exact arithmetic
+qualification. Lean's Nat encoding law supplies no finite-word overflow proof.
+
+**** Owner/helper write permission and generation
+
+The exclusive writer gate follows the same close-without-erasing-borrow rule.
+Entry pins the gate, then acquires and validates the operation key and writer
+generation *before any data write*. Checking generation before pin allows an
+old owner to enter after close/drain/reopen and is rejected by this design.
+
+Seal excludes new writers but lets the current owner/helper finish and release.
+Closed plus zero establishes enrolled write-access closure only when all writers
+use the protocol and no slot store occurs after release. It does not prove
+physical native thread death or release enclosing VM/TLS/code resources.
+Never clear an unknown borrow on timeout, fatal-hook escape or failed join.
+
+To transfer to a helper: seal, establish original and earlier helper closure,
+then advance writer_generation while still closed and empty, and reopen for the
+new permitted writer. The operation key and immutable intent do not change.
+An old permit may transiently pin the reopened gate, but post-pin generation
+validation must reject it without a payload write. The helper's interruption
+retains its own borrow and blocks another rotation until equally valid closure.
+Known cooperative last release and an unknown stop are different evidence.
+
+**** Retirement is a conjunction
+
+Retirement first closes new operation admission and writer/query admissions,
+preserving old borrowers. It requires a terminal delivered-and-scanned claim or
+a known unclaimed abort; no unsettled take; actual gate-use closure; zero writer
+and query borrowers; and closed helper/original data access. Zero readers alone
+does not finish work. An old progress word alone does not close a writer.
+
+Under that exclusive cut, advance the nonwrapping operation generation and
+initialize the next header/intent before reopening their respective publication
+prefixes. Exhaustion refuses new admission rather than wrapping into a live
+identity. The finite QNT resets phase only after query/writer closure; real
+collection/incarnation rollover requires the same source lifetime proof.
+
+Native postludes may survive slot-write closure but may not access reused slot
+data. Their VM/control lease must still prevent enclosing round free. Slot
+retirement cannot free a WorkerArena or VM that owns other work. A writer or pin
+whose release is unknown retains backing and may block this VM's reuse; another
+VM's progress remains conditional on genuinely independent resources and no
+global-lock wait cycle.
+
+#+NAME: take-slot-layout-acceptance-cost
+| Owner / mechanism | Checked or required contribution | Open boundary / cost |
+|-------------------+----------------------------------+----------------------|
+| QNT | Retains storage-pin-before-key, seal-versus-pin, writer-drain-before-helper, interrupted-helper and zero-pin/live-claim histories | Declared work histories, finite one-reader/exclusive-writer abstraction; not arbitrary population, native stop or weak memory |
+| Lean | gateEncodingInjective and sealedGateZeroHasNoBorrowers prove the closed-bit/count data representation | No transition proof duplication; machine bounds, CAS orders and actual field offsets still require source/native qualification |
+| Native C | Race actual pin/seal and close/leave, stall old helper before/after generation validation, interrupt prefix publication and last-release postlude | Current C has none of this take-slot implementation; four-pointer/fifteen-role budget is not measured sizeof or peak RSS |
+| Query cost | One admission CAS loop, acquired readiness/key read, release RMW; direct fixed-slot addressing | Contention/retry and cache traffic; no per-query allocation or bounded latency claim |
+| Reuse/helper cost | Ordered seals/drain observation and generation publication, with existing VM entry protection | Unknown borrowers retain memory; eventual refunds are not in-round peak savings |
+
+The complete layout/admission/publication/retirement contract is one prerequisite
+of claim settlement in SysML/ASCENT. No independently passing data theorem,
+counter sample or local query can close any of the five joint acceptance gates.
+
+*** DECIDED Mapping to the existing atomic service :c23:overflow:late-access:
+:PROPERTIES:
+:CUSTOM_ID: take-slot-atomic-service-map
+:AUTHORITY: GambitSharedHeapSmp::takeSlotAtomicServiceMap
+:STATUS: SOURCE-MAPPING-SPECIFIED; PROVIDER-QUALIFICATION-OPEN
+:END:
+
+The selected storage/access discipline keeps naturally aligned current word
+storage and the existing atomic service; no new atomic facade, environment
+variable or profile is introduced. It does not assert that compiler builtins
+on ordinary word storage are the same declaration as standard =_Atomic=. Every
+concurrent access must use one qualified service, without incompatible casts
+or ordinary polling loads. Actual C23 ABI/layout assertions remain unexecuted.
+
+#+NAME: take-slot-existing-atomic-map
+| Slot operation | Required order and source mapping | Remaining provider condition |
+|----------------+-----------------------------------+------------------------------|
+| Load gate, decision, generation | =___WORD_LOAD_ACQUIRE= | Natural alignment, exact word width, correct selected branch; no raw volatile read |
+| Publish initialized header/intent readiness, open admission | =___WORD_STORE_RELEASE= after prefix initialization | Acquiring reader observes only the matching certified prefix, not unrelated mutable fields |
+| Query pin, seal, writer admission and once-only decision CAS | Existing observed-value =___COMPARE_AND_SWAP_WORD=; explicit failure reload; selected provider must meet required RMW ordering | Full ordering is a conservative baseline. Do not scatter direct provider builtins or assume acquire-only CAS also releases preceding writes |
+| Drop a query/writer borrow | =___WORD_FETCH_ADD_RELEASE(...,-2)= after final slot access | Exactly one owned borrow, checked nonzero count, no later slot touch. Acquired closed-and-zero observes completed borrowers |
+| Writer-generation change / fresh key | Release store under closed-and-zero writer/query conditions appropriate to that change | Helper rotation keeps operation key; operation reuse waits full grace and publishes a fresh key |
+
+=activity_log.h.in= exposes an important branch difference:
+=___WORD_CAS_ACQUIRE= passes =expected= by address to native
+=__atomic_compare_exchange_n= but the legacy expression only compares the
+returned prior value. Native failure can update =expected=; legacy failure does
+not provide the same caller-variable behavior. The proposed loops therefore
+use the observed-value RMW contract and explicitly reload/retry, avoiding a
+provider-dependent hidden input/output parameter assumption. The acquire helper
+also has acquire success and relaxed failure orders, not release success.
+
+The official [[https://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html][GCC atomic builtins reference]] describes expected-value update and order
+parameters; [[https://gcc.gnu.org/onlinedocs/gcc/_005f_005fsync-Builtins.html][the sync reference]] describes prior-value CAS and full-barrier behavior
+for the relevant GCC operations. These references support the provider premise,
+not a Clang, Darwin, Win32 or C23 whole-program qualification. A future uniform
+acq_rel implementation belongs in the existing service, rather than a parallel
+take-specific service; weaker fast paths require a separate justified change.
+
+For the emulated branch, CAS and clear synchronize through address-selected
+hash mutexes. Checkout now has a C23 seq_cst fence; the captured cache has
+the earlier empty implementation, excluded by its selected sync backend. Establish matching
+gate/decision-address unlock-lock edges for each publication; do not treat that
+historical empty function as a global fence or the new fence as a stop certificate. The sequential branch admits only its
+single-threaded case and supplies no SMP proof. No backend is promoted merely
+because its macro definition was found.
+
+The sequential full-CAS macro also uses =___ps->temp1= as scratch. Thus a
+carrier-independent control query cannot assume that provider is context-free.
+Qualify a genuinely live confined context or remove scratch dependence in the
+existing service before admission; never manufacture a PSTATE or dereference a
+retired one for atomic scratch. Runtime processor count1 is not the same thing
+as selecting this compile-time backend. This combination remains OPEN.
+
+**** Checked arithmetic before computing a successor
+
+Use a nonnegative checked field limit compatible with the selected word service.
+The existing =___MAX_FIX= policy in VM incarnation/entry code is a reusable
+conservative source pattern, not evidence that new take fields already have
+those checks. Do not add an unrelated runtime cap or use a signed overflow to
+discover exhaustion.
+
+#+NAME: take-slot-overflow-and-exhaustion
+| Field/action | Guard before arithmetic | Exhaustion/unknown responsibility |
+|--------------+-------------------------+-----------------------------------|
+| Reader pin | Open encoded word is nonnegative/even and =old <= limit-2=; only then form =old+2= | Reject new admission without touching payload or clearing old pins; it is not an empty or absent-claim result |
+| Reader/writer release | This exact scoped call owns one unreleased borrow and count is sufficient | Reject double/underflow release. A stale operation key is not a release token for another reader |
+| Operation generation | =generation < limit= before successor and publication; full key remains unique | Refuse new take and keep existing publisher/slot custody. Never wrap into an observable old key |
+| Helper generation | Closed writer gate, zero old borrowers, valid operation key and =generation < limit= | Retain pending operation if no fresh helper authority can be issued; do not reopen the same generation to a replacement writer |
+| Reset under a new operation/phase | Both gates sealed/drained, prior operation retired, all last users excluded, fresh full key published | Only then may a helper sub-generation restart. Existing operation identity cannot be reset to bypass an unknown helper |
+| GC admission | Establish sufficient identity headroom or a known refusal path before irreversible work | No headroom bound is proved here. Unexpected mid-operation exhaustion remains retained; no larger heap, longer wait or blind replay |
+
+Counts encode quantity, not borrower identities. Query cleanup needs a scoped,
+once-only pin token and its enclosing lifetime; it cannot subtract a pin merely
+because a key is stale or native join succeeded. This layout alone does not
+recover a dead reader whose release ownership is unknown. A further registered
+borrower proof, or continued retention, is required; no automatic counter repair
+is claimed.
+
+The QNT now has a small ceiling3 for generation exhaustion and one-reader
+admission histories. These are finite qualification horizons, not production
+constants or newly configurable limits. Lean proves that a checked gate increment
+fits its mathematical bound and a strict generation successor is distinct and
+within bound. Mapping these premises to actual C types, signed arithmetic and
+finite widths is still a source/native obligation. Arbitrary repeated helper
+failure cannot yield a bounded recovery guarantee with finite fresh identities.
+
+**** Reject late owner/helper access after pin
+
+The QNT separates writer storage pin from validation. An unvalidated pin blocks
+drain but has no payload authority. Validate operation key and writer generation
+under that pin; if either mismatches, release without a data write. The model
+retains the completed atomic-entry abstraction while exposing this intermediate
+state for delayed old owners/helpers. A generation check performed before pin
+does not cover close/reopen races and is not the selected C mapping.
+
+The coordinator changes writer generation only after closing new entries and
+observing zero existing writer borrows. Thus it cannot rotate under a delayed
+pin. The original owner and an interrupted helper retain identical obligations:
+no timeout-based borrow deletion, no metadata write after release, and no raw
+slot dereference without existing VM/control admission. Native postludes keep
+their outer lifetime even after slot-write permission ends.
+
+An old permit can pin the newer storage if admission has reopened, but validation
+must reject its old full key or helper generation before touching payload. The
+scoped pin protects the current storage during rejection. Source must prove all
+writers follow that path; neither a numeric generation nor a zero counter
+protects an unmediated stale pointer. Coherent query identity remains read-only;
+exact settlement grants no second claim execution.
+
+#+NAME: take-slot-provider-acceptance-cost
+| Contribution | Present design/model evidence | Remaining whole acceptance / cost |
+|--------------+-------------------------------+-----------------------------------|
+| Existing QNT | Five new histories cover stale helper after pin, validated helper reuse, helper and operation refusal at exhaustion, and refused admission preserving an old borrow; old-owner reuse history strengthened | Thirty-five histories and unchanged bounded schedule budget; no arithmetic lemma, machine weak-memory or arbitrary-reader theorem |
+| Existing Lean | checkedBorrowStepFits and checkedGenerationSuccessor | Arithmetic premises must match selected native widths and prechecks; no duplicate temporal proof |
+| Source/native | Macro branches, checked VM entry/incarnation pattern and explicit mapping matrix | Compile/preprocess actual provider, verify layout/alignment, exercise CAS failure semantics and stale-pointer/overflow controls; all source/native gates remain OPEN |
+| Strong RMW baseline | Reuses existing service without a new wrapper/configuration or per-query allocation | Stronger ordering can cost cache traffic; no measured request/GC net speedup |
+| Exhaustion/unknown retention | Avoids key ABA, misdirected release and overlapping owner/helper writes under the admitted protocol | May refuse work or retain memory indefinitely. Whole CPU/pause/peak gains remain unmeasured |
+
+**** DECIDED Exclusive proof obligations, shared interfaces
+:PROPERTIES:
+:CUSTOM_ID: take-slot-exclusive-proof-owners
+:AUTHORITY: GambitVerificationResponsibilities
+:RULE: One semantic obligation has exactly one proving owner
+:END:
+
+Sharing a contract definition does not assign its proof to two tools. The
+responsibility split below is exclusive; each tool consumes the other's
+declared interface without claiming to re-prove it. The QNT pure encoded-word
+boundary assertion was removed: it now tests refusal preserving live custody,
+while word arithmetic/encoding remains solely in Lean.
+
+#+NAME: take-slot-exclusive-proof-matrix
+| Semantic obligation | Sole proving owner | Interface consumed elsewhere / forbidden promotion |
+|---------------------+--------------------+---------------------------------------------------|
+| Closed-bit/count encoding and checked successor arithmetic | Lean / gateEncoding, checkedBorrowStepFits, checkedGenerationSuccessor | QNT uses an admitted data predicate as a transition guard; it does not assert a second word-arithmetic theorem |
+| Pin/seal, refused admission, helper handoff, query/reuse and late-permit interleavings | QNT / gc_work_closure | Lean may not introduce another scheduler or transition induction for these histories |
+| Immutable key lookup and item/data conservation | Lean / ClaimReceipt, QueuePost | QNT uses identities and custody in its state machine; it does not prove a duplicate list/representation law |
+| Actual field widths, selected macros and C-to-model correspondence | Source refinement | Neither formal owner may mark these premises proved merely because its own model passed |
+| Real runtime semantics, progress, performance and peak memory | Native acceptance | Neither source navigation nor a scoped formal result may substitute for the required execution |
+
+SysML retains oneOwnerPerObligation and duplicateSemanticKeysForbidden. The
+existing ASCENT ownership queries reject conflicting declared owners/semantic
+keys, wrong owner/domain, stale scopes and cross-owner receipts. Content-level
+semantic review remains explicit: query results enforce declared metadata, not
+automatic understanding of whether two theorem statements secretly duplicate
+one obligation. The five joint acceptance questions and their owners do not
+change, and no duplicate word proof is retained in QNT.
+
+*** Concrete C settlement and provider composition
+:PROPERTIES:
+:CUSTOM_ID: take-slot-c-settlement
+:AUTHORITY: GambitSharedHeapSmp::takeSlotCSettlement
+:STATUS: ADAPTER-SPECIFIED; IMPLEMENTATION-AND-NATIVE-OPEN
+:END:
+
+This is one replacement chain: address admission -> immutable intent -> queue
+mutation -> committed outcome -> private scan custody -> delivery ACK -> writer
+and query grace -> slot retirement. It consumes the existing formal owners;
+no new QNT transition system or Lean protocol theorem is introduced.
+
+The actual mutation order in =lib/_mem/heap-sections.inc::take_heap_chunk= is
+chunk state1->2, queue head replacement, diagnostic increment, gate release,
+then pointer return. =object-scanning.inc::scan_complete_heap_chunk= installs
+=active_scan_chunk_= later. Both the own-FIFO caller there and the victim caller
+in =collection-round.inc= must change together. The table specifies the required
+adapter; these fields/queries are not implemented by this research update.
+
+#+NAME: take-slot-c-interruption-custody
+| Concrete interruption boundary | Required retained evidence / responsible owner | Permitted settlement / prohibited inference |
+|--------------------------------+-----------------------------------------------+---------------------------------------------|
+| Before any queue mutation | VM/round-pinned fixed slot, exact operation key, immutable candidate/expected predecessor, enrolled writer | Known no-effect abort only with writer closure and source-closed validation; an absent return is not an abort |
+| State1->2 happened, progress log still old | Original or accepted helper retains queue exclusion and immutable candidate identity | Reconcile claimed-linked state once; never execute a fresh take based only on old log stage |
+| Queue head moved, detach log still old | Same operation retains removed node and predecessor identity; live queue storage | Recognize this operation's exact removal under exclusion; no unqualified readback and no second removal |
+| Diagnostic increment possibly executed | Original effect owner or a qualified reconciliation/derived-counter design | No blind increment replay. Existing chunks_claimed is diagnostic, not ownership authority |
+| Gate clear happened, return not observed | Slot retains committed candidate and gate-use closure separately from native postlude lifetime | Exact-key query can return recorded pending/committed outcome; gate zero alone does not prove owner stopped |
+| Return observed, scanner registration or ACK absent | Slot retains delivery responsibility until accepted private scan custody; one accepted scanner | Install custody before ACK. Repeated query is observational, not repeated scanning or another claim |
+| Late owner/helper after seal or reopen | VM/round admission first, storage pin second, full key/writer generation validation third | Reject mismatch before payload access, release the actually owned pin once; numeric generation alone protects no pointer |
+| Unknown writer stop or query release | Enclosing VM/round and exact operation retain unresolved borrow and work | No helper rotation, count subtraction or slot reuse from timeout/join alone; liveness may remain blocked |
+
+#+NAME: take-slot-c-existing-qnt-refinement
+| Concrete C interval / proposed addition | Existing QNT projection consumed | Refinement still needed (source owner) |
+|----------------------------------------+----------------------------------+----------------------------------------|
+| Proposed intent publication before source mutation | prepareTake | C VM/round/worker/full-key fields map to admitted model identity; all publication and lifetime premises |
+| require_chunk_transition 1->2 before head removal | markPreparedClaim then recordClaimMarked | Physical effect and log publication are separate; model scans increment denotes unique acquisition accounting, not completed C field scanning |
+| heap_chunks_to_scan_head_ = node | detachPreparedClaim then recordClaimDetached | Exact predecessor/candidate identity under one queue authority; queueRevision is logical observation freshness, not an existing C version field |
+| Proposed immutable committed outcome | commitPreparedClaim | No corresponding C receipt exists; define an actual release commit that publishes only its initialized prefix |
+| unlock_chunk_fifo then return node+1 | closeClaimGate then recordClaimGateClosed | Physical gate closure differs from observed log and from native postlude completion |
+| Proposed recorded delivery/accepted scanner | settleClaimAt and private scanner ownership | Returned pointer and later active_scan_chunk assignment alone do not implement delivery receipt or prove interrupted transfer |
+| Proposed pin/validate/seal/retire | pinWriterAdmission, validateWriter/rejectWriter, sealWriters, sealQuery, retireClaim | Actual C per-field protocol, same-field provider edges, exact release ownership and outer last-user exclusion |
+
+C steps with no abstract ownership effect may stutter only if their intermediate
+states preserve model premises and custody. The unrecorded C diagnostic increment
+cannot simply disappear from the proof if runtime decisions later use it. QNT
+checks logical acquisitions; neither its =scans= field nor the Lean data law
+certifies exactly-once C object traversal. Actual traversal/Tail/frame ownership
+remains part of SH-CUT-S and SH-ALIAS-S source refinement.
+
+The current C has no durable take outcome or exact-key query. A research
+contract therefore cannot certify recovery at these boundaries. The runtime
+owner must provide an actual noninterruptible span or idempotent reconciliation
+for each physical-effect/log gap, plus the fatal-hook exceptional path. Sealing
+a gate prevents new access; it is not proof that an already admitted writer
+has stopped. Worker-independent GC is not admitted where an unknown writer
+still owns shared queue state.
+
+**** Provider composition is a per-field premise
+
+=activity_log.h.in= selects ordered-word builtins using =__ATOMIC_*= support,
+while full CAS separately selects sync builtins, Win32, emulation or sequential
+operations. Do not assume the two selections imply one memory model. In
+=os_thread.c=, the emulated CAS uses an address-hashed mutex and ordinary
+=*ptr= access. Checkout adds a C23 fence and representation-safe fetch-add;
+the captured cache has the earlier empty barrier and signed add. Combining compiler atomic
+loads/stores with such mutex-only ordinary accesses is not qualified by either
+macro's existence. Determine the actual expanded pair for every supported
+build before admitting the slot. This is a conditional provider exclusion,
+not a claim that the current Darwin configuration selects that combination.
+
+#+NAME: take-slot-provider-composition
+| Expanded provider combination | Source conclusion | Outstanding admission evidence |
+|-------------------------------+-------------------+--------------------------------|
+| Native ordered-word + sync full CAS | Both are compiler atomic families; intended conservative full-RMW mapping | Actual compiler/target interoperability, word width/alignment and generated code; not standard _Atomic equivalence by assertion |
+| Forced legacy ordered-word + emulated full RMW | Ordered accesses reduce to the same existing RMW/mutex service | Mutex lifetime, identical-address edges, initialization/teardown and every concurrent accessor |
+| Native ordered-word + mutex-emulated full RMW | Not admitted by this adapter | Select an interoperable path in the existing service or prove an applicable provider contract; do not mix ordinary/atomic access by assumption |
+| Sequential backend | Only its confined, nonconcurrent scope | Full CAS uses PSTATE scratch; control-query lifetime must be valid. No SMP or carrier-independent admission |
+| Win32 full RMW combination | Not qualified by the GCC path | Exact pointer-sized field/ABI and selected compiler service combination |
+
+**** Selected backend, partial settlement and final disposal are one cut
+:PROPERTIES:
+:CUSTOM_ID: take-slot-backend-settlement-drain
+:AUTHORITY: GambitSharedHeapSmp::takeSlotCSettlement
+:STATUS: IMPLEMENTATION-PREREQUISITES-SPECIFIED; SOURCE-QUALIFICATION-OPEN
+:END:
+
+The selection algorithm is directly visible in =activity_log.h.in=; it is not
+chosen merely by the Bazel profile's SMP flag. For full RMW, WS4 with
+=__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4= or WS8 with
+=__GCC_HAVE_SYNC_COMPARE_AND_SWAP_8= selects sync builtins. Otherwise the
+Win32 thread backend selects Win32 operations, POSIX selects emulation, and
+neither selects sequential operations. Independently, defined
+=__ATOMIC_ACQUIRE= and =__ATOMIC_RELEASE= with no existing
+=___ORDERED_WORD_FORCE_LEGACY= select native ordered-word operations. Otherwise
+the ordered-word service reduces to sequential or the selected full-RMW path.
+The precedence matters: a Win32 thread build can select sync builtins first.
+
+A source-qualified selection record must bind the existing build request's
+compiler executable identity, version/target, effective arguments/definitions,
+predefined feature macros, generated header/include closure and effective
+expansions of load/store/CAS/drop on each field. It must also bind the setup and
+teardown path of the selected service. This is evidence about the existing
+translation unit, not another profile, runner or environment variable. A
+configure command, host CPU name or historical preprocessed header alone does
+not establish these facts. Actual Make-derived preprocessing is now retained
+for the existing configured cache; see the observation below. Current-checkout
+whole-source selection/link/runtime qualification remains open because its
+input closure differs from that cache.
+
+#+NAME: take-slot-implementation-preconditions
+| Necessary implementation prerequisite | Actual source boundary | Required implementation/evidence; refusal responsibility |
+|---------------------------------------+------------------------+--------------------------------------------------------|
+| Same-field backend and type agreement | activity_log.h.in selection and operation macros | One effective provider pair per exact TU; width/alignment/ABI, no conflicting ordinary access; unknown or noninteroperable combination rejects admission before mutation |
+| Provider resources already live | os_thread.c setup_thread_module / hash_mutex_init | Successful setup before slot use; rollback covers every late setup user; module refcount is not an accessor pin |
+| Fixed slot and outer address admission | rc-allocation.inc setup_rc allocates root round once | Initialize fresh records before exposure; pin live VM/round before reading key; no PSTATE-derived stale slot address; allocation failure leaves queue untouched |
+| Intent precedes physical effect | heap-sections.inc take_heap_chunk | Full immutable key/candidate/predecessor published before state1->2; both own and victim callers use the same contract; failure keeps original queue/slot custodian |
+| Each effect/log window is reconcilable | chunk state, head, diagnostic increment, gate clear | Writer exclusion plus immutable exact effect identity or actual protected no-interruption span; unknown outcome retains original custody; join does not reconstruct a missing write receipt |
+| Delivery transfers scanning responsibility | object-scanning.inc late active_scan_chunk store | Accepted private scanner/slot transfer before ACK; exactly one receiver, read-only repeated query; partial delivery cannot disappear at idle decrement |
+| Reuse excludes old accessors | root-tasks.inc root_round_end/refuse; heap-sections.inc queue initialization | Seal admissions, drain actual writers/queries/native postludes and resolve/retain every claim before next epoch reset; no-effect pre-copy refusal cannot roll back already-mutated work |
+| Free and provider teardown honor the same debt | rc_can_close/cleanup_rc; cleanup_runtime; cleanup_os_and_mem; cleanup_thread_module | VM cleanup consumes slot-last-user facts before freeing round; global cleanup preserves actual emulation resources until all dependent accessors close; unknown result refuses only the retirement it cannot justify |
+
+None of the required take-slot fields, query API or last-user predicate is
+implemented by these source anchors. These are necessary entry conditions for
+the runtime owner's complete patch, not evidence that the present code already
+satisfies them. In particular, =rc_can_close= currently checks joined round,
+IDLE state, census retention, RC borrows and scan leases. It cannot count a new
+take writer/query that is not represented in any of those fields.
+
+The end-to-end disposal order is:
+
+#+BEGIN_EXAMPLE
+successful provider setup
+  -> fresh unexposed slot initialization -> VM/round address admission
+  -> query/writer admission -> validate full key and writer generation
+  -> immutable intent -> physical effect / independently published progress
+  -> committed outcome -> accepted scanner custody -> delivery ACK
+  -> seal new admissions -> settle or retain outstanding effects
+  -> exact last writer/query/native use -> slot retirement
+  -> next-epoch reuse OR RC/round free
+  -> final VM/control disposal -> final OS/thread-provider teardown
+#+END_EXAMPLE
+
+A committed record may be queried while a native postlude remains live; it
+therefore grants outcome knowledge, not physical storage disposal. Conversely,
+a physically stopped owner can leave a partially completed effect whose exact
+outcome still needs reconciliation. The two permissions must not be conflated.
+
+#+NAME: take-slot-settlement-exit-permissions
+| Established fact | Allowed action | Still forbidden / retained dependency |
+|------------------+----------------+----------------------------------------|
+| Valid pin but key/generation mismatch | Reject that late operation and release its exact pin after last use | No payload read/write, rollback, ACK or decrement of somebody else's borrow |
+| Known no-effect intent plus writer closure | Publish exact-key refusal/abort and retire after all last users | No inference from missing return or log stage alone |
+| Partial effect plus stopped/excluded old writer | Authorized helper reconciles exact candidate under queue exclusion | No new take, blind diagnostic replay or helper overlap; source-closed before/after evidence is required |
+| Committed effect, delivery unknown | Return immutable recorded outcome; retain accepted delivery responsibility | No second queue removal/scanner execution; ACK must name the actual receiving custodian |
+| Known native join, effect outcome unknown | Use actual last-use evidence where the join covers that exact thread | No automatic outcome commit, query-pin deletion or shared-gate unlock |
+| Unknown writer/query/postlude | Retain exact slot, round and provider dependency; refuse unsafe reuse/free | No timeout counter repair. Same-VM termination/progress may remain blocked |
+| All slot users closed but other provider users remain | Retire this slot/VM if its other obligations close | No global hash-mutex destruction based solely on this VM's success |
+
+The actual =cleanup_runtime= path checks registry/resize/lifecycle disposal
+before =cleanup_os_and_mem=; that function cleans memory before OS modules, and
+=cleanup_os= eventually calls =cleanup_thread_module=. Its refcount-zero branch
+destroys the global emulation hash mutexes. Thus memory retention without provider
+retention is incomplete; provider retention without slot/root custody is also
+incomplete. The same-VM shared queue gate can remain obstructed by an unknown
+holder. Isolation of an unrelated healthy VM requires separate admission and
+resource independence; it cannot be claimed from a retained-slot design alone.
+Global final cleanup may correctly remain refused while unrelated VM collection
+continues, but neither progress claim has native evidence in this packet.
+
+**** Joint acceptance additions, without a new denominator
+
+SH-CUT-S must cover actual backend selection, every effect/log reconciliation,
+phase/idle debt, round reuse and RC/global disposal together. SH-ALIAS-S must
+classify slot payload: native chunk/control identities are not automatically
+Scheme roots, while any Scheme-bearing field needs canonical relocation and
+reload coverage. SH-BOUNDARY-S must establish which VM/control/provider remains
+owned after rejection, helper takeover or unknown stop; it must not transfer a
+resource-bearing multi-shot continuation merely by moving a claim. SH-EXEC-N
+needs actual provider paths, setup failure, repeated epochs, each interruption,
+stale owner/helper and local/global cleanup refusal in current-source replay
+and full affected workloads. SH-COST-N needs fixed allocated slot capacity,
+query/writer RMW/retry cost, retained rounds and provider resources, and matched
+latency/peak. All five remain OPEN.
+
+The architecture can eliminate loss of custody between removal and scanning,
+ambiguous retry and premature storage/provider disposal. It adds admission RMW,
+immutable records, explicit reconciliation and retained unknown resources. It
+does not prove wait-free recovery, bounded retention or reduced latency; those
+would be falsified by an unresolved shared-gate holder or indefinitely retained
+accessor. Neither this source argument nor existing QNT/Lean support converts
+that failure into progress.
+
+**** Runtime-owner implementation and acceptance packet
+:PROPERTIES:
+:CUSTOM_ID: take-slot-runtime-owner-packet
+:AUTHORITY: GambitSharedHeapSmp::takeSlotCSettlement
+:EVIDENCE_CLASS: implementation-contract; not native qualification
+:STATUS: WHOLE-PATCH-BOUNDARY-SPECIFIED; FIVE-JOINT-GATES-OPEN
+:END:
+
+This packet is one complete responsibility replacement, not another programme
+counter or a list of independently admitted setters. Its implementation owner
+is the modern-c runtime thread. This research thread changes only the contract,
+source inventory and derived evidence. The patch replaces pointer-zero ambiguity,
+unrecorded removed-chunk custody and inferred retirement with typed take outcome,
+fixed operation identity, accepted scan delivery and actual last-user closure.
+Preserve the existing internal function/namespace where its responsibility is
+unchanged; do not introduce a second take path or compatibility alias.
+
+***** Exact translation-unit evidence record
+
+=lib/mem.c= defines =___INCLUDED_FROM_MEM=, includes =gambit.h= and ordered
+=_mem/*.inc= fragments; it is the collector TU. =lib/os_thread.c= defines
+=___INCLUDED_FROM_OS_THREAD= and independently includes =gambit.h=; it implements
+the emulated provider and its setup/cleanup. =lib/makefile.in::NORMAL_C= lists
+both as real C sources. An .inc-only preprocessing witness is not the actual
+consumer build. The two records must be tied to the same linked runtime and
+applicable generated includes; equal profile names alone are insufficient.
+
+#+NAME: take-slot-tu-evidence-fields
+| Required record group | Concrete fields and independent checks | Reject / invalidate when |
+|-----------------------+----------------------------------------+--------------------------|
+| Source/build identity | repository/branch/HEAD plus dirty-input digests, actual mem.c and os_thread.c contents, generated gambit.h/include closure, configure/Make request, object and linked runtime digests | Any relevant source, generated header, command, tool or linked artifact differs; historical configure state is not current proof |
+| Producer identity | resolved compiler executable digest, compiler version/target, cwd, exact argv and relevant environment/response-file contents | Missing indirection, unbound include search or a request reconstructed from a display string |
+| Per-TU selection inputs | effective WS, sync-CAS feature macros, thread backend, ATOMIC order macros and existing legacy override, plus TU-local defines | Either TU's effective values are absent or contradict its expanded provider path |
+| Per-field operation contract | expansion of load/store/full CAS/drop, actual storage type/width/alignment, failure return convention, ordinary-access exclusions | Native/legacy expected-value mismatch, noninteroperable ordinary/machine atomic mixture, incompatible aliases or unqualified sequential scratch |
+| Provider linkage/lifetime | provider definitions or justified inline-only path in the actual linked artifact, successful setup, last-use-dependent cleanup path | Emulated entry points missing, provider/header mismatch or provider teardown can precede retained access |
+
+These are required observation fields carried by the existing source/evidence
+packet, not a new runner, profile or environment-variable schema. Obtain them
+from the existing actual Make producer under its current profile; retain
+repository evidence and input/output hashes, not a private-cache link. The
+configured-cache preprocessing packet below now supplies actual request, macro
+and include observations. It does not supply object/link/runtime acceptance
+or erase checkout differences. Missing fields remain unresolved; a synthetic
+sample is not an observation.
+
+***** Concrete modification boundary and old responsibility retirement
+
+#+NAME: take-slot-runtime-patch-boundary
+| Existing source owner | Whole change required | Old responsibility retired only after acceptance |
+|-----------------------+-----------------------+--------------------------------------------------|
+| collector.h / root.h | Per-allocated-worker fixed record within VM-owned root round; separate immutable key/intent/outcome, query/writer gates and generation; explicit data classification and checked arithmetic | active_scan_chunk pointer or diagnostic increment standing for an operation receipt; no unbounded global identity table |
+| mem.c / heap-sections.inc | Keep actual include/TU order; one typed take core, no mutation on Unobserved/ConfirmedEmpty, intent before mutation, source-closed effect/log settlement, gate released before scan | One pointer-zero result conflating busy/empty, removal without a surviving custodian, fresh retry after unknown outcome |
+| object-scanning.inc / collection-round.inc | Both own and victim callers consume typed outcomes; scanner accepts exact claim before ACK; private/Tail/dequeued debt survives idle/phase transitions | Exiting own drain on a busy observation, return-to-registration custody gap, idle with unresolved owned work |
+| activity_log.h.in / os_thread.c | Use existing qualified atomic service and exact selected provider; modify that service only where a demonstrated provider gap requires it | Provider-name assumptions, mixed access and accidental expected-variable semantics; no take-only atomic facade |
+| root-tasks.inc / rc-allocation.inc / memory-lifecycle.inc | Integrate sealed admission, actual slot drain, repeat-epoch reuse, RC prepare/refuse/free and fresh initialization failure | ROOT_ROUND_IDLE or RC-node borrows alone authorizing worker/slot reset or free |
+| setup.c / vm-lifecycle.inc / os_setup.c | Propagate retained dependencies through VM/local refusal and final global/provider cleanup; cover setup rollback and native postludes | join success as effect settlement; local slot success authorizing global mutex disposal |
+| Existing runtime fixtures / evidence consumers | Extend actual queue/root/lifecycle consumers and existing PBT replay/shrink ownership; bind tests to exact source/provider/runtime | File existence, model success or historical binaries being reported as current acceptance |
+
+The existing source inventory now includes =takeControlAccess=: actual take,
+publish/unlock, chunk transition, scan registration, queue/gate fields and
+claimed/completed counters. Generated candidate rows are navigation for this
+review; classify every occurrence as declaration, mutation, read, reset or
+comment and resolve macro-expanded uses. They are not proof of writer closure.
+In the current maintained lib inventory, the counters appear in declarations,
+increments and resets; no decision consumer was found. Preserve this diagnostic
+status, and report an interrupted diagnostic as unknown unless separately
+reconciled. Do not make its uncertain increment block or authorize collection
+by inventing a new ownership use. Arbitrary external readers are not qualified.
+
+Excluded from this patch: scheduler policy, Actor migration, general FFI
+redesign, generational policy, copying-space planner, frontend optimization,
+new build configuration or executor. Preserve public Scheme behavior, proper
+tail calls, multi-shot continuations and existing workload/resource limits.
+
+***** Settlement and retirement acceptance checklist
+
+Each item below belongs to the same whole patch and exact source/provider
+packet. A checked source location is not a checked item. QNT retains the
+existing transition/interleaving owner; Lean retains data/arithmetic ownership.
+The runtime owner supplies concrete correspondence and implementation evidence.
+
+- [ ] Bind actual mem.c and os_thread.c producer/expanded-operation/link evidence;
+  qualify each exercised native/legacy provider independently. Untested provider
+  combinations remain unsupported/unresolved, not inherited passes.
+- [ ] Classify every takeControlAccess occurrence and both real callers. Before
+  destructive work, record the full key, protected candidate and source custody;
+  failed admission or allocation changes no queue/copy state.
+- [ ] Demonstrate every state/log window: claimed-linked, head removed, diagnostic
+  possibly updated, committed, gate released, returned, scan accepted and ACK.
+  A helper requires actual old-writer exclusion plus exact before/after evidence;
+  otherwise retain pending work. Never retry the queue take as settlement.
+- [ ] Demonstrate busy/empty/acquired behavior and read-only repeated exact-key
+  queries. Do not read concurrently mutable plain payload to validate a seqlock.
+  Old key/generation rejection occurs only after outer admission and storage pin.
+- [ ] Cover original and helper interruption, delayed validation, refused new
+  borrow, count/generation exhaustion and double release rejection. Each owned
+  borrow releases exactly once after its final touch; unknown release retains it.
+- [ ] Show scanner custody before ACK, no duplicate scan from replay, and retained
+  local/frontier/Tail/dequeued work at idle, phase cut and wake. Source proof of
+  field traversal is distinct from QNT acquisition accounting.
+- [ ] Race query/writer seal with retirement and next-round reset; cover known
+  pre-copy refusal separately from partial claim. No raw slot/VM pointer survives
+  without its enclosing admission, even when its numeric generation matches.
+- [ ] Exercise setup failure, local RC/VM cleanup refusal, unknown join/native
+  postlude and final provider cleanup. Retain storage and actual synchronization
+  dependency together; demonstrate an unrelated healthy VM under the declared
+  independence conditions instead of inferring its progress.
+- [ ] Run complete affected existing workloads and real implementation PBT replay/
+  shrink under the same cache/profile and original budgets. Keep baseline failures
+  and source periods separate; no heap/wait increase or selectively reduced suite.
+- [ ] Measure the matched workload and metadata/retention/peak costs. Record untested
+  performance as unmeasured. Net benefit cannot be inferred from model completion
+  or fewer source lines; indefinite unknown retention falsifies bounded recovery.
+
+The whole packet maps to the existing five joint gates: concrete effect and
+drain correspondence is SH-CUT-S; root/alias data coverage is SH-ALIAS-S;
+VM/control/resource permissions are SH-BOUNDARY-S; actual execution is
+SH-EXEC-N; matched cost/peak is SH-COST-N. The checklist does not redefine the
+programme denominator or claim a new REV. Current ASCENT must keep the source
+factor, adapter clause and native readiness blocked until exact evidence exists.
+
+**** Observed access review and actual configured-cache preprocessing
+:PROPERTIES:
+:CUSTOM_ID: take-slot-observed-source-review
+:AUTHORITY: GambitSharedHeapSmp::takeSlotCSettlement
+:EVIDENCE_CLASS: reviewed-occurrences-and-actual-preprocessing
+:STATUS: SCOPED-OBSERVATIONS-CHECKED; SOURCE-AND-NATIVE-GATES-OPEN
+:END:
+
+The [[file:../../../evidence/research/retained/modern-c/shared-heap-smp-design/take-access-review.json][per-occurrence source review]] retains all 82 declared matches in 9 files,
+with artifact digest, byte offset, token, line text and classification. Every
+row was reviewed in source context. Classification is not an AST/caller proof,
+branch qualification or full writer closure; no source clause is marked passed.
+The existing SDK inventory remains authoritative for the candidate population;
+missing, moved or changed occurrences invalidate reuse of the review.
+
+#+NAME: take-slot-reviewed-occurrence-counts
+| Reviewed category | Occurrences | Responsibility interpretation |
+|-------------------+-------------+-------------------------------|
+| Legacy processor / generated field declarations | 6 | Separate from actual worker fields; no runtime access or removability proof |
+| Worker field declarations | 8 | Layout declarations, not writes |
+| Field macros / aliases | 7 | Resolve uses in the actual collector TU; declaration alone gives no authorization |
+| Function definitions | 5 | Definitions, not extra callers |
+| Comment / activity-log label | 2 | Neither mutates queue or scan custody |
+| Own/victim take and accepted scan calls | 4 | Two take callers and their two scan delivery consumers |
+| Chunk publication calls | 3 | Continuation/copy paths can publish work and retain producer duties |
+| Gate acquisition / release sites | 6 | Blocking/try acquire and release RMW/calls; busy is not empty |
+| Queue/phase reads | 5 | Protected reads and post-phase observations need their own guards |
+| Queue head/link/tail writes | 3 | Actual removal and publication effects |
+| Chunk state transitions | 9 | Distinguish local0->2, published0->1, claimed1->2 and completed2->3 contexts |
+| Diagnostic increments / resets | 7 | No decision consumer found in this maintained inventory; no ownership authority |
+| Fresh-round resets | 7 | Need prior-epoch last-use exclusion, not an unknown-outcome recovery operation |
+| Scan custody install / clear | 10 | Includes local frontier and completed FIFO scans; return-to-install gap remains |
+| Total | 82 | All declared occurrences classified; arbitrary external/generated accesses remain outside this claim |
+
+The [[file:../../../evidence/research/retained/modern-c/shared-heap-smp-design/take-translation-units.json][actual TU observation]] records Make-derived argv/cwd, effective environment,
+compiler/cc1/Make identities, selected macros and the full include closures.
+No new configuration or private source tree was created. The existing cache
+and configured Make path were read without configuration/source mutation;
+preprocessing outputs belong to the same managed task. No object, new runtime,
+or native workload was produced or executed.
+
+#+NAME: take-slot-actual-backend-observation
+| Actual observed item | mem.c | os_thread.c | Qualification boundary |
+|----------------------+-------+-------------+------------------------|
+| Compiler / target | GCC16.2 / aarch64-apple-darwin25 | Same compiler/cc1 | Executables and effective requests hashed; not an arbitrary environment compiler |
+| Language / optimization | -std=c23 / runtime -O3 | -std=c23 / runtime -O3 | Existing Bazel RTS configuration; no new O3 override or capacity increase |
+| Word/thread selection | WS=8 / POSIX | WS=8 / POSIX | Macro observation, not executed sizeof/alignment/ABI assertion |
+| Ordered-word | native __atomic acquire/release | Same | Actual full macro dump retained |
+| Full CAS / clear | __sync_val_compare_and_swap / __sync_fetch_and_and | Same | Actual selected branch; no native+mutex-emulation mixture observed in this cache |
+| Include closure | 341 unique input files | 303 unique input files | Input hashes and checkout comparisons retained; system/tool inputs included |
+| Object/link/runtime | Not produced | Not produced | No machine-code, memory-order execution or new runtime acceptance |
+
+Complete macro dumps and expanded source remain generated outputs in the
+managed task, as required by the existing storage policy. Their digests,
+selected values, producer requests and observations are published as structured
+repository evidence. The existing design check compares actual managed bytes
+and selected values when checking this packet; it does not substitute a hash
+shape for missing execution evidence. The earlier repository stream copies
+were removed rather than exempted from policy. Historical cwd/argv and output
+locations inside JSON are provenance, not Org links or source-model dependencies
+on private outputs. No native qualification survives missing required evidence.
+
+The emulated mutex-lifetime requirement remains a conditional requirement for
+that backend. It is not an observed Darwin-cache hash-mutex cost or the cause
+of current failures: this capture selects sync builtins, not emulation. The
+same outer slot/VM/native last-use duties still apply to the selected backend.
+
+***** Exact checkout mismatches and remaining implementation gaps
+
+The original union of both TU closures differed from checkout at these 12 inputs;
+the recapture below records one subsequently synchronized input and 11 remaining:
+
+#+BEGIN_EXAMPLE
+include/gambit.h
+lib/_mem/aligned-allocation.inc
+lib/_mem/allocation-limits.inc
+lib/_mem/allocation-statistics.inc
+lib/_mem/diagnostics.inc
+lib/_mem/hash-table-api.inc
+lib/_mem/object-allocation.inc
+lib/_mem/permanent-allocation.inc
+lib/_mem/still-refcount.inc
+lib/_mem/symbols.inc
+lib/mem.h
+lib/os_thread.c
+#+END_EXAMPLE
+
+****** Per-input attribution and reuse decision
+:PROPERTIES:
+:CUSTOM_ID: take-slot-input-attribution
+:AUTHORITY: GambitSharedHeapSmp::takeInputAttribution
+:EVIDENCE_CLASS: exact-source-difference-review
+:STATUS: ATTRIBUTED; CURRENT-SOURCE-AND-NATIVE-OPEN
+:END:
+
+The [[file:../../../evidence/research/retained/modern-c/shared-heap-smp-design/take-input-attribution.json][per-input attribution]] retains both hashes, source period, affected TUs
+and reviewed impact/recapture decisions. Its complete source-difference output
+remains in managed task storage, with the digest recorded in this observation. Five inputs
+only change diagnostic coordinates; seven have configured or semantic changes.
+A coordinate-only classification does not prove general C observational
+equivalence: =__LINE__=, diagnostics and exact expanded bytes may change.
+
+#+NAME: take-slot-twelve-input-attribution
+| Input | Reviewed cause | Atomic-selector scope | Required current-source recapture / outstanding responsibility |
+|-------+----------------+-----------------------+---------------------------------------------------------------|
+| include/gambit.h | Checkout generated output is SINGLE_VM/SINGLE_THREADED/MAX_PROCESSORS1 and lacks modern ordered-word/context/RC/interface content present in cached SMP output | Direct configuration/service availability and layout mismatch; not a safe replacement include | Existing configured producer must regenerate from admitted templates with the intended SMP profile; both TUs plus layout/object/link consumers. Do not copy this checkout generated artifact into cache |
+| lib/_mem/aligned-allocation.inc | Initial #line 538->545 only | No direct selector/control token change after ignoring directives | mem.c exact input/expanded-byte receipt; no clean bootstrap implied |
+| lib/_mem/allocation-limits.inc | Initial #line 7036->7815 only | Same limited coordinate finding | mem.c exact receipt; diagnostic coordinates remain observable |
+| lib/_mem/allocation-statistics.inc | Initial #line 7453->8232 only | Same limited coordinate finding | mem.c exact receipt |
+| lib/_mem/diagnostics.inc | Stack section/heap limit resolve through context; diagnostics bind collector worker; #line changes | No selector definition delta; diagnostic context/lifetime consumer changes | mem.c and affected debug consumers where enabled; no claim inactive code was executed |
+| lib/_mem/hash-table-api.inc | Initial #line 5679->6167 only | No direct selector delta | mem.c exact receipt |
+| lib/_mem/object-allocation.inc | Checks GC participant RUNNING before allocation slow-path collective; release callback receives failure instead of nested GC | Selector unchanged; GC admission, failure and initialization custody change | mem.c and actual release/allocation failure consumers; prove no GC/owner wait cycle |
+| lib/_mem/permanent-allocation.inc | Removes permanent_gate wrapper around allocator and exposes former locked implementation | Selector unchanged; allocator exclusion responsibility changes | mem.c; actual caller/exclusion coverage. No correctness verdict or repair is inferred here |
+| lib/_mem/still-refcount.inc | Initial #line 1440->1447 only | No direct selector delta | mem.c exact receipt |
+| lib/_mem/symbols.inc | Removes several global_gate/bootstrap/bounds wrappers and changes routing | Selector unchanged; shared producer admission, bounds and root-freeze premises change | mem.c; actual shared-table writer/failure protocol. Do not import cached guards as a new implementation |
+| lib/mem.h | Adds reserve/rollback/isolate/retirement interfaces; glo_list setup/add return types differ | Selector unchanged; declaration, result and link contract differ | mem.c and actual dependent consumers; compile/link plus status/custody propagation |
+| lib/os_thread.c | Emulated branch adds stdatomic/string, unsigned-bit-pattern/memcpy add and seq_cst fence; old cached barrier was empty | Conditional branch excluded by observed native+sync profile; not a backend-selector change | Another owner synchronized this input; fresh same-cache preprocessing now binds it. Emulated arithmetic/order/lifetime still require separate qualification if admitted |
+
+The absence of a selector-token change is a narrow reviewed source fact. It
+is not a proof that a new TU, context layout, root protocol or linked runtime
+has equivalent behavior. In particular, all current-source receipts must bind
+the actual bytes even for the five coordinate-only files.
+
+****** Header/configuration producer closure is separate from include closure
+
+Inspecting only the compiler's include list would miss the reason the generated
+header is stale. All 40 canonical header fragments were compared, with 38 equal
+and two changed; the ordered-word/configuration/processor fragments themselves
+match. This does not make the generated checkout output authoritative.
+
+#+NAME: take-slot-producer-input-attribution
+| Canonical producer input | Actual delta / responsibility | Same-product refresh requirement |
+|--------------------------+-------------------------------+----------------------------------|
+| _gambit/write_authority.h.in | Removes obsolete native_scope record and fixed64 capacity | Preserve the source's removal; never resurrect that parallel authority table from an old cached header |
+| _gambit/vm_state.h.in | Removes native_scopes array from VM layout | Regenerate header and validate actual VM/layout consumers; unchanged selector alone gives no ABI credit |
+| include/makefile.in | Non-Git stamp recipe preserves timestamp when contents match | Refresh existing producer metadata under owner lease; this is build-identity/invalidation behavior, not a new atomic provider |
+| configure.ac | Adds C23 admission/common flags, Darwin macro diagnostic option, cache-save checkpoints and generated feature definitions | Refresh the existing configure/Make product through its managed source delta before claiming current-source argv/header identity; no new profile, executor, capacity or wait limit |
+
+The wrapper =gambit.h.in= and 40 fragments are the canonical header inputs;
+the generated =gambit.h= is a configuration product. The include Make rule
+invokes the existing =config.status= with =HEADER_CONFIG=. The safe sequence
+is owner-controlled canonical/configuration input synchronization -> existing
+configuration/header generation -> recapture of affected actual TUs -> actual
+layout/object/link/native consumers. It is not a recursive copy of checkout
+outputs, a second cache, or an unconditional full bootstrap.
+
+****** Exact reuse and the two remaining implementation chains
+
+The attribution checks the recorded cache include closures, compiler/cc1/Make,
+configuration subjects and effective environment before reusing the previous
+cache preprocessing. This reuse says only that the old observation's subjects
+are unchanged. It issues no current-checkout qualification. When equality holds,
+no compiler or build invocation is necessary for attribution; a changed subject
+must refuse reuse or require actual recapture, never silently inherit a pass.
+
+The initial reuse check passed before another task updated the cache. The
+next guarded check correctly refused the old observation when =os_thread.c=
+changed. The [[file:../../../evidence/research/retained/modern-c/shared-heap-smp-design/take-current-translation-units.json][fresh same-cache TU observation]] then recaptured both real requests:
+native ordered-word plus sync CAS remain selected, =os_thread.c= matches
+checkout, and 11 original input differences remain. No source synchronization,
+object compilation or build was performed by this thread. Original and fresh
+observation identities remain separate; unchanged selector results do not erase
+the changed source epoch or the remaining canonical/header ABI debt.
+
+The runtime thread still owns two inseparable chains:
+
+- Partial commit: enrolled immutable intent -> exclusive physical effect ->
+  source-closed progress/outcome reconciliation -> exact scanner acceptance/ACK.
+  The current cache's backend observation and none of the twelve deltas create
+  those missing take records. Gate zero, old log stage and join success remain
+  insufficient settlement facts; unknown effects retain their custodian.
+- Exit/drain: seal actual writer/query admission -> retain/settle all claim and
+  delivery debt -> last actual native/query/helper touch -> slot/round reuse or
+  RC free -> final VM/provider disposal. Header layout and callback-allocation
+  changes affect these premises; a C23 fence does not supply the missing stop
+  or last-user receipt. Unrelated healthy-VM progress still needs its own actual
+  independence evidence.
+
+These requirements refine the same SH-CUT-S/SH-ALIAS-S/SH-BOUNDARY-S source gates;
+SH-EXEC-N still needs actual implementation PBT and full workloads, and SH-COST-N
+needs matched latency/peak/retention. There is no new model denominator, duplicate
+QNT/Lean proof or native admission. This thread neither synchronizes the runtime
+owner's source tree nor implements/reverts its in-progress decisions.
+
+#+NAME: take-slot-observation-to-joint-gates
+| Existing gate | New scoped evidence | Still required |
+|---------------+---------------------+----------------|
+| SH-CUT-S | 82 occurrence classifications; actual cache backend pair and expanded queue/scan input | Current-source TU binding, fixed take record, typed callers, exact effect/log reconciliation, scanner ACK and phase/exit integration |
+| SH-ALIAS-S | Native/control versus legacy/worker declaration distinction | Actual slot payload classification and complete canonical root/frame/denv rewrite/reload; preprocessing is not a relocation proof |
+| SH-BOUNDARY-S | Exact cache provider resources distinguished from conditional emulation | Actual VM/round/helper/native last-use permissions and supported cross-domain policies |
+| SH-EXEC-N | No workload or target execution claimed | Actual implementation PBT replay/shrink, failure/late access/drain cases and complete affected workloads under original limits |
+| SH-COST-N | Same configured requests reused; no source tree or object/runtime rebuilt | Matched latency/peak/retention measurements; preprocessing is not runtime performance evidence |
+
+Source publication and source termination remain separate existing supports;
+QNT/Lean proof ownership and scopes are unchanged. The full adapter remains
+blocked by source-clause and handoff premises. This packet establishes actual
+observations where it has executed; it does not turn all five gates green.
+
+**** Five joint acceptance obligations remain distinct
+
+#+NAME: take-slot-five-joint-gaps
+| Existing obligation / owner | Contribution of this complete adapter | Still required to close the obligation |
+|----------------------------+---------------------------------------+-----------------------------------------|
+| SH-CUT-S / source | Concrete mutation-to-delivery custody, last-use ordering and atomic-provider composition | Actual fixed-slot implementation, both callers, all publishers/writers, source-closed reconciliation, phase/idle and unknown-stop integration |
+| SH-ALIAS-S / source | Separates pinned control identity from relocated Scheme payload and canonical root reload | Actual slot classification, complete authoritative root/frame/denv rewrites and live-destination injectivity; node pointer retention alone is insufficient |
+| SH-BOUNDARY-S / source | Helper/worker movement transfers admitted work, not arbitrary Scheme continuation/resource ownership | Explicit VM/control admission, cross-domain transfer policy, multi-shot continuation and native-resource last-use adapters |
+| SH-EXEC-N / native | Defines complete interruption, stale-access, query replay and retirement acceptance packet | Current-source implementation PBT replay/shrink plus complete affected workloads under original budgets, actual provider paths and source-bound results |
+| SH-COST-N / native | Bounds intended metadata by allocated worker slots, avoids an unbounded identity table | Measure slot size*capacity, retained rounds/pins, CAS retries and whole-work latency/peak. No measured speedup, bounded-retention or whole-VM-progress claim |
+
+The intended benefit is eliminating ambiguous ownership after queue removal,
+not eliminating the mandatory acquire/release work. Added costs are fixed slot
+storage, gate/pin RMW, exact-key query/reconciliation, and possible retention of
+unknown rounds. Positive net benefit requires avoided duplicate/lost work and
+bounded operational retention to repay these costs on matched workloads. An
+unknown writer that never closes falsifies bounded recovery; a correct protocol
+can retain forever without proving useful progress. All five obligations stay
+OPEN, independently of local model success.
+
+*** Stop, unknown result and reuse permissions
+
+In start_processor_execution the rejected-entry branch publishes data_closed
+*before* unlocking the lifecycle gate. In the retiring-member branch,
+data_closed precedes thread_exit; join failure sets uncertainty independently.
+The data flag can exclude a particular class of PSTATE access while the thread
+still touches VM/control synchronization or native thread state. Thus:
+
+#+BEGIN_EXAMPLE
+scan closure != data-write closure != physical stop != last-resource-use
+strong phase closure != whole-round restore != resource retirement
+#+END_EXAMPLE
+
+A known quiescent transfer must identify VM/round/phase, source task, claimed
+chunk, initialization/Tail progress, local frontier and arena intervals. It must
+install successor custody before releasing old authority. A failed transfer
+keeps old custody; an unknown outcome pins the affected records and excludes
+duplicate execution until its exact identity is settled. These are required
+facts, not a proposal to create another unbounded identity table. Current code
+does not establish a generic collector-worker death/migration protocol.
+
+cleanup_vm_owned rejects unsettled launch/resize state and distinguishes LIVE,
+CLOSING, RETAINED and DRAINED; lifecycle_dispose destroys synchronization only
+after its own checks. These candidate guards do not prove all raw readers or
+helpers are covered. Nor may a VM-global registry lock be held while waiting
+for an uncertain owner: healthy-VM collection must be independently demonstrated.
+
+#+NAME: phase-and-unknown-last-user-contract
+| Outcome / boundary | Permitted fact | Required last user / blocked permission |
+|--------------------+----------------+-----------------------------------------|
+| Failed steal | No observation or transfer | Publisher keeps queue/control custody; count and debt remain |
+| Publish result unknown after partial linkage | Retain counted custody until exact settlement | Node, payload/arena and gate cannot be reused or blindly linked again; no generic interrupted-publish recovery certificate exists in current C |
+| Worker stop unknown with scan/Tail pending | Retain work and count; no invented idle or phase arrival | Keep source roots, private interval, claimed chunk, copy/frame/Tail progress and touched control objects. A stalled affected collection is allowed; progress is not proved |
+| Data closure known, native join unknown | Exclude only explicitly covered data accesses | Native postlude may still unlock VM gate or touch launch/thread state; data_closed does not release descriptor/TLS/code/lock lifetime |
+| Native join successful | Original native thread stopped under join contract | Helpers, accepted tasks, cleanup callbacks and source readers require separate last-use closure |
+| Strong zero and all arrivals | Admit separately counted weak work | No old-phase publisher/data/control user may survive the barrier; phase number alone does not revoke raw writers |
+| Weak drain and restore complete | Reopen accepted restored sources | Owner-affine cleanup and native/control users retain resources; restore cannot destroy their mutex |
+
+Reuse [[file:../../../models/gambit/retirement_last_consumers.qnt][retirement_last_consumers]] for dequeued scan and post-frame-count users,
+and [[file:../../../models/gambit/runtime_retirement_quarantine.qnt][runtime_retirement_quarantine]] for failed-join pending custody and seal/drain.
+Their declared histories are bound by =GW-last-users= under the existing owner.
+They are distinct temporal slices, not a product simulation or proof that their
+historical runtime policy is today's modern-c implementation.
+
+The model join remains a source obligation: counted work and retirement record
+must denote the same VM incarnation, collection/phase, owner, arena/descriptor
+and accepted users. Unknown outcome retains both sides until exact settlement.
+Work =done= cannot discharge a quarantine lease; native stop cannot invent scan
+finish or restore. An unqualified same-heap writer blocks its moving cut.
+Another VM progresses only if the retained resources really are independent.
+
+*** Existing proof owners and complete acceptance
+
+#+NAME: publication-termination-proof-boundary
+| Owner | Existing artifact / precise contribution | Open implementation bridge |
+|-------+------------------------------------------+----------------------------|
+| QNT temporal | gc_work_closure includes queue observations and claim-store/progress-log microsteps, pinned query and settlement; declared histories and bounded schedules; existing last-user/quarantine slices retain their owners | No pthread/weak-memory, arbitrary R/W, general crash recovery, migration, fairness or total C simulation |
+| Lean data | WorkAccounting retains lifetime algebra and adds QueuePost data transfer/count laws and the busy/nonempty counterexample | Source supplies exact operation/queue/item/owner projection. No duplicate transition machine, freshness or mutex proof |
+| Source refinement | Both SupportFactors bind configured-backend source, publication, last use, phase and lifecycle paths under whole adapter subjects | Model success or lexical caller inventory grants neither factor; both remain OPEN |
+| Native / cost | Existing five joint obligations require source-bound real replay, consumer semantics and matched total-work/peak accounting | No native replay or performance experiment is run by this research chat |
+
+Whole acceptance includes last publication racing idle, contended dequeue and
+transient claimed-before-active_scan_chunk ownership; local frontier/Tail;
+strong-to-weak will discovery; W<R root source restoration; callback/cleanup
+failure; data_closed-before-gate-unlock; failed/unknown join and an independent
+healthy VM. For each history retain the exact source/backend, failure outcome,
+unique custodian, root/arena/control lifetimes and no-duplicate execution rule.
+No isolated passing history closes the joint packet.
+
+#+NAME: publication-termination-benefit-cost
+| Architectural effect | Work/coupling removable after acceptance | Added/remaining charge / falsifier |
+|----------------------+------------------------------------------+-----------------------------------|
+| One publication/claim owner | Duplicate field scans and replay of a claimed range | Queue/gate CAS, state probes and payload traffic remain; duplicate transport may dominate |
+| Counted lifetime through final use | Recovery/rescan after premature finish; inferred carrier-based ownership | Lifetime/phase metadata and checks; an uncounted native/helper writer invalidates the gain |
+| Distinct scan/data/physical closure | Global stalls caused only by conflating an isolated unknown join with every VM's GC | Retained uncertain arenas/descriptors and synchronization; shared last-user dependency can still block the affected heap |
+| Explicit wake predicate and work export | Avoidable idle time despite available independent work | More publication/recheck/cache traffic; lower span is conditional, not a measured speedup |
+| Authoritative owner drain, optional thief observation | Stop inferring empty ownership from a failed queue CAS; remove false completion/recovery if that failure is reachable | Extra gate acquisition/recheck, lock-order and progress obligations; unknown gate holder retains resources. No fixed spin/timeout increase or measured speedup |
+| Settled three-outcome interpretation | Avoid treating busy or lost claim delivery as empty and avoid duplicate claim replay | Observation freshness/settlement and retained node/arena/control space; no runtime saving is claimed from model-only changes |
+| Separate strong/weak/restore retirement | Repeated emergency restoration or unsafe slot/arena reuse | Required barriers, weak processing, restore spans and owner-affine cleanup remain |
+
+No elapsed-time, CPU, throughput or peak-RSS improvement is measured here.
+Peak accounting must include uncertain retained space *concurrently* with the
+next eligible round, not count eventual refunds as an in-round saving. The
+architecture's net benefit requires avoided duplicate/recovery/serialization
+work to exceed added synchronization, metadata, retention and restore costs.
+Historical request-load regressions remain counterevidence; they are not erased
+by a stronger ownership argument.
+
+** Scheduler, exit and worker roles in the same round
+
+The Scheme scheduler owns runnable/waiting requests and their roots. The GC work
+scheduler owns private/queued/claimed scanning; these are not the same FIFO or
+completion event. Parked requests and callback arguments remain root sources.
+GC completion cannot deliver a request result or infer a native callback ended.
+
+Membership remains fixed for the admitted collection. Removing a participant
+or changing a work owner requires the corresponding root/work handoff, not just
+decrementing processor_count or the active scan count. Current C still uses
+=work->carrier= for some services; separating the worker record does not prove
+that every service or exit route is carrier-independent.
+
+If a worker is known stopped, a successor needs its exact private cursor,
+dequeued chunk, object/initialization/Tail debt and arena lifetime before taking
+authority. If stop or handoff result is unknown, retain those obligations and
+exclude repeated execution. Timeout alone cannot authorize concurrent recovery.
+An unrelated healthy VM may progress only if the retained region/control and
+synchronization resources really have separate lifetime; this is an acceptance
+obligation, not an inference from a per-VM field name.
+
+** Work removed, costs retained, and mathematical support
+
+#+NAME: work-chain-net-benefit
+| Candidate effect | Work actually avoided under its premise | Added/remaining cost and counterexample |
+|------------------+-----------------------------------------+----------------------------------------|
+| Canonical movable scan authority | Repeated field mutation/tracing of a READY->OWNED->DONE object by duplicate transport requests | Duplicate queue/frontier traversal and state probes remain; still/permanent/census paths have different rules |
+| Source-aware chunk ownership | Redundant requeue/reconstruction of an already claimed task and ownership inferred from carrier index | Chunk gate operations, descriptor/cursor bookkeeping, export delay and cache-line traffic; no measured gain yet |
+| Copy claim before reservation | Avoid reservation/refill by a contender that observes another winner before reserving | Source-section gate, header recheck, census/packing and slack; unknown post-reservation header result retains debt, not a known refund |
+| Producer lifetime through idle | Remove false completion followed by recovery/rescan of lost private work | Complete census and transfer/phase accounting; the current C active counter alone has no all-producer theorem |
+| Root/worker/context separation | Avoid manufacturing a mutator identity just to scan a frozen source | Source pins, task leases and restore spans; W<R supplies scheduling freedom, not automatic speedup |
+
+The movable object-state encoding in =change_object_scan_state= uses two bits
+per addressed destination word for four states. This is a structural accounting
+fact, not total runtime overhead or peak RSS: chunk metadata, alignment, atomic
+contention, roots and retained regions must also be counted. Current code has
+one active-scan count per strong/weak phase, each initialized to W. Neither fact
+justifies a throughput or pause percentage.
+
+Reuse [[file:../../../models/gambit/gc_work_contract.qnt][gc_work_contract]] for private/published/acquired work and preterminal rescan;
+[[file:../../../models/gambit/gc_work_closure.qnt][gc_work_closure]] for its existing finite two-worker/two-object phase abstraction.
+The latter models publication, unique acquisition, idle/wake and phase joins,
+but not real variable chunks, C memory order, arbitrary populations or fairness.
+No new parallel GC model is introduced.
+
+[[file:../../../models/gambit/lean/WorkAccounting.lean][WorkAccounting]] supplies the existing conditional result:
+zero active count plus empty queues excludes hidden private work only under
+=ProducerLifetimeSafe=. Its =missingLifetimeCounterexample= and
+=reopenedWorkRevokesZeroCount= are essential limits, not optional checks. They
+do not prove that current C has enumerated every producer. The existing
+LeanPoo resource composition law also requires real per-stage bounds; copying
+bytes alone does not bound pointer scans or synchronization.
+
+The current five-obligation packet retains GW-S as the source-refinement owner.
+The SysML =SupportFactor= members explicitly declare work-transition QNT,
+work-schedule QNT, lifetime algebra, existing last-user/quarantine histories,
+C publication and C termination factors.
+They reuse existing owners rather than create five new proof questions. ASCENT
+=shSupportChecked/shSupportOpen= matches owner, full subject digest and exact
+scope. Missing support blocks SH-EXEC-N and the joint delivery; QNT/Lean results
+cannot satisfy the two source factors. Source subjects include the whole adapter
+footprint, not just one named C file. Org and D2 consume the query results.
+
+Native replay must include last publication racing idle, a contended dequeue,
+duplicate object transport, Tail/private work during handoff, weak-phase work,
+worker stop/unknown outcome and an independently healthy VM. Cost acceptance
+must measure both avoided field work and remaining transport/synchronization.
+This source study performs no runtime execution and grants no additional SMP
+family or foundation credit.
+
+The current [[file:../../refactoring/modern-c/shared-heap-smp-design.org::#five-obligation-joint-delivery][joint packet]] establishes the root/control/domain source adapters
+and their execution/cost gates. Next the existing collector owner must deliver
+whole work/space/termination custody with useful-parallelism evidence; then the
+existing generation owner may admit mature-scan exclusion. Scheduler and resource
+ownership remain coupled obligations of these cuts, not fixes deferred until GC
+is supposedly finished. Actual source REVs belong to the runtime implementation
+session and must preserve complete responsibility and the five submission gates.
+
+- Which generated bounds make polling/initialization safe without per-operation
+  root rediscovery, and which native users still prevent the cut?
+- Does available graph/continuation work support W workers, and where must work
+  be exported earlier without breaking unique initialization?
+- Which root/frame classes can become clean mature regions under all writers?
+- Which resource effects can leave the GC critical path with accepted custody,
+  and which unknown states must still block that heap's movement?
+- Does the complete same-work interval repay added synchronization and peak
+  reserves while preserving multi-shot sharing and portable C?
+
+QNT owns transition/failure/progress protocols; Lean owns representation, coverage
+and conditional resource algebra; C refinement and real workloads establish their
+premises and costs. Reuse existing model owners. A paper, formal kernel or SDK
+projection alone cannot close an implementation or independent SMP family.

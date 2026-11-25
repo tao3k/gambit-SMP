@@ -32,5 +32,5 @@ pending.
 Campaign001 rejected three controls and checked safety plus temporal progress:
 47 distinct / 65 generated states, zero queued, 25.242 seconds for the positive
 check. Inputs and model stayed stable. Portable evidence is under
-`evidence/model-results/vm-spinlock-initialization-model/`. This verifies the
+`.cache/research/legacy-evidence/evidence/model-results/vm-spinlock-initialization-model/`. This verifies the
 bounded prefix contract, not a C implementation or real pthread error injection.

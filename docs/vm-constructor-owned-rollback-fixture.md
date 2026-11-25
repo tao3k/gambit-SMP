@@ -43,7 +43,7 @@ The original aggregate temporal timeout, helper-action conversion failure and
 nested-instance namespace failure remain archived. Flat policy specialization
 avoids the observed Quint conversion limitations without changing protocols or
 widening per-check budgets. Portable results and exact model closure are under
-`evidence/model-results/fixtures/vm-constructor-owned-rollback/publication-rollback-contract/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/vm-constructor-owned-rollback/publication-rollback-contract/`.
 
 The Datalog dependency node `pstate_log_publication_rollback` is registered
 separately. Its standalone delayed-return control reproduces the ownership

@@ -7,7 +7,7 @@ from gambit_smp.framework import ROOT
 
 class RegistryTopologyGridTests(unittest.TestCase):
     def test_optimized_bootstrap_changes_only_explicit_compiler_levels(self):
-        base = ROOT / "evidence/research/vm-registry-reader-lease"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease"
         original = json.loads((base / "resize-grace-bootstrap.recipe.json").read_text())
         candidate = json.loads((base / "resize-grace-optimized-bootstrap.recipe.json").read_text())
         self.assertEqual(original["inputs"], candidate["inputs"])
@@ -20,7 +20,7 @@ class RegistryTopologyGridTests(unittest.TestCase):
             self.assertEqual(expected, after)
 
     def test_rts_candidate_preserves_dynamic_compiler_cost_configuration(self):
-        base = ROOT / "evidence/research/vm-registry-reader-lease"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease"
         original = json.loads((base / "resize-grace-bootstrap.recipe.json").read_text())
         candidate = json.loads((base / "resize-grace-rts-bootstrap.recipe.json").read_text())
         self.assertEqual(original["inputs"], candidate["inputs"])
@@ -33,7 +33,7 @@ class RegistryTopologyGridTests(unittest.TestCase):
             self.assertEqual(expected, after)
 
     def test_successor_preserves_source_producer_and_original_caps(self):
-        base = ROOT / "evidence/research/vm-registry-reader-lease"
+        base = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease"
         original = json.loads((base / "resize-grace-native.recipe.json").read_text())
         current = json.loads((base / "host-topology-grid.recipe.json").read_text())
         self.assertEqual(original["budgetSeconds"], current["budgetSeconds"])

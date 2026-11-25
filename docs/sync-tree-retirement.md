@@ -44,7 +44,7 @@ This is finite-model evidence, not native pthread, GC or bootstrap acceptance.
 The campaign uses `verify_protocols.py` and the shared `quint_backend.py`, with
 case metadata in `evidence/sync-tree-retirement-model.json`. There is no dedicated
 Python runner. Portable results are in
-`evidence/model-results/sync-tree-retirement-model/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/sync-tree-retirement-model/receipt.json`.
 
 Attempts 001 and 002 remain DENY: shared-initializer conversion and a partial-map
 lookup were modeling/tooling errors, not protocol counterexamples. Attempt 003

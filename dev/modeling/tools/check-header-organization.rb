@@ -7,7 +7,7 @@ require 'open3'
 # bootstrap supplies the outstanding worker-lifetime and unknown-owner proofs.
 model_path, partition_path, runtime, gcc, out, source_root, source_lock = ARGV
 source_root ||= 'vendor/gambit'
-source_lock ||= 'evidence/research/header-organization/source.lock.json'
+source_lock ||= '.cache/research/legacy-evidence/evidence/research/header-organization/source.lock.json'
 make_tool=ENV.fetch('GAMBIT_SMP_MAKE',ENV.fetch('MAKE','make'))
 raise 'model, partition, runtime, compiler, fresh output required' unless out && !File.exist?(out)
 read = ->p { JSON.parse(File.read(p)) }

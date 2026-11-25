@@ -8,7 +8,7 @@ from gambit_smp.native_transcript import project
 
 class TranscriptTests(unittest.TestCase):
     def setUp(self):
-        folder = ROOT / "evidence/research/vm-kernel-entry-lifecycle"
+        folder = ROOT / ".cache/research/legacy-evidence/evidence/research/vm-kernel-entry-lifecycle"
         self.contract = json.loads((folder / "resize-transcript.contract.json").read_text())
         self.catalog = load_catalog(folder / "transcript-rules.ss")
 

@@ -45,7 +45,7 @@ parent BTQ crash. Exact source/producer/receipt bindings are retained in
 The observation does not itself implement a framework retry-denial rule.
 
 Use the existing sealed research recipe
-`evidence/research/current-source-full-bootstrap/btq-ticket-selection.recipe.json`.
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/btq-ticket-selection.recipe.json`.
 Keep tool-path, parse, type-effect and TLA conversion failures in their original
 receipts. They are model/tool integration failures, not native SMP failures.
 No invariant, budget or release gate was weakened to accommodate them.

@@ -12,7 +12,7 @@ class ScanLockFixtureTests(unittest.TestCase):
 
     def test_retained_sync_design_is_checked_without_source_repair_admission(self):
         manifest = load_manifest(ROOT / f"evidence/fixtures/{self.fixture}/retained-sync-design-contract.json")
-        receipt = ROOT / f"evidence/model-results/fixtures/{self.fixture}/retained-sync-design-contract/receipt.json"
+        receipt = ROOT / f".cache/research/legacy-evidence/evidence/model-results/fixtures/{self.fixture}/retained-sync-design-contract/receipt.json"
         rows = checked_rows(ROOT, manifest, receipt)[0][1]
         self.assertEqual(4, len(rows))
         self.assertEqual(3, sum(row["variant"] == "old" and row["exit"] == 1 for row in rows))
@@ -46,7 +46,7 @@ class ScanLockFixtureTests(unittest.TestCase):
             self.assertIn(flag, generated["configuredFlags"])
 
     def test_linked_seed_does_not_qualify_scheme_regeneration(self):
-        summary = json.loads((ROOT / f"evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
+        summary = json.loads((ROOT / f".cache/research/legacy-evidence/evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
         lock = json.loads((ROOT / f"evidence/fixtures/{self.fixture}/source.lock.json").read_text())
         seed = summary["linkedSeed"]
         self.assertEqual("host-auto", seed["processorSelection"])
@@ -72,7 +72,7 @@ class ScanLockFixtureTests(unittest.TestCase):
 
     def test_barrier_contract_checks_retained_live_queues_without_full_gc_admission(self):
         manifest = load_manifest(ROOT / f"evidence/fixtures/{self.fixture}/barrier-contract.json")
-        receipt = ROOT / f"evidence/model-results/fixtures/{self.fixture}/barrier-contract/receipt.json"
+        receipt = ROOT / f".cache/research/legacy-evidence/evidence/model-results/fixtures/{self.fixture}/barrier-contract/receipt.json"
         rows = checked_rows(ROOT, manifest, receipt)[0][1]
         self.assertEqual(3, len(rows))
         self.assertEqual(2, sum(row["variant"] == "old" and row["exit"] == 1 for row in rows))
@@ -83,7 +83,7 @@ class ScanLockFixtureTests(unittest.TestCase):
         self.assertIn("gc_callback_scan_user_return", manifest["cases"][0]["openObligations"])
 
     def test_actual_barrier_native_control_is_not_a_compile_failure(self):
-        summary = json.loads((ROOT / f"evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
+        summary = json.loads((ROOT / f".cache/research/legacy-evidence/evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
         for name in ("barrier", "barrier-definition-range"):
             failed = summary["runs"][name]
             self.assertEqual("DENY", failed["outcome"])
@@ -113,7 +113,7 @@ class ScanLockFixtureTests(unittest.TestCase):
 
     def test_lifecycle_model_is_complete_but_not_caller_quiescence_proof(self):
         manifest = load_manifest(ROOT / f"evidence/fixtures/{self.fixture}/scan-lock-lifecycle-contract.json")
-        receipt = ROOT / f"evidence/model-results/fixtures/{self.fixture}/scan-lock-lifecycle-contract/receipt.json"
+        receipt = ROOT / f".cache/research/legacy-evidence/evidence/model-results/fixtures/{self.fixture}/scan-lock-lifecycle-contract/receipt.json"
         rows = checked_rows(ROOT, manifest, receipt)[0][1]
         self.assertEqual(5, len(rows))
         self.assertEqual(4, sum(row["variant"] == "old" and row["exit"] == 1 for row in rows))
@@ -124,7 +124,7 @@ class ScanLockFixtureTests(unittest.TestCase):
         self.assertIn("sync_barrier_scan_quiescence", manifest["cases"][0]["openObligations"])
 
     def test_actual_callee_receipts_preserve_control_and_inventory_denial(self):
-        summary = json.loads((ROOT / f"evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
+        summary = json.loads((ROOT / f".cache/research/legacy-evidence/evidence/source-results/fixtures/{self.fixture}/observation.json").read_text())
         self.assertFalse(summary["runtimeAdmitted"])
         self.assertFalse(summary["nativeGcPassed"])
         self.assertEqual("DENY", summary["runs"]["callees"]["outcome"])

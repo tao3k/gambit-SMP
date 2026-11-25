@@ -26,7 +26,7 @@ candidate, not as an excuse to weaken supported public semantics.
 
 The research source is Gambit
 `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882` with the existing
-[overlay source lock](../../evidence/research/processor-interrupt-collective-wait/source.lock.json).
+overlay source lock (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout).
 Chez `41d5ffca7a07cbfc8807e719dedcc70ed74811cd` and OCaml
 `46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91` are reference mechanisms, not
 drop-in runtime implementations. Their precise transfers and exclusions are in

@@ -4,8 +4,8 @@ raise 'model, partition, optional native receipt or -, fresh output required' un
 FileUtils.mkdir_p(out)
 sha = ->p { Digest::SHA256.file(p).hexdigest }
 m = JSON.parse(File.read(model_path)); part = JSON.parse(File.read(partition_path))
-source = sha.call('evidence/research/header-organization/source.lock.json')
-profile = sha.call('evidence/research/worker-role-handoff/profile.json')
+source = sha.call('.cache/research/legacy-evidence/evidence/research/header-organization/source.lock.json')
+profile = sha.call('.cache/research/legacy-evidence/evidence/research/worker-role-handoff/profile.json')
 baseline = m.fetch('baselineSha256')
 raise 'model/partition' unless baseline == part['baselineSha256'] && m['fragments'].map { |p| p['file'] } == part['fragments'].map { |p| p['file'] }
 payload = part['fragments'].map do |p|

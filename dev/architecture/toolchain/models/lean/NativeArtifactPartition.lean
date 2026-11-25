@@ -10,6 +10,7 @@ structure ObjectKey where
  tool : Nat
  source : Nat
  descriptor : Nat
+ codePlan : Nat
  deriving DecidableEq
 structure Inputs where
  abi : Nat
@@ -17,9 +18,10 @@ structure Inputs where
  tool : Nat
  source : Nat → Nat
  count : Nat → Nat
+ codePlan : Nat → Nat
 
 def header (x : Inputs) : HeaderKey := ⟨x.abi,x.inlinePolicy⟩
-def objectKey (x : Inputs) (m : Nat) : ObjectKey := ⟨m,header x,x.tool,x.source m,x.count m⟩
+def objectKey (x : Inputs) (m : Nat) : ObjectKey := ⟨m,header x,x.tool,x.source m,x.count m,x.codePlan m⟩
 def editCount (x : Inputs) (m value : Nat) : Inputs := {x with count:=fun n=>if n=m then value else x.count n}
 
 theorem countDoesNotChangeHeader (x : Inputs) (m value : Nat) : header (editCount x m value)=header x := rfl
@@ -57,6 +59,30 @@ theorem staleSnapshotRefuses (p : Publication) (stale : p.snapshot≠p.current) 
  intro accepted;exact stale accepted.1
 
 theorem successNotWholeClosure (p : Publication) (accepted : admitted p) : p.dependencyClosed=true ∧ p.groupComplete=true := ⟨accepted.2.1,accepted.2.2.2⟩
+-- Native-code plan identity changes do not silently reuse the old object.
+def editCodePlan (x : Inputs) (m value : Nat) : Inputs :=
+ {x with codePlan:=fun n=>if n=m then value else x.codePlan n}
+
+theorem codePlanDoesNotChangeHeader (x : Inputs) (m value : Nat) :
+ header (editCodePlan x m value)=header x := rfl
+
+theorem codePlanIsLocal (x : Inputs) (m n value : Nat) (different : n≠m) :
+ objectKey (editCodePlan x m value) n=objectKey x n := by
+ simp [objectKey,header,editCodePlan,different]
+
+theorem changedCodePlanInvalidates (x : Inputs) (m value : Nat) (changed : value≠x.codePlan m) :
+ objectKey (editCodePlan x m value) m≠objectKey x m := by
+ intro equal
+ have fields:=congrArg ObjectKey.codePlan equal
+ simp [objectKey,editCodePlan] at fields
+ exact changed fields
+
+theorem staleCodePlanRefusesPublication (x : Inputs) (m value : Nat) (changed : value≠x.codePlan m) :
+ ¬admitted { snapshot:=objectKey x m, current:=objectKey (editCodePlan x m value) m,
+             dependencyClosed:=true, success:=true, groupComplete:=true } := by
+ apply staleSnapshotRefuses
+ exact Ne.symm (changedCodePlanInvalidates x m value changed)
+
 -- These are projection laws. Concrete C dependencies, collision resistance,
 -- actual atomic publication and QNT-to-Lean extraction remain separate duties.
 end Gambit.NativeArtifactPartition

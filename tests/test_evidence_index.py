@@ -89,7 +89,7 @@ class EvidenceTests(unittest.TestCase):
     def test_setup_protocol_keeps_temporal_and_context_receipt_fail_closed(self):
         from gambit_smp.protocol_evidence import bundle_facts
         manifest = "evidence/pstate-setup-protocol.json"
-        receipt = "evidence/model-results/pstate-setup-helper-owned/receipt.json"
+        receipt = ".cache/research/legacy-evidence/evidence/model-results/pstate-setup-helper-owned/receipt.json"
         with protocol_fixture(index.ROOT, manifest, receipt) as (root, context, _):
             facts, inputs = bundle_facts(root, manifest, receipt)
             self.assertEqual(["pstate_setup_transaction"],
@@ -141,7 +141,7 @@ class EvidenceTests(unittest.TestCase):
                          result["contract_dependencies_without_model_receipts"])
 
     def test_control_requires_unchanged_artifacts_source_budget_and_native_pass(self):
-        directory = index.ROOT / "evidence/model-results"
+        directory = index.ROOT / ".cache/research/legacy-evidence/evidence/model-results"
         denied = json.loads((directory / "native-prim-port-019-deny.json").read_text())
         control = json.loads((directory / "native-prim-port-019-unsandboxed-pass.json").read_text())
         from gambit_smp.output_observations import recorded

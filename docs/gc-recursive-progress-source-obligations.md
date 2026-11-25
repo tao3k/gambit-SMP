@@ -23,7 +23,7 @@ occur. They do not show that a nonterminal state has a transition. Establish
 same full candidate domain and unchanged original transitions.
 
 Apalache's rejection of native `ENABLED` is a tooling limitation, preserved in
-`evidence/model-results/quint-symbolic-enabledness-unsupported/`. It is neither
+`.cache/research/legacy-evidence/evidence/model-results/quint-symbolic-enabledness-unsupported/`. It is neither
 a protocol counterexample nor an enabledness proof. An alternative projection
 must derive existential action parameters, all guards, and satisfiable next-state
 assignments from the original public IR. Handwritten guard-only predicates,

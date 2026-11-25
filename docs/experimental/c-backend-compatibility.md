@@ -41,7 +41,7 @@ backend is not evidence that it causes those protocol defects.
 
 Baseline Gambit is `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`; current runtime
 line references use the existing
-[source lock](../../evidence/research/processor-interrupt-collective-wait/source.lock.json)
+source lock (local execution locator: `../../.cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json`; unavailable in a clean checkout)
 and cumulative patch. `README` and `doc/gambit.txi` are pinned vendor baseline
 documents, not guarantees extended by the repaired overlay. Chez is
 `41d5ffca7a07cbfc8807e719dedcc70ed74811cd`; OCaml is

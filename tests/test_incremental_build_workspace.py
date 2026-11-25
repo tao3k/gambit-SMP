@@ -465,7 +465,7 @@ class IncrementalLaunchPolicyTests(unittest.TestCase):
         from gambit_smp.recipes import load
         from gambit_smp.research_kernel import require_incremental_builds
         root = Path(__file__).resolve().parents[1]
-        recipe, steps = load(root, root / 'evidence/research/ci/bazel-profile-gc-ffi-inventory.recipe.json')
+        recipe, steps = load(root, root / 'tests/recipes/ci/bazel-profile-gc-ffi-inventory.recipe.json')
         require_incremental_builds(recipe, steps)
         runtime = next(step for step in steps if step['id'] == 'runtime')
         descriptor = runtime['arguments']['archive']
@@ -481,17 +481,22 @@ class IncrementalLaunchPolicyTests(unittest.TestCase):
             if step['id'].startswith('stress-'):
                 self.assertEqual(3600, step['budgetSeconds'])
 
-    def test_new_native_and_gerbil_declarations_use_the_existing_managed_path(self):
+    def test_current_native_declarations_use_the_existing_managed_path(self):
         from gambit_smp.recipes import load
         from gambit_smp.research_kernel import require_incremental_builds
         root = Path(__file__).resolve().parents[1]
-        paths = [root / 'evidence/research/ci/three-flag-core.recipe.json',
-                 *sorted((root / 'evidence/research/incremental-builds').glob('*.recipe.json'))]
-        self.assertGreaterEqual(len(paths), 4)
+        paths = [root / 'tests/recipes/ci/three-flag-core.recipe.json',
+                 root / 'evidence/fixtures/dev-rest-original-runner/bootstrap.recipe.json']
         for path in paths:
             recipe, steps = load(root, path)
             require_incremental_builds(recipe, steps)
             self.assertEqual('in-place', recipe['workspacePolicy'])
+        retired = root / '.cache/research/legacy-evidence/evidence/research/incremental-builds/handler-quiet-join-recovery.recipe.json'
+        with self.assertRaisesRegex(ValueError, 'Cache aliases'):
+            load(root, retired)
+        recipe, steps = load(root, root / 'tests/recipes/ci/three-flag-core-progress.recipe.json')
+        with self.assertRaisesRegex(ValueError, 'maintained incremental'):
+            require_incremental_builds(recipe, steps)
 
     def test_legacy_isolated_and_unpartitioned_configuration_cannot_launch(self):
         from gambit_smp.research_kernel import require_incremental_builds
@@ -527,7 +532,7 @@ class IncrementalLaunchPolicyTests(unittest.TestCase):
         self.assertFalse(out.exists())
 
     def test_bootstrap_reuse_requires_actual_receipt_and_output_bytes(self):
-        from gambit_smp.gerbil_build import _current
+        from gambit_smp.gerbil_build.custody import _current
         file = self.root / 'actual';file.write_bytes(b'observed output')
         from gambit_smp.framework import digest
         self.assertFalse(_current(self.root, {'outputs': {'actual': digest(file)},

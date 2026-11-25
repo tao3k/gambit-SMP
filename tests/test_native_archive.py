@@ -10,7 +10,7 @@ from gambit_smp.output_observations import REGISTRY, TRANSCRIPT_SUFFIXES
 from tests.support import copy_output_observations
 
 
-NAME = "evidence/source-results/gc-notification-source-schedules-031/archive.json"
+NAME = ".cache/research/legacy-evidence/evidence/source-results/gc-notification-source-schedules-031/archive.json"
 
 
 class NativeArchiveTests(unittest.TestCase):
@@ -139,7 +139,7 @@ class NativeArchiveTests(unittest.TestCase):
             self.assertFalse((root / "archive").exists())
 
     def test_actlog_source_unit_archive_binds_all_branches_without_admission(self):
-        name = "evidence/source-results/vm-actlog-abort-source031/archive.json"
+        name = ".cache/research/legacy-evidence/evidence/source-results/vm-actlog-abort-source031/archive.json"
         bound = validate(ROOT, name)
         self.assert_durable_inputs(name, bound)
         saved = json.loads((ROOT / name).read_text())
@@ -149,7 +149,7 @@ class NativeArchiveTests(unittest.TestCase):
         self.assertEqual(6, len(receipt["results"]))
 
     def test_actlog_negative_control_cannot_be_promoted_to_success(self):
-        source = ROOT / "evidence/source-results/vm-actlog-abort-source031"
+        source = ROOT / ".cache/research/legacy-evidence/evidence/source-results/vm-actlog-abort-source031"
         receipt = json.loads((source / "receipt.json").read_text())
         row = next(row for row in receipt["results"]
                    if row["label"] == "ignored-mutex-error-control")
@@ -158,7 +158,7 @@ class NativeArchiveTests(unittest.TestCase):
             source_unit_checked(source, receipt)
 
     def test_actlog_archive_rejects_changed_observation(self):
-        name = "evidence/source-results/vm-actlog-abort-source031/archive.json"
+        name = ".cache/research/legacy-evidence/evidence/source-results/vm-actlog-abort-source031/archive.json"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             target = root / Path(name).parent
@@ -174,7 +174,7 @@ class NativeArchiveTests(unittest.TestCase):
                 validate(root, name)
 
     def test_source031_scoped_native_logs_and_identity_remain_non_admitted(self):
-        name = "evidence/source-results/source031-native-gc-fixtures/archive.json"
+        name = ".cache/research/legacy-evidence/evidence/source-results/source031-native-gc-fixtures/archive.json"
         bound = validate(ROOT, name)
         self.assert_durable_inputs(name, bound)
         saved = json.loads((ROOT / name).read_text())
@@ -185,7 +185,7 @@ class NativeArchiveTests(unittest.TestCase):
         self.assertEqual({"gsi", "gsc"}, set(receipt["modes"]))
 
     def test_scoped_archive_rejects_identity_drift_and_parent_exit_mismatch(self):
-        source = ROOT / "evidence/source-results/source031-native-gc-fixtures"
+        source = ROOT / ".cache/research/legacy-evidence/evidence/source-results/source031-native-gc-fixtures"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with self.assertRaisesRegex(ValueError, "consistent parent exit"):

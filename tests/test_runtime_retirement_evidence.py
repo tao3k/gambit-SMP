@@ -10,7 +10,7 @@ from gambit_smp.framework import ROOT, digest
 
 class RuntimeRetirementEvidenceTests(unittest.TestCase):
     def test_formal_context_binds_current_sources(self):
-        proof = json.loads((ROOT / "evidence/model-results/processor-interrupt-collective-wait/runtime-retirement-qualified-01/receipt.json").read_text())
+        proof = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/model-results/processor-interrupt-collective-wait/runtime-retirement-qualified-01/receipt.json").read_text())
         self.assertTrue(proof["accepted"])
         self.assertTrue(proof["contextStable"])
         for name, sha in proof["inputs"].items():

@@ -9,7 +9,7 @@ class SchedulerWaitEvidenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.catalog = load_evidence_catalog(
-            ROOT / "evidence/research/exit-drain-mutex-lock-order/wait-contract.ss",
+            ROOT / ".cache/research/legacy-evidence/evidence/research/exit-drain-mutex-lock-order/wait-contract.ss",
             constructor="make-scheduler-wait-evidence", trusted=True)
 
     def read(self, **updates):

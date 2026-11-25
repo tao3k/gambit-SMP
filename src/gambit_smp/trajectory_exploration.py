@@ -13,6 +13,18 @@ from gambit_smp.reasoning_history import (append_trajectory_attempt, canonical,
 DEFAULT_CLUE_DISPLAY_BYTES = 8192
 
 
+def _attestation_label(root, path):
+    """Installed ASCENT sources are package dependencies, not checkout files."""
+    import ascent
+    path = Path(path).resolve()
+    package = Path(ascent.__file__).resolve().parent
+    if path.is_relative_to(package):
+        return 'package:gerbil-ascent/'+str(path.relative_to(package))
+    if path.is_relative_to(Path(root).resolve()):
+        return str(path.relative_to(Path(root).resolve()))
+    raise ValueError('unrecognized external Evidence source: '+str(path))
+
+
 def _current(snapshot):
     if snapshot.get("executionAuthorized") is not False:
         raise ValueError("recorded-only action snapshot required")
@@ -21,13 +33,31 @@ def _current(snapshot):
             raise ValueError("trajectory action source appeared: " + path)
         if (digest(Path(path)) if Path(path).is_file() else None) != sha:
             raise ValueError("trajectory action source changed: " + path)
+    from gambit_smp.source_identity import read_git_sources, identity_observation
+    immutable_refs=[ref for view in snapshot.get('unavailableViews',()) for ref in view['references'] if 'identity' in ref]
+    immutable_refs+=list(snapshot.get('immutableSources',{}).values())
+    git_ids={fingerprint(ref['identity']):ref['identity'] for ref in immutable_refs if ref['identity'].get('kind')=='git'}
+    import hashlib
+    git_observed={key:None if data is None else hashlib.sha256(data).hexdigest()
+        for key,data in zip(git_ids,read_git_sources(snapshot['repositoryRoot'],git_ids.values()))} if git_ids else {}
     for view in snapshot.get("unavailableViews", ()):
         from gambit_smp.framework import relative
         for ref in view["references"]:
+            if 'identity' in ref:
+                key=fingerprint(ref['identity'])
+                observed=git_observed[key] if key in git_observed else identity_observation(snapshot['repositoryRoot'],ref['identity'])
+                if observed != ref['observed']:
+                    raise ValueError('immutable source availability changed during read: '+ref['path'])
+                continue
             path = relative(snapshot["repositoryRoot"], ref["path"])
             if ((path.exists() and not path.is_file())
                     or (digest(path) if path.is_file() else None) != ref["observed"]):
                 raise ValueError("unavailable reference changed during read: " + ref["path"])
+    for ref in snapshot.get('immutableSources', {}).values():
+        key=fingerprint(ref['identity'])
+        observed=git_observed[key] if key in git_observed else identity_observation(snapshot['repositoryRoot'],ref['identity'])
+        if observed != ref['observed']:
+            raise ValueError('immutable source availability changed during read')
 
 
 def candidate(snapshot, action_id, *, check_current=True):
@@ -172,20 +202,26 @@ def _declaration(root, snapshot, view_path):
     return document, facts, list(spec["sources"].values()), inputs
 
 
-def _native_exchange(root, snapshot, engine):
+def _native_exchange(root, snapshot, engine, *, declarations=None):
     from ascent.trajectory import ClueExchange
     from gambit_smp.evidence_views import reference_witnesses
-    from gambit_smp.ascent_program import input_attestations
 
     _current(snapshot)
     owner = None
     for retained in snapshot.get("evidenceViews", ()):
         if not {"clue", "factor", "link"}.issubset(retained["queries"]):
             continue
-        document, facts, sources, inputs = _declaration(root, snapshot, retained["path"])
-        attestations = input_attestations(root, inputs)
+        if declarations is not None and retained['path'] in declarations:
+            document, facts, sources, inputs, witnesses = declarations[retained['path']]
+            if inputs != retained['inputs']:
+                raise ValueError("Evidence view differs from discovery")
+        else:
+            document, facts, sources, inputs = _declaration(root, snapshot, retained["path"])
+            witnesses = reference_witnesses(root, document)
+        attestations = {_attestation_label(root, path): sha
+                        for path, sha in inputs.items()}
         attestations.update({row["label"]: row["digest"]
-                             for row in reference_witnesses(root, document).values()})
+                             for row in witnesses.values()})
         if owner is None:
             owner = ClueExchange(engine, sources, document["constructor"], facts, attestations)
         else:
@@ -201,7 +237,8 @@ def _native_exchange(root, snapshot, engine):
                     "view-reference:" + identity, view["declarationSha256"],
                     "evidence-view-current:" + view["id"], view["id"], view["path"],
                     ref["path"], ref["expected"], ref["observed"] or "absent", ref["reason"]])
-        attestations = input_attestations(root, {path: sha for path, sha in snapshot["inputs"].items() if sha is not None})
+        attestations = {_attestation_label(root, path): sha
+                        for path, sha in snapshot["inputs"].items() if sha is not None}
         if owner is None:
             owner = ClueExchange(engine, sources, availability["constructor"], facts, attestations)
         else:
@@ -215,7 +252,6 @@ def _native_exchange(root, snapshot, engine):
 def read_view(root, snapshot, view_id, query_name, engine):
     """Read a declared relation directly, without fabricating an observed Clue."""
     from gambit_smp.evidence_views import evaluate
-    from gambit_smp.ascent_program import input_attestations
 
     _current(snapshot)
     matches = [view for view in snapshot.get("evidenceViews", ())
@@ -228,8 +264,10 @@ def read_view(root, snapshot, view_id, query_name, engine):
         raise ValueError("Evidence view changed since discovery")
     _current(snapshot)
     return dict(view=view_id, query=query_name, answers=current["answers"][query_name],
+                assurance=current['assurance'],
                 contextIdentity=snapshot["sourceIdentity"],
-                sourceInputs=input_attestations(root, current["inputs"]),
+                sourceInputs={_attestation_label(root, path): sha
+                              for path, sha in current["inputs"].items()},
                 executionAuthorized=False, runtimeAdmitted=False)
 
 
@@ -304,23 +342,35 @@ def clues(root, scope, snapshot, question, engine, *, proposed=(), bindings=(),
                 historicalClues=historical)
 
 
-def _repository_snapshot(root):
+def _repository_snapshot(root, *, declarations=None):
     """Bind the current registry for both discovery and evidence reads."""
     from gambit_smp.evidence_views import registry, load, ReferenceUnavailable
     from gambit_smp.recipes import source_path
 
     names, inputs = registry(root)
-    views, unavailable = [], []
+    views, unavailable, immutable = [], [], {}
     configuration = json.loads((Path(root) / "evidence/views.json").read_text()) if names else {}
     availability = configuration.get("availability")
+    from gambit_smp.source_identity import read_git_sources, identity_observation
+    import hashlib
+    documents={name:json.loads(source_path(root,name).read_text()) for name in names}
+    git_ids={fingerprint(ref['identity']):ref['identity'] for document in documents.values()
+             for ref in document['references'] if ref.get('identity',{}).get('kind')=='git'}
+    git_observed={key:None if data is None else hashlib.sha256(data).hexdigest()
+        for key,data in zip(git_ids,read_git_sources(root,git_ids.values()))}
     for name in names:
         path = source_path(root, name)
         identity = digest(path)
-        document = json.loads(path.read_text())
+        document = documents[name]
+        for ref in document['references']:
+            if 'identity' in ref:
+                key = fingerprint(ref['identity'])
+                observed=git_observed[key] if key in git_observed else identity_observation(root,ref['identity'])
+                immutable[key] = dict(identity=ref['identity'], observed=observed)
         if not {"clue", "factor", "link"}.issubset(document["queries"]):
             continue
         try:
-            _, _, _, bound = load(root, name)
+            document, facts, catalog, bound = load(root, name)
         except ReferenceUnavailable as observation:
             if availability is None:
                 raise
@@ -334,13 +384,18 @@ def _repository_snapshot(root):
         if bound[str(path)] != identity:
             raise ValueError("Evidence declaration changed during query binding")
         inputs.update(bound)
-        views.append(dict(id=document["id"], path=name, queries=document["queries"], inputs=bound))
+        if declarations is not None:
+            declarations[name] = (document, facts, list(catalog['nativeComponents']['sources'].values()),
+                                  bound, catalog['referenceWitnesses'])
+        views.append(dict(id=document["id"], path=name, queries=document["queries"], inputs=bound,
+                          referenceValidation=catalog.get('referenceValidation', [])))
     if availability is not None:
         availability = dict(availability,
             source=str(source_path(Path(root).resolve(), availability["source"])))
     return dict(repositoryRoot=Path(root).resolve(), evidenceViews=views,
                 unavailableViews=unavailable, availability=availability,
-                inputs=inputs, sourceIdentity=fingerprint(inputs), executionAuthorized=False)
+                inputs=inputs, immutableSources=immutable,
+                sourceIdentity=fingerprint(dict(files=inputs, immutableSources=immutable)), executionAuthorized=False)
 
 
 def _coverage(snapshot):
@@ -407,6 +462,12 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
                      selector: str | None = None, constructor: str = "query",
                      read_confirmed: bool = True, scope: str | None = None) -> dict:
     """Return a source-bound incremental Evidence slice using ASCENT inference.
+
+    brief["assurance"] distinguishes completed native ASCENT inference,
+    checked input identities/partial reference coverage, declared premises,
+    and fixed-validator results for selected recorded evidence. Inference or
+    record consistency does not establish run authenticity or runtime admission.
+    A deferred observation is not a checked inline record; expand it first.
 
     The CLI renders this same result directly as inert Scheme data.
     Separate calls start fresh unless checkpoint carries the previous token,
@@ -548,7 +609,8 @@ def _repository_reader(root, question, engine, *, bindings=None, expansions=None
         checkpoint, hint_scope = load_clue_checkpoint(root, checkpoint, include_scope=True)
         cache_miss = checkpoint is None
     scope = investigation_scope(root, scope) or hint_scope
-    snapshot = _repository_snapshot(root)
+    declarations = {}
+    snapshot = _repository_snapshot(root, declarations=declarations)
     if bindings is not None and selector is None:
         if question:
             raise ValueError("use an exact question or relational bindings, not both")
@@ -559,7 +621,7 @@ def _repository_reader(root, question, engine, *, bindings=None, expansions=None
         path = source_path(root, selection["source"])
         selector = path.read_text()
         constructor = selection["constructor"]
-    owner = _native_exchange(root, snapshot, engine)
+    owner = _native_exchange(root, snapshot, engine, declarations=declarations)
     journal = None
     if scope is not None:
         batches, prefix = read_trajectory_clues(root, scope)
@@ -592,6 +654,17 @@ def _repository_reader(root, question, engine, *, bindings=None, expansions=None
         _current(snapshot)
         result["brief"]["inputIdentity"] = snapshot["sourceIdentity"]
         result["brief"]["evidenceCoverage"] = _coverage(snapshot)
+        from gambit_smp.evidence_views import query_assurance
+        observed_sources = {row['source'] for family in result['brief'].get('families', [])
+                            for row in family.get('observations', [])}
+        validated = [dict(view=view['path'], **checked)
+                     for view in snapshot['evidenceViews']
+                     for checked in view.get('referenceValidation', [])
+                     if checked['reference'] in observed_sources]
+        result["brief"]["assurance"] = query_assurance(
+            snapshot["inputs"], "native-clue-exchange",
+            source_identity=snapshot["sourceIdentity"],
+            unavailable=snapshot["unavailableViews"], validation=validated)
         if journal is not None:
             result['brief']['hypothesisJournal'] = journal
         if cache_miss:

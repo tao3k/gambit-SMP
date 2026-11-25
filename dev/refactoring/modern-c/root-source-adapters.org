@@ -1,0 +1,153 @@
+#+TITLE: Explicit root-source adapters — independently scoped REV
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: VERIFYING READY | PUBLISHED
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %42ITEM(Responsibility) %STATUS(Status) %SOURCE_TREE(Source)
+
+* READY Source-adapter responsibility replacement :rev:source:gc:
+:PROPERTIES:
+:CUSTOM_ID: REV-ROOT-SOURCE-ADAPTERS
+:AUTHORITY: GambitRootSourceAdapters
+:SOURCE: models/sysml/root-source-adapters.sysml
+:BASE_REVISION: b77ad85cd338adad6ea571395975bdb2166dd147
+:SOURCE_TREE: 7468dff0519b2200d1dfabb3ba59721941c31f11
+:STATUS: Five scoped gates reviewed; exact tree qualified; publication recorded separately
+:END:
+
+SysML is the component authority. This is a buildable dependency-first leaf,
+not admission of the entire [[file:root-dispatch.org][root-dispatch research programme]]. A completed
+leaf's five gates do not wait for unrelated successor obligations; an
+untested prerequisite cannot inherit acceptance from a later prototype.
+
+The selected vendor tree changes exactly five private C fragments,42 added
+lines and36 removed lines. It excludes the pending public-header split,
+worker/RC lifecycle implementation, native entry guards, global writer locks,
+new task tables, Make/workflow changes and all SMP-generated C differences.
+No new namespace, public API, configuration, test file or executor is added.
+
+** Caller and address equivalence :source:refinement:
+
+All six private visitors have one actual callsite each in
+=garbage_collect_mark_phase=. The phase caller now selects their root source.
+The existing =___ps= argument still supplies collector allocation/copy cursors,
+marking resources and diagnostics. It no longer implicitly selects those roots
+inside the six visitors. This is source-selection ownership, not independent
+collector eligibility or an arbitrary cross-context scan permission.
+
+#+name: root-source-adapter-addresses
+| Visitor | Former implicit selection | Explicit caller argument | Preserved semantics |
+|---------+---------------------------+--------------------------+---------------------|
+| mark_registers | ps->context->r | ps->context | Same r address and element count |
+| mark_saved | ps->context->saved | ps->context | Same saved-root address/count |
+| mark_type_cache | ps->context->type_cache | ps->context | Same cache-root address/count |
+| mark_processor_scmobj | PROCESSOR_SCMOBJ(ps) | ps->context | Exact same SUBTYPED_FROM_START(ALIGNUP(context->processor_scmobj,WS)) body |
+| mark_continuation | ps->context->fp / stack_break | Those two actual pointers | Same FrameSpec decoding, root runs, return-address and link writes |
+| mark_rc | ps->mem.rc_head_ | &ps->mem.rc_head_ | Same circular chain and saved-next traversal; still leader-only |
+
+The RC call remains inside the original processor0 branch. This REV does not
+repair nonzero-processor RC omission. VM, global-variable and symbol/keyword
+visitors retain their previous implementation and ordering; no claim is made
+about concurrent GSTATE writers.
+
+The frame coordinate arguments are selected at the original strong-mark
+callsite. =mark_frame= still delegates root runs to =mark_array=; it does not
+rebind the execution context. =move_continuation= occurs in the subsequent
+weak phase, after strong roots/reachable objects have been scanned. Thus
+snapshotting the break coordinate does not cross a relocation boundary in
+the admitted path. Arbitrary source migration during this call is excluded.
+
+** Benefits and added costs :benefits:
+
+#+name: root-source-adapter-benefits
+| Dimension | Established change | Cost / limit |
+|-----------+--------------------+--------------|
+| Source-selection ownership | Six hidden carrier-derived selectors move to one phase boundary | One or two additional private pointer arguments per affected call; compiler placement not assumed |
+| Audit surface | Six definitions/six callsites in five fragments; no new provider |42 insertions/36 deletions, not a runtime speedup |
+| Runtime metadata | No representation or layout change |0 new fields, heap allocations, locks, barriers or tasks |
+| Gambit control semantics | Same FrameSpec roots, return-address/link writes and shared copying paths | Multi-shot/map/root controls required; no one-shot restriction |
+| Future leverage | A later qualified dispatcher can choose root sources without rewriting visitor bodies | No W<R, writer freeze, RC retirement or true-multicore completion credit yet |
+
+This preserves Gambit's GVM/portable-C strategy and makes one hidden runtime
+dependency explicit. It does not replace Scheme semantics with a host
+language model, and it does not use OCaml's one-shot restriction. The concrete
+gain is a smaller, testable responsibility boundary for later shared-root and
+collector separation; no copied-byte, pause-time or throughput reduction is
+claimed for this leaf.
+
+** Model responsibilities :sysml:ascent:
+
+[[file:models/sysml/root-source-adapters.sysml][Native SysML]] selects this leaf's five gates; [[file:root-source-adapters.d2][D2]] shows the same boundary.
+The existing ASCENT policy binds exact source/profile/native/audit identities
+and exercises missing/stale/omitted-field rejection controls before commit.
+
+- Existing [[file:models/quint/runtime_roles.qnt][QNT]] owns collective/task interleavings. No action, synchronization,
+  membership, epoch or task state changes in this leaf; no new QNT is needed.
+- Existing [[file:models/lean/RuntimeRoles.lean][Lean]] owns conditional arbitrary-cell/FrameSpec coverage. The table
+  above supplies the unchanged-address substitution for this private adapter
+  step; it is not a new theorem about copying or concurrent writers.
+- Source review establishes definition/callsite completeness and phase placement.
+  Native execution qualifies actual C integration and the existing consumers.
+  The ambient LLM review is an audit activity, not a replacement proof engine.
+
+** Required validation and failures :validation:
+
+All native work uses the existing persistent Modern C workspace, the existing
+Bazel C23/GCC profile and configure/Make entrypoints. Bootstrap remains600s,
+native/focused targets120s, original GSI300s. No heap/wait limit is increased.
+The exact scoped observations are published in
+[[file:../../../evidence/research/retained/root-source-adapters/receipt.json][the repository evidence receipt]] after validation.
+
+| Required observation | Exact selected-tree result | Boundary |
+|----------------------+----------------------------+----------|
+| Full bootstrap | PASS134.095s; phase1-4 each twice | Within600s; same workspace/profile |
+| Stock native core | PASS37.039s | Configuration-specific generated inputs recorded separately |
+| Existing runtime-roles | PASS0.844s | Existing execution storage, not successor task/domain APIs |
+| Existing frame contract | PASS6.431s;2387 checks,306 fixtures,102 frame cases, all290 layout assertions | Real map multi-shot/GC roots:18 frames,36 wide slots |
+| Existing exit-scope target | PASS0.692s | Unchanged scope contract |
+| Original GSI |408/408 PASS65.049s | Exact leaf, no retry-to-green |
+| Original tests1-7 | Complete; remaining group stops at test8 in18.972s | Full original check stays FAIL |
+| Independent original9/10/12,entry,inline | PASS6.207s | Test12 is stack-overflow ownership, not full compiled-unit inventory |
+| Matched official test8 negative control | Base/client exit70 and leaf/client exit70 before first callback | Same public header; sections6/6, members1/12,max_heap0; unchanged capacity algorithm |
+
+The scoped positive requirements are bootstrap, the existing focused consumers,
+original GSI, source/caller equivalence, and the matched baseline disposition.
+Passing that negative control does not change test8's FAIL status. Capacity
+repair, a full original-check PASS and whole-SMP acceptance are not required
+claims of this five-fragment leaf. They remain explicit successor work.
+
+#+name: root-source-adapter-entrypoints
+#+begin_src sh
+make -j11 GAMBOPT=p1 from-scratch
+make clean
+make dummy-gsc-boot
+make -j11 core
+make -C tests test-runtime-roles
+make -C tests test-frame-contract
+make -C tests test-native-scope
+make -C tests test11
+#+end_src
+
+The later original-check inventory and test8 baseline comparison remain
+separate observations. A known baseline failure is recorded as FAIL with
+disposition; it is never relabeled an original-check PASS. This private C-only
+cut does not change Scheme producers. Configuration-specific SMP C generated
+by bootstrap is recorded as native input, but is not committed over the
+unchanged baseline distribution snapshots. No remote CI result is asserted.
+
+** Five-gate checklist :audit:
+
+- [X] Tests: exact tree bootstrap/focused consumers/original GSI and baseline
+  failure disposition observed; no test requiring successor APIs imported.
+- [X] Learning: six selectors retired; complete address/caller matrix; metadata
+  and synchronization additions0, private-argument cost disclosed.
+- [X] Process: only five private fragments, no generated-C or unrelated pending
+  content; later domain/dispatcher/retirement cuts remain dependency-bound.
+- [X] Models: native SysML scope and existing ASCENT policy; unchanged QNT and
+  Lean duties explicitly distinct, no duplicate models or extrapolated proof.
+- [X] Questions: GVM/C/multi-shot preserved, actual coordinate identity and phase
+  premises named, source0-only RC defect/global writers remain excluded.
+- [X] Freeze the reviewed nine-field audit and this checklist before admission;
+  attach benefits/tests/costs/gaps to the actual Git commit body.
+- [ ] Record the actual REV separately after publication; do not edit this
+  frozen checklist/report identity to manufacture a different admission.

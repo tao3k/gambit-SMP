@@ -36,7 +36,7 @@ The supervised full-profile receipt SHA-256 is
 The successful current checker diagnostic receipt SHA-256 is
 `b33dbc238ff532c8e6f871289fa102f07d3dc770a0bca510fe8a10901b752a1a`.
 Portable denied-model and diagnostic archives, including compiled checker
-inputs and original raw hashes, are under `evidence/model-results/`.
+inputs and original raw hashes, are under `.cache/research/legacy-evidence/evidence/model-results/`.
 
 ## Reproduction And Next Admission
 

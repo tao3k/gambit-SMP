@@ -7,7 +7,7 @@ from gambit_smp.protocol_evidence import bundle_facts
 from gambit_smp.source_materialize import locked_source
 
 
-BASE = "evidence/source-results/fixtures/sfun-owned-unwind"
+BASE = ".cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind"
 LOCK = "evidence/fixtures/sfun-owned-unwind/source.lock.json"
 
 
@@ -33,7 +33,7 @@ class SfunOwnedUnwindTests(unittest.TestCase):
 
     def test_five_invalid_repairs_and_joint_completion_are_qualified(self):
         manifest = "evidence/fixtures/sfun-owned-unwind/contract.json"
-        receipt = "evidence/model-results/fixtures/sfun-owned-unwind/catcher-cleanup/receipt.json"
+        receipt = ".cache/research/legacy-evidence/evidence/model-results/fixtures/sfun-owned-unwind/catcher-cleanup/receipt.json"
         facts, _ = bundle_facts(ROOT, manifest, receipt)
         self.assertEqual(len(facts["protocol_control"]), 5)
         self.assertEqual(len(facts["protocol_checked"]), 1)

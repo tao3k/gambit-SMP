@@ -41,7 +41,7 @@ and OS-error assumptions; no unconditional successful join is assumed.
 On the locked checked-cleanup candidate, the C embedding observer completed
 generation zero and then crashed in the second global setup. The matching
 privacy-minimized stack is in
-`evidence/source-results/fixtures/checked-cleanup-retained-error/embedding-worker-report/crash-summary.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/checked-cleanup-retained-error/embedding-worker-report/crash-summary.json`.
 `linker_to_mod_or_lnk` destructively converts linker-table entries into module
 descriptors. Reinterpreting those entries as functions matches the observed
 data-as-code fault. Earlier generation-zero callback exit 71 remains a separate
@@ -54,7 +54,7 @@ A hypothetical linker-only reset produces a stale-fixup-generation counterexampl
 stale-pointer crash. Complete abstract reconstruction or explicit unsupported
 reentry passes safety and fair completion (12 distinct / 14 generated states,
 3.696 seconds). Receipt and counterexamples are under
-`evidence/model-results/fixtures/checked-cleanup-retained-error/linker-generation/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/checked-cleanup-retained-error/linker-generation/`.
 
 These alternatives are not implemented or selected runtime repairs. Complete
 reconstruction abstracts all fixup metadata; the model does not implement its

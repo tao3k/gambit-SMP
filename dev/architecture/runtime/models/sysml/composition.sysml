@@ -32,6 +32,7 @@ package GambitRuntimeComposition {
         attribute structureModel : String;
     }
     part def BlueprintInterface {
+        part contract : GambitRuntimeInterfaces::InterfaceContract;
         attribute interfaceId : String;
         attribute producerId : String;
         attribute consumerId : String;
@@ -40,6 +41,32 @@ package GambitRuntimeComposition {
         attribute failureCustody : String;
         attribute existingContracts : String;
         attribute disposition : String;
+    }
+    part allocationGrantInterface : BlueprintInterface {
+        attribute :>> interfaceId = "AllocationGrant";
+        attribute :>> producerId = "collector";
+        attribute :>> consumerId = "native";
+        attribute :>> payload = "Owned physical extent, region generation, complete demand, group/attempt and current cursor/root view";
+        attribute :>> orderedContract = "Validate old preparatory backing and full prospective footprint before stores, then revalidate the actual post-service view";
+        attribute :>> failureCustody = "Valid shortage retains mapped roots and existing recovery custody; invalid authority is diagnosed before unbacked spill";
+        attribute :>> existingContracts = "GambitRuntimeInterfaces::AllocationGrantLaw";
+        attribute :>> disposition = "Family 6 allocation and write-group source correspondence OPEN";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "VM/context owner, physical region/generation, footprint, group/attempt and current hp/fp view";
+            attribute :>> callerRequires = "Actual owned interval, checked complete prospective demand and prior old-frame spill backing";
+            attribute :>> supplierEnsures = "Grant the full authorized footprint or preserve explicit shortage/invalid-authority custody";
+            attribute :>> frameCondition = "Preserve source arguments, old backing and all outside-footprint memory on refusal";
+            attribute :>> environmentAssumption = "Region claim/release and moving-root owners retain current generation and view facts";
+            attribute :>> interferenceGuarantee = "Claim under actual capacity synchronization and revalidate after service or cursor-changing effects";
+            attribute :>> invalidation = "Region reuse/release, exhausted physical extent, view change or different group/attempt";
+            attribute :>> progressObligation = "Recovery obtains a qualified changed condition or retains a diagnosed bounded/pending result";
+            attribute :>> synchronization = "Refine actual claim lock, capacity validation, publication and failed-claim settlement";
+            attribute :>> sourceObligation = "Map lib/_mem/allocation-limits.inc, heap-sections.inc, generated writes and handler preparation";
+            attribute :>> modelObligation = "FrameContract remaining demand, stack_interval_authority and rest_section_claim";
+            attribute :>> nativeObligation = "Same-image exact/one-short, zero mutation, old spill backing and two-contender section race";
+            attribute :>> failureCustody = "Valid shortage retains mapped roots and existing recovery custody; invalid authority is diagnosed before unbacked spill";
+        }
     }
     part def BlueprintSource {
         attribute factId : String;
@@ -147,6 +174,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Reject emission or invalidate affected products; no partially guessed semantic plan";
         attribute :>> existingContracts = "GambitCompiler::TransformLaw; GambitCompiler::ProductLaw";
         attribute :>> disposition = "proposed composition; BF-SCHEMA";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "Source/module identity, semantic-plan revision, target ABI and FrameSpec/PointId";
+            attribute :>> callerRequires = "Complete semantic input and ordered module inventory with declared primitive/FFI effects";
+            attribute :>> supplierEnsures = "Generated operations, frame/root descriptors and module products implement the supplied completed plan";
+            attribute :>> frameCondition = "Preserve the semantic plan and previously committed independent products";
+            attribute :>> environmentAssumption = "Plan and module/code inputs remain stable during emission";
+            attribute :>> interferenceGuarantee = "Publish derived products only against the actual bound semantic and ABI inputs";
+            attribute :>> invalidation = "Source, macro closure, plan, descriptor schema or target ABI changes";
+            attribute :>> progressObligation = "Attribute useful compiler work and label/descriptor growth on matched input";
+            attribute :>> synchronization = "Use the existing source lease and staged product publication";
+            attribute :>> sourceObligation = "Map gsc/_front.scm and gsc/_t-c-1.scm through _t-c-3.scm to actual generated operations";
+            attribute :>> modelObligation = "BootstrapCohort, FrameContract and complete operation-inventory correspondence";
+            attribute :>> nativeObligation = "Matched formal-prelude regression and complete required generated product inventory";
+            attribute :>> failureCustody = "Reject emission or invalidate affected products; no partially guessed semantic plan";
+        }
     }
     part blueprintInterface1 : BlueprintInterface {
         attribute :>> interfaceId = "RootCut";
@@ -157,6 +200,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Producer retains roots until accepted handoff; unknown outcome retains custody";
         attribute :>> existingContracts = "ROOT-HANDOFF";
         attribute :>> disposition = "existing binding; full writer and weak-memory refinement open";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "VM/context incarnation, collection/root-cut epoch, slot owner and root-view revision";
+            attribute :>> callerRequires = "Complete root/writer census, valid slot backing and a live handoff custodian";
+            attribute :>> supplierEnsures = "Accepted root slots remain scannable and relocation updates reach the acknowledged source view";
+            attribute :>> frameCondition = "Update only declared managed root slots and required root metadata";
+            attribute :>> environmentAssumption = "Participating writers obey the published freeze/borrow protocol";
+            attribute :>> interferenceGuarantee = "Retain the source or an accepted successor until required reads and reloads finish";
+            attribute :>> invalidation = "Owner reuse, changed root cut, slot storage retirement or an untracked writer";
+            attribute :>> progressObligation = "Account for every accepted root task and state the enabling event for a wait";
+            attribute :>> synchronization = "Refine actual publication/acquire and pin/close operations to the root handoff";
+            attribute :>> sourceObligation = "Map lib/_mem/rc-roots.inc and collection-round.inc plus every root writer and scanner";
+            attribute :>> modelObligation = "runtime_ownership, rest_frame_publication and source slot inventory";
+            attribute :>> nativeObligation = "Delayed source reader and moving-root handoff/reload on the qualified image";
+            attribute :>> failureCustody = "Producer retains roots until accepted handoff; unknown outcome retains custody";
+        }
     }
     part blueprintInterface2 : BlueprintInterface {
         attribute :>> interfaceId = "ControlRoots";
@@ -167,6 +226,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Opaque mutation uses explicitly sound scan fallback; uncovered bypass blocks scan exclusion";
         attribute :>> existingContracts = "CONTROL-ORIGIN";
         attribute :>> disposition = "existing binding; BF-GENERATION adds full writer closure";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "Continuation identity, fresh activation, layout/code lease and current physical origin";
+            attribute :>> callerRequires = "Valid FrameSpec and complete current/saved/captured origin and mutation inventory";
+            attribute :>> supplierEnsures = "Traverse and repair declared control roots and preserve supported multi-shot restoration";
+            attribute :>> frameCondition = "Preserve raw bits, return identities and unrelated live control graphs";
+            attribute :>> environmentAssumption = "All control aliases and mutation paths participate in origin closure";
+            attribute :>> interferenceGuarantee = "Keep descriptor/code backing through the final control/root consumer";
+            attribute :>> invalidation = "Descriptor retirement, unsupported origin, changed layout or unreloaded physical relocation";
+            attribute :>> progressObligation = "Identify per-activation completion and keep attempt-local effects unique";
+            attribute :>> synchronization = "Bind actual capture/restore publication and graph mutation ordering";
+            attribute :>> sourceObligation = "Map lib/_kernel.scm, mem.c and generated FrameSpec/return consumers";
+            attribute :>> modelObligation = "RuntimeOwnership restore laws, FrameContract coordinates and runtime_ownership histories";
+            attribute :>> nativeObligation = "Mapped capture, moving GC and repeated restore with native callback/error paths";
+            attribute :>> failureCustody = "Opaque mutation uses explicitly sound scan fallback; uncovered bypass blocks scan exclusion";
+        }
     }
     part blueprintInterface3 : BlueprintInterface {
         attribute :>> interfaceId = "Participation";
@@ -177,6 +252,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Rollback only effects actually acquired on the live origin; no unsafe forced participant removal";
         attribute :>> existingContracts = "GambitFfi::ParkLaw; GambitFfi::ReentryLaw";
         attribute :>> disposition = "proposed composition; BF-PARTICIPATION";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "VM/context generation, execution grant, native origin and root-cut epoch";
+            attribute :>> callerRequires = "Legal native origin with protected roots and explicit execution/borrow admission";
+            attribute :>> supplierEnsures = "Exclusive managed execution or an acknowledged parked state with current roots on reentry";
+            attribute :>> frameCondition = "Change only admitted membership, context and acquired native effects";
+            attribute :>> environmentAssumption = "Native stack/catcher and callback owners remain live through their obligations";
+            attribute :>> interferenceGuarantee = "New callbacks and reentry use the same admission and root protocol";
+            attribute :>> invalidation = "Exit admission closes, context reuse, execution revocation or expired native origin";
+            attribute :>> progressObligation = "Wait only on a declared live participant or retain an unresolved result";
+            attribute :>> synchronization = "Relate actual membership/park/reentry locks and publication order";
+            attribute :>> sourceObligation = "Map lib/setup.c, c_intf.c and _kernel.scm entry/park/return paths";
+            attribute :>> modelObligation = "runtime_ownership nativeLifetime and existing participation/reentry models";
+            attribute :>> nativeObligation = "Startup, nested callback, blocking/reentry and partial-exit regressions";
+            attribute :>> failureCustody = "Rollback only effects actually acquired on the live origin; no unsafe forced participant removal";
+        }
     }
     part blueprintInterface4 : BlueprintInterface {
         attribute :>> interfaceId = "WorkClosure";
@@ -187,6 +278,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Reject retains original work; unknown transfer freezes source execution while custody and region pins survive";
         attribute :>> existingContracts = "GC-WORK-CLOSURE";
         attribute :>> disposition = "existing binding; native refinement and independent-worker admission open";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "VM collection/root-cut epoch, task/producer identity and worker-team generation";
+            attribute :>> callerRequires = "Complete producer/task/child inventory with physical work and restore capacity custody";
+            attribute :>> supplierEnsures = "Publish completion only after all relevant private, queued, scanning and descendant work closes";
+            attribute :>> frameCondition = "Preserve source roots and unrelated task/phase ownership";
+            attribute :>> environmentAssumption = "Every producer and child publication participates in the phase census";
+            attribute :>> interferenceGuarantee = "Reserve child responsibility before publication and preserve accepted work through handoff";
+            attribute :>> invalidation = "Changed phase, worker team, root cut, reopened producer or lost task authority";
+            attribute :>> progressObligation = "State worker/fairness and capacity premises separately from work-conservation safety";
+            attribute :>> synchronization = "Refine task claim, child reservation and phase-completion synchronization";
+            attribute :>> sourceObligation = "Map lib/_mem/collection-round.inc and actual work publication/completion callers";
+            attribute :>> modelObligation = "runtime_ownership workerCustody/noHiddenWork and existing work/closure models";
+            attribute :>> nativeObligation = "Delayed/private child work, membership change and R/W-independent collection";
+            attribute :>> failureCustody = "Reject retains original work; unknown transfer freezes source execution while custody and region pins survive";
+        }
     }
     part blueprintInterface5 : BlueprintInterface {
         attribute :>> interfaceId = "ReleaseDrain";
@@ -197,6 +304,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Failed accept leaves source responsible; accepted failure retains result policy and exactly one final owner";
         attribute :>> existingContracts = "GambitFfi::ParkLaw";
         attribute :>> disposition = "proposed extension; BF-RELEASE; ParkLaw alone does not prove drain";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "Accepted release task, rooted payload, resource/code lease and last-user identity";
+            attribute :>> callerRequires = "Classified release effects, valid payload and a designated completion custodian";
+            attribute :>> supplierEnsures = "Accepted cleanup has one custodian and drains required descendants before reclamation";
+            attribute :>> frameCondition = "Modify only acquired resources and declared release effects";
+            attribute :>> environmentAssumption = "Thread-affine effects run on a legal live carrier and late producers obey close";
+            attribute :>> interferenceGuarantee = "Keep payload, function/code and outcome roots live while accepted work remains";
+            attribute :>> invalidation = "Expired release target/code, invalid carrier or unaccounted late release producer";
+            attribute :>> progressObligation = "Separate eventual drain premises from unresolved join or foreign-effect outcomes";
+            attribute :>> synchronization = "Bind acceptance, descendant publication, final-user release and drain synchronization";
+            attribute :>> sourceObligation = "Map lib/mem.c, c_intf.c and setup.c release/close callers and failure branches";
+            attribute :>> modelObligation = "Existing retirement/work models plus source-specific release effect and borrow census";
+            attribute :>> nativeObligation = "Actual affine cleanup, nested release, exception and last-user races";
+            attribute :>> failureCustody = "Failed accept leaves source responsible; accepted failure retains result policy and exactly one final owner";
+        }
     }
     part blueprintInterface6 : BlueprintInterface {
         attribute :>> interfaceId = "OutcomeLifetime";
@@ -207,6 +330,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Late outcome has declared recipient/disposition; never drop error or retry an invalidated release function";
         attribute :>> existingContracts = "RETIRE-WINDOW";
         attribute :>> disposition = "existing binding plus BF-EXIT extension; no whole-shutdown theorem";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "Original Scheme outcome, accepted request, receiver incarnation and retained native origin";
+            attribute :>> callerRequires = "Stable outcome identity and a live recipient or explicit retained-custody destination";
+            attribute :>> supplierEnsures = "Preserve result/exception and acquired-effect settlement through the final required user";
+            attribute :>> frameCondition = "Preserve unrelated Scheme outcomes and accepted requests";
+            attribute :>> environmentAssumption = "Outcome producers and receivers participate in close and final-user accounting";
+            attribute :>> interferenceGuarantee = "Late or unknown completion retains a named custodian and original failure identity";
+            attribute :>> invalidation = "Receiver reuse, lost native origin, duplicate settlement or missing final-user custody";
+            attribute :>> progressObligation = "Distinguish delivered, pending and unresolved outcomes with their enabling events";
+            attribute :>> synchronization = "Refine result publication, wake/reentry and retirement visibility";
+            attribute :>> sourceObligation = "Map lib/_kernel.scm, c_intf.c and setup.c outcome/wake/drain paths";
+            attribute :>> modelObligation = "Existing request/retirement models and unique settlement per accepted attempt";
+            attribute :>> nativeObligation = "Lost/late reply, receiver exit, nested request and exceptional completion";
+            attribute :>> failureCustody = "Late outcome has declared recipient/disposition; never drop error or retry an invalidated release function";
+        }
     }
     part blueprintInterface7 : BlueprintInterface {
         attribute :>> interfaceId = "ArtifactClosure";
@@ -217,6 +356,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Failed/cancelled attempt cannot publish success; discard staging and preserve negative receipt";
         attribute :>> existingContracts = "GambitToolchain::NativeArtifactProfileLaw; GambitToolchain::EffectiveMulticoreProfileLaw";
         attribute :>> disposition = "proposed build composition; BF-BUILD-CUT; BF-BUILD-BUDGET";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "Source/input closure, tool/profile ABI, generation event, object/archive/link and product identity";
+            attribute :>> callerRequires = "Bound source/tool/profile inputs and complete required output inventory";
+            attribute :>> supplierEnsures = "Published reusable products have complete matching lineage and successful producer events";
+            attribute :>> frameCondition = "Preserve historical receipts and independent committed product generations";
+            attribute :>> environmentAssumption = "Managed source updates and other builders obey the existing product lease";
+            attribute :>> interferenceGuarantee = "Invalidate affected descendants on input change and publish a whole output transaction";
+            attribute :>> invalidation = "Changed/missing/escaping source, tool, configuration, generation or link input";
+            attribute :>> progressObligation = "Reuse only dependency-valid products and retain observed failure/cost before another build";
+            attribute :>> synchronization = "Use existing managed build lease and atomic receipt/product publication";
+            attribute :>> sourceObligation = "Map existing Make stages and gambit_smp generation/object/link recorders";
+            attribute :>> modelObligation = "bootstrap_cohort, BootstrapCohort and actual required-name inventory";
+            attribute :>> nativeObligation = "Complete two-pass producer, sealed GSI and original unchanged native manifests";
+            attribute :>> failureCustody = "Failed/cancelled attempt cannot publish success; discard staging and preserve negative receipt";
+        }
     }
     part blueprintSource0 : BlueprintSource {
         attribute :>> factId = "processor-storage";
@@ -305,6 +460,22 @@ package GambitRuntimeComposition {
         attribute :>> failureCustody = "Reject mismatched ABI before invocation; preserve actual acquired roots/effects on exceptional return";
         attribute :>> existingContracts = "GambitCompiler::ProductLaw; GambitRuntime::ExecutionAdmissionLaw";
         attribute :>> disposition = "proposed native/runtime composition; BF-SCHEMA; BF-PARTICIPATION";
+        part :>> contract {
+            attribute :>> status = "OPEN";
+            attribute :>> identityScope = "Source/product ABI, FrameSpec/PointId, activation/group/attempt and current root/cursor view";
+            attribute :>> callerRequires = "Valid generated entry descriptor, current execution authority and backed preparatory stores";
+            attribute :>> supplierEnsures = "Observe complete preflight, legal service/return, repaired roots and exactly one attempt settlement";
+            attribute :>> frameCondition = "Preserve all old-frame roots and locations outside the complete write group";
+            attribute :>> environmentAssumption = "Handler, collector, emitter macros and internal return share the actual frame protocol";
+            attribute :>> interferenceGuarantee = "Validate actual resumed locals and retain every admitted root/region obligation";
+            attribute :>> invalidation = "Changed owner/region generation, root/cursor revision, ABI, activation or attempt";
+            attribute :>> progressObligation = "Diagnose empty retry and recursive spill while preserving the original workload budget";
+            attribute :>> synchronization = "Bind demand publication, handler service and actual return/reload boundaries";
+            attribute :>> sourceObligation = "Map gsc/_t-c-2.scm, include/gambit.h.in, lib/_kernel.scm and allocation-limits.inc";
+            attribute :>> modelObligation = "FrameContract, rest_frame_publication and rest_authority_revision";
+            attribute :>> nativeObligation = "Family 6 checklist 4-9 on matching generated code and the same sealed GSI";
+            attribute :>> failureCustody = "Reject mismatched ABI before invocation; preserve actual acquired roots/effects on exceptional return";
+        }
     }
     part def ComposedRuntimeAcceptance {
         attribute accepted : Boolean;

@@ -39,7 +39,7 @@ Engine: `7388bde3ca43bc36ffbc0599a3ea16b7db2594d2fe6fa3d0bc5170f3a8da688d`.
 Bootstrap identity:
 `c8ee76e1d373ebfb7c1a7934a95746fc7a5d4f26829f8a5e15c70610a08eb263`.
 The verified immutable producer reference is
-`evidence/research/vm-registry-reader-lease/optimized-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/optimized-completed-producer.json`.
 It does not substitute for the O0 producer in existing complete Grid receipts.
 
 ## Remaining Causal Gate

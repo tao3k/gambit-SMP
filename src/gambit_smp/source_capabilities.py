@@ -57,6 +57,17 @@ def validate_source_lock(lock):
         if row["baseSha256"] is not None:
             sha(row["baseSha256"])
         sha(row["candidateSha256"])
+    if "trackWorktree" in lock and lock["trackWorktree"] is not True:
+        raise ValueError("worktree tracking must be enabled explicitly")
+    if lock.get("trackWorktree") is True:
+        tracked = lock.get("worktreeFiles")
+        if not isinstance(tracked, dict):
+            raise ValueError("tracked worktree inventory required")
+        for name, digest in tracked.items():
+            source_name(name)
+            if name in inventory:
+                raise ValueError("tracked worktree file repeats the locked slice: " + name)
+            sha(digest)
 
 
 def source_name(name):
@@ -78,6 +89,28 @@ def source_file(root, name):
     if not path.is_file():
         raise ValueError("existing regular source file required")
     return path
+
+
+def modular_header_includes(text, dispatcher):
+    return tuple((Path(dispatcher).parent / name).as_posix() for name in
+                 re.findall(r'^[ \t]*#[ \t]*include[ \t]+"(_gambit/[^"\n]+)"', text, re.M))
+
+
+def modular_header_files(root, dispatcher='include/gambit.h.in'):
+    """Follow the dispatcher's literal internal includes, not C preprocessing.
+
+    Historical monolithic headers yield a one-file inventory. Missing modules,
+    aliases and repeated declarations are refused rather than cached over.
+    """
+    pending, result = [dispatcher], []
+    while pending:
+        name = pending.pop(0)
+        if name in result:
+            raise ValueError('duplicate or cyclic modular header include')
+        text = source_file(Path(root), name).read_text()
+        result.append(name)
+        pending.extend(modular_header_includes(text, dispatcher))
+    return tuple(result)
 
 
 def verify_source_base(root, name, row):

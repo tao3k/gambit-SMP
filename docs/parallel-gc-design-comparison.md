@@ -121,7 +121,7 @@ Library, not a new producer build. It is not yet a full current graph admission.
 Model campaign 002 completed all 13 declared controls in 44.079/60 seconds;
 the original ten Gambit controls completed in 24.252/60 seconds. Both retained
 all decoded negatives. Campaign 001's timeout and unexecuted controls remain
-archived and denied. See `evidence/model-results/gc-parallel-contracts` and
+archived and denied. See `.cache/research/legacy-evidence/evidence/model-results/gc-parallel-contracts` and
 `evidence/scenarios/parallel-gc/README.md`. These timings are verification costs,
 not Gambit runtime performance.
 

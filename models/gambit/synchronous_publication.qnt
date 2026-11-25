@@ -122,7 +122,7 @@ module synchronous_publication {
   val closedSafe = not(s.closed) or Sites.forall(i => not(s.pub.get(i)) and
     not(s.unknown.get(i)) and not(s.residual.get(i)) and s.notified.get(i))
   val safe = accounting and readyBeforeScan and producerCoverage and closedSafe
-  run finishOne(i: int): bool = notify(i).then(acquire(i, 0)).then(finishScan(i))
+  action finishOne(i: int): bool = notify(i).then(acquire(i, 0)).then(finishScan(i))
     .then(returnPublisher(i)).then(drainCaller(i))
   run allFourFusedTest = init.then(begin(0)).then(prepare(0)).then(fused(0)).then(finishOne(0))
     .then(begin(1)).then(prepare(1)).then(fused(1)).then(finishOne(1))

@@ -187,7 +187,7 @@ The first integrated run 9883c0fd0a3e4485ac07b3575b956d37 passed its narrower gr
 | combinedAbortAcrossTwoEpochs | PASS | n/a | 1.353 |
 | abortThenSuccessfulHandoff | PASS | n/a | 1.019 |
 
-All 23 checks accepted; 17 decoded mutation witnesses. Model SHA256 `42b5a537f390d3b35ab654af7a64550a872cf9418a361992af5a88d8859ed24f`. Raw audit `.cache/tasks/repair-9-12/processes/audit/runs/0537b22a690d4206be6483e2d6be2966/outputs/integrated-retirement`; original source-window hashes stable, no runtime/native execution. See [versionable validation](../evidence/research/smp-retirement-study/integrated-validation.json).
+All 23 checks accepted; 17 decoded mutation witnesses. Model SHA256 `42b5a537f390d3b35ab654af7a64550a872cf9418a361992af5a88d8859ed24f`. Raw audit `.cache/tasks/repair-9-12/processes/audit/runs/0537b22a690d4206be6483e2d6be2966/outputs/integrated-retirement`; original source-window hashes stable, no runtime/native execution. See versionable validation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/smp-retirement-study/integrated-validation.json`; unavailable in a clean checkout).
 
 
 ## Concrete C return/withdrawal refinement

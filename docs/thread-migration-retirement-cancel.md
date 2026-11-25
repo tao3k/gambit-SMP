@@ -39,7 +39,7 @@ An initially incorrect source anchor was corrected to `___vm_resize_pstate`;
 the verifier reused the identical model checks and logs rather than rerunning
 the negative route. The corrected, source-context-bound receipt is published:
 
-`evidence/model-results/fixtures/thread-migration-resume-gate/retirement-cancel-contract/receipt.json`
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/thread-migration-resume-gate/retirement-cancel-contract/receipt.json`
 
 The manifest is registered in `evidence/protocol-bundles.json`. Datalog exports
 the checked finite protocol and its six open obligations; registration does

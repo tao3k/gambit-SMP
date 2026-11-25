@@ -2,7 +2,7 @@ require 'json'; require 'digest'; require 'fileutils'; require 'open3'
 projection, out = ARGV
 raise 'native projection and fresh output required' unless out && !File.exist?(out)
 m = JSON.parse(File.read(projection)); law = m.fetch('constructors').fetch(0)
-path = 'evidence/research/darwin-native-policy/producer-receipt-controls.json'
+path = '.cache/research/legacy-evidence/evidence/research/darwin-native-policy/producer-receipt-controls.json'
 control = JSON.parse(File.read(path)); run = control.fetch('taskReceipt')
 sha = ->p { Digest::SHA256.file(p).hexdigest }
 raise 'control receipt changed' unless sha.call(run['path']) == run['sha256']

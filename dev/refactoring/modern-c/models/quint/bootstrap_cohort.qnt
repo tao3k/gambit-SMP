@@ -35,4 +35,155 @@ module bootstrap_cohort {
   action hostPassAsSelf={s'={...empty,host:true,argv:true,generated:classes,target:true,selfBuilt:true}}
   action nativeBeforeBootstrap={s'={...empty,semantics:true}}
   action importHostRuntime={s'={...empty,hostLinked:true}}
+
+  // Family 6 construction prerequisite. These integers stand for exact
+  // identities supplied by the native receipt and input-resolution adapter.
+  type HostControlKey = {
+    source: int, moduleInput: int, prelude: int, command: int,
+    profile: int, diagnosticBudget: int
+  }
+  type HostLeg = {
+    key: HostControlKey, runId: int, declaredHost: int, executedHost: int,
+    evidenceBound: bool, inputsStable: bool, formalPreludeApplied: bool,
+    parseReturned: bool, naturalExit: bool, freshC: bool, c23: bool, quiescent: bool
+  }
+
+  pure def hostLegBound(leg: HostLeg, current: HostControlKey, selectedHost: int): bool =
+    leg.key == current and leg.declaredHost == selectedHost and
+      leg.executedHost == selectedHost and leg.evidenceBound and leg.inputsStable and
+      leg.formalPreludeApplied and leg.quiescent
+
+  pure def hostLegComplete(leg: HostLeg): bool =
+    leg.parseReturned and leg.naturalExit and leg.freshC and leg.c23
+
+  pure def hostControlMatched(current: HostControlKey, candidateHost: int,
+                             referenceHost: int, candidate: HostLeg, reference: HostLeg): bool =
+    candidateHost != referenceHost and candidate.runId != reference.runId and
+      hostLegBound(candidate, current, candidateHost) and
+      hostLegBound(reference, current, referenceHost)
+
+  pure def family6CanBuild(current: HostControlKey, candidateHost: int,
+                           referenceHost: int, candidate: HostLeg, reference: HostLeg): bool =
+    hostControlMatched(current, candidateHost, referenceHost, candidate, reference) and
+      hostLegComplete(candidate)
+
+  pure val hostControlInput: HostControlKey = {
+    source: 1, moduleInput: 2, prelude: 3, command: 4, profile: 5, diagnosticBudget: 120
+  }
+  pure def completeHostLeg(host: int, runId: int): HostLeg = {
+    key: hostControlInput, runId: runId, declaredHost: host, executedHost: host,
+    evidenceBound: true, inputsStable: true, formalPreludeApplied: true,
+    parseReturned: true, naturalExit: true, freshC: true, c23: true, quiescent: true
+  }
+
+  run family6MatchedPreludeControlAllowsConstructionTest =
+    assert(family6CanBuild(hostControlInput, 10, 20, completeHostLeg(10, 1), completeHostLeg(20, 2)))
+
+  run family6ChangedPreludeOrCeilingCannotMatchTest = {
+    val reference = completeHostLeg(20, 2)
+    assert(not(hostControlMatched(hostControlInput, 10, 20, completeHostLeg(10, 1),
+      {...reference, key: {...hostControlInput, prelude: 8}})) and
+      not(hostControlMatched(hostControlInput, 10, 20, completeHostLeg(10, 1),
+        {...reference, key: {...hostControlInput, diagnosticBudget: 600}})))
+  }
+
+  run family6StaleOrSubstitutedEvidenceCannotMatchTest = {
+    val candidate = completeHostLeg(10, 1)
+    val reference = completeHostLeg(20, 2)
+    assert(not(hostControlMatched(hostControlInput, 10, 20, candidate, {...reference, evidenceBound: false})) and
+      not(hostControlMatched(hostControlInput, 10, 20, candidate, {...reference, executedHost: 30})) and
+      not(hostControlMatched(hostControlInput, 10, 20, candidate, {...reference, runId: 1})))
+  }
+
+  run family6ReferenceSuccessAndBoundParseFailureAreDiagnosticTest = {
+    val candidate = {...completeHostLeg(10, 1), parseReturned: false, naturalExit: false, freshC: false, c23: false}
+    val reference = completeHostLeg(20, 2)
+    assert(hostControlMatched(hostControlInput, 10, 20, candidate, reference) and
+      not(family6CanBuild(hostControlInput, 10, 20, candidate, reference)))
+  }
+
+  run family6BoundReferenceFailureDoesNotBlockCompleteSelectedHostTest = {
+    val reference = {...completeHostLeg(20, 2), parseReturned: false, naturalExit: false, freshC: false, c23: false}
+    assert(family6CanBuild(hostControlInput, 10, 20, completeHostLeg(10, 1), reference))
+  }
+
+  run family6FalseExitZeroOrMissingSyntaxCannotReleaseBuildTest = {
+    val candidate = completeHostLeg(10, 1)
+    val reference = completeHostLeg(20, 2)
+    assert(not(family6CanBuild(hostControlInput, 10, 20, {...candidate, freshC: false}, reference)) and
+      not(family6CanBuild(hostControlInput, 10, 20, {...candidate, c23: false}, reference)) and
+      not(family6CanBuild(hostControlInput, 10, 20, {...candidate, quiescent: false}, reference)) and
+      not(family6CanBuild(hostControlInput, 10, 20, {...candidate, formalPreludeApplied: false}, reference)))
+  }
+  type Gate2Emission = {
+    selectedEmitter: int, actualEmitter: int, makeInputs: int, observedInputs: int,
+    cRun: int, gvmRun: int, retainedC: int, emittedC: int,
+    completed: bool, reviewed: bool, linked: bool, historicalLineage: bool
+  }
+
+  pure def gate2Pair(e: Gate2Emission): bool =
+    e.completed and e.selectedEmitter == e.actualEmitter and e.makeInputs == e.observedInputs and
+      e.cRun == e.gvmRun and e.retainedC == e.emittedC
+
+  pure def gate2SiteBound(e: Gate2Emission): bool =
+    gate2Pair(e) and e.reviewed and e.linked and e.historicalLineage
+
+  pure val gate2Example: Gate2Emission = {
+    selectedEmitter: 1, actualEmitter: 1, makeInputs: 2, observedInputs: 2,
+    cRun: 3, gvmRun: 3, retainedC: 4, emittedC: 4,
+    completed: true, reviewed: true, linked: true, historicalLineage: true
+  }
+  run gate2SameInvocationTest = assert(gate2SiteBound(gate2Example))
+  run gate2CrossInvocationTest =
+    assert(not(gate2Pair({...gate2Example, gvmRun: 5})))
+  run gate2InputOrArtifactMismatchTest =
+    assert(not(gate2Pair({...gate2Example, observedInputs: 5})) and
+           not(gate2Pair({...gate2Example, actualEmitter: 5})) and
+           not(gate2Pair({...gate2Example, emittedC: 5})) and
+           not(gate2Pair({...gate2Example, completed: false})))
+  run gate2HistoricalAndReviewGapTest =
+    assert(gate2Pair(gate2Example) and
+           not(gate2SiteBound({...gate2Example, reviewed: false})) and
+           not(gate2SiteBound({...gate2Example, linked: false})) and
+           not(gate2SiteBound({...gate2Example, historicalLineage: false})))
+
+  // Pass-1 self-hosted emitter bug caught in family6-local-admit-successor-run-s2c:
+  // proc-obj-name already returns a tagged string; under (declare (not safe)),
+  // unchecked symbol->string reads body[0] (two UTF-32 code units, e.g. "##" =
+  // 0x0000002300000023 whose low tag bits equal ___tPAIR = 3) into global root
+  // c#targ-proc-gate2-name, faulting census_array on the next GC.
+  type Gate2NameCell = {
+    inputKind: str, storedKind: str, lowTagBits: int
+  }
+
+  pure def gcSafeGlobalRoot(cell: Gate2NameCell): bool =
+    cell.storedKind == "false" or cell.storedKind == "string" or cell.storedKind == "symbol"
+
+  pure def uncheckedSymbolNameProjection(inputKind: str, prefixDoubleSharp: bool): Gate2NameCell =
+    if (inputKind == "symbol") {
+      { inputKind: inputKind, storedKind: "string", lowTagBits: 1 }
+    } else {
+      { inputKind: inputKind, storedKind: "raw-utf32-word", lowTagBits: if (prefixDoubleSharp) 3 else 0 }
+    }
+
+  pure def checkedGate2ProcName(inputKind: str): Gate2NameCell =
+    if (inputKind == "symbol" or inputKind == "string") {
+      { inputKind: inputKind, storedKind: "string", lowTagBits: 1 }
+    } else {
+      { inputKind: inputKind, storedKind: "false", lowTagBits: 2 }
+    }
+
+  run gate2UncheckedSymbolToStringOnStringCorruptsGlobalRootTest = {
+    val corrupted = uncheckedSymbolNameProjection("string", true)
+    assert(corrupted.storedKind == "raw-utf32-word" and
+           corrupted.lowTagBits == 3 and
+           not(gcSafeGlobalRoot(corrupted)))
+  }
+
+  run gate2CheckedProcNamePreservesStringGlobalRootTest = {
+    val fromString = checkedGate2ProcName("string")
+    val fromSymbol = checkedGate2ProcName("symbol")
+    assert(gcSafeGlobalRoot(fromString) and fromString.storedKind == "string" and
+           gcSafeGlobalRoot(fromSymbol) and fromSymbol.storedKind == "string")
+  }
 }

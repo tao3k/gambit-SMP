@@ -68,7 +68,7 @@ current-model check was not rerun or relabeled in this audit.
 
 The existing `checked_cleanup_failure_disposition.qnt` rejects hiding a host
 cleanup/join failure. It does **not** establish the caller policy for foreign
-object release. The [Scheme facts](../evidence/research/repair-and-redesign/facts.json)
+object release. The Scheme facts (local execution locator: `../.cache/research/legacy-evidence/evidence/research/repair-and-redesign/facts.json`; unavailable in a clean checkout)
 therefore declare `release-error-disposition` as an uncovered interface, not a
 new pass, automatic error propagation requirement or demonstrated C bug.
 
@@ -142,7 +142,7 @@ orphaning, request/member snapshot exclusion and shared mutation after membershi
 exit. It keeps exclusive host ownership and joined direct OS users as premises.
 Its five Lean contracts reuse `WorkAccounting`; model/source and native closure
 remain different obligations. The exact checked inputs and preserved failures
-are recorded in its [validation](../evidence/research/participant-exit-publication/validation.md).
+are recorded in its validation (local execution locator: `../.cache/research/legacy-evidence/evidence/research/participant-exit-publication/validation.md`; unavailable in a clean checkout).
 
 OCaml `domain.c`:1730-1786 is important counterevidence to a universal STW guard:
 cleanup after participant removal may overlap a subsequent STW, and callback

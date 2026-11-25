@@ -10,7 +10,7 @@ from gambit_smp import repository_clues
 
 class RootSignalEvidenceTests(unittest.TestCase):
     def test_formal_receipt_matches_live_model(self):
-        proof = json.loads((ROOT / "evidence/model-results/processor-interrupt-collective-wait/root-signal-retirement-grok-qualified/receipt.json").read_text())
+        proof = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/model-results/processor-interrupt-collective-wait/root-signal-retirement-grok-qualified/receipt.json").read_text())
         self.assertTrue(proof["accepted"])
         self.assertTrue(proof["contextStable"])
         self.assertEqual(proof["inputs"]["models/gambit/root_signal_retirement.qnt"],

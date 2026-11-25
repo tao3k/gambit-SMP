@@ -108,7 +108,7 @@ quint typecheck models/gambit/ffi_gc_frame_protocol.qnt
 .venv/bin/gambit-smp verify --manifest evidence/scenarios/parallel-gc/runtime-entry.manifest.json --case predicate_lock_retry_rooting --out .cache/runtime-entry-models/service-recheck
 .venv/bin/gambit-smp verify --manifest evidence/scenarios/parallel-gc/runtime-entry.manifest.json --case ffi_gc_frame_protocol --out .cache/runtime-entry-models/nested-recheck
 .venv/bin/gambit-smp check --case ffi_gc_frame_protocol --out .cache/runtime-entry-models/ffi-original-recheck
-.venv/bin/gambit-smp verify --manifest evidence/research/pipe-predicate-sync-participation/retry-rooting.manifest.json --out .cache/runtime-entry-models/retry-original-recheck
+.venv/bin/gambit-smp verify --manifest .cache/research/legacy-evidence/evidence/research/pipe-predicate-sync-participation/retry-rooting.manifest.json --out .cache/runtime-entry-models/retry-original-recheck
 .venv/bin/python -m unittest discover -s tests -p test_runtime_entry_formal.py -v
 .venv/bin/python -m unittest discover -s tests -p test_parallel_gc_evidence_scenario.py -v
 ```

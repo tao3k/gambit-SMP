@@ -18,7 +18,7 @@ File.read(source).scan(/part\s+(\w+):Dependency\s*\{/).flatten.each_with_index d
 end
 %w[sourceLock gateLedger controlReferences controlSelection runtimeAdmitted commitAdmitted].each { |f| queries << [f,"#{ns}::#{f}"] }
 File.write(out+'/native-queries.tsv',queries.map { |x| x.join("\t") }.join("\n")+"\n")
-inputs = File.readlines('evidence/research/modern-c-bootstrap/resize-sysml-inputs.txt',chomp:true)
+inputs = File.readlines('.cache/research/legacy-evidence/evidence/research/modern-c-bootstrap/resize-sysml-inputs.txt',chomp:true)
 inputs += ['dev/refactoring/models/sysml/adoption.sysml',source]
 File.write(out+'/native-model-inputs.txt',inputs.uniq.join("\n")+"\n")
 File.write(out+'/read-native.sh',File.read('dev/modeling/tools/read-vm-resize-native.sh').sub(

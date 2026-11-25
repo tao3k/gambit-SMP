@@ -16,13 +16,13 @@ Companion: [decoding and retirement design](darwin-configured-input-design.md).
 | C7 | Parent patches 0004 and 0015; `tests/check_object_request_cost.sh:1-21,40-43,84-86` | Macro tracking probe and literal-substitution selection; historical harness's explicit dynamic/PIC options and environment scrubbing; script read, not executed |
 | C8 | D1510 static-object-reuse v4 checkpoint | Candidate/default-disabled/production-not-admitted; source-bound historical identities and result limits; cannot promote generated profile |
 
-Direct links: [generated driver](../../../../../.data/ci-source-patch-check/src/gambit/bin/gambuild-C.unix),
-[config.status](../../../../../.data/ci-source-patch-check/src/gambit/config.status),
-[config.log](../../../../../.data/ci-source-patch-check/src/gambit/config.log),
-[header](../../../../../.data/ci-source-patch-check/src/gambit/include/gambit.h),
+Direct links: generated driver (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/bin/gambuild-C.unix`; unavailable in a clean checkout),
+config.status (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/config.status`; unavailable in a clean checkout),
+config.log (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/config.log`; unavailable in a clean checkout),
+header (local execution locator: `../../../../../.data/ci-source-patch-check/src/gambit/include/gambit.h`; unavailable in a clean checkout),
 [producer transport](../../../vendor/gambit/gsc/_gsclib.scm),
 [semantic metadata composition](../../../vendor/gambit/gsc/_t-c-1.scm),
-[Gerbil driver](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss),
+Gerbil driver (local execution locator: `../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss`; unavailable in a clean checkout),
 [D1388](../../../../../patches/gerbil-v19-darwin/receipts/d1388-cc-policy-and-cold-baseline-reconciliation.md),
 [D1510 request cost](../../../../../patches/gerbil-v19-darwin/receipts/d1510-object-request-cost.md),
 [v4 checkpoint](../../../../../patches/gerbil-v19-darwin/receipts/d1510-static-object-reuse-v4-checkpoint.json),

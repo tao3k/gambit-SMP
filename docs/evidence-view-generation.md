@@ -44,6 +44,22 @@ inputs and the expected old output hash. Binding/query validity leaves missing
 requirements and blocked model/runtime obligations open. It is never native
 recovery or build/test admission.
 
+Authored references preserve the loader's `origin`, `validator`, `ranges` and
+`context` fields. In particular, `recorded-cases` validation must survive
+generation: a declared passing result cannot bypass the real record checker.
+An `observed-artifact` is a directly bound read-only observation, including a
+task artifact; it retains byte-currentness checks and grants no execution role.
+
+A historical execution record and the current checkout have different epochs.
+When the claim is that a retained producer recorded an input digest, project
+that exact digest through a checked JSON pointer in the unchanged receipt.
+Preserve the original path/digest and the projection review. This establishes
+the recorded input identity, not availability of historical source bytes or
+correspondence with today's source. Keep current-source and native qualification
+open. Live-source claims, including the Python AST source chain, still require
+the actual source extractor and matching live/snapshot references; they cannot
+be repaired by substituting a recorded digest or refreshing a hash alone.
+
 Use the existing work item and its reusable Evidence process:
 
 ```sh

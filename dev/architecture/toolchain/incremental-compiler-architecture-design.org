@@ -22,9 +22,9 @@ It changes the compiler/build boundary rather than wrapping the same gxc command
 in another pool. Modern generated C remains the mandatory native backend.
 
 [[file:models/sysml/incremental-compiler-architecture.sysml][SysML]] owns six responsibilities, four implementation placements, eight result stages, an eight-node formal
-instance, seven admission gates and six gain cases. [[file:../../modeling/tools/incremental-compiler-study.py][Python]] invokes native SysML,
+instance, seven admission gates and six gain cases. [[file:../../../src/gambit_smp/scientific_incremental_compiler_study.py][Python]] invokes native SysML,
 [[file:../../modeling/ascent/incremental-compiler-architecture.rules.scm][ASCENT]], [[file:../../../models/build/incremental_compiler_architecture.qnt][QNT]] and [[file:../../../models/build/IncrementalCompilerArchitecture.lean][Lean]], generating [[file:incremental-compiler-architecture-matrix.org][the architecture/net-work matrix]] and
-[[file:diagrams/incremental-compiler-architecture.svg][D2]]. [[file:../../../evidence/research/incremental-compiler-architecture/checks.json][Receipts]] separate conditional models, source simulation and native
+[[file:diagrams/incremental-compiler-architecture.svg][D2]]. Receipts (local locator: =../../../.cache/research/legacy-evidence/evidence/research/incremental-compiler-architecture/checks.json=; unavailable in a clean checkout) separate conditional models, source simulation and native
 acceptance. No compiler/runtime implementation, native test or benchmark is run.
 
 * DECISION Gambit foundation, Gerbil implementation
@@ -162,6 +162,44 @@ subform/function incrementalization is NOT presumed sound: hygiene, source ident
 errors and compile-time effects can cross such cuts. The design permits later
 finer queries only after their own observational-equivalence contract. A module
 is a semantic container; it no longer has to be an indivisible scheduling unit.
+
+** DECISION Darwin separates compilation validity from installed image identity
+:PROPERTIES:
+:CUSTOM_ID: darwin-stable-native-publication
+:END:
+
+The [[file:../../../../patches/gerbil-v19-darwin/REFLECTION.md][Bazel Darwin reflection]] records a fixture with 240 native jobs and
+roughly 29 seconds of native work despite a 22 ms dependency graph. The
+[[file:../../../../patches/gerbil-v19-make-completion.md][completion patch]] supplies a useful boundary: =std/make= observes actual backend
+completion and admits the numbered bundles only after all required jobs
+succeed. That receipt answers whether a target finished. Deployment separately
+decides whether the existing installed Mach-O can be left in place. A staging
+copy can preserve completion evidence while creating a fresh file that the
+Darwin loader must encounter again.
+
+| Boundary | Replacement contract | Work removed when inputs agree |
+|---+---+---|
+| Scheme expansion and phase activation | Reuse a validated interface and expansion product with observed dependencies, phase, hygiene lineage and effects. Instantiate executable support and session state where required. | Repeated valid expansion and interface construction, including activation done solely to query dependency metadata |
+| Generated C and native compilation | Consume the existing phase product with the exact configured native request. Give generated C, object and final link separate readiness. Use stable explicit C23 layout and frame consumers where source proves repeated header expansion is removable. | Scheme generation on native-only edits, native compilation for unchanged object inputs, and duplicated preprocessing attributable to retired emission |
+| Native publication and load | Seal the finished image and its signing and load closure at the existing publisher. Resolve unchanged consumers to the already published file. Stage and atomically publish only changed images, and retain old images while readers can still reach them. | Recopying, resigning and replacing unchanged Mach-O files and the first-load work caused by those replacements |
+
+Keep Bazel responsible for scheduled actions and configured tools, =std/make=
+responsible for consumer demand and completion, and the installed publisher
+responsible for the live image map. A completion record or a matching content
+digest alone does not prove unchanged file identity at the loader. Establish
+that by resolving the unchanged published path to the same file throughout
+the no-change publication. Native image identity includes the effective
+architecture, ABI, link dependencies and signing policy. A first installation
+or actual changed image still incurs its own loader work.
+
+The first complete refactoring cut is from backend completion to unchanged
+publication through the existing owner. Its acceptance is zero Mach-O copies,
+replacements and resigns for the no-change install, a leaf change publishing
+only its invalidated image closure, and failed publication preserving the last
+complete image map. These are design gates derived from existing evidence.
+No performance result is attributed to this cut. Macro replay and C23 emission
+remain independently reviewable compiler changes with their own invalidation
+and observational-equivalence requirements.
 
 * RESEARCH Architecture and data contracts
 :PROPERTIES:
@@ -408,7 +446,7 @@ still repeatedly calls the monolithic gxc path does not fulfill this design.
 :CUSTOM_ID: compiler-descriptor-appendix
 :END:
 
-The [[file:../../modeling/tools/inspect-action-descriptors.py][read-only binary adapter]] recovered three return descriptors from the matched
+The [[file:../../../src/gambit_smp/scientific_inspect_action_descriptors.py][read-only binary adapter]] recovered three return descriptors from the matched
 SQLite object/dSYM using native symbol/table layout, chained-fixup format 6 and
 Gambit setup/descriptor definitions. The records are retained with this study.
 L1 has RETI caller-size field 8, link 0, bitmap 0x3f03; L2/L3 have RETN size 5,

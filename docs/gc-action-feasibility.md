@@ -28,7 +28,7 @@ formally verified compiler transformation.
 The necessary coverage query passed in **34.824 seconds** and a terminal-only
 negative control produced a counterexample in **25.973 seconds**. Raw log hashes,
 all three model snapshots and both public IR files are archived in
-`evidence/model-results/gc-necessary-guard-coverage/`. A preceding local-endpoint
+`.cache/research/legacy-evidence/evidence/model-results/gc-necessary-guard-coverage/`. A preceding local-endpoint
 permission failure is separately archived in `gc-necessary-guard-localhost-deny/`;
 no solver result was produced in that attempt.
 
@@ -58,7 +58,7 @@ correspondence argument before it can be called an enabledness theorem.
 
 The conservative coverage query passed in **31.226 seconds**; its terminal-only
 control produced a counterexample in **22.745 seconds**. The archive is
-`evidence/model-results/gc-defined-transition-coverage/`. All 22 original
+`.cache/research/legacy-evidence/evidence/model-results/gc-defined-transition-coverage/`. All 22 original
 branches, the exact generated expressions and the Cartesian generator contract
 were checked; the generator auditor still reports solver coverage unproved.
 This does not retroactively change the earlier guard-only result or its flags.

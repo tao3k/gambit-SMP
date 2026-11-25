@@ -33,10 +33,17 @@ def unique_object(pairs):
     return result
 
 
-def read_json(path):
-    return json.loads(path.read_text(), object_pairs_hook=unique_object,
+def decode_json(raw):
+    """Decode the exact retained UTF-8 bytes with the repository JSON rules."""
+    if isinstance(raw, bytes):
+        raw = raw.decode('utf-8')
+    return json.loads(raw, object_pairs_hook=unique_object,
                       parse_constant=lambda value: (_ for _ in ()).throw(
                           ValueError("nonfinite JSON value: " + value)))
+
+
+def read_json(path):
+    return decode_json(path.read_text())
 
 
 def source_path(root, name):
@@ -165,6 +172,8 @@ def quint_test_inventory(ir, main):
                 selected = item.get("defName")
                 if selected not in (None, "*"):
                     imported = {test for test in imported if test == selected}
+                # quint test runs the imported module's own runs, not that module's imports.
+                imported = {test for test in imported if "::" not in test}
                 qualifier = item.get("qualifiedName")
                 tests.update((qualifier + "::" + test) if qualifier else test for test in imported)
         return tests
@@ -190,23 +199,41 @@ CAPABILITIES = {
 
 from gambit_smp.quint_capabilities import capabilities as quint_capabilities
 CAPABILITIES.update(quint_capabilities(Capability))
+from gambit_smp.lean_capabilities import capabilities as lean_capabilities
+CAPABILITIES.update(lean_capabilities(Capability))
+from gambit_smp.cbmc_capabilities import capabilities as cbmc_capabilities
+CAPABILITIES.update(cbmc_capabilities(Capability))
+from gambit_smp.frama_c_capabilities import capabilities as frama_c_capabilities
+CAPABILITIES.update(frama_c_capabilities(Capability))
+
+from gambit_smp.genmc_capabilities import capabilities as genmc_capabilities
+CAPABILITIES.update(genmc_capabilities(Capability))
 
 from gambit_smp.native_capabilities import capabilities as native_capabilities
 CAPABILITIES.update(native_capabilities(Capability))
 from gambit_smp.source_capabilities import capabilities as source_capabilities
 CAPABILITIES.update(source_capabilities(Capability))
+from gambit_smp.contract_capabilities import capabilities as contract_capabilities
+CAPABILITIES.update(contract_capabilities(Capability))
 from gambit_smp.evidence_capabilities import capabilities as evidence_capabilities
 CAPABILITIES.update(evidence_capabilities(Capability))
 
 
 def load(root, path):
     path = source_path(root, path.relative_to(root).as_posix())
-    recipe = read_json(path)
+    return validate_recipe(root, read_json(path))
+
+
+def validate_recipe(root, recipe):
     fields(recipe, ("schema", "id", "scope", "inputs", "steps"),
            ("budgetSeconds", "timeoutPolicy", "workspacePolicy", "continuationRequest", "continuationLedger", 'buildMigration'))
+    ci_producer = any(s.get('capability') == 'gerbil.build' and s.get('arguments', {}).get('producer') == 'bazel-ci'
+                      for s in recipe.get('steps', []))
+    installed_control = any(s.get('capability') == 'gerbil.test' and 'sourceLock' in s.get('arguments', {})
+                            for s in recipe.get('steps', []))
     policy = recipe.get("timeoutPolicy")
     if policy is None:
-        budget(recipe.get("budgetSeconds"))
+        budget(recipe.get("budgetSeconds"), 24000 if ci_producer else 6200 if installed_control else 600)
     else:
         fields(policy, ("mode", "overheadSeconds"))
         if policy["mode"] not in {"per-stage", "progress"}:
@@ -238,13 +265,15 @@ def load(root, path):
         raise ValueError("bounded nonempty capability graph required")
     by_id = {}
     for step in steps:
-        fields(step, ("id", "capability", "dependsOn", "arguments", "budgetSeconds"))
+        fields(step, ("id", "capability", "dependsOn", "arguments", "budgetSeconds"), ('component',))
         name = step["id"]
         if not isinstance(name, str) or not IDENTIFIER.fullmatch(name) or name in by_id:
             raise ValueError("unique capability step identity required")
         if step["capability"] not in CAPABILITIES:
             raise ValueError("unknown capability; Evidence cannot supply executable code")
-        budget(step["budgetSeconds"], 3600 if policy is not None and policy["mode"] == "progress" else 600)
+        budget(step["budgetSeconds"], 24000 if ci_producer and step['capability'] in {'gerbil.build','gerbil.test'}
+               else 6000 if installed_control and step['capability']=='gerbil.test' and 'sourceLock' in step['arguments']
+               else 3600 if policy is not None and policy["mode"] in {"progress", "per-stage"} else 600)
         if not isinstance(step["dependsOn"], list) or any(not isinstance(item, str) for item in step["dependsOn"]) or len(set(step["dependsOn"])) != len(step["dependsOn"]):
             raise ValueError("unique explicit dependencies required")
         CAPABILITIES[step["capability"]].validate(step["arguments"], inputs)
@@ -274,6 +303,93 @@ def load(root, path):
         caps = [step["budgetSeconds"] for step in ordered]
         recipe["budgetSeconds"] = (max(caps) if policy["mode"] == "progress" else sum(caps)) + policy["overheadSeconds"]
     return recipe, ordered
+
+
+def hang_guard_widening(previous, steps, *, child_steps=None, ceiling=3600):
+    """Raise the hang guard only for the one stage that timed out while working.
+
+    Six hundred seconds prevents a stuck stage. It is not the duration of a
+    two-pass bootstrap. A later attempt may give that same stage a longer guard.
+    A denial, or a raise of any other stage, stays rejected.
+    """
+    recorded = child_steps if child_steps is not None else previous.get("steps") if isinstance(previous, dict) else None
+    timed = [row.get("id") for row in recorded if isinstance(row, dict) and row.get("outcome") == "TIMEOUT"] if isinstance(recorded, list) else []
+    growing = []
+    for step in steps:
+        old = None
+        if isinstance(recorded, list):
+            match = next((row for row in recorded if isinstance(row, dict) and row.get("id") == step["id"]), None)
+            if isinstance(match, dict) and isinstance(match.get("budgetSeconds"), (int, float)):
+                old = match["budgetSeconds"]
+        if old is None and isinstance(previous, dict) and isinstance(previous.get("stepBudgets"), dict):
+            old = previous["stepBudgets"].get(step["id"])
+        if isinstance(old, (int, float)) and step["budgetSeconds"] > old:
+            growing.append((step, old))
+    if not growing:
+        return []
+    # A whole-run timeout can die before the stage receipt is written. The
+    # 600-second value is only the hang guard, so that guard may be raised.
+    if len(timed) == 1:
+        allowed = {timed[0]}
+    elif isinstance(previous, dict) and previous.get("timeout") is True and not timed:
+        allowed = {step["id"] for step, old in growing if old == 600}
+    else:
+        raise ValueError("prior step budget cannot expand")
+    widened = []
+    for step, old in growing:
+        if step["id"] not in allowed or step["budgetSeconds"] > ceiling:
+            raise ValueError("prior step budget cannot expand")
+        widened.append({"step": step["id"], "from": old, "to": step["budgetSeconds"],
+                        "claim": "hang-guard-widened-for-progressing-stage"})
+    return widened
+
+
+def resumable_source_sync(root, receipt):
+    """A finished incremental sync is durable even when the step clock already expired.
+
+    The returned source delta and its recorded phase are the transition. Replaying
+    that same route resumes the owned tree; it does not create a causal input or
+    expand a budget. A command that itself timed out, or any denial, stays closed.
+    """
+    if not isinstance(receipt, dict):
+        return None
+    steps = receipt.get("steps")
+    if receipt.get("schema") != "evidence-recipe-run.v1" or not isinstance(steps, list):
+        return None
+    if any(step.get("outcome") not in {"PASS", "TIMEOUT", "BLOCKED"} for step in steps):
+        return None
+    timed = [step for step in steps if step.get("outcome") == "TIMEOUT"]
+    if len(timed) != 1:
+        return None
+    step = timed[0]
+    delta = step.get("sourceDelta")
+    commands = step.get("commands") or []
+    if (not isinstance(delta, dict) or not isinstance(delta.get("changed"), list)
+            or not isinstance(delta.get("source"), str)
+            or any(row.get("timeout") for row in commands)):
+        return None
+    source = Path(delta["source"])
+    root = Path(root).resolve()
+    if source.is_symlink() or not source.is_dir():
+        return None
+    try:
+        relative_source = source.resolve().relative_to(root)
+    except (OSError, ValueError):
+        return None
+    if ".cache" not in relative_source.parts or "build" not in relative_source.parts:
+        return None
+    state_path = source.parent / "source-state.json"
+    if not state_path.is_file() or state_path.is_symlink():
+        return None
+    try:
+        state = read_json(state_path)
+    except (OSError, ValueError):
+        return None
+    if (state.get("schema") != "incremental-source-state.v1"
+            or state.get("phase") not in {"building", "updating"}):
+        return None
+    return {"step": step["id"], "phase": state["phase"], "changed": len(delta["changed"]),
+            "claim": "recorded-source-sync-not-a-new-causal-route"}
 
 
 def checked_build_migration(root, path, recipe, previous):
@@ -416,16 +532,16 @@ class LeasedTreeChecks:
             self.verify_seconds += time.monotonic() - started
 
 
-def tree_identity(path, *, broken_links=None):
+def tree_identity(path, *, broken_links=None, content_paths=None):
     path = Path(path)
     checks = _leased_tree_checks.get()
-    if checks is not None and broken_links is None and path in checks.roots:
+    if checks is not None and broken_links is None and content_paths is None and path in checks.roots:
         return checks.identity(path)
-    return _tree_identity_uncached(path, broken_links=broken_links)
+    return _tree_identity_uncached(path, broken_links=broken_links, content_paths=content_paths)
 
 
-def _tree_identity_uncached(path, *, broken_links=None):
-    """Bind exact tree inventory, modes and internal links, not just old files."""
+def _tree_identity_uncached(path, *, broken_links=None, content_paths=None):
+    """Validate the full tree structure and hash the requested regular files."""
     result = {}
     root = path.resolve(strict=True)
     for file in sorted(path.rglob("*")):
@@ -443,7 +559,8 @@ def _tree_identity_uncached(path, *, broken_links=None):
                 raise ValueError("artifact tree contains an external symlink")
             result[name] = {"link": os.readlink(file)}
         elif file.is_file():
-            result[name] = {"sha256": digest(file), "mode": file.stat().st_mode & 0o777}
+            if content_paths is None or name in content_paths:
+                result[name] = {"sha256": digest(file), "mode": file.stat().st_mode & 0o777}
         elif file.is_dir():
             result[name] = {"directory": True}
         else:
@@ -567,6 +684,7 @@ class ExecutionContext:
         self.progress_lock = Lock()
         self.extra_inputs = {}
         self.last_stdout = None
+        self.last_stderr = None
         self.workspace_leases = ExitStack()
         self.lease_stack = workspace_scope.leases if workspace_scope is not None else self.workspace_leases
         self.leased_workspaces = workspace_scope.paths if workspace_scope is not None else set()
@@ -625,19 +743,182 @@ class ExecutionContext:
             raise TimeoutError("capability or whole recipe budget exhausted")
         return remaining
 
+    def library(self, identifier):
+        """Instantiate a statically linked scientific dependency, never a path."""
+        from gambit_smp.scientific_catalog import LIBRARIES
+        from gambit_smp.research_flow import EvidenceUnavailable
+        if identifier not in LIBRARIES:
+            raise EvidenceUnavailable('undeclared scientific library: '+str(identifier))
+        if getattr(self,'scientific_active',False) is not True:
+            raise EvidenceUnavailable('scientific library requires its active Recipe owner')
+        self.remaining()
+        return LIBRARIES[identifier](self)
+
+    def library_source(self,identifier):
+        """Resolve source identity from the same closed library catalog."""
+        from gambit_smp.scientific_catalog import LIBRARIES
+        if identifier not in LIBRARIES:raise ValueError('undeclared scientific source identity')
+        return 'src/gambit_smp/scientific_'+identifier+'.py'
+
+    def command(self, name, argv, acceptance=None, *, policy, expected=0, fail=False, env=None, text=True):
+        """One scientific command through typed operations and this deadline."""
+        from gambit_smp.research_flow import EvidenceUnavailable, check_command, _approved_command
+        if getattr(self,'scientific_active',None) is False:
+            raise EvidenceUnavailable('scientific Recipe owner has retired')
+        self.remaining()
+        if self.progress_mode:
+            raise ValueError('scientific commands require a fixed parent deadline')
+        fields(policy,('cap','stream','failure','failParameter','expectedParameter'))
+        if any(type(policy[key]) is not bool for key in ('failParameter','expectedParameter')):
+            raise ValueError('explicit scientific acceptance policy required')
+        if type(text) is not bool:raise ValueError('explicit scientific stream mode required')
+        if policy['stream'] not in {'stdout','stdout-seconds'} or policy['failure'] not in {'runtime','assertion'}:
+            raise ValueError('declared scientific stream and failure contract required')
+        if acceptance is not None:
+            if policy['failParameter'] and type(acceptance) is bool:fail=acceptance
+            elif policy['expectedParameter'] and type(acceptance) is int:expected=acceptance
+            else:raise ValueError('unexpected scientific acceptance argument')
+        if (not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:+-]*',name)
+                or not isinstance(argv,(list,tuple)) or not argv or (expected is not None and type(expected) is not int)
+                or type(fail) is not bool):
+            raise ValueError('explicit bounded scientific command required')
+        cap=budget(policy['cap'],60)
+        native_reference = argv[0] if isinstance(argv[0],dict) else None
+        if native_reference is not None:
+            from gambit_smp.native_capabilities import reference
+            reference(native_reference)
+            if self.receipt.get('executionConfig',{}).get('allowNative') is not True:
+                raise EvidenceUnavailable('native execution requires explicit Recipe admission')
+            if any(type(arg) is not int or abs(arg)>2**31-1 for arg in argv[1:]):
+                raise ValueError('native scientific operands use the bounded native.test integer contract')
+            owner=next((row for row in self.receipt['steps'] if row['id']==self.directory.name),None)
+            if owner is None or native_reference['step'] not in owner['dependsOn']:
+                raise EvidenceUnavailable('native executable requires a declared producer dependency')
+            executable=self.artifact(native_reference,'native-executable')
+            requested=[str(executable),*[str(arg) for arg in argv[1:]]]
+        else:
+            requested=[str(arg) for arg in argv]
+        if native_reference is None:check_command(dict(root=self.root,run=self.directory),requested)
+        assignments=[]
+        while requested and Path(requested[0]).name=='env':
+            requested=requested[1:]
+            while requested and '=' in requested[0] and not requested[0].startswith('-'):
+                assignments.append(requested.pop(0))
+        if not requested:raise ValueError('missing scientific executable')
+        if env is not None:
+            if not isinstance(env,dict):raise ValueError('explicit environment mapping required')
+            assignments.extend(key+'='+value for key,value in env.items() if self.env.get(key)!=value)
+        if any(value.split('=',1)[0] not in {'LEAN_PATH','LC_ALL','TZ'} for value in assignments):
+            raise ValueError('unqualified scientific environment override')
+        tool=Path(requested[0]).name
+        if (len(Path(requested[0]).parts)>1 and tool in self.tools
+                and Path(requested[0]).resolve()!=Path(self.tools[tool]).resolve()):
+            raise EvidenceUnavailable('requested executable differs from its sealed provider: '+tool)
+        if native_reference is not None:
+            actual=requested
+            operation='native.test'
+        elif tool=='quint':
+            from gambit_smp.quint_capabilities import observation_command
+            actual=observation_command(requested[1:],self)
+            operation='quint.observe'
+        elif tool=='lean':
+            from gambit_smp.lean_capabilities import observation_command
+            actual=observation_command(requested[1:],self)
+            operation='lean.check'
+        else:
+            if tool=='gambit-smp':
+                raise EvidenceUnavailable('native/recursive jobs require their declared Recipe capability')
+            if tool not in self.tools:raise EvidenceUnavailable('sealed scientific tool unavailable: '+tool)
+            actual=[self.tools[tool],*requested[1:]]
+            operation='research.audit'
+        if assignments:actual=['/usr/bin/env',*assignments,*actual]
+        work=self.directory/'work';work.mkdir(exist_ok=True)
+        token=_approved_command.set(tuple(actual))
+        try:
+            # Repeated logical labels do not overwrite a prior invocation's
+            # raw process record. The scientific work area exposes its latest
+            # observation; the Recipe ledger retains every distinct command.
+            ordinal=len(self.commands)+1
+            code,_,timeout,seconds=self.run('work/invocation-'+str(ordinal)+'-'+name,
+                                          actual,self.root,cap,capability=operation,text=text)
+        finally:_approved_command.reset(token)
+        process=self.commands[-1]
+        if native_reference is not None:
+            self.artifact(native_reference,'native-executable')
+            process['executableInput']=dict(native_reference)
+        for stream,value in (('stdout',self.last_stdout),('stderr',self.last_stderr)):
+            target=work/(name+'.'+stream)
+            target.write_bytes(value.encode() if text else value)
+        (work/(name+'.command.json')).write_text(json.dumps(requested,indent=2)+'\n')
+        (work/(name+'.status.json')).write_text(json.dumps(dict(exit=code,expected=expected,
+            expectedFailure=fail,timeout=timeout,invocation=ordinal),indent=2)+'\n')
+        if timeout or code is None or not process.get('parentReaped') or not process.get('processGroupQuiescent'):
+            raise EvidenceUnavailable('scientific completion/teardown not established: '+name)
+        if (fail and code<=0) or (not fail and expected is not None and code!=expected):
+            error=AssertionError if policy['failure']=='assertion' else RuntimeError
+            raise error(name+' failed with exit '+str(code))
+        if code!=0:process['expectedExit']=code
+        stdout=self.last_stdout
+        return (stdout,seconds) if policy['stream']=='stdout-seconds' else stdout
+
+    def process(self, argv, *, name, timeout=60, cwd=None, capture_output=False, text=False,
+                check=False, env=None):
+        """Structured process result for scientific inspections, same owner."""
+        import subprocess
+        if cwd is not None and Path(cwd).resolve()!=self.root.resolve():
+            raise ValueError('scientific process cwd must be the declared checkout')
+        self.command(name,argv,policy=dict(cap=timeout,stream='stdout',failure='runtime',
+                     failParameter=False,expectedParameter=False),expected=None,env=env,text=text)
+        stdout,stderr=self.last_stdout,self.last_stderr
+        result=subprocess.CompletedProcess(argv,self.commands[-1]['exit'],
+            stdout,stderr)
+        if check:result.check_returncode()
+        return result
+
+    def output(self, argv, *, name, cwd=None, text=False, timeout=60, env=None):
+        return self.process(argv,name=name,cwd=cwd,text=text,timeout=timeout,env=env,check=True).stdout
+
     def renew_progress(self):
         if self.progress_mode:
             with self.progress_lock:
                 self.deadline = time.monotonic() + self.idle_window
 
-    def run(self, name, argv, cwd, cap, *, diagnostic=None, progress=None, boundary=None):
+    def run(self, name, argv, cwd, cap, *, diagnostic=None, progress=None, boundary=None, capability=None, text=True,
+            rss_limit_bytes=None, cpu_sample=False):
+        from gambit_smp.work_items import require_boundary_context
+        require_boundary_context(self)
+        if type(text) is not bool or (not text and ("engine" not in self.receipt or self.progress_mode)):
+            raise ValueError("binary capture requires the fixed-deadline native owner")
+        if type(cpu_sample) is not bool or (cpu_sample and ("engine" not in self.receipt or self.progress_mode)):
+            raise ValueError("CPU sampling requires the fixed-deadline native owner")
         path = self.directory / (name + ".log")
         checkpoint = self.directory / (name + ".process.json")
         if path.exists() or checkpoint.exists():
             raise ValueError("unique subcommand log required")
         actual = cap if self.progress_mode else min(cap, self.remaining())
+        # Record the Python body actually entered and its immediate caller.
+        # This is dispatch observation, not evidence of child completion.
+        import sys
+        frame = sys._getframe()
+        caller = frame.f_back
+        dispatch = dict(callee=__name__+'.'+frame.f_code.co_qualname,
+            calleeSha256=digest(Path(frame.f_code.co_filename)),
+            caller=caller.f_globals.get('__name__','')+'.'+caller.f_code.co_qualname,
+            callerSha256=digest(Path(caller.f_code.co_filename)),
+            callerLine=caller.f_lineno)
+        del frame, caller
         request = dict(stage=name, argv=[str(arg) for arg in argv], cwd=str(cwd),
-                       effectiveBudgetSeconds=actual, environment=dict(self.env))
+                       effectiveBudgetSeconds=actual, environment=dict(self.env), streamMode="text" if text else "bytes",
+                       dispatch=dispatch)
+        if cpu_sample:
+            request['cpuSampleRequested'] = True
+        if rss_limit_bytes is not None:
+            if type(rss_limit_bytes) is not int or rss_limit_bytes<=0:
+                raise ValueError('positive integer process-group RSS limit required')
+            if 'engine' not in self.receipt:
+                raise ValueError('RSS guard requires native observation transport')
+            request['rssLimitBytes']=rss_limit_bytes
+        if capability is not None:request['capability']=capability
         checkpoint.write_text(json.dumps({"schema": "recipe-process-observation.v1",
             "state": "STARTED", "completionObserved": False, "runtimeAdmitted": False,
             **request}, sort_keys=True, indent=2) + "\n")
@@ -646,6 +927,8 @@ class ExecutionContext:
         if self.receipt.get("journal"):
             from gambit_smp.research_kernel import process_recorder
             recorder = process_recorder(self.root, self.out.parent, self.receipt["journal"], deadline=self.deadline)
+        campaign_clock = getattr(self, "ordered_stress_clock", None)
+        command_started = time.monotonic() if campaign_clock is not None else None
         if "engine" in self.receipt:
             from gambit_smp.process_observation import capture
             completed = [0]
@@ -664,32 +947,51 @@ class ExecutionContext:
                 return count
 
             observation = capture([str(arg) for arg in argv], cwd, actual, self.env,
+                                  **({"rss_limit_bytes":rss_limit_bytes} if rss_limit_bytes is not None else {}),
+                                  **({"cpu_sample": True} if cpu_sample else {}),
+                                  **({"text": False} if not text else {}),
                                   **({"recorder": recorder} if recorder else {}),
                                   **({"boundary": boundary} if boundary is not None else {}),
                                   **({"diagnostic": diagnostic} if diagnostic is not None else {}),
                                   **({"progress": observe} if self.progress_mode and progress is not None else {}))
             code, timeout, seconds = observation.exit, observation.timeout, observation.seconds
             log = observation.stdout + observation.stderr
+            if not text:log = log.decode("utf-8", errors="backslashreplace")
             self.last_stdout = observation.stdout
+            self.last_stderr = observation.stderr
             streams = {"stdout": observation.stdout, "stderr": observation.stderr}
             for stream, value in streams.items():
                 stream_path = self.directory / (name + "." + stream)
-                stream_path.write_text(value)
-                metadata[stream + "Path"] = stream_path.name
+                raw=getattr(observation,'partial_'+stream+'_bytes',None)
+                payload=raw if raw is not None else value.encode() if text else value
+                stream_path.write_bytes(payload)
+                metadata[stream + "Path"] = stream_path.relative_to(self.directory).as_posix()
                 metadata[stream + "Sha256"] = digest(stream_path)
-                metadata[stream + "Bytes"] = len(value.encode())
+                metadata[stream + "Bytes"] = len(payload)
             metadata.update(pid=observation.pid, startedAt=observation.started_at, endedAt=observation.ended_at,
                             parentReaped=observation.exit is not None, processGroupQuiescent=observation.group_quiescent,
                             processGroupProbes=list(observation.group_probes),
+                            streamCaptureComplete=observation.streams_complete,
                             logOrdering="stdout-then-stderr; streams preserved separately")
+            if cpu_sample:
+                metadata['cpuSnapshot'] = observation.cpu_snapshot
+            if rss_limit_bytes is not None:
+                metadata.update(peakGroupRssBytes=observation.peak_group_rss_bytes,
+                    rssLimitExceeded=observation.rss_limit_exceeded,
+                    rssSamplingIntervalSeconds=.05 if boundary is not None else .25,
+                    rssObservationIsHardCap=False)
         else:
             code, log, timeout, seconds = execute([str(arg) for arg in argv], cwd, actual,
                                                 env=self.env, metadata=metadata,
                                                 **({"process_recorder": recorder} if recorder else {}))
             self.last_stdout = log
+            self.last_stderr = ''
+        if campaign_clock is not None:
+            metadata["campaignClock"] = dict(campaign_clock, startedMonotonic=command_started,
+                                            endedMonotonic=time.monotonic(), deadlineMonotonic=self.deadline)
         path.write_text(log)
         record = dict(**request, exit=code, timeout=timeout, seconds=seconds,
-                      log=path.name, logSha256=digest(path), **metadata)
+                      log=path.relative_to(self.directory).as_posix(), logSha256=digest(path), **metadata)
         pending = checkpoint.with_suffix(".pending")
         with pending.open("x") as stream:
             json.dump({"schema": "recipe-process-observation.v1", "state": "OBSERVED",
@@ -703,13 +1005,17 @@ class ExecutionContext:
         self.renew_progress()
         return code, log, timeout, seconds
 
-    def require(self, name, argv, cwd, cap, *, diagnostic=None, progress=None, boundary=None):
+    def require(self, name, argv, cwd, cap, *, diagnostic=None, progress=None, boundary=None,
+                rss_limit_bytes=None):
         code, log, timeout, _ = self.run(name, argv, cwd, cap,
+                                       **({"rss_limit_bytes":rss_limit_bytes} if rss_limit_bytes is not None else {}),
                                        **({"boundary": boundary} if boundary is not None else {}),
                                   **({"diagnostic": diagnostic} if diagnostic is not None else {}),
                                        **({"progress": progress} if progress is not None else {}))
         if timeout:
             raise TimeoutError(name + " timed out")
+        if self.commands[-1].get("rssLimitExceeded"):
+            raise ValueError(name + " exceeded the process-group RSS limit")
         if code != 0:
             raise ValueError(name + " failed with exit " + str(code))
         return self.last_stdout
@@ -799,7 +1105,7 @@ def authorization_repair(receipt, allow_native, gcc):
             and config.get("allowNative", False) is False)
 
 
-def preserved_successor(root, out, steps, index, path, *, input_bindings=None):
+def preserved_successor(root, out, steps, index, path, *, input_bindings=None, repaired_inputs=None):
     """Recognize a checked completed-seed handoff, never an arbitrary copy."""
     if root is None:
         return False
@@ -855,14 +1161,15 @@ def preserved_successor(root, out, steps, index, path, *, input_bindings=None):
                 or hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest() != transfer["identitySha256"]):
             raise ValueError("completed preservation identity differs")
         from gambit_smp.artifact_storage import checked_workspace_state
-        checked_workspace_state(root, saved["stateEvidence"], identity, input_bindings=input_bindings)
+        checked_workspace_state(root, saved["stateEvidence"], identity, input_bindings=input_bindings,
+                                repaired_inputs=repaired_inputs)
         if tree_identity(path) == identity and tree_identity(destination) == identity:
             return all(not os.path.samefile(path / name, destination / name)
                        for name, entry in identity.items() if "sha256" in entry)
     return False
 
 
-def inspect_outputs(out, steps, *, root=None, input_bindings=None):
+def inspect_outputs(out, steps, *, root=None, input_bindings=None, repaired_inputs=None):
     """Inspect disposable output availability separately from evidence binding."""
     rows = []
     for index, step in enumerate(steps):
@@ -884,7 +1191,7 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
                 if "stateEvidence" in descriptor and root is not None:
                     from gambit_smp.artifact_storage import checked_workspace_state
                     checked_workspace_state(root, descriptor["stateEvidence"], descriptor["identity"],
-                                            input_bindings=input_bindings)
+                                            input_bindings=input_bindings, repaired_inputs=repaired_inputs)
                     custody_state = "VERIFIED"
                     successors = [item for later in steps[index + 1:] if later.get("outcome") == "PASS"
                                   for item in later.get("outputs", {}).values()
@@ -894,7 +1201,8 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
                             tree_identity(path) == successor.get("identity") for successor in successors):
                         state = "RETAINED"
                     if state == "MODIFIED" and preserved_successor(
-                            root, out, steps, index, path, input_bindings=input_bindings):
+                            root, out, steps, index, path, input_bindings=input_bindings,
+                            repaired_inputs=repaired_inputs):
                         state = "RETAINED"
             except (KeyError, TypeError, ValueError, OSError) as error:
                 state = "UNKNOWN"
@@ -956,10 +1264,56 @@ def inspect_run(out, *, input_bindings=None):
             "runtimeAdmitted": False, "releaseAdmitted": False, "executionAuthorized": False}
 
 
+def checkpoint_reuse_plan(steps, records, consumable, *, same_executor):
+    """Explain the existing reuse checks without granting new reuse authority."""
+    from gambit_smp.step_checkpoint import content_id
+    observed = {entry['payload']['step']['id']: entry['payload']['step'] for entry in records
+                if entry['payload'].get('schema') == 'research-step-observation.v1'}
+    eligible = set(map(tuple, consumable))
+    retained, decisions = {}, []
+    for step in steps:
+        prior = observed.get(step['id'])
+        changed = ([key for key in ('capability', 'arguments', 'dependsOn', 'budgetSeconds')
+                    if prior.get(key) != step.get(key)] if prior is not None else [])
+        dependencies = [name for name in step['dependsOn'] if name not in retained]
+        if prior is None:
+            reason = 'NO_PRIOR_STAGE'
+        elif prior.get('outcome') != 'PASS':
+            reason = 'PRIOR_NOT_PASS'
+        elif 'orderedStress' in step.get('arguments', {}):
+            reason = 'ORDERED_CAMPAIGN_REQUIRES_FRESH_CLOCK'
+        elif changed:
+            reason = 'STAGE_CONTRACT_CHANGED'
+        elif not same_executor:
+            reason = 'EXECUTOR_CHANGED'
+        elif (step['id'], content_id(prior)) not in eligible:
+            reason = 'CHECKPOINT_NOT_CONSUMABLE'
+        elif dependencies:
+            reason = 'DEPENDENCY_NOT_REUSED'
+        else:
+            reason = 'REUSE'
+            retained[step['id']] = prior
+        decision = dict(step=step['id'], capability=step['capability'], reason=reason,
+                        changedContractFields=changed, dependenciesNotReused=dependencies)
+        if prior is not None:
+            decision.update(priorOutcome=prior.get('outcome'), priorStageSeconds=prior.get('stageSeconds'))
+            if prior.get('outcome') == 'PASS' and reason != 'REUSE':
+                transport = {'gambit.source-core': 'gambit.runtime-import',
+                             'gambit.bootstrap': 'gambit.completed-runtime',
+                             'gambit.seed-core': 'gambit.seed-checkpoint'}.get(prior['capability'])
+                if transport:
+                    decision['checkedTransportCapability'] = transport
+                    decision['transportAdmitted'] = False
+        decisions.append(decision)
+    return retained, decisions
+
+
 def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=False, engine=None, deadline=None, journal=None,
         budget_reservation=None, resume_prefix=None):
     from gambit_smp import host_environment
     recipe, steps = load(root, path)
+    from gambit_smp.work_items import check_recipe_boundary
+    work_item_boundary = check_recipe_boundary(root, recipe, steps)
     from gambit_smp.research_kernel import require_incremental_builds
     require_incremental_builds(recipe, steps)
     progress_mode = recipe.get("timeoutPolicy", {}).get("mode") == "progress"
@@ -980,6 +1334,7 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                            Path(__file__).with_name("native_capabilities.py"),
                            Path(__file__).with_name("source_capabilities.py"), Path(sys.executable).resolve()])
     receipt = {"schema": "evidence-recipe-run.v1", "recipe": recipe["id"], "scope": recipe["scope"],
+               "workItemBoundary": work_item_boundary,
                "budgetSeconds": recipe["budgetSeconds"], "inputs": inputs, "steps": [],
                "declaredInputs": recipe["inputs"],
                "plannedSteps": steps,
@@ -1053,6 +1408,19 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                 **({"configure_bindings": engine_identity["hostTools"]} if engine_identity is not None else {}))
             paths.extend(native_tools.values())
             receipt["tools"].update({name: str(value) for name, value in native_tools.items()})
+            if engine_identity is not None:
+                if 'wpRuntime' in engine_identity and any(s['capability'] == 'c.frama-c' for s in steps):
+                    receipt['wpRuntime'] = engine_identity['wpRuntime']
+                    paths.extend(Path(value['path']) for name, value in engine_identity['hostTools'].items()
+                                 if name.startswith('wp-bin:') or name == 'wp-config')
+                if 'genmcRuntime' in engine_identity and any(s['capability'] == 'c.genmc' for s in steps):
+                    receipt['genmcRuntime'] = engine_identity['genmcRuntime']
+                    paths.extend(Path(value['path']) for name, value in engine_identity['hostTools'].items()
+                                 if name.startswith('genmc-'))
+                for name in ('cbmc','z3','darwinSample','lean','d2','emacs','rg','git','uname','file','nm','otool','dwarfdump','strings','quint','node'):
+                    binding=engine_identity['hostTools'].get(name)
+                    if binding is not None:
+                        receipt['tools'][name]=binding['path'];paths.append(Path(binding['path']))
             inputs.update(fingerprints(implementation_files(steps)))
             receipt["environment"] = environment
         tools = fingerprints(paths)
@@ -1067,26 +1435,26 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
         retained = {}
         if prior is not None and journal is not None:
             from gambit_smp.reasoning_history import read_execution_checkpoint
-            from gambit_smp.step_checkpoint import recovered_resumption, content_id
+            from gambit_smp.step_checkpoint import recovered_resumption
             prefix = read_execution_checkpoint(root, prior.parent)
             if prefix["records"]:
                 state = recovered_resumption(root, prior.parent)
                 if resume_prefix is not None and state["resumption"]["prefixIdentity"] != resume_prefix:
                     raise ValueError("resumption prefix changed before consumption")
-                eligible = set(state["resumption"]["relations"]["consumable"])
                 same_executor = prefix['records'][0]['payload'].get('engineId') == engine_identity['engineId']
                 # Old output bytes remain evidence, but a corrected adapter
                 # cannot silently reuse the old adapter's execution result.
                 # Explicit completed-runtime transport revalidates compiled
                 # payloads separately; history and expenditure are retained.
-                if not same_executor:eligible = set()
-                retained = {entry["payload"]["step"]["id"]: entry["payload"]["step"]
-                            for entry in prefix["records"]
-                            if entry["payload"].get("schema") == "research-step-observation.v1"
-                            and (entry["payload"]["step"]["id"], content_id(entry["payload"]["step"])) in eligible}
+                retained, decisions = checkpoint_reuse_plan(steps, prefix['records'],
+                    state['resumption']['relations']['consumable'], same_executor=same_executor)
                 receipt["checkpointConsumption"] = {"run": str(prior.parent.relative_to(root)),
                     "prefixIdentity": state["resumption"]["prefixIdentity"], "reusedSteps": [],
-                    'sameExecutor': same_executor}
+                    'sameExecutor': same_executor, 'steps': decisions}
+                # Retain the plan before any capability can enter Make, even
+                # if the process is interrupted before the aggregate receipt.
+                (out / 'checkpoint-consumption.json').write_text(
+                    json.dumps(receipt['checkpointConsumption'], sort_keys=True, indent=2) + '\n')
         if prior is not None and resume_prefix is None:
             previous = read_json(prior / "receipt.json")
             migration = checked_build_migration(root, path, recipe, previous) if previous.get('recipe') != recipe['id'] else None
@@ -1101,20 +1469,27 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
             repaired_environment = host_environment.repaired(previous, receipt["hostEnvironment"], fresh_attempt=True)
             previous_budgets = {step["id"]: step["budgetSeconds"] for step in previous["steps"]}
             previous_arguments = {step["id"]: step.get("arguments", {}) for step in previous["steps"]}
+            widened = hang_guard_widening(previous, steps)
             if ("timeoutPolicy" not in recipe and recipe["budgetSeconds"] > previous["budgetSeconds"]) or any(
-                    step["id"] in previous_budgets and (step["budgetSeconds"] > previous_budgets[step["id"]]
-                        or ("batchBudgetSeconds" in previous_arguments[step["id"]]
-                            and step["arguments"].get("batchBudgetSeconds", 0) > previous_arguments[step["id"]]["batchBudgetSeconds"]))
+                    step["id"] in previous_arguments and "batchBudgetSeconds" in previous_arguments[step["id"]]
+                    and step["arguments"].get("batchBudgetSeconds", 0) > previous_arguments[step["id"]]["batchBudgetSeconds"]
                     for step in steps):
                 raise ValueError("prior failure cannot be retried by expanding a budget")
+            source_resume = (resumable_source_sync(root, previous)
+                             if previous["outcome"] != "PASS" and not delta and not tool_delta
+                             and not repaired_authorization and not repaired_environment else None)
             if (previous["outcome"] != "PASS" and not delta and not tool_delta
-                    and not repaired_authorization and not repaired_environment):
+                    and not repaired_authorization and not repaired_environment and source_resume is None):
                 raise ValueError("unchanged failed recipe; no causal input/tool delta")
             receipt["prior"] = {"receiptSha256": digest(prior / "receipt.json"),
                                 "changedInputs": delta, "changedTools": tool_delta,
                                 "toolObservation": "absent-preflight" if previous_tools is None else "observed",
                                 "authorizationRepaired": repaired_authorization,
                                 "environmentRepaired": repaired_environment}
+            if source_resume is not None:
+                receipt["prior"]["sourceSyncResumption"] = source_resume
+            if widened:
+                receipt["prior"]["hangGuardWidened"] = widened
             if repaired_environment:
                 receipt["prior"]["environmentPriorExpenditure"] = {
                     "budgetSeconds": previous["budgetSeconds"], "wholeSeconds": previous["wholeSeconds"],
@@ -1165,8 +1540,12 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                     context.planned_steps = tuple(steps)
                     validation_before = context.leased_tree_checks.costs()
                     try:
+                        from gambit_smp.work_items import require_boundary_context
+                        require_boundary_context(context)
                         result.update(capability.executor(step["arguments"], context))
-                        context.remaining()
+                        # A returned executor finished its transition. The deadline
+                        # stops the next operation inside the executor; it does not
+                        # relabel a completed result as a timeout.
                         if any(row["exit"] != row.get("expectedExit", 0) or row["timeout"] for row in context.commands):
                             raise ValueError("native subcommand did not complete successfully")
                         if any(row.get("processGroupQuiescent") is False for row in context.commands):
@@ -1174,7 +1553,6 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                         if fingerprints(Path(name) for name in context.extra_inputs) != context.extra_inputs:
                             raise ValueError("native observed input drift")
                         context.leased_tree_checks.verify()
-                        context.remaining()
                         result["outcome"] = "PASS"
                     except TimeoutError as error:
                         result.update(outcome="TIMEOUT", reason=str(error))

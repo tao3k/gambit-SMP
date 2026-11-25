@@ -1,0 +1,209 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-vm-entry-shutdown",
+  "scope": "Quint controls for one VM kernel entry, one same-storage constructor retry, one processor retirement, one resize grace, and one shutdown seal: two participants are not a CPU count, publication failure is catch-up allocation rather than a terminal seal, a lease is not a C memory model, and shutdown is terminal for this generation. Not a GSI trace, native admission, or the 295/300 campaign.",
+  "budgetSeconds": 240,
+  "inputs": [
+    "models/gambit/vm_kernel_entry_lifecycle.qnt",
+    "models/gambit/vm_constructor_same_storage_retry.qnt",
+    "models/gambit/vm_registry_processor_retirement.qnt",
+    "models/gambit/vm_registry_resize_grace.qnt",
+    "models/gambit/vm_registry_shutdown_seal.qnt",
+    "models/gambit/pstate_setup_transaction.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-vm-entry-shutdown/binding.json",
+    "evidence/fixtures/dev-vm-entry-shutdown/observations.json",
+    "evidence/fixtures/dev-vm-entry-shutdown/vm.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "kernel-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt"
+      }
+    },
+    {
+      "id": "kernel",
+      "capability": "quint.test",
+      "dependsOn": [
+        "kernel-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "kernel-parse",
+        "main": "vm_kernel_entry_lifecycle",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "independentCohortsTest",
+          "missingTlsControlTest",
+          "borrowedModuleControlTest",
+          "crossVmRootControlTest",
+          "wrongPstateArgumentControlTest",
+          "failedJoinRetainsOwnershipTest",
+          "prematureCleanupControlTest"
+        ]
+      }
+    },
+    {
+      "id": "retry-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/vm_constructor_same_storage_retry.qnt"
+      }
+    },
+    {
+      "id": "retry",
+      "capability": "quint.test",
+      "dependsOn": [
+        "retry-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/vm_constructor_same_storage_retry.qnt",
+        "parsed": "retry-parse",
+        "main": "vm_constructor_same_storage_retry",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "nativeOSFailureSameStorageRetryTest",
+          "redundantSetupControlTest"
+        ]
+      }
+    },
+    {
+      "id": "proc-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/vm_registry_processor_retirement.qnt"
+      }
+    },
+    {
+      "id": "proc",
+      "capability": "quint.test",
+      "dependsOn": [
+        "proc-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/vm_registry_processor_retirement.qnt",
+        "parsed": "proc-parse",
+        "main": "vm_registry_processor_retirement",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "earlyCleanupControlTest",
+          "leaseDrainTest",
+          "lateReaderTest"
+        ]
+      }
+    },
+    {
+      "id": "grace-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt"
+      }
+    },
+    {
+      "id": "grace",
+      "capability": "quint.test",
+      "dependsOn": [
+        "grace-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "grace-parse",
+        "main": "vm_registry_resize_grace",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "cachedCountControlTest",
+          "earlyCloseControlTest",
+          "admittedReaderTest",
+          "lateReaderTest"
+        ]
+      }
+    },
+    {
+      "id": "seal-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/vm_registry_shutdown_seal.qnt"
+      }
+    },
+    {
+      "id": "seal",
+      "capability": "quint.test",
+      "dependsOn": [
+        "seal-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/vm_registry_shutdown_seal.qnt",
+        "parsed": "seal-parse",
+        "main": "vm_registry_shutdown_seal",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "writerReopenControlTest",
+          "terminalSealTest",
+          "admittedReaderShutdownTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "kernel-parse",
+        "kernel",
+        "retry-parse",
+        "retry",
+        "proc-parse",
+        "proc",
+        "grace-parse",
+        "grace",
+        "seal-parse",
+        "seal"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-vm-entry-shutdown/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

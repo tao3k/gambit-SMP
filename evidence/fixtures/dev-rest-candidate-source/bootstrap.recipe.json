@@ -1,0 +1,163 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-rest-candidate-bootstrap",
+  "scope": "Locked current Gambit working tree against 6c17d190, qualified profile, then the existing two-pass bootstrap. Each stage keeps its own budget so from-scratch is not cut by earlier stages. This receipt is a candidate producer attempt. It is not family acceptance and does not move the 5/12 ledger.",
+  "timeoutPolicy": {
+    "mode": "per-stage",
+    "overheadSeconds": 30
+  },
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/dev-rest-candidate-source/source.lock.json",
+    "patches/fixtures/dev-rest-candidate-source.patch",
+    "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/native-failures.json",
+    "evidence/dsl/suite-review-rules.ss",
+    "evidence/fixtures/dev-rest-candidate-source/binding.json",
+    "evidence/fixtures/dev-rest-candidate-source/observations.json",
+    "evidence/fixtures/dev-rest-candidate-source/bootstrap-review.json",
+    "evidence/fixtures/dev-rest-candidate-source/bootstrap-review-evidence.json"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-rest-candidate-source/source.lock.json",
+        "buildWorkspace": "gambit-core"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "buildProfile": "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json"
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "source-core",
+      "capability": "gambit.source-core",
+      "dependsOn": [
+        "seed"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "review",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "source-core"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "intent": "evidence/fixtures/dev-rest-candidate-source/bootstrap-review.json",
+        "target": "bootstrap",
+        "failureIds": [
+          "018-bootstrap-budget",
+          "019-bootstrap-budget",
+          "023-bootstrap-budget"
+        ]
+      }
+    },
+    {
+      "id": "bootstrap",
+      "capability": "gambit.bootstrap",
+      "dependsOn": [
+        "source-core",
+        "review"
+      ],
+      "budgetSeconds": 1800,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/dsl/suite-review-rules.ss",
+        "retryReview": {
+          "step": "review",
+          "output": "review"
+        }
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "source-core",
+        "review",
+        "bootstrap"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-rest-candidate-source/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

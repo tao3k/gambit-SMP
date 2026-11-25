@@ -2,13 +2,15 @@
 (define-evidence (project-checkpoint)
   (sources requirement dependency contract receipt verified
            support_declaration support_witness required_command
-           binding required_binding current_binding command command_observation
+           current_binding binding_group receipt_binding_group support_binding_group
+           command command_observation
            prerequisite quiescent material available withdrawn
            required_step recorded_failure campaign_pass receipt_checked
            output_retained execution_quiescent campaign_required campaign_enumerated
            execution_location execution_process execution_end execution_sample execution_custody)
   (outputs clue factor link)
   (include evidence-checkpoint-fragment)
+  (include checkpoint-binding-group-fragment)
   (include execution-observation-fragment)
   (fact (completed_outcome (lit "PASS")))
   (relation required_step (step))

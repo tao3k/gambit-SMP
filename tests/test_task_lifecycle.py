@@ -139,16 +139,37 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual([('unresolved', None)], con.execute('SELECT * FROM requests').fetchall())
         self.assertEqual('open', json.loads(w.paths(self.root, 'repair')[0].read_text())['state'])
 
-    def test_uncertain_attempt_requires_reconciliation_not_automatic_retry(self):
+    def test_live_supervisor_is_not_auto_repaired(self):
+        w.start(self.root, 'repair', adopt=True)
+        record, _, _ = w.paths(self.root, 'repair')
+        value = json.loads(record.read_text())
+        run_id = 'a' * 32
+        value.update(execution='running', run=run_id)
+        w.write(record, value)
+        run = self.root / '.state/task-runs/repair' / (run_id + '.json')
+        run.parent.mkdir(parents=True)
+        w.write(run, dict(schema=1, custodyProtocol=3, task='repair', run=run_id,
+                          state='running', supervisorPid=os.getpid()))
+        with patch.object(w, 'active_paths', return_value=[]):
+            with self.assertRaisesRegex(ValueError, 'task supervisor still alive'):
+                w.execute(self.root, 'repair', [sys.executable, '-c', 'pass'])
+        self.assertEqual('running', json.loads(record.read_text())['execution'])
+
+    def test_dead_attempt_is_reconciled_without_replay(self):
         w.start(self.root, 'repair', adopt=True)
         with self.assertRaises(FileNotFoundError):
             w.execute(self.root, 'repair', ['/nonexistent-task-executable'])
-        with self.assertRaisesRegex(ValueError, 'explicit workspace resume'):
-            w.execute(self.root, 'repair', [sys.executable, '-c', 'pass'])
-        with patch.object(w, 'active_paths', return_value=[]): w.resume(self.root, 'repair')
-        self.assertEqual(0, w.execute(self.root, 'repair', [sys.executable, '-c', 'pass']))
+        with patch.object(w, 'active_paths', return_value=[]):
+            self.assertEqual(0, w.execute(self.root, 'repair', [sys.executable, '-c', 'pass']))
+        repaired = json.loads(w.paths(self.root, 'repair')[0].read_text())
+        self.assertEqual('returned', repaired['execution'])
+        self.assertFalse(repaired['autoRepair']['replayed'])
+        self.assertFalse(repaired['autoRepair']['nativeAdmitted'])
         runs = [json.loads(p.read_text()) for p in (self.root / '.state/task-runs/repair').glob('*.json')]
         self.assertEqual({'interrupted', 'returned'}, {row['state'] for row in runs})
+        interrupted = next(row for row in runs if row['state'] == 'interrupted')
+        self.assertTrue(interrupted['autoRepair'])
+        self.assertFalse(interrupted['reconciliation']['nativeAdmitted'])
 
     def test_cleanup_manifest_cannot_delete_subsequently_adopted_dependency(self):
         w.start(self.root, 'repair', adopt=True)
