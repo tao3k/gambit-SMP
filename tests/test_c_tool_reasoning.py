@@ -1,22 +1,54 @@
 """Existing ASCENT Tool Reasoning offers source tools without scheduling them."""
 import copy
+import json
+from pathlib import Path
+import shutil
+import tempfile
 import unittest
 from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load
-from gambit_smp.framework import ROOT
+from gambit_smp.framework import ROOT, digest
 
 
 class CToolReasoningTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.document, cls.facts, cls.catalog, _ = load(
-            ROOT, 'evidence/scenarios/tool-reasoning/c-contracts.view.json')
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name).resolve()
+        view_rel = 'evidence/scenarios/tool-reasoning/c-contracts.view.json'
+        doc = json.loads((ROOT / view_rel).read_text())
+        manifest_rel = doc['manifest']
+        manifest_dst = root / manifest_rel
+        manifest_dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / manifest_rel, manifest_dst)
+        manifest_data = json.loads(manifest_dst.read_text())
+        for comp in manifest_data.get('components', []):
+            src_rel = comp['source']
+            if not src_rel.startswith('package:'):
+                comp_src = (ROOT / manifest_rel).parent / src_rel
+                comp_dst = manifest_dst.parent / src_rel
+                comp_dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(comp_src, comp_dst)
+        for ref in doc['references']:
+            dst = root / ref['path']
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if (ROOT / ref['path']).is_file():
+                shutil.copyfile(ROOT / ref['path'], dst)
+                ref['sha256'] = digest(dst)
+            else:
+                dst.write_text(json.dumps({'tool': 'frama-c', 'environment': 'synthetic-opam'}) + '\n')
+                ref['sha256'] = digest(dst)
+        view_dst = root / view_rel
+        view_dst.parent.mkdir(parents=True, exist_ok=True)
+        view_dst.write_text(json.dumps(doc))
+        cls.document, cls.facts, cls.catalog, _ = load(root, view_rel)
         cls.context=engine_api()
         cls.engine,_=cls.context.__enter__()
 
     @classmethod
     def tearDownClass(cls):
         cls.context.__exit__(None,None,None)
+        cls.tmp.cleanup()
 
     def infer(self, **changes):
         return evaluate(self.engine,{**copy.deepcopy(self.facts),**changes},

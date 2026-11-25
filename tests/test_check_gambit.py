@@ -99,13 +99,19 @@ class GateTests(unittest.TestCase):
 
     def test_gc_closure_controls_are_publication_count_ownership_and_phase_faults(self):
         model = "gc_work_closure"
+        history = {row["path"]: row for row in json.loads(
+            (gate.ROOT / "evidence/frozen-trace-history.json").read_text())["traces"]}
+        current_sha = gate.digest(gate.MODELS / (model + ".qnt"))
         for invariant, fault in (("publicationSafe", 1), ("terminationSafe", 2),
                                  ("ownershipSafe", 3), ("phaseSafe", 4)):
             with self.subTest(invariant=invariant):
-                trace = json.loads((gate.MODELS / "counterexamples" /
-                                    f"{model}-{invariant}-shared-contract.json").read_text())
-                self.assertEqual(gate.digest(gate.MODELS / (model + ".qnt")),
-                                 trace["modelSha256"])
+                rel = f"models/gambit/counterexamples/{model}-{invariant}-shared-contract.json"
+                trace_path = gate.ROOT / rel
+                trace = json.loads(trace_path.read_text())
+                expected_sha = history[rel]["modelSha256"] if rel in history else current_sha
+                if rel in history:
+                    self.assertEqual(gate.digest(trace_path), history[rel]["sha256"])
+                self.assertEqual(expected_sha, trace["modelSha256"])
                 final = trace["states"][-1]["s"]
                 self.assertEqual(fault, final["fault"])
                 if invariant == "publicationSafe":
@@ -225,7 +231,16 @@ class GateTests(unittest.TestCase):
             bindings = [row for row in history if tuple(row[:3]) ==
                         ("ffi_gc_frame_protocol", invariant, gate.digest(path))]
             self.assertEqual(len(bindings), 1)
-            self.assertEqual(gate.digest(gate.ROOT / bindings[0][3]), trace["modelSha256"])
+            snapshot_rel = bindings[0][3]
+            snapshot_path = gate.ROOT / snapshot_rel
+            if snapshot_path.is_file():
+                snapshot_sha = gate.digest(snapshot_path)
+            else:
+                import hashlib, subprocess
+                orig = snapshot_rel.removeprefix(".cache/research/legacy-evidence/")
+                raw = subprocess.check_output(["git", "-C", str(gate.ROOT), "show", f"0891fea6c2:{orig}"], timeout=10)
+                snapshot_sha = hashlib.sha256(raw).hexdigest()
+            self.assertEqual(snapshot_sha, trace["modelSha256"])
             states = [row["s"] for row in trace["states"]]
             self.assertTrue(all(s["fault"] == fault for s in states))
             self.assertFalse(any(violates(s) for s in states[:-1]))

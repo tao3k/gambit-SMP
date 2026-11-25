@@ -1,0 +1,97 @@
+{
+  "prefix": ".cache/research/legacy-evidence/evidence/model-results/model-progress/sync_resource_users",
+  "files": {
+    "blocked.qnt": "module sync_resource_users {\n  // One external sender and one receiver/waiter; successful and failed setup.\n  // Destroy/reinitialize is only a candidate protocol, not a source repair.\n  type State = { fault: int, outcome: int, phase: int, sealed: bool,\n    mutexLive: bool, cvLive: bool, sender: int, waiter: int, flag: bool,\n    badHolder: bool, badWaiter: bool, badSignal: bool,\n    badAdmission: bool, badRollback: bool }\n  var s: State\n  pure def initialState(fault: int, outcome: int): State = {\n    fault: fault, outcome: outcome, phase: 0, sealed: false,\n    mutexLive: true, cvLive: false, sender: 0, waiter: 0, flag: false,\n    badHolder: false, badWaiter: false, badSignal: false,\n    badAdmission: false, badRollback: false,\n  }\n  action initOld = any { s' = initialState(1, 0), s' = initialState(1, 1) }\n  action initWaiter = any { s' = initialState(2, 0), s' = initialState(2, 1) }\n  action initSignal = any { s' = initialState(3, 0), s' = initialState(3, 1) }\n  action initAdmission = any { s' = initialState(4, 0), s' = initialState(4, 1) }\n  action initRollback = any { s' = initialState(5, 0), s' = initialState(5, 1) }\n  action initFixed = any { s' = initialState(0, 0), s' = initialState(0, 1) }\n\n  // Mutex initialization succeeded; condition initialization may fail.\n  action setup = all {\n    s.phase == 0,\n    s' = { ...s, phase: if (s.outcome == 0) 1 else 3,\n                 cvLive: s.outcome == 0 },\n  }\n  action rollback = all {\n    s.phase == 3,\n    s' = { ...s, phase: 4, sealed: true, mutexLive: s.fault == 5,\n                 badRollback: s.fault == 5 },\n  }\n  val senderHolds = s.sender == 1 or s.sender == 2\n  val waiterHolds = s.waiter == 1 or s.waiter == 3\n  val holders = senderHolds or waiterHolds\n  val waiters = s.waiter == 2\n  val signalers = s.sender == 3\n\n  action beginSend = all {\n    s.phase == 1, not(s.sealed), s.sender == 0, not(waiterHolds),\n    s' = { ...s, sender: 1 },\n  }\n  action publish = all {\n    s.sender == 1,\n    s' = { ...s, sender: 2, flag: true },\n  }\n  action unlock = all {\n    s.sender == 2,\n    s' = { ...s, sender: 3 },\n  }\n  action signal = all {\n    s.sender == 3,\n    s' = { ...s, sender: 4, badSignal: s.badSignal or not(s.cvLive) },\n  }\n  action beginWait = all {\n    s.phase == 1 or s.phase == 2, not(s.sealed),\n    s.waiter == 0, not(senderHolds), s.mutexLive, s.cvLive,\n    s' = { ...s, waiter: 1,\n      badAdmission: s.badAdmission or s.phase == 2 },\n  }\n  // Condition wait atomically releases the lock; predicate loop is assumed.\n  action sleep = all {\n    s.waiter == 1, not(s.flag), s' = { ...s, waiter: 2 },\n  }\n  action predicateReady = all {\n    s.waiter == 1, s.flag, s' = { ...s, waiter: 3 },\n  }\n  action wake = all {\n    s.waiter == 2, s.flag, not(senderHolds),\n    s' = { ...s, waiter: 3 },\n  }\n  action leaveWait = all {\n    s.waiter == 3, s' = { ...s, waiter: 4 },\n  }\n  // Fast-path retirement may happen while the publisher still holds the lock.\n  action retire = all {\n    s.phase == 1, s.flag,\n    s' = { ...s, phase: 2, sealed: s.fault != 4 },\n  }\n  action destroy = all {\n    s.phase == 2,\n    not(holders) or s.fault == 1,\n    not(waiters) or s.fault == 2,\n    not(signalers) or s.fault == 3,\n    s' = { ...s, phase: 4, mutexLive: false, cvLive: false,\n      badHolder: s.badHolder or holders,\n      badWaiter: s.badWaiter or waiters,\n      badSignal: s.badSignal or signalers },\n  }\n  action finished = all { s.phase == 4, s' = s }\n  action step = any { setup, rollback, beginSend, publish, unlock, signal,\n    beginWait, sleep, predicateReady, wake, leaveWait, retire, destroy, finished }\n  val holderSafe = not(s.badHolder)\n  val waiterSafe = not(s.badWaiter)\n  val signalSafe = not(s.badSignal)\n  val admissionSafe = not(s.badAdmission)\n  val rollbackSafe = not(s.badRollback)\n  val safe = holderSafe and waiterSafe and signalSafe and admissionSafe and rollbackSafe\n\n  // Verification-only overlay; the original state transitions are unchanged.\n  val obligationTerminal = s.phase == 4\n  action obligationStep = all { not(true and (s.phase == 2 and s.sender == 2)), step }\n  val obligationEnabled = obligationTerminal or enabled(obligationStep)\n  temporal obligationProgress = always(obligationEnabled) and\n    weakFair(obligationStep, Set(s)).implies(eventually(obligationTerminal))\n}\n",
+    "blocked.trace.json": "{\n  \"schema\": \"gambit-smp-counterexample.v1\",\n  \"states\": [\n    {\n      \"s\": {\n        \"fault\": 0,\n        \"outcome\": 0,\n        \"phase\": 0,\n        \"sealed\": false,\n        \"mutexLive\": true,\n        \"cvLive\": false,\n        \"sender\": 0,\n        \"waiter\": 0,\n        \"flag\": false,\n        \"badHolder\": false,\n        \"badWaiter\": false,\n        \"badSignal\": false,\n        \"badAdmission\": false,\n        \"badRollback\": false\n      }\n    },\n    {\n      \"s\": {\n        \"fault\": 0,\n        \"outcome\": 0,\n        \"phase\": 1,\n        \"sealed\": false,\n        \"mutexLive\": true,\n        \"cvLive\": true,\n        \"sender\": 0,\n        \"waiter\": 0,\n        \"flag\": false,\n        \"badHolder\": false,\n        \"badWaiter\": false,\n        \"badSignal\": false,\n        \"badAdmission\": false,\n        \"badRollback\": false\n      }\n    },\n    {\n      \"s\": {\n        \"fault\": 0,\n        \"outcome\": 0,\n        \"phase\": 1,\n        \"sealed\": false,\n        \"mutexLive\": true,\n        \"cvLive\": true,\n        \"sender\": 1,\n        \"waiter\": 0,\n        \"flag\": false,\n        \"badHolder\": false,\n        \"badWaiter\": false,\n        \"badSignal\": false,\n        \"badAdmission\": false,\n        \"badRollback\": false\n      }\n    },\n    {\n      \"s\": {\n        \"fault\": 0,\n        \"outcome\": 0,\n        \"phase\": 1,\n        \"sealed\": false,\n        \"mutexLive\": true,\n        \"cvLive\": true,\n        \"sender\": 2,\n        \"waiter\": 0,\n        \"flag\": true,\n        \"badHolder\": false,\n        \"badWaiter\": false,\n        \"badSignal\": false,\n        \"badAdmission\": false,\n        \"badRollback\": false\n      }\n    },\n    {\n      \"s\": {\n        \"fault\": 0,\n        \"outcome\": 0,\n        \"phase\": 2,\n        \"sealed\": true,\n        \"mutexLive\": true,\n        \"cvLive\": true,\n        \"sender\": 2,\n        \"waiter\": 0,\n        \"flag\": true,\n        \"badHolder\": false,\n        \"badWaiter\": false,\n        \"badSignal\": false,\n        \"badAdmission\": false,\n        \"badRollback\": false\n      }\n    }\n  ],\n  \"case\": \"sync_resource_users\",\n  \"generatedSha256\": \"c71a5eb9b020002f6ac2843fd48d6d02760ef83a4e71378d51096fd8a2390278\"\n}\n",
+    "protocol.qnt": "module sync_resource_users {\n  // One external sender and one receiver/waiter; successful and failed setup.\n  // Destroy/reinitialize is only a candidate protocol, not a source repair.\n  type State = { fault: int, outcome: int, phase: int, sealed: bool,\n    mutexLive: bool, cvLive: bool, sender: int, waiter: int, flag: bool,\n    badHolder: bool, badWaiter: bool, badSignal: bool,\n    badAdmission: bool, badRollback: bool }\n  var s: State\n  pure def initialState(fault: int, outcome: int): State = {\n    fault: fault, outcome: outcome, phase: 0, sealed: false,\n    mutexLive: true, cvLive: false, sender: 0, waiter: 0, flag: false,\n    badHolder: false, badWaiter: false, badSignal: false,\n    badAdmission: false, badRollback: false,\n  }\n  action initOld = any { s' = initialState(1, 0), s' = initialState(1, 1) }\n  action initWaiter = any { s' = initialState(2, 0), s' = initialState(2, 1) }\n  action initSignal = any { s' = initialState(3, 0), s' = initialState(3, 1) }\n  action initAdmission = any { s' = initialState(4, 0), s' = initialState(4, 1) }\n  action initRollback = any { s' = initialState(5, 0), s' = initialState(5, 1) }\n  action initFixed = any { s' = initialState(0, 0), s' = initialState(0, 1) }\n\n  // Mutex initialization succeeded; condition initialization may fail.\n  action setup = all {\n    s.phase == 0,\n    s' = { ...s, phase: if (s.outcome == 0) 1 else 3,\n                 cvLive: s.outcome == 0 },\n  }\n  action rollback = all {\n    s.phase == 3,\n    s' = { ...s, phase: 4, sealed: true, mutexLive: s.fault == 5,\n                 badRollback: s.fault == 5 },\n  }\n  val senderHolds = s.sender == 1 or s.sender == 2\n  val waiterHolds = s.waiter == 1 or s.waiter == 3\n  val holders = senderHolds or waiterHolds\n  val waiters = s.waiter == 2\n  val signalers = s.sender == 3\n\n  action beginSend = all {\n    s.phase == 1, not(s.sealed), s.sender == 0, not(waiterHolds),\n    s' = { ...s, sender: 1 },\n  }\n  action publish = all {\n    s.sender == 1,\n    s' = { ...s, sender: 2, flag: true },\n  }\n  action unlock = all {\n    s.sender == 2,\n    s' = { ...s, sender: 3 },\n  }\n  action signal = all {\n    s.sender == 3,\n    s' = { ...s, sender: 4, badSignal: s.badSignal or not(s.cvLive) },\n  }\n  action beginWait = all {\n    s.phase == 1 or s.phase == 2, not(s.sealed),\n    s.waiter == 0, not(senderHolds), s.mutexLive, s.cvLive,\n    s' = { ...s, waiter: 1,\n      badAdmission: s.badAdmission or s.phase == 2 },\n  }\n  // Condition wait atomically releases the lock; predicate loop is assumed.\n  action sleep = all {\n    s.waiter == 1, not(s.flag), s' = { ...s, waiter: 2 },\n  }\n  action predicateReady = all {\n    s.waiter == 1, s.flag, s' = { ...s, waiter: 3 },\n  }\n  action wake = all {\n    s.waiter == 2, s.flag, not(senderHolds),\n    s' = { ...s, waiter: 3 },\n  }\n  action leaveWait = all {\n    s.waiter == 3, s' = { ...s, waiter: 4 },\n  }\n  // Fast-path retirement may happen while the publisher still holds the lock.\n  action retire = all {\n    s.phase == 1, s.flag,\n    s' = { ...s, phase: 2, sealed: s.fault != 4 },\n  }\n  action destroy = all {\n    s.phase == 2,\n    not(holders) or s.fault == 1,\n    not(waiters) or s.fault == 2,\n    not(signalers) or s.fault == 3,\n    s' = { ...s, phase: 4, mutexLive: false, cvLive: false,\n      badHolder: s.badHolder or holders,\n      badWaiter: s.badWaiter or waiters,\n      badSignal: s.badSignal or signalers },\n  }\n  action finished = all { s.phase == 4, s' = s }\n  action step = any { setup, rollback, beginSend, publish, unlock, signal,\n    beginWait, sleep, predicateReady, wake, leaveWait, retire, destroy, finished }\n  val holderSafe = not(s.badHolder)\n  val waiterSafe = not(s.badWaiter)\n  val signalSafe = not(s.badSignal)\n  val admissionSafe = not(s.badAdmission)\n  val rollbackSafe = not(s.badRollback)\n  val safe = holderSafe and waiterSafe and signalSafe and admissionSafe and rollbackSafe\n\n  // Verification-only overlay; the original state transitions are unchanged.\n  val obligationTerminal = s.phase == 4\n  action obligationStep = all { not(false and (s.phase == 2 and s.sender == 2)), step }\n  val obligationEnabled = obligationTerminal or enabled(obligationStep)\n  temporal obligationProgress = always(obligationEnabled) and\n    weakFair(obligationStep, Set(s)).implies(eventually(obligationTerminal))\n}\n",
+    "receipt.json": "{\n  \"schema\": \"gambit-model-progress-receipt.v1\",\n  \"case\": \"sync_resource_users\",\n  \"scope\": \"Actual unchanged one-sender/one-waiter protocol, success and setup-failure branches. Synthetic transition-freeze control checks nonterminal deadlock detection; not an identified source defect. Completion assumes weak fairness of the complete step relation, finite modeled operations and the model's coherent mutex/condition contracts. No C refinement, native or unbounded scheduler proof.\",\n  \"quintVersion\": \"0.33.0\",\n  \"workers\": 12,\n  \"inputs\": {\n    \"models/gambit/sync_resource_users.qnt\": \"3d70d2d3cd42bb0b854922cfb94a2b3910e5154b13f0c4b763a2e73b2ce9318a\",\n    \"evidence/progress-obligations.json\": \"b66ac9e775f92a63ea54502222b74e824cfbfa56efcd279be0f98ef73c0e336f\",\n    \"tools/model/model_progress.py\": \"9a5360b7f943c4f0f5eb4e804bbd057a99ec60f1f28a974af995e13c26b114b7\",\n    \"tools/model/framework.py\": \"9574c0b859b757a1b5e6c9a1c663a5cbb3fc98b9304e995aa034f9db56c87580\",\n    \"tools/model/check_gambit.py\": \"9d02ac574705876e92af1ad16e150434663e7b8c4af484ac94904ba8721bab2e\",\n    \"tools/model/tlc_values.py\": \"5bbc7b743c4ec0f671bc13f4dce122840602f8d7ad2bd212a935c56715dcf704\"\n  },\n  \"runtimeAdmitted\": false,\n  \"results\": [\n    {\n      \"variant\": \"blocked\",\n      \"accepted\": true,\n      \"exit\": 1,\n      \"timeout\": false,\n      \"seconds\": 21.098,\n      \"snapshot\": \"blocked.qnt\",\n      \"snapshotSha256\": \"c71a5eb9b020002f6ac2843fd48d6d02760ef83a4e71378d51096fd8a2390278\",\n      \"log\": \"blocked.log\",\n      \"logSha256\": \"762c3b0173f720ccd5dcd70dadfd464d71c5fcaf0d2d391fbd2610310d8f5b80\",\n      \"temporal\": null,\n      \"trace\": \"blocked.trace.json\",\n      \"traceSha256\": \"69ade3ac8f40a3325dc92159a02b395613ab62390be0e85adcfba352b04a2335\",\n      \"rawLogSha256\": \"038dd494841b255db619465f72284583f133b210892df0b06c5439ee03b1c7d8\"\n    },\n    {\n      \"variant\": \"protocol\",\n      \"accepted\": true,\n      \"exit\": 0,\n      \"timeout\": false,\n      \"seconds\": 16.75,\n      \"snapshot\": \"protocol.qnt\",\n      \"snapshotSha256\": \"77030949f781fe76ac26c17a2c6e52c642d184deb44bfd134b193cd9102b5fcc\",\n      \"log\": \"protocol.log\",\n      \"logSha256\": \"c3cbf816af0a2b4326d4d78058840de82b66ada6a2b927e465ab004d2a982325\",\n      \"temporal\": \"obligationProgress\",\n      \"rawLogSha256\": \"13896dd8561137f83106635b832b7eceae15b7dbc8576c3e28a395adbc2b7988\"\n    }\n  ],\n  \"sourceStable\": true,\n  \"accepted\": true,\n  \"publisherSha256\": \"f4c22cdb5b747cbd1eaeae3472ab33f25c0b3a68a12b528a2bf5750426037afd\"\n}\n"
+  },
+  "observations": {
+    "762c3b0173f720ccd5dcd70dadfd464d71c5fcaf0d2d391fbd2610310d8f5b80": {
+      "schema": "gambit.output-observation.v1",
+      "sha256": "762c3b0173f720ccd5dcd70dadfd464d71c5fcaf0d2d391fbd2610310d8f5b80",
+      "bytes": 6061,
+      "tlc": {
+        "completed": false,
+        "invariantViolated": true,
+        "temporalComplete": false,
+        "states": {
+          "generated": 54,
+          "distinct": 35,
+          "queued": 0
+        }
+      },
+      "suite": {
+        "completions": [],
+        "failed": false
+      },
+      "counterexample": {
+        "stateCount": 5,
+        "statesSha256": "cca8d87b394e9851480f666380483932c0e421143a592b63b22ec1826ce44c7d"
+      },
+      "diagnosticCodes": [],
+      "traceStateIndices": [],
+      "terminalTags": {},
+      "lineCount": 135,
+      "endsWithNewline": true,
+      "buildPhases": {
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0
+      },
+      "bootstrapBeforeCore": false,
+      "linkerSymbols": [],
+      "diagnosticNumbers": {},
+      "passedQuintTests": [],
+      "failures": {
+        "signals": [],
+        "assertions": []
+      },
+      "origins": [
+        ".cache/research/legacy-evidence/evidence/model-results/model-progress/sync_resource_users/blocked.log"
+      ]
+    },
+    "c3cbf816af0a2b4326d4d78058840de82b66ada6a2b927e465ab004d2a982325": {
+      "schema": "gambit.output-observation.v1",
+      "sha256": "c3cbf816af0a2b4326d4d78058840de82b66ada6a2b927e465ab004d2a982325",
+      "bytes": 4790,
+      "tlc": {
+        "completed": true,
+        "invariantViolated": false,
+        "temporalComplete": true,
+        "states": {
+          "generated": 56,
+          "distinct": 35,
+          "queued": 0
+        }
+      },
+      "suite": {
+        "completions": [],
+        "failed": false
+      },
+      "diagnosticCodes": [],
+      "traceStateIndices": [],
+      "terminalTags": {},
+      "lineCount": 60,
+      "endsWithNewline": true,
+      "buildPhases": {
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0
+      },
+      "bootstrapBeforeCore": false,
+      "linkerSymbols": [],
+      "diagnosticNumbers": {},
+      "passedQuintTests": [],
+      "failures": {
+        "signals": [],
+        "assertions": []
+      },
+      "origins": [
+        ".cache/research/legacy-evidence/evidence/model-results/model-progress/sync_resource_users/protocol.log"
+      ]
+    }
+  }
+}

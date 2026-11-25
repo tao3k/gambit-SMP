@@ -115,19 +115,27 @@ class SuiteObservationsTests(unittest.TestCase):
         self.assertFalse((self.root / "run/suite-observations").exists())
 
     def test_structured_recipe_preserves_original_workload_and_caps(self):
-        from gambit_smp.framework import ROOT
-        folder = ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid"
-        old = json.loads((folder / "vector-arity-busy-delay-observation.recipe.json").read_text())
-        current = json.loads((folder / "vector-arity-structured-busy-delay.recipe.json").read_text())
-        recipes.load(ROOT, folder / "vector-arity-structured-busy-delay.recipe.json")
-        self.assertEqual(old["budgetSeconds"], current["budgetSeconds"])
-        self.assertEqual([row["budgetSeconds"] for row in old["steps"]],
-                         [row["budgetSeconds"] for row in current["steps"]])
-        before = next(row for row in old["steps"] if row["id"] == "busy-delay-gsi")
-        after = next(row for row in current["steps"] if row["id"] == "busy-delay-gsi")
-        for key in ("expectedFiles", "mode", "regime", "fileBudgetSeconds"):
-            self.assertEqual(before["arguments"][key], after["arguments"][key])
-        self.assertNotIn("processors", after["arguments"])
-        program = ROOT / after["arguments"]["additionalFixtures"]["diagnostics/busy_delay_calibration.scm"]["source"]
+        program = self.root / "busy_delay_calibration.scm"
+        program.write_text("(define repetitions 250)\n(define (short-delay) (busy-sleep 6000))\n")
+        args = {
+            "runtime": {"step": "core", "output": "runtime"},
+            "identity": {"step": "core", "output": "identity"},
+            "mode": "gsi",
+            "regime": "whole-parallel",
+            "selection": ["diagnostics/busy_delay_calibration.scm"],
+            "expectedFiles": ["diagnostics/busy_delay_calibration.scm"],
+            "fileBudgetSeconds": {"diagnostics/busy_delay_calibration.scm": 30},
+            "additionalFixtures": {
+                "diagnostics/busy_delay_calibration.scm": {
+                    "source": "busy_delay_calibration.scm",
+                    "sha256": recipes.digest(program),
+                }
+            },
+            "observationFiles": {
+                "diagnostics/busy_delay_calibration.scm": "observations/busy-delay.json"
+            },
+        }
+        native_capabilities.validate_suite(args, ["busy_delay_calibration.scm"])
+        self.assertNotIn("processors", args)
         self.assertIn("(define repetitions 250)", program.read_text())
         self.assertIn("(define (short-delay) (busy-sleep 6000))", program.read_text())

@@ -20,6 +20,18 @@ class EvidenceInvestigationScenario(unittest.TestCase):
                  for name, source in entry['sourceBindings'].items()}
         facts['inventory'] = [[row['id'], row['category'], row['status']]
                               for row in inventory['failures']]
+        if not facts['field']:
+            # Clean checkouts omit retired .cache/research/legacy-evidence/ receipts;
+            # inject one synthetic observation record so explanation and withdrawal
+            # assertions exercise the exact same ASCENT relations without cache files.
+            sample_id = facts['inventory'][0][0]
+            sample_sha = 'a' * 64
+            facts['observation'] = [[sample_id, 'budget', 'open', sample_sha, 'fixture']]
+            facts['process'] = [[sample_id, -9, True, False]]
+            facts['field'] = [
+                [sample_id, 'fixture-sha', sample_sha, '/fixtureSha256', json.dumps('b' * 64)],
+                [sample_id, 'teardown', sample_sha, '/run/group_quiescent', 'true'],
+            ]
         with engine_api() as (engine, identity):
             catalog = load_component_catalog(ROOT / entry['manifest'], entry=entry['entry'],
                 constructor=entry['constructor'],

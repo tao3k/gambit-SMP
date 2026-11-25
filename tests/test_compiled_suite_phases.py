@@ -84,11 +84,11 @@ class CompiledSuitePhaseTests(unittest.TestCase):
 
     def test_actual_numeric_recipes_declare_the_verified_grouping(self):
         from gambit_smp.framework import ROOT, digest
-        names = ["evidence/research/ci/bazel-profile-numeric-host.recipe.json",
-                 "evidence/research/ci/bazel-profile-numeric.recipe.json",
-                 "evidence/research/ci/gc-ffi-numeric.recipe.json",
-                 "evidence/research/ci/three-flag-numeric-inventory.recipe.json",
-                 "evidence/research/ci/bazel-profile-gc-ffi-inventory.recipe.json"]
+        names = ["tests/recipes/ci/bazel-profile-numeric-host.recipe.json",
+                 "tests/recipes/ci/bazel-profile-numeric.recipe.json",
+                 "tests/recipes/ci/gc-ffi-numeric.recipe.json",
+                 "tests/recipes/ci/three-flag-numeric-inventory.recipe.json",
+                 "tests/recipes/ci/bazel-profile-gc-ffi-inventory.recipe.json"]
         for name in names:
             recipe, steps = recipes.load(ROOT, ROOT / name)
             selected = [step for step in steps if "numericGrouping" in step["arguments"]]
@@ -101,12 +101,13 @@ class CompiledSuitePhaseTests(unittest.TestCase):
                 self.assertEqual("original-gsi", selected[0]["arguments"]["loader"])
 
     def test_historical_numeric_recipe_is_not_a_current_recipe_input(self):
-        from gambit_smp.framework import ROOT
-
-        archived = (ROOT / ".cache/research/legacy-evidence/evidence/research"
-                    / "current-source-full-bootstrap/dynamic-modulo-compiled.recipe.json")
-        with self.assertRaisesRegex(ValueError, "recipe inputs must be repository files"):
-            recipes.load(ROOT, archived)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            archived = root / ".cache/research/legacy-evidence/dynamic-modulo-compiled.recipe.json"
+            archived.parent.mkdir(parents=True)
+            archived.write_text("{}\n")
+            with self.assertRaisesRegex(ValueError, "recipe inputs must be repository files"):
+                recipes.load(root, archived)
 
     def run_case(self, *, failed_phase=None, missing_artifact=False, timed_out=False):
         with tempfile.TemporaryDirectory() as directory:

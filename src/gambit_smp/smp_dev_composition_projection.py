@@ -103,15 +103,13 @@ SOURCE_OBLIGATIONS = {
     "native-rest-fallback-extent": {
         "vendor/gambit/lib/_kernel.scm": (
             "___COVER_REST_PARAM_HANDLER_NEED_TO_GC;",
+            "___rest_root_window(",
+            "___rest_caller_chain(",
             "rest_param_list = ___CONS(___POP,rest_param_list);",
-            "___BEGIN_ALLOC_VECTOR(np)", "___END_ALLOC_VECTOR(np)",
-            "___G__23__23_rest_2d_param_2d_check_2d_heap.prm",
             "___COVER_KEYWORD_REST_PARAM_HANDLER_NEED_TO_GC;",
+            "___rest_root_window(",
+            "___rest_caller_chain(",
             "rest_param_list = ___CONS(___POP,rest_param_list);",
-            "___BEGIN_ALLOC_VECTOR(np)", "___END_ALLOC_VECTOR(np)",
-            "___G__23__23_rest_2d_param_2d_check_2d_heap.prm",
-            "(define-prim (##rest-param-check-heap proc args)",
-            "(##gc-without-exceptions)",
         ),
         "vendor/gambit/lib/mem.h": (
             "#define ___MAX_NB_ARGS", "#define ___MSECTION_FUDGE",

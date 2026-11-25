@@ -66,7 +66,7 @@ def bindings(root, receipt_path, archive):
         if not target.is_file():
             from gambit_smp.source_identity import SourceUnavailable
             raise SourceUnavailable('historical source payload unavailable: '+row['archive'])
-        if (not target.is_relative_to(root / ".cache/research/legacy-evidence/evidence/source-results")
+        if (not target.is_relative_to(root / "evidence/source-results")
                 or (root / row["archive"]).is_symlink() or digest(target) != row["sha256"]):
             raise ValueError("exact authenticated historical source bytes required")
         mapping[name] = target

@@ -63,9 +63,21 @@ def fixture_execution(root, task):
                      "Make and native fixture tools are required")
 class MakeLineageTests(unittest.TestCase):
     @classmethod
+    def _default_cc(cls):
+        if os.environ.get("GAMBIT_TEST_CC"):
+            return Path(os.environ["GAMBIT_TEST_CC"]).resolve()
+        for name in ("gcc-16", "gcc-15", "gcc-14", "gcc", "cc"):
+            path = shutil.which(name)
+            if path:
+                out = subprocess.run([path, "--version"], capture_output=True, text=True)
+                if out.returncode == 0 and "gcc" in out.stdout.lower() and "clang" not in out.stdout.lower():
+                    return Path(path).resolve()
+        return Path(shutil.which("cc")).resolve()
+
+    @classmethod
     def setUpClass(cls):
         from gambit_smp.native_capabilities import host_tools
-        compiler = Path(os.environ.get('GAMBIT_TEST_CC', shutil.which('cc'))).resolve()
+        compiler = cls._default_cc()
         environment = {key: value for key, value in os.environ.items()
                        if key not in {'SDKROOT', 'LIBRARY_PATH', 'CPATH'}}
         _, environment = host_tools(compiler, [{'capability': 'gambit.bootstrap'}], environment)
@@ -81,7 +93,7 @@ class MakeLineageTests(unittest.TestCase):
         self.directory = Path(work.name).resolve()
         self.source = self.directory / "source"
         self.source.mkdir()
-        self.cc = Path(os.environ.get("GAMBIT_TEST_CC", shutil.which("cc"))).resolve()
+        self.cc = self._default_cc()
         flags = os.environ.get("GAMBIT_TEST_CFLAGS", "")
         hooks = "\n".join(line for line in Path("vendor/gambit/gsc/makefile.in").read_text().splitlines()
                           if line.startswith(("WITNESS_", "GAMBIT_WITNESS_PASS")))

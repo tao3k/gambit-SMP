@@ -89,12 +89,12 @@ class ViewAvailabilityTests(unittest.TestCase):
             self.assertEqual(0, packet['brief']['counts']['support'])
             self.assertFalse(packet['brief']['runtimeAdmitted'])
             self.assertFalse(packet['brief']['evidenceCoverage']['complete'])
-        with patch('gambit_smp.source_identity.read_source', return_value=b'changing'):
+        with patch('gambit_smp.source_identity.read_git_sources', return_value=[b'changing']):
             with self.assertRaisesRegex(ValueError, 'immutable source availability changed'):
                 _current(snapshot)
             restored = _repository_snapshot(self.root)
             self.assertNotEqual(snapshot['sourceIdentity'], restored['sourceIdentity'])
-        with patch('gambit_smp.source_identity.read_source', side_effect=ValueError('identity mismatch')):
+        with patch('gambit_smp.source_identity.read_git_sources', side_effect=ValueError('identity mismatch')):
             with self.assertRaisesRegex(ValueError, 'identity mismatch') as error:
                 _repository_snapshot(self.root)
             self.assertNotIsInstance(error.exception, ReferenceUnavailable)

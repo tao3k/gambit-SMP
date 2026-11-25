@@ -613,6 +613,11 @@ def host_tools(gcc, steps, environment, *, configure_bindings=None):
         # Autoconf so the recorded tool is also the consumed tool.
         selected_m4 = (declared.get('m4') or environment.get('M4') or
                        shutil.which('m4', path=environment.get('PATH', ''))) if name == 'm4' else None
+        if name == 'm4' and sys.platform == 'darwin' and (selected_m4 is None or Path(selected_m4).parent == Path('/usr/bin')):
+            for candidate in ('/opt/homebrew/opt/m4/bin/m4', '/usr/local/opt/m4/bin/m4'):
+                if Path(candidate).is_file() and os.access(candidate, os.X_OK):
+                    selected_m4 = candidate
+                    break
         path = selected_m4 or developer.get(name) or declared.get(name) or shutil.which(name, path=os.pathsep.join(directories)) or (
             shutil.which(name) if name in {"aclocal", "autoconf", "m4"} else None)
         if path is None:
@@ -621,10 +626,12 @@ def host_tools(gcc, steps, environment, *, configure_bindings=None):
         if name == 'm4':
             # M4 is an explicit Autoconf input, and PATH lookups must agree
             # with that same executable. Do not leave Apple's older m4 ahead
-            # of a selected GNU m4 while merely recording the latter.
+            # of a selected GNU m4 while merely recording the latter, and never
+            # move /usr/bin ahead of selected Darwin developer tools.
             parent = str(tools[name].parent)
-            directories = [directory for directory in directories if directory != parent]
-            directories.insert(0, parent)
+            if parent not in {'/usr/bin', '/bin'}:
+                directories = [directory for directory in directories if directory != parent]
+                directories.insert(0, parent)
         if name in {"aclocal", "autoconf", "m4"}:
             directories.append(str(Path(path).absolute().parent))
     env.update(PATH=os.pathsep.join(dict.fromkeys(directories)), CC=str(tools["gcc"]))

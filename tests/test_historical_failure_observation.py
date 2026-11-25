@@ -14,7 +14,7 @@ from gambit_smp.ascent_program import engine_api, load_catalog, query
 
 
 ARCHIVE = "tests/fixtures/historical-bootstrap/bootstrap-second-core-history"
-ORIGINAL = ".cache/research/legacy-evidence/evidence/model-results/bootstrap-018-deny.json"
+ORIGINAL = "tests/fixtures/historical-bootstrap/bootstrap-018-deny.json"
 PAIRS = [("status", "/status", "/status"), ("exit", "/exit", "/steps/0/exit"),
          ("timeout", "/timeout", "/steps/0/timeout"),
          ("duration", "/seconds", "/steps/0/seconds"),
@@ -28,7 +28,7 @@ class HistoricalObservationTransportTests(unittest.TestCase):
         self.root = Path(temp.name)
         shutil.copytree(ROOT / ARCHIVE, self.root / ARCHIVE)
         original = self.root / ORIGINAL
-        original.parent.mkdir(parents=True)
+        original.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / ORIGINAL, original)
         self.original = json.loads(original.read_text())
         self.original_bytes = original.read_bytes()

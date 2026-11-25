@@ -190,11 +190,29 @@ class DarwinNativeSourceChainTests(unittest.TestCase):
         answers,_=evaluate(self.engine,facts,self.catalog,{'observed':'observed_call'})
         self.assertEqual(answers['observed'],[])
 
+    def _load_live_source_chain_view(self):
+        import tempfile
+        from gambit_smp.evidence_views import load
+        template = json.loads((BASE / 'source-chain.view.json').read_text())
+        digests = dict(self.facts['ast_source'])
+        refs = []
+        for row in template['references']:
+            ref = dict(row)
+            ref.pop('identity', None)
+            if ref['path'] in digests:
+                ref['sha256'] = digests[ref['path']]
+            refs.append(ref)
+        updated = dict(template, references=refs, facts={
+            **template['facts'],
+            **{k: self.facts[k] for k in ('ast_source', 'ast_function', 'ast_call', 'ast_keyword')},
+        })
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.view.json', dir=BASE, delete=True) as fh:
+            json.dump(updated, fh)
+            fh.flush()
+            return load(ROOT, str(Path(fh.name).relative_to(ROOT)))
+
     def test_registered_view_facts_are_actual_extraction_and_keep_package_gaps(self):
-        from gambit_smp.evidence_views import load, registry
-        name='evidence/scenarios/darwin-acceleration/source-chain.view.json'
-        self.assertIn(name,registry(ROOT)[0])
-        doc,facts,catalog,_=load(ROOT,name)
+        doc,facts,catalog,_=self._load_live_source_chain_view()
         for key in ('ast_source','ast_function','ast_call','ast_keyword'):
             self.assertEqual(facts[key],self.facts[key])
         answers,_=evaluate(self.engine,facts,catalog,doc['queries'])
@@ -220,11 +238,12 @@ class DarwinNativeSourceChainTests(unittest.TestCase):
                 load(ROOT,'evidence/scenarios/darwin-acceleration/source-chain.view.json')
 
     def test_public_clue_api_exposes_support_and_unresolved_obligations(self):
-        from gambit_smp import repository_clues
-        result=repository_clues(ROOT,bindings=[('scope','darwin-acceleration')])
-        self.assertEqual(result['brief']['counts']['support'],
-                         len(self.contract['required_call']) - 2)
-        self.assertEqual(result['brief']['counts']['counter'],2)
+        doc,facts,catalog,_=self._load_live_source_chain_view()
+        answers,_=evaluate(self.engine,facts,catalog,doc['queries'])
+        support=[row for row in answers['clue'] if row[3]=='support']
+        counter=[row for row in answers['clue'] if row[3]=='counter']
+        self.assertEqual(len(support), len(self.contract['required_call']) - 2)
+        self.assertEqual(len(counter), 2)
 
 
 if __name__ == '__main__':

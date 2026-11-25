@@ -338,14 +338,19 @@ class ModelingGuidanceTests(unittest.TestCase):
             self.assertFalse(any(r[0] == 'inspection-window' for r in rejected['clue']))
 
     def test_actions_discover_and_select_the_real_view(self):
-        import uuid
-        snapshot = research_actions.discover(ROOT, {"views": [VIEW]})
-        action = next(row for row in snapshot["actions"] if row.get("query") == "recommendations")
-        self.assertEqual(action["risk"], "read-only")
-        self.assertFalse(action["explanation"]["executionAuthorized"])
-        result = research_actions.select(ROOT, snapshot, action["id"], {}, str(uuid.uuid4()),
-                                         authorize_execution=True)
-        self.assertEqual(result["result"]["outcome"], "RECORDED")
+        import tempfile, uuid
+        from pathlib import Path
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch('gambit_smp.research_actions._request_database_path',
+                      return_value=Path(tmp) / 'requests.sqlite'):
+            snapshot = research_actions.discover(ROOT, {"views": [VIEW]})
+            action = next(row for row in snapshot["actions"] if row.get("query") == "recommendations")
+            self.assertEqual(action["risk"], "read-only")
+            self.assertFalse(action["explanation"]["executionAuthorized"])
+            result = research_actions.select(ROOT, snapshot, action["id"], {}, str(uuid.uuid4()),
+                                             authorize_execution=True)
+            self.assertEqual(result["result"]["outcome"], "RECORDED")
 
     def test_methods_are_options_not_an_exclusive_ordered_workflow(self):
         document, facts, catalog, _ = load(ROOT, VIEW)

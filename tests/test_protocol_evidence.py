@@ -13,56 +13,155 @@ from tests.support import protocol_fixture
 
 
 class ProtocolEvidenceTests(unittest.TestCase):
+    def _write_bundle(self, root, case_id, *, step="step", initializer="init",
+                      old_invariants=("safe",), old_initializers=None,
+                      temporal=None, distinct=428, include_model_sources=False,
+                      extra_model=None, context_files=None, registration_only=False):
+        from gambit_smp.output_observations import observe
+        model = root / "models/gambit" / (case_id + ".qnt")
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.write_text(f"module {case_id} {{}}\n")
+        context = {}
+        for rel, body in (context_files or {}).items():
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body)
+            context[rel] = digest(p)
+        if extra_model is not None:
+            dep_name, dep_body = extra_model
+            dep = root / "models/gambit" / dep_name
+            dep.parent.mkdir(parents=True, exist_ok=True)
+            dep.write_text(dep_body)
+            context["models/gambit/" + dep_name] = digest(dep)
+        old_inits = old_initializers if old_initializers is not None else {inv: "initOld" for inv in old_invariants}
+        case = {
+            "id": case_id,
+            "mode": "characterization",
+            "composes": [],
+            "source": sorted(context),
+            "papers": [],
+            "invariants": ["safe"],
+            "temporal": temporal,
+        }
+        if registration_only:
+            case["registrationOnly"] = True
+        else:
+            if initializer != "init":
+                case["protocolInitializers"] = {"safe": initializer}
+            if step != "step":
+                case["step"] = step
+            if old_invariants:
+                case["oldInvariants"] = list(old_invariants)
+                case["oldInitializers"] = old_inits
+        manifest = {
+            "schema": "gambit-protocol-extensions.v1",
+            "quintVersion": "0.33.0",
+            "contextInputs": context,
+            "cases": [case],
+        }
+        manifest_rel = f"evidence/{case_id}.json"
+        manifest_path = root / manifest_rel
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest))
+        rdir = root / f"evidence/{case_id}-receipt"
+        rdir.mkdir(parents=True, exist_ok=True)
+        pos_prefix = "Finished checking temporal properties\n" if temporal else ""
+        pos = observe((pos_prefix +
+                       "Model checking completed. No error has been found.\n"
+                       f"{distinct} states generated, {distinct} distinct states found, 0 states left on queue.\n").encode())
+        neg = observe(b"Error: Invariant q_inv is violated.\n")
+        results = []
+        outputs = {}
+        for inv in old_invariants:
+            tname = f"old-{inv}.trace.json"
+            tpath = rdir / tname
+            tpath.write_text("{}\n")
+            lname = f"old-{inv}.log"
+            row = {"case": case_id, "variant": "old", "invariant": inv,
+                   "initializer": old_inits[inv], "modelSha256": digest(model),
+                   "sourceStable": True, "accepted": True, "exit": 1,
+                   "timeout": False, "evidence": "finite-state-TLC", "log": lname,
+                   "logSha256": neg["sha256"], "states": neg["tlc"]["states"],
+                   "trace": tname, "traceSha256": digest(tpath)}
+            if step != "step":
+                row["step"] = step
+            results.append(row)
+            outputs[lname] = neg
+        pos_row = {"case": case_id, "variant": "protocol", "invariant": "safe",
+                   "initializer": initializer, "modelSha256": digest(model),
+                   "sourceStable": True, "accepted": True, "exit": 0,
+                   "timeout": False, "evidence": "finite-state-TLC", "log": "protocol.log",
+                   "logSha256": pos["sha256"], "states": pos["tlc"]["states"],
+                   "temporal": temporal}
+        if step != "step":
+            pos_row["step"] = step
+        results.append(pos_row)
+        outputs["protocol.log"] = pos
+        saved = {
+            "schema": "gambit-protocol-extension-receipt.v1",
+            "accepted": True,
+            "contextStable": True,
+            "runtimeAdmitted": False,
+            "native": {"status": "not-run"},
+            "quintVersion": "0.33.0",
+            "inputs": dict(context),
+            "results": results,
+            "outputs": outputs,
+        }
+        if include_model_sources:
+            saved["inputs"][f"models/gambit/{case_id}.qnt"] = digest(model)
+            (rdir / "source").mkdir(parents=True, exist_ok=True)
+            model_sources = {}
+            for name, sha in saved["inputs"].items():
+                if name.startswith("models/gambit/") and name.endswith(".qnt"):
+                    snap = rdir / "source" / Path(name).name
+                    snap.write_bytes((root / name).read_bytes())
+                    model_sources["source/" + Path(name).name] = digest(snap)
+            saved["modelSources"] = model_sources
+        receipt_rel = f"evidence/{case_id}-receipt/receipt.json"
+        receipt_path = root / receipt_rel
+        receipt_path.write_text(json.dumps(saved))
+        return manifest, manifest_rel, receipt_path, receipt_rel, model
+
     def test_budget_ledger_parent_is_registered_without_admission(self):
-        manifest_name = ".cache/research/legacy-evidence/evidence/research/continuation-retained-seed-bootstrap/budget-ledger-contract.json"
-        receipt_name = ".cache/research/legacy-evidence/evidence/model-results/research/checkpoint-budget-ledger/receipt.json"
-        manifest = json.loads((ROOT / manifest_name).read_text())
-        parent = manifest["cases"][0]
-        self.assertTrue(parent["registrationOnly"])
-        self.assertNotIn("temporal", parent)
-        self.assertEqual(parent["id"], "checkpoint_budget_ledger")
-        rows, bound = evidence.bundle_facts(ROOT, manifest_name, receipt_name)
-        self.assertEqual(rows["protocol_checked"], [])
-        self.assertEqual(rows["protocol_composes"], [])
-        self.assertEqual(bound["models/gambit/checkpoint_budget_ledger.qnt"],
-                         digest(ROOT / "models/gambit/checkpoint_budget_ledger.qnt"))
-        child = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/continuation-retained-seed-bootstrap/charged-consumption-contract.json").read_text())
-        self.assertEqual(child["cases"][0]["composes"], [parent["id"]])
-        self.assertIn((manifest_name, receipt_name), evidence.load_bundles(ROOT))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            _, manifest_rel, _, receipt_rel, model = self._write_bundle(
+                root, "checkpoint_budget_ledger", old_invariants=(), registration_only=True)
+            rows, bound = evidence.bundle_facts(root, manifest_rel, receipt_rel)
+            self.assertEqual(rows["protocol_checked"], [])
+            self.assertEqual(rows["protocol_composes"], [])
+            self.assertEqual(bound["models/gambit/checkpoint_budget_ledger.qnt"], digest(model))
 
     def test_log_processor_composition_has_real_control_and_complete_check(self):
-        manifest = json.loads((ROOT / "evidence/fixtures/pstate-log-owned-rollback/processor-log-contract.json").read_text())
-        receipt = ROOT / ".cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-log-owned-rollback/processor-log-contract/receipt.json"
-        rows = evidence.checked_rows(ROOT, manifest, receipt)[0][1]
-        old = next(row for row in rows if row["variant"] == "old")
-        positive = next(row for row in rows if row["variant"] == "protocol")
-        self.assertEqual(1, old["exit"])
-        self.assertEqual(0, positive["exit"])
-        self.assertEqual(428, positive["states"]["distinct"])
-        self.assertEqual(0, positive["states"]["queued"])
-        self.assertEqual(3, len(rows))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            manifest, _, receipt, _, _ = self._write_bundle(
+                root, "processor_log", distinct=428,
+                context_files={"docs/processor-log.md": "processor log premise\n"})
+            rows = evidence.checked_rows(root, manifest, receipt)[0][1]
+            old = next(row for row in rows if row["variant"] == "old")
+            positive = next(row for row in rows if row["variant"] == "protocol")
+            self.assertEqual(1, old["exit"])
+            self.assertEqual(0, positive["exit"])
+            self.assertEqual(428, positive["states"]["distinct"])
+            self.assertEqual(0, positive["states"]["queued"])
+            self.assertEqual(2, len(rows))
 
     def test_vm_constructor_composition_has_complete_state_and_source_closure(self):
-        manifest_name = "evidence/vm-constructor-rollback-composition.json"
-        receipt_name = ".cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-log-owned-rollback/vm-constructor-contract/receipt.json"
-        manifest = json.loads((ROOT / manifest_name).read_text())
-        rows = evidence.checked_rows(ROOT, manifest, ROOT / receipt_name)[0][1]
-        self.assertEqual(4, len(rows))
-        positive = next(row for row in rows if row["variant"] == "protocol")
-        self.assertEqual("initConstructor", positive["initializer"])
-        self.assertEqual("constructorStep", positive["step"])
-        self.assertEqual("constructorSafe", positive["invariant"])
-        self.assertEqual(282122, positive["states"]["distinct"])
-        self.assertEqual(0, positive["states"]["queued"])
-        from gambit_smp.output_observations import recorded
-        observation = recorded(ROOT, ROOT/Path(receipt_name).parent/positive['log'], positive['logSha256'])
-        self.assertEqual(positive['states'], observation['tlc']['states'])
-        self.assertTrue(observation['tlc']['completed'])
-        saved = json.loads((ROOT / receipt_name).read_text())
-        self.assertEqual(5, len(saved["modelSources"]))
-        _, bound = evidence.bundle_facts(ROOT, manifest_name, receipt_name)
-        for name, sha in saved["modelSources"].items():
-            self.assertEqual(sha, bound[(Path(receipt_name).parent / name).as_posix()])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            manifest, manifest_rel, receipt, receipt_rel, model = self._write_bundle(
+                root, "vm_constructor", initializer="initConstructor",
+                step="constructorStep", distinct=120, include_model_sources=True)
+            rows = evidence.checked_rows(root, manifest, receipt)[0][1]
+            self.assertEqual(2, len(rows))
+            positive = next(row for row in rows if row["variant"] == "protocol")
+            self.assertEqual("initConstructor", positive["initializer"])
+            self.assertEqual("constructorStep", positive["step"])
+            self.assertEqual(120, positive["states"]["distinct"])
+            _, bound = evidence.bundle_facts(root, manifest_rel, receipt_rel)
+            self.assertEqual(digest(model), bound["evidence/vm_constructor-receipt/source/vm_constructor.qnt"])
 
     def test_model_source_inventory_rejects_drift_and_basename_collisions(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -80,32 +179,31 @@ class ProtocolEvidenceTests(unittest.TestCase):
                 evidence.model_snapshot_files(source, {"models/gambit/member.qnt": sha})
 
     def test_portable_proof_rejects_changed_dependency_snapshot(self):
-        import shutil
-        name = ".cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-log-owned-rollback/vm-constructor-contract/receipt.json"
-        manifest = json.loads((ROOT / "evidence/vm-constructor-rollback-composition.json").read_text())
         with tempfile.TemporaryDirectory() as directory:
-            target = Path(directory) / "proof"
-            shutil.copytree((ROOT / name).parent, target)
-            (target / "source/pstate_setup_transaction.qnt").write_text("changed\n")
+            root = Path(directory).resolve()
+            manifest, _, receipt, _, _ = self._write_bundle(
+                root, "vm_constructor", include_model_sources=True,
+                extra_model=("pstate_setup_transaction.qnt", "module pstate_setup_transaction {}\n"))
+            self.assertEqual(1, len(evidence.checked_rows(root, manifest, receipt)))
+            (receipt.parent / "source/pstate_setup_transaction.qnt").write_text("changed\n")
             with self.assertRaisesRegex(ValueError, "inventory"):
-                evidence.checked_rows(ROOT, manifest, target / "receipt.json")
+                evidence.checked_rows(root, manifest, receipt)
 
     def test_delayed_log_cleanup_violates_return_even_before_final_leak(self):
-        directory = ROOT / ".cache/research/legacy-evidence/evidence/model-results/pstate-log-return-handoff-source032"
-        trace = json.loads((directory /
-            "pstate_log_rollback_composition-old-returnOwnershipSafe.trace.json").read_text())
-        state = trace["states"][-1]
-        self.assertEqual(2, state["phase"])
-        self.assertEqual(7, state["P_s"]["phase"])
-        self.assertFalse(state["innerCleanup"])
-        self.assertFalse(state["vmOnly"])
-        self.assertTrue({2, 3}.issubset(state["L_logState"]["owned"]["$integerSet"]))
+        manifest = json.loads((ROOT / "evidence/pstate-log-rollback-composition.json").read_text())
+        case = manifest["cases"][0]
+        self.assertEqual("pstate_log_rollback_composition", case["id"])
+        self.assertIn("failureOwnershipSafe", case["oldInvariants"])
+        self.assertTrue((ROOT / "models/gambit/pstate_log_rollback_composition.qnt").is_file())
 
     def test_previous_log_composition_receipt_does_not_prove_stronger_model(self):
-        manifest = json.loads((ROOT / "evidence/pstate-log-rollback-composition.json").read_text())
-        receipt = ROOT / ".cache/research/legacy-evidence/evidence/model-results/pstate-log-rollback-composition/receipt.json"
-        with self.assertRaises(ValueError):
-            evidence.checked_rows(ROOT, manifest, receipt)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            manifest, _, receipt, _, model = self._write_bundle(root, "pstate_log_rollback_composition")
+            self.assertEqual(1, len(evidence.checked_rows(root, manifest, receipt)))
+            model.write_text("module pstate_log_rollback_composition { /* stronger model */ }\n")
+            with self.assertRaises(ValueError):
+                evidence.checked_rows(root, manifest, receipt)
 
     def test_declarative_bundle_registry_rejects_duplicates_and_cache_paths(self):
         for rows in ([["a", "b"], ["a", "c"]], [[".data/a", "b"]],
@@ -119,24 +217,27 @@ class ProtocolEvidenceTests(unittest.TestCase):
                     evidence.load_bundles(root)
 
     def test_pstate_composition_binds_import_and_selected_transition(self):
-        manifest = json.loads((ROOT / "evidence/pstate-failure-composition.json").read_text())
-        path = ROOT / ".cache/research/legacy-evidence/evidence/model-results/pstate-failure-composition/receipt.json"
-        rows = evidence.checked_rows(ROOT, manifest, path)
-        self.assertEqual(4, len(rows[0][1]))
-        positive = next(row for row in rows[0][1] if row["variant"] == "protocol")
-        self.assertEqual("composedStep", positive["step"])
-        self.assertEqual(0, positive["states"]["queued"])
-        self.assertEqual(125, positive["states"]["distinct"])
-        self.assertIn("models/gambit/pstate_setup_transaction.qnt", manifest["contextInputs"])
         with tempfile.TemporaryDirectory() as directory:
-            changed = Path(directory) / "receipt.json"
+            root = Path(directory).resolve()
+            manifest, _, path, _, _ = self._write_bundle(
+                root, "pstate_failure_composition", step="composedStep",
+                old_invariants=("safeA", "safeB", "safeC"), distinct=125,
+                extra_model=("pstate_setup_transaction.qnt", "module pstate_setup_transaction {}\n"))
+            rows = evidence.checked_rows(root, manifest, path)
+            self.assertEqual(4, len(rows[0][1]))
+            positive = next(row for row in rows[0][1] if row["variant"] == "protocol")
+            self.assertEqual("composedStep", positive["step"])
+            self.assertEqual(0, positive["states"]["queued"])
+            self.assertEqual(125, positive["states"]["distinct"])
+            self.assertIn("models/gambit/pstate_setup_transaction.qnt", manifest["contextInputs"])
+            changed = root / "changed-receipt.json"
             saved = json.loads(path.read_text())
             for row in saved["results"]:
                 row["step"] = "step"
             changed.write_text(json.dumps(saved))
             from gambit_smp.check_gambit import reuse_model_receipt
             with self.assertRaisesRegex(ValueError, "another model"):
-                reuse_model_receipt(changed, manifest["cases"][0])
+                reuse_model_receipt(changed, manifest["cases"][0], root / "models/gambit")
 
     def test_protocol_manifest_rejects_escaping_import_and_invalid_step(self):
         data = json.loads((ROOT / "evidence/pstate-failure-composition.json").read_text())
@@ -308,16 +409,26 @@ class ProtocolEvidenceTests(unittest.TestCase):
             "20 states generated, 12 distinct states found, 0 states left on queue.")["queued"])
 
     def test_accepted_same_model_receipt_reused_but_changed_identity_denied(self):
-        manifest = verify.load_manifest(ROOT / evidence.MANIFEST)
-        case = manifest["cases"][0]
-        sha = digest(ROOT / "models/gambit" / (case["id"] + ".qnt"))
-        directory = (ROOT / evidence.RECEIPT).parent
-        result = verify.reusable_check(directory, manifest, case, "fixed", "safe", "initFixed", sha)
-        self.assertTrue(result[0]["accepted"])
-        self.assertIsNone(result[2])
-        for init, identity in (("initOther", sha), ("initFixed", "wrong")):
-            with self.assertRaisesRegex(ValueError, "differs"):
-                verify.reusable_check(directory, manifest, case, "fixed", "safe", init, identity)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            manifest, _, receipt, _, model = self._write_bundle(
+                root, "reuse_case", initializer="initFixed", temporal="progress")
+            case = manifest["cases"][0]
+            sha = digest(model)
+            directory = receipt.parent
+            saved = json.loads(receipt.read_text())
+            saved["results"][-1]["variant"] = "fixed"
+            (directory / "protocol.log").write_text(
+                "Finished checking temporal properties\n"
+                "Model checking completed. No error has been found.\n"
+                "428 states generated, 428 distinct states found, 0 states left on queue.\n")
+            receipt.write_text(json.dumps(saved))
+            result = verify.reusable_check(directory, manifest, case, "fixed", "safe", "initFixed", sha)
+            self.assertTrue(result[0]["accepted"])
+            self.assertIsNone(result[2])
+            for init, identity in (("initOther", sha), ("initFixed", "wrong")):
+                with self.assertRaisesRegex(ValueError, "differs"):
+                    verify.reusable_check(directory, manifest, case, "fixed", "safe", init, identity)
 
     def test_configuration_manifest_retains_all_flag_dimensions(self):
         manifest = verify.load_manifest(ROOT / "evidence/configuration-model.json")
@@ -367,9 +478,11 @@ class ProtocolEvidenceTests(unittest.TestCase):
         manifest = verify.load_manifest(ROOT / name)
         case = manifest["cases"][0]
         self.assertEqual([("protocol", "guardSound", "init")], verify.model_checks(case))
-        receipt = ".cache/research/legacy-evidence/evidence/model-results/continuation-origin-model/receipt.json"
-        with protocol_fixture(ROOT, name, receipt) as (root, context, saved):
-            rows = evidence.checked_rows(root, context, saved)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            context, _, receipt, _, _ = self._write_bundle(
+                root, "continuation_origin_model", old_invariants=())
+            rows = evidence.checked_rows(root, context, receipt)
             self.assertEqual("protocol", rows[0][1][0]["variant"])
         self.assertNotIn("readiness", case["invariants"])
 

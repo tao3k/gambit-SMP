@@ -52,7 +52,7 @@ class HistoricalInputTests(unittest.TestCase):
         self.assertTrue(history.match({str(original):digest(self.root/self.archived)},mapping))
         self.assertFalse(original.exists())
         (self.root/self.archived).write_text('wrong history')
-        with self.assertRaisesRegex(ValueError,'exact versioned'):
+        with self.assertRaisesRegex(ValueError,'exact authenticated historical source'):
             history.bindings(self.root,self.receipt,self.manifest)
 
     def test_vendor_source_binding_never_rebinds_a_runtime_or_compiler_output(self):
@@ -86,7 +86,7 @@ class HistoricalInputTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name).resolve()
         self.original = "evidence/research/rules.ss"
-        self.archived = ".cache/research/legacy-evidence/evidence/source-results/fixtures/example/rules.ss"
+        self.archived = "evidence/source-results/fixtures/example/rules.ss"
         for name, content in ((self.original, "new rule"), (self.archived, "original rule")):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,7 +96,7 @@ class HistoricalInputTests(unittest.TestCase):
         self.record = {"schema": history.SCHEMA, "receiptSha256": digest(self.receipt),
                        "inputs": [{"original": self.original, "sha256": digest(self.root / self.archived),
                                    "archive": self.archived}]}
-        self.manifest = ".cache/research/legacy-evidence/evidence/source-results/fixtures/example/inputs.json"
+        self.manifest = "evidence/source-results/fixtures/example/inputs.json"
         self.save()
 
     def save(self):
@@ -139,13 +139,13 @@ class HistoricalInputTests(unittest.TestCase):
         self.save()
         path = self.root / self.archived
         path.write_text("drift")
-        with self.assertRaisesRegex(ValueError, "exact versioned"):
+        with self.assertRaisesRegex(ValueError, "exact authenticated historical source"):
             history.bindings(self.root, self.receipt, self.manifest)
         path.unlink()
         target = path.with_name("original.ss")
         target.write_text("original rule")
         path.symlink_to(target.name)
-        with self.assertRaisesRegex(ValueError, "exact versioned"):
+        with self.assertRaisesRegex(ValueError, "exact authenticated historical source"):
             history.bindings(self.root, self.receipt, self.manifest)
 
     def test_runtime_output_is_not_a_source_input_archive(self):
@@ -171,7 +171,7 @@ class HistoricalInputTests(unittest.TestCase):
         self.assertTrue(history.match({str(document):old_sha},mapping))
         self.assertFalse(history.match({str(document):old_sha},{}))
         (self.root/self.archived).write_text("different old explanation")
-        with self.assertRaisesRegex(ValueError,"exact versioned"):
+        with self.assertRaisesRegex(ValueError,"exact authenticated historical source"):
             history.bindings(self.root,self.receipt,self.manifest)
 
     def test_retained_workspace_uses_the_same_exact_historical_input_binding(self):

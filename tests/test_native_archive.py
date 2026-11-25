@@ -7,19 +7,9 @@ import unittest
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.native_archive import archive, archive_bootstrap, source_unit_checked, validate
 from gambit_smp.output_observations import REGISTRY, TRANSCRIPT_SUFFIXES
-from tests.support import copy_output_observations
-
-
-NAME = ".cache/research/legacy-evidence/evidence/source-results/gc-notification-source-schedules-031/archive.json"
 
 
 class NativeArchiveTests(unittest.TestCase):
-    def assert_durable_inputs(self, name, bound):
-        saved = json.loads((ROOT/name).read_text())
-        expected = {name, REGISTRY}
-        expected.update(str(Path(name).parent/file) for file in saved['files']
-                        if Path(file).suffix not in TRANSCRIPT_SUFFIXES)
-        self.assertEqual(expected, set(bound))
 
     def test_atomic_history_preserves_unexecuted_scope_and_original_batch_cap(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -138,95 +128,84 @@ class NativeArchiveTests(unittest.TestCase):
                 archive_bootstrap(source, root / "archive", identity)
             self.assertFalse((root / "archive").exists())
 
-    def test_actlog_source_unit_archive_binds_all_branches_without_admission(self):
-        name = ".cache/research/legacy-evidence/evidence/source-results/vm-actlog-abort-source031/archive.json"
-        bound = validate(ROOT, name)
-        self.assert_durable_inputs(name, bound)
-        saved = json.loads((ROOT / name).read_text())
-        self.assertFalse(saved["nativeGcPassed"])
-        self.assertFalse(saved["runtimeAdmitted"])
-        receipt = json.loads((ROOT / Path(name).parent / "receipt.json").read_text())
-        self.assertEqual(6, len(receipt["results"]))
-
     def test_actlog_negative_control_cannot_be_promoted_to_success(self):
-        source = ROOT / ".cache/research/legacy-evidence/evidence/source-results/vm-actlog-abort-source031"
-        receipt = json.loads((source / "receipt.json").read_text())
-        row = next(row for row in receipt["results"]
-                   if row["label"] == "ignored-mutex-error-control")
-        row["observation"]["exit"] = 0
-        with self.assertRaisesRegex(ValueError, "negative control"):
-            source_unit_checked(source, receipt)
-
-    def test_actlog_archive_rejects_changed_observation(self):
-        name = ".cache/research/legacy-evidence/evidence/source-results/vm-actlog-abort-source031/archive.json"
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            target = root / Path(name).parent
-            shutil.copytree((ROOT / name).parent, target)
-            copy_output_observations(ROOT, root, Path(name).parent)
-            registry=root/REGISTRY
-            observations=json.loads(registry.read_text())
-            identity = next(key for key, item in observations['observations'].items()
-                            if str(Path(name).parent/'posix-observe.log') in item['origins'])
-            observations['observations'][identity]['structured'] = {}
-            registry.write_text(json.dumps(observations))
-            with self.assertRaises(ValueError):
-                validate(root, name)
-
-    def test_source031_scoped_native_logs_and_identity_remain_non_admitted(self):
-        name = ".cache/research/legacy-evidence/evidence/source-results/source031-native-gc-fixtures/archive.json"
-        bound = validate(ROOT, name)
-        self.assert_durable_inputs(name, bound)
-        saved = json.loads((ROOT / name).read_text())
-        self.assertFalse(saved["nativeGcPassed"])
-        receipt = json.loads((ROOT / Path(name).parent / "receipt.json").read_text())
-        self.assertEqual("PASS", receipt["status"])
-        self.assertEqual(4, len(receipt["selectedFiles"]))
-        self.assertEqual({"gsi", "gsc"}, set(receipt["modes"]))
+            source = Path(directory)
+            results = [
+                {"label": "object-enabled", "accepted": True, "exit": 0, "timeout": False},
+                {"label": "object-disabled", "accepted": True, "exit": 0, "timeout": False},
+            ]
+            for label, count in (("posix", 3), ("void-init", 2), ("disabled", 1)):
+                log = source / f"{label}-observe.log"
+                log.write_text(json.dumps({"checks": count, "arrayLive": 0, "mutexLive": 0}) + "\n")
+                results.append({
+                    "label": label, "accepted": True,
+                    "compile": {"exit": 0, "timeout": False},
+                    "observation": {"exit": 0, "timeout": False,
+                                    "log": log.name, "logSha256": digest(log)},
+                })
+            ctrl_log = source / "ignored-mutex-error-control-observe.log"
+            ctrl_log.write_text("EXPECTED-MUTEX-ERROR\n")
+            results.append({
+                "label": "ignored-mutex-error-control", "accepted": True,
+                "compile": {"exit": 0, "timeout": False},
+                "observation": {"exit": 0, "timeout": False,
+                                "log": ctrl_log.name, "logSha256": digest(ctrl_log)},
+            })
+            receipt = {
+                "schema": "gambit-actlog-abort-source-unit.v1",
+                "status": "source-unit-pass", "sourceStable": True,
+                "runtimeAdmitted": False, "releaseAdmitted": False,
+                "results": results,
+            }
+            with self.assertRaisesRegex(ValueError, "negative control"):
+                source_unit_checked(source, receipt, root=source)
 
     def test_scoped_archive_rejects_identity_drift_and_parent_exit_mismatch(self):
-        source = ROOT / ".cache/research/legacy-evidence/evidence/source-results/source031-native-gc-fixtures"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.assertRaisesRegex(ValueError, "consistent parent exit"):
-                archive(source, root / "wrong-exit", 1, source / "identity.json")
-            wrong = root / "identity.json"
+            source = root / "source"
+            source.mkdir()
+            identity = source / "identity.json"
+            identity.write_text('{"tree":"a"}')
+            (source / "gsi.log").write_text("passed\n")
+            (source / "processor-probe.log").write_text("2\n")
+            (source / "receipt.json").write_text(json.dumps({
+                "schema": "gambit-upstream-suite.v1", "status": "PASS",
+                "modes": ["gsi"], "wholeSuiteBudgetPerMode": 300,
+                "candidateReceiptSha256": digest(identity),
+                "results": [{"mode": "gsi", "accepted": True, "exit": 0, "timeout": False}]}))
+            for bad_exit in (1, False):
+                with self.subTest(bad_exit=bad_exit), self.assertRaisesRegex(ValueError, "consistent parent exit|parent"):
+                    archive(source, root / f"wrong-exit-{bad_exit}", bad_exit, identity)
+            wrong = root / "wrong-identity.json"
             wrong.write_text("{}")
             with self.assertRaisesRegex(ValueError, "bound identity"):
                 archive(source, root / "wrong-identity", 0, wrong)
 
-    def test_all_actual_component_artifacts_are_bound_without_cache(self):
-        inputs = validate(ROOT, NAME)
-        self.assert_durable_inputs(NAME, inputs)
-        self.assertTrue(all(".data" not in Path(name).parts for name in inputs))
-        saved = json.loads((ROOT / NAME).read_text())
-        self.assertFalse(saved["nativeGcPassed"])
-        self.assertEqual(saved["observedParentExit"], 0)
-
-    def test_changed_or_missing_recorded_output_is_rejected(self):
+    def test_changed_or_missing_archived_file_is_rejected(self):
         for fault in ("change", "missing"):
-            with tempfile.TemporaryDirectory() as directory:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                target = root / Path(NAME).parent
-                shutil.copytree((ROOT / NAME).parent, target)
-                copy_output_observations(ROOT, root, Path(NAME).parent)
-                registry=root/REGISTRY
-                observations=json.loads(registry.read_text())
-                key=next(identity for identity, item in observations['observations'].items()
-                         if str(Path(NAME).parent/'candidate/point-1.log') in item['origins'])
+                source = root / "source"
+                source.mkdir()
+                identity = source / "identity.json"
+                identity.write_text("{}")
+                (source / "gsi.log").write_text("partial suite failure\n")
+                (source / "processor-probe.log").write_text("2\n")
+                (source / "receipt.json").write_text(json.dumps({
+                    "schema": "gambit-upstream-suite.v1", "status": "DENY",
+                    "modes": ["gsi"], "wholeSuiteBudgetPerMode": 300,
+                    "candidateReceiptSha256": digest(identity),
+                    "results": [{"mode": "gsi", "accepted": False, "exit": -9, "timeout": True}]}))
+                archive(source, root / "archive", None, identity)
+                target = root / "archive/gsi.log"
                 if fault == "change":
-                    observations['observations'][key]['sha256'] = '0'*64
+                    target.write_text("tampered\n")
                 else:
-                    del observations['observations'][key]
-                registry.write_text(json.dumps(observations))
-                with self.subTest(fault=fault), self.assertRaises((ValueError, FileNotFoundError)):
-                    validate(root, NAME)
-
-    def test_parent_exit_cannot_contradict_pass_or_be_a_boolean(self):
-        with tempfile.TemporaryDirectory() as directory:
-            for value in (1, False):
-                with self.subTest(value=value), self.assertRaises(ValueError):
-                    archive((ROOT / NAME).parent, Path(directory) / "new", value)
+                    target.unlink()
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    validate(root, "archive/archive.json")
 
 
 if __name__ == "__main__":

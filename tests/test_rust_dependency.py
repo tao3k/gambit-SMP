@@ -51,10 +51,13 @@ class RustDependencyTests(unittest.TestCase):
         with patch.object(Path, "resolve", observed):
             files, build = inventory(verify=False)
         self.assertTrue(build["sourceInputs"])
+        source_root = Path(build["sourceRoot"])
+        self.assertGreater(calls[str(source_root)], 0)
+        self.assertLessEqual(calls[str(source_root)], 2)
         for name, sha in build["sourceInputs"].items():
             path = files["source:" + name]
-            self.assertLessEqual(calls[str(path)], 2, name)
-            self.assertGreater(calls[str(path)], 0, name)
+            self.assertFalse(path.is_symlink(), name)
+            self.assertTrue(path.is_relative_to(source_root), name)
             self.assertEqual(digest(path), sha, name)
 
     def test_deployed_package_does_not_depend_on_a_build_machine_runtime(self):

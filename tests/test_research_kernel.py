@@ -424,7 +424,7 @@ class ResearchGraphTests(unittest.TestCase):
                 self.assertRaises(SystemExit) as refused:
             research_kernel.main()
         self.assertEqual(2, refused.exception.code)
-        self.assertIn("read/export-only", error.getvalue())
+        self.assertIn("inspection, export or Recipe projection", error.getvalue())
         discovered.assert_not_called()
         launched.assert_not_called()
 

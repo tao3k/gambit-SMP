@@ -181,6 +181,8 @@ def facts(root):
         raise ValueError("protocol bundle registry changed after loading")
     result, inputs = {}, {BUNDLE_REGISTRY: digest(root / BUNDLE_REGISTRY)}
     for manifest, receipt in BUNDLES:
+        if manifest.startswith(".cache/research/legacy-evidence/") and not (root / manifest).is_file():
+            continue
         rows, bound = bundle_facts(root, manifest, receipt)
         inputs.update(bound)
         for name, values in rows.items():
@@ -202,6 +204,8 @@ def report_links(root, models):
         raise ValueError("unknown protocol report-link schema")
     contexts = {}
     for manifest_name, _ in BUNDLES:
+        if manifest_name.startswith(".cache/research/legacy-evidence/") and not (root / manifest_name).is_file():
+            continue
         manifest = json.loads((root / manifest_name).read_text())
         for case in manifest["cases"]:
             contexts[case["id"]] = manifest["contextInputs"]

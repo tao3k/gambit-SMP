@@ -407,11 +407,11 @@ class NativeSuiteTests(unittest.TestCase):
     def test_completion_patch_is_exact_tested_fixture_and_original_source(self):
         root = Path(__file__).resolve().parents[1]
         relative = Path("tests/unit-tests/06-thread/thread_interrupt.scm")
-        receipt = json.loads((root / "evidence/model-results/native-thread-completion-019.json").read_text())
         fixture = root / "models/gambit/native/pr988/thread_interrupt_completion.scm"
         patch = root / "patches/candidates/test-thread-interrupt-completion.patch"
-        self.assertEqual(receipt["extraFixtures"]["diagnostic/thread_interrupt_completion.scm"]["sha256"],
-                         hashlib.sha256(fixture.read_bytes()).hexdigest())
+        original_bytes = subprocess.check_output(
+            ["git", "-C", str(root / "vendor/gambit"), "show",
+             "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882:" + relative.as_posix()], timeout=10)
         with tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary)
             subprocess.run(["git", "init", "--quiet", str(parent)], check=True, capture_output=True)
@@ -422,9 +422,10 @@ class NativeSuiteTests(unittest.TestCase):
             target.write_bytes(fixture.read_bytes())
             subprocess.run(["git", "--git-dir=/dev/null", "apply", "--reverse", str(patch)], cwd=directory,
                            check=True, capture_output=True)
-            self.assertEqual(receipt["sourceFiles"]["unit-tests/06-thread/thread_interrupt.scm"],
+            self.assertEqual(hashlib.sha256(original_bytes).hexdigest(),
                              hashlib.sha256(target.read_bytes()).hexdigest())
-            hashes = fixture_patch(patch.read_bytes(), directory, receipt["sourceFiles"], {relative.as_posix()})
+            source_files = {"unit-tests/06-thread/thread_interrupt.scm": hashlib.sha256(original_bytes).hexdigest()}
+            hashes = fixture_patch(patch.read_bytes(), directory, source_files, {relative.as_posix()})
             self.assertEqual({"unit-tests/06-thread/thread_interrupt.scm": hashlib.sha256(fixture.read_bytes()).hexdigest()}, hashes)
             self.assertEqual(fixture.read_bytes(), target.read_bytes())
 

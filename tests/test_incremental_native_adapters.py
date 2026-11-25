@@ -20,9 +20,19 @@ from tests import test_workspace as fixtures
 REPOSITORY = Path(__file__).resolve().parents[1]
 
 
+def _tool_path():
+    search_path = os.environ.get('PATH', '')
+    if sys.platform == 'darwin':
+        extra = [p for p in ('/opt/homebrew/bin', '/usr/local/bin') if p not in search_path.split(os.pathsep)]
+        if extra:
+            search_path = os.pathsep.join([*(p for p in (search_path,) if p), *extra])
+    return search_path
+
+
 def gcc():
+    search_path = _tool_path()
     for name in ('gcc-16', 'gcc-15', 'gcc-14', 'gcc'):
-        path = shutil.which(name)
+        path = shutil.which(name, path=search_path)
         if path:
             result = subprocess.run([path, '--version'], capture_output=True, text=True, check=True)
             if 'gcc' in result.stdout.lower() and 'clang' not in result.stdout.lower():
@@ -122,7 +132,7 @@ class NativeIncrementalAdapterTests(unittest.TestCase):
     def test_real_upstream_objects_use_the_same_owned_source_across_providers(self):
         self.compiler = gcc()
         self.tools, self.tool_environment = native.host_tools(self.compiler, [{'capability': 'gambit.configure'}],
-            dict(PATH=os.environ['PATH'], HOME=str(self.root), LANG='C',
+            dict(PATH=_tool_path(), HOME=str(self.root), LANG='C',
                  **({'M4':os.environ['M4']} if 'M4' in os.environ else {})))
         (self.root / 'vendor').mkdir()
         subprocess.run(['git', 'clone', '--quiet', '--shared', '--no-checkout',

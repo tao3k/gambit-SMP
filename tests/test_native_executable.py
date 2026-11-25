@@ -185,7 +185,7 @@ class NativeExecutableTests(unittest.TestCase):
             bind=lambda paths: list(paths), remaining=lambda: 10)
         self.log, self.stderr, self.change = "PASS\n", 0, None
         def require(stage, argv, cwd, cap, **kwargs):
-            self.ctx.commands.append({"stderrBytes": self.stderr, "seconds": 1})
+            self.ctx.commands.append({"stage": stage, "stderrBytes": self.stderr, "seconds": 1})
             if stage == "compile-executable":
                 (self.directory / "fixture").write_text("mock executable")
                 return ""
@@ -372,14 +372,21 @@ class NativeExecutableTests(unittest.TestCase):
         observe.assert_called_once_with(self.directory, self.args["latency"], 12, 1)
 
     def test_complete_grid_requires_both_modes_and_independent_vms(self):
-        from gambit_smp.framework import ROOT
-        from gambit_smp.recipes import read_json
-        grid = read_json(ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/native.recipe.json")
-        steps = {step["id"]: step for step in grid["steps"]}
-        target = steps["independent-vms"]
-        self.assertTrue({"native-gsi", "native-gsc", "entry-safe-binding",
-                         "entry-bypass-control", "entry-trajectories"} <= set(target["dependsOn"]))
-        self.assertIn("independent-vms", steps["verdict"]["dependsOn"])
+        from gambit_smp.recipes import CAPABILITIES
+        producer = {"id": "core", "capability": "gambit.source-core", "arguments": {}}
+        rt = {"step": "core", "output": "runtime"}
+        ident = {"step": "core", "output": "identity"}
+        native_gsi = {"id": "native-gsi", "capability": "gambit.suite", "dependsOn": ["core"],
+                      "arguments": {"runtime": rt, "identity": ident, "mode": "gsi",
+                                    "regime": "whole-parallel", "selection": ["."], "expectedFiles": ["a.scm"]}}
+        native_gsc = {"id": "native-gsc", "capability": "gambit.suite", "dependsOn": ["core"],
+                      "arguments": {"runtime": rt, "identity": ident, "mode": "gsc",
+                                    "regime": "whole-parallel", "selection": ["."], "expectedFiles": ["a.scm"]}}
+        target = {"id": "independent-vms", "capability": "gambit.executable-test",
+                  "dependsOn": ["core", "native-gsi", "native-gsc"],
+                  "arguments": {"runtime": rt, "identity": ident, "program": "fixture.scm", "stdout": "PASS\n"}}
+        steps = {s["id"]: s for s in (producer, native_gsi, native_gsc, target)}
+        native.graph(target, steps, CAPABILITIES)
         self.assertEqual(steps["native-gsi"]["arguments"]["identity"], target["arguments"]["identity"])
         self.assertEqual(steps["native-gsc"]["arguments"]["runtime"], target["arguments"]["runtime"])
         self.assertNotIn("processors", target["arguments"])

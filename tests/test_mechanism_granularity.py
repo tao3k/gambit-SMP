@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import tempfile
 import unittest
 from gambit_smp.framework import ROOT,digest,execute
 from gambit_smp.artifact_storage import runtime_output
@@ -17,8 +18,9 @@ from tests.test_retirement_repair_campaign import prepared_compiler,compiled_con
 class MechanismGranularityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out=runtime_output(ROOT,'.cache/mechanism-granularity-tests')
-        cls.out.mkdir(parents=True,exist_ok=False)
+        base=runtime_output(ROOT,'.cache/mechanism-granularity-tests')
+        base.parent.mkdir(parents=True,exist_ok=True)
+        cls.out=Path(tempfile.mkdtemp(prefix='mechanism-granularity-',dir=base.parent))
         cls.files=[ROOT/'models/gambit'/n for n in ('retirement_repair_campaign.qnt','structure_fault_observation.qnt','native_compiler_probe_correspondence.qnt','retirement_exit_handoff.qnt','callback_return_owned_result.qnt','resize_saved_stack_retirement_isolated.qnt','sync_slot_retained_resources.qnt')]
         cls.files += [ROOT/'models/library/gc/WorkObligations.qnt',ROOT/'models/gambit/lean/RetirementRepairCampaign.lean',ROOT/'models/gambit/lean/lean-toolchain',ROOT/'evidence/dsl/modeling-guidance.ss',ROOT/'tests/test_retirement_repair_campaign.py',Path(__file__)]
         cls.inputs={str(p.relative_to(ROOT)):digest(p) for p in cls.files}
@@ -64,7 +66,10 @@ class MechanismGranularityTests(unittest.TestCase):
         cls.context.__exit__(None,None,None)
         after={str(p.relative_to(ROOT)):digest(p) for p in cls.files+[cls.projection]}
         (cls.out/'summary.json').write_text(json.dumps(dict(inputs=cls.inputs,sourceWindowUnchanged=after==cls.inputs,checks=cls.rows,nativeAdmitted=False),indent=2)+'\n')
-        assert after==cls.inputs,'model/control sources changed during checks'
+        try:
+            assert after==cls.inputs,'model/control sources changed during checks'
+        finally:
+            shutil.rmtree(cls.out,ignore_errors=True)
 
     def tlc(self,initializer,invariant,negative=False,temporal=None):
         folder=self.out/(initializer+'-'+invariant);folder.mkdir()

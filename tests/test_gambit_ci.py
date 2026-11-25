@@ -193,10 +193,28 @@ class GambitCIContracts(unittest.TestCase):
                              len(files))
             selected = {str(path) for path in files}
             overlapping = set()
+            import subprocess
             for failure in failures:
                 if not selected_scope(failure["file"], selected, files):
                     continue
-                modes = failure_modes(recipes.read_json(ROOT / failure["receipt"]))
+                receipt_rel = failure["receipt"]
+                receipt_path = ROOT / receipt_rel
+                if receipt_path.is_file():
+                    receipt_doc = recipes.read_json(receipt_path)
+                elif receipt_rel.startswith(".cache/research/legacy-evidence/"):
+                    orig = receipt_rel.removeprefix(".cache/research/legacy-evidence/")
+                    receipt_doc = None
+                    for rev in ("b6e14025", "7da20ce564", "ac96bbb64b"):
+                        proc = subprocess.run(["git", "-C", str(ROOT), "show", f"{rev}:{orig}"],
+                                              capture_output=True)
+                        if proc.returncode == 0:
+                            receipt_doc = recipes.decode_json(proc.stdout.decode())
+                            break
+                    if receipt_doc is None:
+                        raise FileNotFoundError(receipt_rel)
+                else:
+                    receipt_doc = recipes.read_json(receipt_path)
+                modes = failure_modes(receipt_doc)
                 if not modes or mode in modes:
                     overlapping.add(failure["id"])
             review = by_id["review-" + mode]["arguments"]

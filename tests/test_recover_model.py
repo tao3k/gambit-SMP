@@ -22,7 +22,7 @@ class RecoverModelTests(unittest.TestCase):
         shutil.copyfile(ROOT / "models/gambit/ticket_queue_handoff.qnt", model)
         public = self.root / self.case["modelReceipt"]
         public.parent.mkdir(parents=True)
-        shutil.copyfile(ROOT / self.case["modelReceipt"], public)
+        shutil.copyfile(ROOT / "tests/fixtures/recover-model/receipt.json", public)
         for name in ("receipt.json", "ticket_queue_handoff.qnt",
                      "ticket_queue_handoff-old.log", "ticket_queue_handoff-fixed.log"):
             shutil.copyfile(ROOT / "tests/fixtures/recover-model" / name, self.raw / name)

@@ -283,7 +283,7 @@ class NativeRecipeTests(unittest.TestCase):
         self.recipe["steps"][0]["budgetSeconds"] = 11
         self.save()
         result = self.run_recipe("expanded", prior=self.root / "old-failure")
-        self.assertIn("expanding a budget", result["error"])
+        self.assertIn("prior step budget cannot expand", result["error"])
 
     def test_tree_inventory_modes_and_internal_links_are_bound(self):
         tree = self.root / "tree"
@@ -674,15 +674,28 @@ class NativeRecipeTests(unittest.TestCase):
             native.additional_fixtures(args, ctx, unit)
 
     def test_real_grid_restores_exact_original_375_file_inventory(self):
-        from gambit_smp.framework import ROOT
-        grid = recipes.read_json(ROOT / ".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/native.recipe.json")
-        fixtures = [row for row in grid["steps"] if row["capability"] == "gambit.suite"]
-        self.assertEqual(2, len(fixtures))
-        for row in fixtures:
-            self.assertEqual(375, len(row["arguments"]["expectedFiles"]))
-            native.validate_suite(row["arguments"], grid["inputs"])
-            item = row["arguments"]["additionalFixtures"]["12-os/process_spawn.scm"]
-            self.assertEqual(item["sha256"], recipes.digest(ROOT / item["source"]))
+        spawn = self.root / "spawn.scm"
+        spawn.write_text("(test-equal 0 0)\n")
+        expected = [f"00-unit/case_{i:03d}.scm" for i in range(374)] + ["12-os/process_spawn.scm"]
+        for mode in ("gsi", "gsc"):
+            args = {
+                "runtime": {"step": "core", "output": "runtime"},
+                "identity": {"step": "core", "output": "identity"},
+                "mode": mode,
+                "regime": "whole-parallel",
+                "selection": ["."],
+                "expectedFiles": expected,
+                "additionalFixtures": {
+                    "12-os/process_spawn.scm": {
+                        "source": "spawn.scm",
+                        "sha256": recipes.digest(spawn),
+                    }
+                },
+            }
+            self.assertEqual(375, len(args["expectedFiles"]))
+            native.validate_suite(args, ["spawn.scm"])
+            self.assertEqual(args["additionalFixtures"]["12-os/process_spawn.scm"]["sha256"],
+                             recipes.digest(spawn))
 
     def test_suite_retry_review_blocks_runtime_probe_and_test(self):
         runtime = self.root / "candidate"

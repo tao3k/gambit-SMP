@@ -122,7 +122,7 @@ class BootstrapRuntimeTests(unittest.TestCase):
                 "--patch", "missing", "--model-receipt", "missing", "--patch-model", "gc_table_serialization"]
         with patch("sys.argv", argv), patch("sys.stderr", new_callable=StringIO) as stderr:
             with self.assertRaises(SystemExit) as result:
-                main()
+                main.__wrapped__()
             self.assertEqual(2, result.exception.code)
             self.assertIn("companion proofs", stderr.getvalue())
 
@@ -132,7 +132,7 @@ class BootstrapRuntimeTests(unittest.TestCase):
                 "--patch", "missing", "--model-receipt", "missing", "--patch-model", "pipe_wait"]
         with patch("sys.argv", argv), patch("sys.stderr", new_callable=StringIO) as stderr:
             with self.assertRaises(SystemExit) as result:
-                main()
+                main.__wrapped__()
             self.assertEqual(2, result.exception.code)
             self.assertIn("companion proofs", stderr.getvalue())
     def test_unknown_source_repair_does_not_fall_through_to_snapshot(self):

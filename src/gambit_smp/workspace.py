@@ -996,8 +996,10 @@ def collect_builds(root, cache, cutoff, opened=None):
 
 def active_paths():
     """Open files, mappings and working directories; failure defers reclamation."""
+    import shutil
     from gambit_smp.task_processes import run
-    result = run(["lsof", "-n", "-P", "-Fpn"], capture_output=True, text=True, timeout=30)
+    lsof = shutil.which("lsof") or ("/usr/sbin/lsof" if Path("/usr/sbin/lsof").is_file() else "lsof")
+    result = run([lsof, "-n", "-P", "-Fpn"], capture_output=True, text=True, timeout=30)
     if result.returncode != 0 or result.stderr:
         raise ValueError("process inventory unavailable; cleanup deferred")
     return [Path(line[1:]) for line in result.stdout.splitlines() if line.startswith("n/")]

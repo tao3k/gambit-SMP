@@ -318,7 +318,11 @@ class CheckpointObserverTests(unittest.TestCase):
             "admitted": False, "count": "8/12", "closed": None, "runsOk": False})
 
     def test_numeric_host_pair_does_not_close_the_checkpoint(self):
-        root = Path(".")
+        root = self._tree(
+            count_line="Cumulative completion is **8/12**.",
+            closed_line="The four open gates remain open.",
+            others="Complete GC/FFI, Gerbil correctness, and release performance remain open.",
+            runs=())
         decision = observer.qualify_nine_of_twelve(root)
         self.assertEqual(decision, {
             "admitted": False, "count": "8/12", "closed": None, "runsOk": False})
@@ -332,7 +336,11 @@ class CheckpointObserverTests(unittest.TestCase):
         self.assertNotIn("GC/FFI gate is closed", milestone)
 
     def test_real_recovery_banner_is_not_a_still_joinable_join(self):
-        root = Path(".")
+        root = self._tree(
+            count_line="Cumulative completion is **8/12**.",
+            closed_line="The four open gates remain open.",
+            others="Complete GC/FFI, Gerbil correctness, and release performance remain open.",
+            runs=tuple((name, "pre-join-flag") for name in observer.LIFECYCLE_RUNS))
         for name in observer.LIFECYCLE_RUNS:
             stdout = (root / name / "run/join-probe/run-executable.stdout").read_text()
             receipt = json.loads((root / name / "receipt.json").read_text())

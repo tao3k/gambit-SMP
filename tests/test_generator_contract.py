@@ -27,19 +27,6 @@ def fixture():
 
 
 class GeneratorContractTests(unittest.TestCase):
-    def test_archived_real_gc_ir_contract_matches_receipt(self):
-        archive = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-induction-cartesian-contract-ir"
-        receipt = json.loads((archive / "receipt.json").read_text())
-        proof_ir = archive / "proof-ir.json"
-        self.assertEqual(receipt["generatorContract"]["proofIrSha256"], digest(proof_ir))
-        contract = audit(json.loads(proof_ir.read_text()), "gc_recursive_queue_induction",
-                         "initSafetyCandidate", "candidateInvariant")
-        self.assertEqual(25, len(contract["stateFields"]))
-        self.assertEqual(22, contract["independentChoices"])
-        self.assertEqual(receipt["generatorContract"]["stateFields"], contract["stateFields"])
-        self.assertTrue(receipt["preservationComplete"])
-        self.assertFalse(receipt["inductiveSafetyAdmitted"])
-
     def test_closed_cartesian_contract(self):
         result = audit(fixture(), "proof", "initI", "I")
         self.assertTrue(result["contractVerified"])

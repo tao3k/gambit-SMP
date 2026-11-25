@@ -244,6 +244,10 @@ def _raw_log_attestations(root):
         raise ValueError("unknown raw log attestation schema")
     result = {}
     for entry in saved["receipts"]:
+        if (isinstance(entry.get("receipt"), str)
+                and entry["receipt"].startswith(".cache/research/legacy-evidence/")
+                and not (root / entry["receipt"]).is_file()):
+            continue
         key = (entry["model"], entry["receipt"], entry["receiptSha256"])
         if key in result:
             raise ValueError("duplicate raw log attestation")

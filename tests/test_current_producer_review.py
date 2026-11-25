@@ -39,7 +39,8 @@ class CurrentProducerReviewTests(unittest.TestCase):
         def which(name, path=None):
             searches.append(path.split(":") if path else [])
             return "/usr/bin/" + name
-        with patch("gambit_smp.native_capabilities.shutil.which", side_effect=which):
+        with patch("sys.platform", "linux"), \
+                patch("gambit_smp.native_capabilities.shutil.which", side_effect=which):
             tools, environment = native.host_tools(Path("/usr/bin/cc"), [], {"PATH": "/unrelated/node/bin"})
         self.assertTrue(all(row.index("/usr/bin") < row.index("/unrelated/node/bin") for row in searches))
         self.assertLess(environment["PATH"].split(":").index("/usr/bin"),

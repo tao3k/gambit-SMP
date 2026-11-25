@@ -32,7 +32,7 @@ class HostRootPublicationEvidenceTests(unittest.TestCase):
         paths = [directory / name for name in (
             proof, "WorkAccounting.lean",
             "lakefile.toml", "lean-toolchain")]
-        paths.append(ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication" / manifest)
+        paths.append(ROOT / "tests/fixtures/host-root-publication" / manifest)
         paths.append(Path(__file__))
         inputs = {str(path.relative_to(ROOT)): digest(path) for path in paths}
         lake = shutil.which("lake")
@@ -65,7 +65,7 @@ class HostRootPublicationEvidenceTests(unittest.TestCase):
                                 {"propext", "Classical.choice", "Quot.sound"})
 
     def test_participation_source_edges_remain_unqualified(self):
-        path = ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication/participation-facts.json"
+        path = ROOT / "tests/fixtures/host-root-publication/participation-facts.json"
         facts = json.loads(path.read_text())["facts"]
         inputs = {row[1]: row[2] for row in facts["source"]}
         inputs[str(path.relative_to(ROOT))] = digest(path)
@@ -105,7 +105,7 @@ class HostRootPublicationEvidenceTests(unittest.TestCase):
         self.assertEqual(inputs, {name: digest(ROOT / name) for name in inputs})
 
     def test_source_composition_and_redesign_are_distinct(self):
-        path = ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication/facts.json"
+        path = ROOT / "tests/fixtures/host-root-publication/facts.json"
         facts = json.loads(path.read_text())["facts"]
         inputs = {row[1]: row[2] for row in facts["source"]}
         inputs[str(path.relative_to(ROOT))] = digest(path)

@@ -360,15 +360,23 @@ from contextlib import contextmanager as _contextmanager
 def isolated_test_context():
     """Tests keep real fixture custody rather than borrowing a production task."""
     from gambit_smp.storage_policy import _scope
+    from gambit_smp.task_entry import _dispatch, _observation_address, _observation_presenter
     names={key:value for key,value in os.environ.items()
            if key.startswith(('GAMBIT_SMP_TASK_', 'GAMBIT_SMP_WORKSPACE_'))}
     for key in names:os.environ.pop(key,None)
     token=_scope.set(None)
+    dispatch_token=_dispatch.set(False)
+    address_token=_observation_address.set(None)
+    presenter_token=_observation_presenter.set(None)
     try:yield
     finally:
         for key in list(os.environ):
             if key.startswith(('GAMBIT_SMP_TASK_', 'GAMBIT_SMP_WORKSPACE_')):os.environ.pop(key,None)
-        os.environ.update(names);_scope.reset(token)
+        os.environ.update(names)
+        _observation_presenter.reset(presenter_token)
+        _observation_address.reset(address_token)
+        _dispatch.reset(dispatch_token)
+        _scope.reset(token)
 
 if __name__ == "__main__":
     raise SystemExit(worker(Path(sys.argv[1]).resolve()))

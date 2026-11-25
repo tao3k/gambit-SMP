@@ -19,13 +19,13 @@ class CorrespondenceTests(unittest.TestCase):
         (self.root / "source/setup.c").write_text("reviewed source\n")
         self.sha = digest(self.root / "source/setup.c")
         for name in ("evidence/dsl/observation-contract.ss",
-                     ".cache/research/legacy-evidence/evidence/research/source-schedule-revalidation/observations.json",
+                     "tests/fixtures/source-schedule-observations.json",
                      "evidence/dsl/source-review-contract.ss",
                      "evidence/protocol-source-requirements.json"):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
-        declared = json.loads((self.root / ".cache/research/legacy-evidence/evidence/research/source-schedule-revalidation/observations.json").read_text())
+        declared = json.loads((self.root / "tests/fixtures/source-schedule-observations.json").read_text())
         self.receipt = dict(schema="gambit-sync-retirement-schedule.v1",
             compile=dict(exit=0, timeout=False), status="source-schedule-observed", sourceStable=True,
             runtimeAdmitted=False, inputs={"source/setup.c": self.sha},
@@ -66,13 +66,13 @@ class CorrespondenceTests(unittest.TestCase):
             audit.facts(self.root)
 
     def historical_context(self):
-        for directory in ("source/lib", "src", "patches", ".cache/research/legacy-evidence/evidence/source-results/history"):
+        for directory in ("source/lib", "src", "patches", "evidence/source-results/history"):
             (self.root / directory).mkdir(parents=True, exist_ok=True)
         (self.root / "source/lib/setup.c").write_text("reviewed source\n")
         (self.root / "patches/overlay.patch").write_text("locked patch")
         self.save("evidence/lock.json", {"patch": "patches/overlay.patch"})
         (self.root / "src/tool.py").write_text("current review tool")
-        archived = self.root / ".cache/research/legacy-evidence/evidence/source-results/history/tool.py"
+        archived = self.root / "evidence/source-results/history/tool.py"
         archived.write_text("original producer tool")
         self.receipt.update(sourceLock="evidence/lock.json", sourceFileIdentities={"lib/setup.c": self.sha})
         self.receipt["inputs"].update({
@@ -100,18 +100,18 @@ class CorrespondenceTests(unittest.TestCase):
         _, bound = audit.source_facts(self.root, self.data, self.root / "source", inputs, locked=True)
         self.assertEqual(digest(self.root / "src/tool.py"), bound["src/tool.py"])
         self.assertEqual(self.receipt["inputs"]["src/tool.py"],
-                         bound[".cache/research/legacy-evidence/evidence/source-results/history/tool.py"])
+                         bound["evidence/source-results/history/tool.py"])
         self.assertEqual(old_receipt, digest(self.root / "evidence/unit.json"))
 
     def test_historical_tool_archive_drift_is_rejected(self):
         inputs = self.historical_context()
-        (self.root / ".cache/research/legacy-evidence/evidence/source-results/history/tool.py").write_text("not the original")
-        with self.assertRaisesRegex(ValueError, "exact versioned historical source"):
+        (self.root / "evidence/source-results/history/tool.py").write_text("not the original")
+        with self.assertRaisesRegex(ValueError, "exact authenticated historical source bytes required"):
             audit.source_facts(self.root, self.data, self.root / "source", inputs, locked=True)
 
     def test_history_cannot_replace_current_source_lock(self):
         inputs = self.historical_context()
-        target = self.root / ".cache/research/legacy-evidence/evidence/source-results/history/old-lock.json"
+        target = self.root / "evidence/source-results/history/old-lock.json"
         target.write_text('{"patch":"patches/overlay.patch","different":true}')
         old_sha = digest(target)
         self.receipt["inputs"]["evidence/lock.json"] = old_sha

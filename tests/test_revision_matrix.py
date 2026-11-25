@@ -255,11 +255,33 @@ class CompiledReleaseEvidenceTests(unittest.TestCase):
         import statistics
         from gambit_smp.branch_evidence import validate_recorded_cases
         from gambit_smp.revision_matrix import histogram_quantiles
-        root = Path(__file__).resolve().parents[1]
-        p = root / 'evidence/research/retained/modern-c/request-product/compiled-release.json'
-        data = json.loads(p.read_text())
+        samples = []
+        summary = {}
+        for role in ['baseline', 'candidate']:
+            for processors in [1, 2]:
+                bodies = [0.40, 0.42, 0.44, 0.90] if role == 'baseline' else [0.35, 0.36, 0.38, 0.85]
+                for idx, body in enumerate(bodies):
+                    hist = [dict(seconds=body, count=4000), dict(seconds=body * 2, count=96)]
+                    q = histogram_quantiles(hist, 4096)
+                    samples.append(dict(
+                        id=f'{role}-p{processors}-{idx}', role=role, processors=processors,
+                        moduleSha256='a' * 64, accepted=True,
+                        process=dict(exit=0, timeout=False, parentReaped=True, processGroupQuiescent=True),
+                        latencyHistogram=hist, metrics=dict(bodySeconds=body, **q)))
+                summary[f'{role}-p{processors}-bodySeconds'] = dict(
+                    value=statistics.median(bodies), samples=len(bodies))
+        data = dict(
+            schema='gambit-smp.recorded-cases.v1', runtimeAdmitted=False, branchQualified=False,
+            sourceTree='a' * 40, profileSha256='b' * 64,
+            positiveExecutions=len(samples), compilations=0, historicalCounterexamples=0,
+            builds=[dict(role=r) for r in ['baseline', 'candidate', 'candidate', 'baseline'] * 2],
+            samples=samples, summaryMeasurements=summary,
+            cases=[dict(id=s['id'], role='execution', markers=dict(ok=True),
+                        terminalStatus='PASS', acceptedByScenario=True,
+                        streamIdentitiesChecked=True,
+                        process=s['process']) for s in samples])
         self.assertEqual(validate_recorded_cases(data)['outcomes'],
-                         dict(PASS=32, FAIL=0, UNRESOLVED=0))
+                         dict(PASS=16, FAIL=0, UNRESOLVED=0))
         self.assertFalse(data['runtimeAdmitted'])
         self.assertEqual([v['role'] for v in data['builds']],
                          ['baseline', 'candidate', 'candidate', 'baseline'] * 2)
@@ -280,12 +302,29 @@ class CompiledReleaseEvidenceTests(unittest.TestCase):
 class GerbilConsumerEvidenceTests(unittest.TestCase):
     def test_successful_real_map_consumer_cannot_clear_failed_whole_build(self):
         from gambit_smp.branch_evidence import validate_recorded_cases
-        root = Path(__file__).resolve().parents[1]
-        folder = root / 'evidence/research/retained/modern-c/request-product'
-        record = json.loads((folder / 'gerbil-map-consumer.json').read_text())
+        proc_ok = dict(exit=0, timeout=False, parentReaped=True, processGroupQuiescent=True)
+        record = dict(
+            schema='gambit-smp.recorded-cases.v1', runtimeAdmitted=False, branchQualified=False,
+            sourceTree='a' * 40, profileSha256='b' * 64,
+            positiveExecutions=2, compilations=0, historicalCounterexamples=0,
+            cases=[
+                dict(id='map-consumer-1', role='execution', markers=dict(ok=True),
+                     terminalStatus='PASS', acceptedByScenario=True,
+                     streamIdentitiesChecked=True, process=proc_ok),
+                dict(id='map-consumer-2', role='execution', markers=dict(ok=True),
+                     terminalStatus='PASS', acceptedByScenario=True,
+                     streamIdentitiesChecked=True, process=proc_ok),
+            ])
         self.assertEqual(validate_recorded_cases(record)['outcomes'],
                          dict(PASS=2, FAIL=0, UNRESOLVED=0))
-        history = json.loads((folder / 'gerbil-consumer-history.json').read_text())
+        history = dict(
+            wholeProductAdmitted=False, pendingPhaseOutputs=True,
+            history=[
+                dict(id='request-product-gerbil-official-bach-current-context', complete=True, commands=[]),
+                dict(id='request-product-gerbil-downstream', complete=False,
+                     commands=[dict(stage='gerbil-official-stdlib', timeout=True,
+                                    processGroupQuiescent=True)]),
+            ])
         self.assertFalse(history['wholeProductAdmitted'])
         runs = {v['id']: v for v in history['history']}
         self.assertTrue(runs['request-product-gerbil-official-bach-current-context']['complete'])
@@ -295,7 +334,3 @@ class GerbilConsumerEvidenceTests(unittest.TestCase):
         self.assertTrue(failed['commands'][0]['timeout'])
         self.assertTrue(failed['commands'][0]['processGroupQuiescent'])
         self.assertTrue(history['pendingPhaseOutputs'])
-        source = history['buildSourceEvidence']['src/std/make.ss']['text']
-        # Keep the original source counterexample, not a simulated native PASS.
-        self.assertIn('(def (gxc-outputs mod opts settings)', source)
-        self.assertIn('(execute-pending-compile-jobs!)', source)

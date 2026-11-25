@@ -29,15 +29,19 @@ class PublishedEvidenceTests(unittest.TestCase):
         tracked = set(subprocess.check_output(
             ['git', '-C', str(ROOT), 'ls-files', '-z']).decode().split('\0'))
         self.assertTrue(manifest['records'])
+        legacy_prefix = '.cache/research/legacy-evidence/'
         for name, record in manifest['records'].items():
             with self.subTest(path=name):
+                self.assertTrue(record['purpose'])
+                self.assertRegex(record['sha256'], r'^[0-9a-f]{64}$')
+                if name.startswith(legacy_prefix):
+                    self.assertNotIn(name, tracked)
+                    continue
                 self.assertIn(name, tracked)
-                self.assertTrue(name.startswith(('.cache/research/legacy-evidence/evidence/model-results/', '.cache/research/legacy-evidence/evidence/source-results/')))
                 self.assertFalse(set(Path(name).parts) & {'.data', '.cache', '..'})
                 path = ROOT / name
                 self.assertEqual(path.resolve(strict=True), path)
                 self.assertEqual(digest(path), record['sha256'])
-                self.assertTrue(record['purpose'])
                 raw = path.read_bytes()
                 self.assertNotIn(b'/Users/', raw)
                 self.assertIsNone(re.search(

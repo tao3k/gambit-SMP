@@ -79,9 +79,32 @@ class SourceUnitTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 source_binding.checked_negate_header_hash(source)
     def test_mark_mock_macro_projection_rejects_different_representation(self):
-        from gambit_smp.check_gambit import ROOT
-        receipt = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/model-results/mark-array-source-unit.json").read_text())
-        macros = receipt["representation"]["selectedMacros"]
+        macros = {
+            "___WORD_WIDTH": "64",
+            "___WS": "8",
+            "___TB": "3",
+            "___LWS": "3",
+            "___HTB": "3",
+            "___SB": "5",
+            "___LF": "(___HTB+___SB)",
+            "___REFERENCE_TO_BODY": "1",
+            "___MOVABLE0": "0",
+            "___FORW": "3",
+            "___STILL": "5",
+            "___PERM": "6",
+            "___sWEAK": "13",
+            "___sBOXVALUES": "5",
+            "___MEM_ALLOCATED(obj)": "((obj)&1)",
+            "___TAG(ptr,tag)": "(___CAST(___WORD,ptr)+(tag))",
+            "___UNTAG(obj)": "___CAST(___WORD*,(obj)&~___TMASK)",
+            "___UNTAG_AS(obj,tag)": "___CAST(___WORD*,(obj)-(tag))",
+            "___BODY0(obj)": "(___UNTAG(obj)+___REFERENCE_TO_BODY)",
+            "___HD_TYP(head)": "((head)&___HTMASK)",
+            "___HD_SUBTYPE(head)": "((head)>>___HTB&((1<<___SB)-1))",
+            "___HD_WORDS(head)": "(((___CAST(___UWORD,head)+((___WS-1)<<___LF)))>>(___LF+___LWS))",
+            "___TESTTYPE(x,typ)": "___TESTMASK(x,___TMASK,typ)",
+            "___TESTMASK(x,mask,val)": "(((___CAST_U32(x)-(val))&(mask))==0)",
+        }
         text = "\n".join("#define " + name + " " + value for name, value in macros.items())
         self.assertEqual(macros, source_unit.mark_representation(text))
         for invalid in (text.replace("#define ___TB 3", "#define ___TB 2"),

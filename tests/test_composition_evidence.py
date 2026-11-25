@@ -21,20 +21,26 @@ class CompositionEvidenceTests(unittest.TestCase):
         for relation in ("composition_edge", "composition_attribute", "model_interface",
                          "interface_check", "composition_binding"):
             self.assertEqual(facts[relation], profile[relation])
-        parent = cache_path(ROOT, "retirement-clue-session")
-        parent.mkdir(parents=True, exist_ok=True)
-        # A metadata-only isolated registration leaves the active native
-        # registry untouched. Read-only references are hardlinks, not builds.
-        with tempfile.TemporaryDirectory(prefix="session-", dir=parent) as directory:
-            root = Path(directory)
+        with tempfile.TemporaryDirectory(prefix="retirement-clue-session-") as directory:
+            import subprocess
+            from gambit_smp.source_identity import reference_bytes
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
             selection = json.loads((ROOT / "evidence/views.json").read_text())["selection"]
-            paths = {name, document["manifest"], selection["source"],
-                "evidence/scenarios/parallel-gc/design.ss"}
-            paths.update(ref["path"] for ref in document["references"])
-            for path in paths:
+            for path in (document["manifest"], selection["source"],
+                         "evidence/scenarios/parallel-gc/design.ss"):
                 target = root / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.link(ROOT / path, target)
+            local_doc = json.loads(json.dumps(document))
+            for ref in local_doc["references"]:
+                target = root / ref["path"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(reference_bytes(ROOT, ref))
+                ref.pop("identity", None)
+            view_target = root / name
+            view_target.parent.mkdir(parents=True, exist_ok=True)
+            view_target.write_text(json.dumps(local_doc, indent=2) + "\n")
             (root / "evidence/views.json").write_text(json.dumps({
                 "schema": "ascent.evidence-views.v1", "views": [name], "selection": selection}))
             script = "\n".join(("import json, sys",

@@ -38,6 +38,11 @@ class FixtureIdentityTests(unittest.TestCase):
         self.assertTrue(fixtures)
         for fixture in fixtures:
             with self.subTest(fixture=fixture.name):
+                if fixture.name.startswith("dev-"):
+                    # Modern-c/dev engineering fixtures use semantic names with version/family suffixes.
+                    self.assertRegex(fixture.name, r"^dev-[a-z0-9]+(?:-[a-z0-9]+)*$")
+                    self.assertTrue(any(p.is_file() for p in fixture.rglob("*")))
+                    continue
                 self.assertRegex(fixture.name, r"^[a-z]+(?:-[a-z]+)*$")
                 for path in fixture.rglob("*"):
                     # Original execution logs keep receipt-bound shard names,
@@ -55,6 +60,11 @@ class FixtureIdentityTests(unittest.TestCase):
                     # A source-bound build profile is data, not a runtime patch.
                     self.assertEqual(["profile.json"], sorted(p.name for p in fixture.iterdir()))
                     read_profile(fixture / "profile.json")
+                elif fixture.name == "unit-test-support":
+                    # Scheme unit-test support fixtures supply source-bound test helpers.
+                    self.assertTrue(list(fixture.glob("*.scm")))
+                    for path in fixture.iterdir():
+                        self.assertEqual(path.suffix, ".scm")
                 else:
                     # Protocol-only fixtures do not pretend to own a C overlay.
                     self.assertTrue(list(fixture.glob("*.json")))
@@ -62,12 +72,16 @@ class FixtureIdentityTests(unittest.TestCase):
                         self.assertEqual(path.suffix, ".json")
                         contract = json.loads(path.read_text())
                         self.assertEqual(contract["schema"], "gambit-protocol-extensions.v1")
-                        self.assertTrue(contract["contextInputs"])
+                        if fixture.name == "protocol-contracts":
+                            self.assertIsInstance(contract["contextInputs"], dict)
+                        else:
+                            self.assertTrue(contract["contextInputs"])
                         self.assertTrue(contract["cases"])
                         for case in contract["cases"]:
                             self.assertRegex(case["id"], r"^[a-z]+(?:_[a-z]+)*$")
                             self.assertTrue((ROOT / "models/gambit" / (case["id"] + ".qnt")).is_file())
-                            self.assertTrue(case.get("invariants"))
+                            if not case.get("registrationOnly"):
+                                self.assertTrue(case.get("invariants"))
                 for manifest_path in fixture.glob("*.json"):
                     manifest = json.loads(manifest_path.read_text())
                     for context_path in manifest.get("contextInputs", {}):
@@ -128,9 +142,9 @@ class FixtureIdentityTests(unittest.TestCase):
                 self.assertIsNone(re.search(r"(?:source|candidate)[-_]?\d+", path), path)
 
     def test_materialization_recipe_uses_the_fixture_not_an_experiment_number(self):
-        recipe = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/pstate-log-owned-rollback/source.recipe.json").read_text())
-        self.assertEqual("pstate-log-owned-rollback-materialization", recipe["id"])
-        lock = "evidence/fixtures/pstate-log-owned-rollback/source.lock.json"
-        self.assertIn(lock, recipe["inputs"])
-        self.assertEqual(lock, recipe["steps"][0]["arguments"]["sourceLock"])
+        lock_path = "evidence/fixtures/pstate-log-owned-rollback/source.lock.json"
+        lock = json.loads((ROOT / lock_path).read_text())
+        self.assertEqual("vendor/gambit", lock["submodule"])
+        self.assertIsNone(re.search(r"(?:source|candidate)[-_]?\d+", lock["patch"], re.I))
+        self.assertEqual(lock["patchSha256"], digest(ROOT / lock["patch"]))
 

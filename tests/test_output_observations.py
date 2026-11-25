@@ -32,18 +32,70 @@ class OutputObservationTests(unittest.TestCase):
                     checked(root, receipt)
 
     def test_real_protocol_receipts_survive_cache_cleanup_but_not_source_drift(self):
-        from gambit_smp.framework import ROOT
-        from gambit_smp.protocol_evidence import checked_rows, MANIFEST, RECEIPT
-        from tests.support import protocol_fixture
-        with protocol_fixture(ROOT, MANIFEST, RECEIPT) as (root, manifest, receipt):
+        from gambit_smp.framework import digest
+        from gambit_smp.protocol_evidence import checked_rows
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            model = root / "models/gambit/demo_protocol.qnt"
+            model.parent.mkdir(parents=True)
+            model.write_text("module demo_protocol {}\n")
+            ctx_src = root / "docs/demo-premise.md"
+            ctx_src.parent.mkdir(parents=True)
+            ctx_src.write_text("original source premise\n")
+            manifest = {
+                "schema": "gambit-protocol-extensions.v1",
+                "quintVersion": "0.33.0",
+                "contextInputs": {"docs/demo-premise.md": digest(ctx_src)},
+                "cases": [{
+                    "id": "demo_protocol",
+                    "mode": "characterization",
+                    "composes": [],
+                    "source": ["docs/demo-premise.md"],
+                    "papers": [],
+                    "invariants": ["safe"],
+                    "oldInvariants": ["safe"],
+                    "oldInitializers": {"safe": "initOld"},
+                    "temporal": None,
+                }],
+            }
+            pos_log = b"Model checking completed. No error has been found.\n4 states generated, 4 distinct states found, 0 states left on queue.\n"
+            neg_log = b"Error: Invariant q_inv is violated.\n"
+            pos_obs, neg_obs = observe(pos_log), observe(neg_log)
+            receipt_dir = root / "evidence/protocol-demo"
+            receipt_dir.mkdir(parents=True)
+            trace = receipt_dir / "old.trace.json"
+            trace.write_text("{}\n")
+            receipt = receipt_dir / "receipt.json"
+            receipt.write_text(json.dumps({
+                "schema": "gambit-protocol-extension-receipt.v1",
+                "accepted": True,
+                "contextStable": True,
+                "runtimeAdmitted": False,
+                "native": {"status": "not-run"},
+                "quintVersion": "0.33.0",
+                "inputs": manifest["contextInputs"],
+                "results": [
+                    {"case": "demo_protocol", "variant": "old", "invariant": "safe",
+                     "initializer": "initOld", "modelSha256": digest(model), "sourceStable": True,
+                     "accepted": True, "exit": 1, "timeout": False, "evidence": "finite-state-TLC",
+                     "log": "old.log", "logSha256": neg_obs["sha256"], "states": neg_obs["tlc"]["states"],
+                     "trace": "old.trace.json", "traceSha256": digest(trace)},
+                    {"case": "demo_protocol", "variant": "protocol", "invariant": "safe",
+                     "initializer": "init", "modelSha256": digest(model), "sourceStable": True,
+                     "accepted": True, "exit": 0, "timeout": False, "evidence": "finite-state-TLC",
+                     "log": "protocol.log", "logSha256": pos_obs["sha256"], "states": pos_obs["tlc"]["states"]},
+                ],
+                "outputs": {"old.log": neg_obs, "protocol.log": pos_obs},
+            }))
             before = checked_rows(root, manifest, receipt)
-            cache = root/'.cache/run'; cache.mkdir(parents=True)
-            (cache/'checker.log').write_text('disposable diagnostic output')
-            shutil.rmtree(root/'.cache')
+            cache = root / ".cache/run"
+            cache.mkdir(parents=True)
+            (cache / "checker.log").write_text("disposable diagnostic output")
+            shutil.rmtree(root / ".cache")
             self.assertEqual(before, checked_rows(root, manifest, receipt))
-            source = root/next(iter(manifest['contextInputs']))
-            source.write_text('changed source premise')
-            with self.assertRaises(ValueError): checked_rows(root, manifest, receipt)
+            ctx_src.write_text("changed source premise\n")
+            with self.assertRaises(ValueError):
+                checked_rows(root, manifest, receipt)
 
     def test_cache_collection_preserves_success_failure_and_binding(self):
         with tempfile.TemporaryDirectory() as directory:

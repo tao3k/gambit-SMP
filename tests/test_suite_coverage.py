@@ -10,29 +10,106 @@ from gambit_smp.framework import ROOT
 from gambit_smp.suite_coverage import project_suite_files
 
 
+_RETIRED_GSC_RECEIPT = "evidence/research/retained/modern-c/frozen-568e0276-smp/assertion-runtime-framework-gsc.json"
+
+
+def _synthetic_retired_smp_receipts(root):
+    """Build compact synthetic stand-ins for oversized retired SMP receipts."""
+    from gambit_smp.suite_coverage import SMP_ORIGINAL_INVENTORY
+    gsi = json.loads((root / "evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-gsi.json").read_text())
+    selected = list(gsi["selectedFiles"])
+    other_files = [name for name in selected if name != "03-number/_num.scm"]
+    stages = ("scheme-to-c", "c-to-dynamic-module", "compiled-execution")
+    numeric_phases = [
+        {"phase": name, "accepted": True, "exit": 0, "timeout": False,
+         "artifactSha256": "a" * 64, **({"originalAssertionsWitness": True} if name == "compiled-execution" else {})}
+        for name in stages]
+    gsc_observations = [
+        {"batch": 0, "shard": 0, "files": ["03-number/_num.scm"], "accepted": True, "exit": 0, "timeout": False,
+         "sharedPhaseBudgetSeconds": 90, "assertionProtocol": "original-gsi-loader-and-assertion-witness",
+         "compilerPhases": numeric_phases},
+        {"batch": 0, "shard": 1, "files": other_files, "observedFiles": other_files,
+         "accepted": True, "exit": 0, "timeout": False}]
+    gsc_processes = [
+        {"stage": "suite-0-0-" + name, "effectiveBudgetSeconds": cap, "seconds": secs,
+         "exit": 0, "timeout": False, "parentReaped": True, "processGroupQuiescent": True}
+        for name, cap, secs in zip(stages, (90, 70, 30), (20, 40, 1))]
+    return {
+        SMP_ORIGINAL_INVENTORY: {
+            "original": {"unitInventory": ["tests/unit-tests/" + name for name in selected]}},
+        _RETIRED_GSC_RECEIPT: {
+            "sourceTree": gsi["sourceTree"], "profileSha256": gsi["profileSha256"],
+            "producerSha256": gsi["producerSha256"], "runtimeArtifacts": gsi["runtimeArtifacts"],
+            "mode": "gsc", "complete": True, "selectedFiles": selected,
+            "manifestDifference": {"extra": [], "missing": []},
+            "processes": gsc_processes, "observations": gsc_observations}}
+
+
+def _patch_retired_original_inventory(root):
+    """Supply oversized retired SMP receipts only for their exact ledger paths."""
+    from unittest.mock import patch
+    from gambit_smp.suite_coverage import SMP_LEDGER_FOLDER, SMP_ORIGINAL_INVENTORY, _load_smp_evidence
+    ledger = json.loads((root / SMP_LEDGER_FOLDER / "accepted-smp-progress.json").read_text())
+    bindings = {
+        SMP_ORIGINAL_INVENTORY: ledger["originalInventory"],
+        _RETIRED_GSC_RECEIPT: ledger["receipts"]["gsc"]}
+    synthetic = _synthetic_retired_smp_receipts(root)
+    def load(base, path, expected=None):
+        key = Path(path).as_posix()
+        if key in synthetic:
+            binding = bindings[key]
+            if expected is not None and binding["sha256"] != expected:
+                raise ValueError("SMP evidence identity changed")
+            return synthetic[key], dict(binding)
+        return _load_smp_evidence(base, path, expected)
+    return patch("gambit_smp.suite_coverage._load_smp_evidence", side_effect=load)
+
+
 class AcceptedSmpProgressTests(unittest.TestCase):
     def test_smp_status_uses_accepted_history_and_rejects_drift(self):
-        from gambit_smp.suite_coverage import SMP_LEDGER_FOLDER, accepted_smp_status
+        from gambit_smp.framework import digest
+        from gambit_smp.suite_coverage import SMP_LEDGER_FOLDER, SMP_ORIGINAL_INVENTORY, accepted_smp_status
 
         path = SMP_LEDGER_FOLDER / "accepted-smp-progress.json"
-        recorded = accepted_smp_status(ROOT)
-        self.assertEqual((recorded["originPassed"], recorded["passed"], recorded["remaining"]),
-                         (1, 5, 7))
-        self.assertTrue(recorded["sourceTree"].startswith("65a4a2e2"))
-        self.assertEqual(recorded["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi", "pr-gsc"])
+        ledger = json.loads((ROOT / path).read_text())
+        synthetic = _synthetic_retired_smp_receipts(ROOT)
         with TemporaryDirectory() as directory:
-            root = Path(directory)
-            refs = [recorded[key]["path"] for key in ("origin", "accepted", "originalInventory")]
-            refs.extend(ref["path"] for ref in recorded["receipts"].values())
-            for name in [path, *refs]:
+            root = Path(directory).resolve()
+            synthesized_shas = {}
+            for rel, payload in synthetic.items():
+                target = root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(json.dumps(payload))
+                synthesized_shas[rel] = digest(target)
+            recorded = copy.deepcopy(ledger)
+            recorded["originalInventory"] = {"path": SMP_ORIGINAL_INVENTORY, "sha256": synthesized_shas[SMP_ORIGINAL_INVENTORY]}
+            recorded["receipts"]["gsc"] = {"path": _RETIRED_GSC_RECEIPT, "sha256": synthesized_shas[_RETIRED_GSC_RECEIPT]}
+            accepted_path = recorded["accepted"]["path"]
+            accepted_doc = json.loads((ROOT / accepted_path).read_text())
+            accepted_doc["receipts"]["gsc"]["sha256"] = synthesized_shas[_RETIRED_GSC_RECEIPT]
+            accepted_target = root / accepted_path
+            accepted_target.parent.mkdir(parents=True, exist_ok=True)
+            accepted_target.write_text(json.dumps(accepted_doc))
+            recorded["accepted"]["sha256"] = digest(accepted_target)
+            refs = [recorded["origin"]["path"]]
+            refs.extend(ref["path"] for family, ref in recorded["receipts"].items() if family != "gsc")
+            for name in refs:
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes((ROOT / name).read_bytes())
-            self.assertEqual(accepted_smp_status(root), recorded)
-            (root / path).write_text(json.dumps(dict(recorded, passed=0, closed=[], remaining=12)))
+            ledger_target = root / path
+            ledger_target.parent.mkdir(parents=True, exist_ok=True)
+            ledger_target.write_text(json.dumps(recorded))
+            loaded = accepted_smp_status(root)
+            self.assertEqual(loaded, recorded)
+            self.assertEqual((loaded["originPassed"], loaded["passed"], loaded["remaining"]),
+                             (1, 5, 7))
+            self.assertTrue(loaded["sourceTree"].startswith("65a4a2e2"))
+            self.assertEqual(loaded["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi", "pr-gsc"])
+            ledger_target.write_text(json.dumps(dict(recorded, passed=0, closed=[], remaining=12)))
             with self.assertRaisesRegex(ValueError, "disagrees"):
                 accepted_smp_status(root)
-            (root / path).write_text(json.dumps(recorded))
+            ledger_target.write_text(json.dumps(recorded))
             (root / recorded["receipts"]["gsi"]["path"]).write_text("{}")
             with self.assertRaisesRegex(ValueError, "identity changed"):
                 accepted_smp_status(root)
@@ -67,23 +144,24 @@ class AcceptedSmpProgressTests(unittest.TestCase):
         origin = "evidence/research/retained/modern-c/delivery-plan/current/smp-acceptance.json"
         historical = "evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-acceptance.json"
         diagnostic = "evidence/research/retained/modern-c/frozen-568e0276-smp/env-index-acceptance.json"
-        result = accepted_smp_status(ROOT)
-        self.assertEqual((result["originPassed"], result["passed"], result["remaining"]), (1, 5, 7))
-        self.assertEqual(result["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi", "pr-gsc"])
-        accepted = result["accepted"]["path"]
-        self.assertFalse(result["wholeSmpAdmitted"])
-        with self.assertRaisesRegex(ValueError, "cannot replace the accepted prefix"):
-            accepted_smp_progress(ROOT, origin, diagnostic, result)
-        with self.assertRaisesRegex(ValueError, "cannot regress"):
-            accepted_smp_progress(ROOT, origin, historical, result)
-        with self.assertRaisesRegex(ValueError, "cannot regress"):
-            accepted_smp_progress(ROOT, origin, accepted, dict(result, passed=6))
-        packet = json.loads((ROOT / accepted).read_text())
-        if all(digest(ROOT / name) == expected for name, expected in packet["modelInputs"].items()):
-            self.assertEqual(accepted_smp_progress(ROOT, origin, accepted, result), result)
-        else:
-            with self.assertRaisesRegex(ValueError, "SMP model input changed"):
-                accepted_smp_progress(ROOT, origin, accepted, result)
+        with _patch_retired_original_inventory(ROOT):
+            result = accepted_smp_status(ROOT)
+            self.assertEqual((result["originPassed"], result["passed"], result["remaining"]), (1, 5, 7))
+            self.assertEqual(result["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi", "pr-gsc"])
+            accepted = result["accepted"]["path"]
+            self.assertFalse(result["wholeSmpAdmitted"])
+            with self.assertRaisesRegex(ValueError, "cannot replace the accepted prefix"):
+                accepted_smp_progress(ROOT, origin, diagnostic, result)
+            with self.assertRaisesRegex(ValueError, "cannot regress"):
+                accepted_smp_progress(ROOT, origin, historical, result)
+            with self.assertRaisesRegex(ValueError, "cannot regress"):
+                accepted_smp_progress(ROOT, origin, accepted, dict(result, passed=6))
+            packet = json.loads((ROOT / accepted).read_text())
+            if all(digest(ROOT / name) == expected for name, expected in packet["modelInputs"].items()):
+                self.assertEqual(accepted_smp_progress(ROOT, origin, accepted, result), result)
+            else:
+                with self.assertRaisesRegex(ValueError, "SMP model input changed"):
+                    accepted_smp_progress(ROOT, origin, accepted, result)
 
 
 class StressSmpEvidenceTests(unittest.TestCase):
@@ -130,7 +208,8 @@ class StressSmpEvidenceTests(unittest.TestCase):
         from gambit_smp.suite_coverage import accepted_smp_status
         with self.assertRaisesRegex(ValueError, "complete raw campaign"):
             self.require(self.raw)
-        self.assertEqual(accepted_smp_status(ROOT)["passed"], 5)
+        with _patch_retired_original_inventory(ROOT):
+            self.assertEqual(accepted_smp_status(ROOT)["passed"], 5)
 
     def test_synthetic_complete_shape_is_not_published_native_credit(self):
         self.require(self.synthetic_complete_transport())

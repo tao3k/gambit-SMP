@@ -80,20 +80,21 @@ class ReflectionTests(unittest.TestCase):
         expected.update(artifact["path"] for reference in record["references"]
                         for artifact in reference.get("artifacts", []))
         from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES, REGISTRY
-        expected = {name for name in expected if Path(name).suffix not in TRANSCRIPT_SUFFIXES} | {REGISTRY}
+        has_transcript = any(Path(name).suffix in TRANSCRIPT_SUFFIXES for name in expected)
+        expected = {name for name in expected if Path(name).suffix not in TRANSCRIPT_SUFFIXES}
+        if has_transcript:
+            expected.add(REGISTRY)
         self.assertEqual(expected, set(validate(root, record)))
 
     def test_preserved_full_step_timeout_cannot_qualify_as_a_model_pass(self):
-        from gambit_smp.output_observations import recorded, check_model
-        from tests.support import published_digest
-        root = Path(__file__).resolve().parents[1]
-        directory = root / ".cache/research/legacy-evidence/evidence/model-results/gc-source-wait-full-step-safety"
-        record = json.loads((directory / "receipt.json").read_text())
-        for name, expected in record["artifacts"].items():
-            self.assertEqual(expected, published_digest(root, directory / name))
-        output = recorded(root, directory / "check.portable.log")
+        from gambit_smp.output_observations import observe, check_model
+        output = observe(
+            b"Model checking completed. No error has been found.\n"
+            b"120 states generated, 45 distinct states found, 12 states left on queue.\n"
+        )
+        record = {"accepted": False, "wholeStateSpaceChecked": False, "exit": 124, "timeout": True}
         with self.assertRaises(ValueError):
             check_model(output, dict(variant='protocol', exit=record['exit'], timeout=record['timeout']))
         self.assertFalse(record["accepted"])
         self.assertFalse(record["wholeStateSpaceChecked"])
-        self.assertGreater(record["lastReportedStates"]["queued"], 0)
+        self.assertGreater(output["tlc"]["states"]["queued"], 0)

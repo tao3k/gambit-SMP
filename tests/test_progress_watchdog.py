@@ -372,4 +372,7 @@ class ProgressWatchdogTests(unittest.TestCase):
             self.assertEqual(1, completed_work(out, steps))
             process.write_text(json.dumps({"schema": "recipe-process-observation.v1", "state": "OBSERVED",
                 "exit": 70, "completionObserved": True, "parentReaped": True}))
+            self.assertEqual(1, completed_work(out, steps))
+            process.write_text(json.dumps({"schema": "recipe-process-observation.v1", "state": "OBSERVED",
+                "exit": 70, "completionObserved": True, "parentReaped": True, "processGroupQuiescent": True}))
             self.assertEqual(2, completed_work(out, steps))

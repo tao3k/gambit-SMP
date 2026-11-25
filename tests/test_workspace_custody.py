@@ -288,7 +288,7 @@ class WorkspaceCustodyTests(unittest.TestCase):
         from gambit_smp.artifact_storage import archived_record
         from gambit_smp.framework import ROOT
         index = json.loads((ROOT / "evidence/storage-history.json").read_bytes())
-        self.assertEqual(54, sum(name.startswith(".cache/research/legacy-evidence/evidence/research/workspace-states/")
+        self.assertEqual(54, sum(name.startswith("evidence/research/workspace-states/")
                                  for name in index["records"]))
         for name, row in index["records"].items():
             with self.subTest(path=name):

@@ -177,8 +177,11 @@ class ProgressiveClueTests(EvidenceCacheTestCase):
         self.assertEqual(len(brief["families"]), 1)
         observation = brief["families"][0]["observations"][0]
         self.assertEqual(observation["polarity"], "counter")
-        self.assertEqual(observation["digest"], digest(
-            ROOT / ".cache/research/legacy-evidence/evidence/research/stack-entry-contract/interpreter-crash.json"))
+        import hashlib
+        from gambit_smp.source_identity import reference_bytes
+        view = json.loads((ROOT / "evidence/scenarios/stack-header/entry-contract-native.view.json").read_text())
+        crash = next(row for row in view["references"] if row["id"] == "crash")
+        self.assertEqual(observation["digest"], hashlib.sha256(reference_bytes(ROOT, crash)).hexdigest())
         self.assertFalse(brief["executionAuthorized"])
 
     def test_new_scope_does_not_present_repository_evidence_as_empty(self):
@@ -718,8 +721,13 @@ print(json.dumps(result))'''
         family = brief["families"][0]
         self.assertEqual(family["claim"], "partial-root-completion-before-progress-timeout")
         observation = family["observations"][0]
-        record = json.loads((ROOT / observation["source"]).read_text())
-        self.assertEqual(observation["digest"], digest(ROOT / observation["source"]))
+        import hashlib
+        from gambit_smp.source_identity import reference_bytes
+        view = json.loads((ROOT / "evidence/scenarios/stack-header/root-progress-clues.view.json").read_text())
+        ref = next(row for row in view["references"] if row["path"] == observation["source"])
+        raw = reference_bytes(ROOT, ref)
+        record = json.loads(raw)
+        self.assertEqual(observation["digest"], hashlib.sha256(raw).hexdigest())
         self.assertEqual(record["completedRoots"], 503)
         self.assertEqual(record["incompleteRoots"], 4497)
         self.assertEqual(observation["factors"]["sourceLock"], [record["sourceLockSha256"]])
@@ -769,8 +777,12 @@ print(json.dumps(result))'''
         family = first["brief"]["families"][0]
         self.assertEqual(family["claim"], "shared-registry-lifetime")
         self.assertFalse(family["unknown"])
+        import hashlib
+        from gambit_smp.source_identity import reference_bytes
+        view = json.loads((ROOT / "evidence/scenarios/concurrent-gc/registry-lifetime.view.json").read_text())
+        lock_ref = next(row for row in view["references"] if row["id"] == "candidate")
         self.assertEqual(family["observations"][0]["factors"]["sourceLock"],
-                         [digest(ROOT / ".cache/research/legacy-evidence/evidence/research/processor-interrupt-collective-wait/source.lock.json")])
+                         [hashlib.sha256(reference_bytes(ROOT, lock_ref)).hexdigest()])
         self.assertIn("registry-model-coverage", {row["claim"] for row in family["links"]})
         expanded = repository_clues(ROOT, "registry-model-coverage", checkpoint=first["checkpoint"])
         self.assertFalse(expanded["brief"]["families"][0]["unknown"])
@@ -809,12 +821,17 @@ print(json.dumps(result))'''
             ("bootstrap-publication", "STALE", "prepare-origin-not-admitted",
              "evidence/fixtures/darwin-stack-prepare-origin/bootstrap-input-drift-20261016.json"),
         )
+        import hashlib
+        from gambit_smp.source_identity import reference_bytes
+        view = json.loads((ROOT / "evidence/scenarios/stack-header/preparation-chain-clues.view.json").read_text())
+        refs = {row["path"]: row for row in view["references"]}
         with engine_api() as (engine, _):
             for stage, outcome, identity, path in cases:
                 result = repository_clues(ROOT, engine=engine, selector=selector,
                     bindings=[["stage", stage], ["outcome", outcome]])
+                expected_sha = hashlib.sha256(reference_bytes(ROOT, refs[path])).hexdigest()
                 self.assertEqual(result["brief"]["association"]["witness"],
-                    [[claim, identity, digest(ROOT / path), stage, outcome]])
+                    [[claim, identity, expected_sha, stage, outcome]])
             mixed = repository_clues(ROOT, engine=engine, selector=selector,
                 bindings=[["stage", "compiled-stress"], ["outcome", "STALE"]])
         self.assertEqual(mixed["brief"]["association"]["question"], [])
@@ -828,14 +845,19 @@ print(json.dumps(result))'''
                            if row["id"] == "prepare-origin-not-admitted")
         self.assertEqual(observation["factors"]["producer-admitted"], ["false"])
         self.assertEqual(observation["factors"]["applicability"], ["historical-input-drift-run-only"])
-        successor = ROOT / observation["factors"]["superseded-by-reference"][0]
-        self.assertEqual(observation["factors"]["superseded-by-digest"], [digest(successor)])
-        qualified = json.loads(successor.read_text())
+        import hashlib
+        from gambit_smp.source_identity import reference_bytes
+        view = json.loads((ROOT / "evidence/scenarios/stack-header/preparation-chain-clues.view.json").read_text())
+        qualified_ref = next(row for row in view["references"] if row["id"] == "qualified-producer")
+        qualified_bytes = reference_bytes(ROOT, qualified_ref)
+        self.assertEqual(observation["factors"]["superseded-by-digest"],
+                         [hashlib.sha256(qualified_bytes).hexdigest()])
+        qualified = json.loads(qualified_bytes)
         self.assertEqual(qualified["completionRevalidation"]["recordedOutcome"], "DENY")
         self.assertFalse(qualified["completionRevalidation"]["failedStagesRecovered"])
         self.assertEqual(observation["factors"]["outcome"], ["STALE"])
         self.assertEqual(observation["factors"]["changed-input"],
-                         ["evidence/dsl/suite-review-rules.ss"])
+                         ["evidence/research/suite-review-rules.ss"])
         record = json.loads((ROOT / observation["source"]).read_text())
         self.assertEqual(record["nativeCommand"]["exit"], 0)
         self.assertFalse(record["publication"]["producerExported"])

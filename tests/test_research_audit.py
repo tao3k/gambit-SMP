@@ -186,12 +186,31 @@ class ResearchAuditTests(unittest.TestCase):
         self.assertEqual(1, len(results["pending_acceptance_conditions"]))
 
     def test_reusable_receipts_do_not_need_another_model_run(self):
-        base = audit.index.export()
-        facts, inputs = audit.load_audit(audit.ROOT, base)
-        audit.reusable_receipts(audit.ROOT, base, facts, inputs)
+        model = self.root / "models/gambit/demo.qnt"
+        model.write_text("module demo {}\n")
+        self.save("models/gambit/cases.json", {"cases": [
+            {"id": "demo", "pr": 1, "source": [], "native": None,
+             "mode": "characterization", "invariants": ["safe"]}]})
+        receipt_dir = self.root / ".cache/research/legacy-evidence/evidence/model-results"
+        receipt_dir.mkdir(parents=True)
+        receipt = receipt_dir / "demo.json"
+        receipt.write_text(json.dumps({
+            "schema": "gambit-smp-model-receipt.v1",
+            "results": [{"case": "demo", "variant": "protocol", "invariant": "safe",
+                         "initializer": "init", "accepted": True, "sourceStable": True,
+                         "evidence": "finite-state-TLC", "modelSha256": digest(model)}],
+        }))
+        base = {"facts": {name: [] for name in audit.index.export()["facts"]}}
+        base["facts"]["model"] = [["demo", digest(model), "characterization"]]
+        facts = {name: [] for name in audit.ARITIES}
+        facts["audit_issue"] = [["i", "b", 1]]
+        facts["audit_model"] = [["i", "demo"]]
+        inputs = {}
+        audit.reusable_receipts(self.root, base, facts, inputs)
         self.assertTrue(facts["audit_reusable_receipt"])
         results = audit.query(base, facts, audit.ROOT)
         recovered = {row[0] for row in facts["audit_reusable_receipt"]}
+        self.assertIn("demo", recovered)
         self.assertFalse(recovered & {row[1] for row in results["missing_model_receipts"]})
 
     def test_legacy_receipts_are_review_not_missing_or_admitted(self):

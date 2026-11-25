@@ -243,13 +243,25 @@ class NativeAuditTests(unittest.TestCase):
         step = dict(id='runtime', capability='gambit.runtime-import', dependsOn=['source'], arguments={},
                     outcome='PASS', commands=[], runtimeAdmitted=False,
                     workspaceReuse=dict(sourceContentId='verified-content', mode='same-producer-workspace', copiedFiles=0))
-        catalog = load_evidence_catalog(ROOT/'.cache/research/legacy-evidence/evidence/research/incremental-builds/runtime-storage.ss',
-                                        constructor='make-runtime-storage-observations', trusted=True)
-        result, _ = evaluate(self.engine, facts({'steps':[step]}), catalog,
-                             {'storage':'recorded_runtime_storage'})
-        self.assertEqual([('runtime', 'same-producer-workspace', 'verified-content', 0)], result['storage'])
-        with self.assertRaisesRegex(ValueError, 'declared native ASCENT relations'):
-            evaluate(self.engine, facts({'steps':[step]}), catalog, {'admitted':'runtime_admitted'})
+        rules = (
+            ';;; Host byte/lease observations are not native correctness or execution advice.\n'
+            '(define-evidence (make-runtime-storage-observations)\n'
+            '  (sources runtime_storage_observation)\n'
+            '  (outputs recorded_runtime_storage)\n'
+            '  (relation runtime_storage_observation ((step string?) (mode string?)\n'
+            '    (source_content string?) (copied_files exact-integer?)))\n'
+            '  (relation recorded_runtime_storage (step mode source_content copied_files))\n'
+            '  ((recorded_runtime_storage S M I N) <-- (runtime_storage_observation S M I N)))\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            rules_path = Path(directory) / 'runtime-storage.ss'
+            rules_path.write_text(rules)
+            catalog = load_evidence_catalog(rules_path, constructor='make-runtime-storage-observations', trusted=True)
+            result, _ = evaluate(self.engine, facts({'steps':[step]}), catalog,
+                                 {'storage':'recorded_runtime_storage'})
+            self.assertEqual([('runtime', 'same-producer-workspace', 'verified-content', 0)], result['storage'])
+            with self.assertRaisesRegex(ValueError, 'declared native ASCENT relations'):
+                evaluate(self.engine, facts({'steps':[step]}), catalog, {'admitted':'runtime_admitted'})
 
     def test_decoded_rules_cannot_select_a_python_execution_fallback(self):
         catalog = self.engine.read_rules("(ascent-fragment (relation input ((value symbol?))))")

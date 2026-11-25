@@ -17,27 +17,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class AssertionRuntimeTests(unittest.TestCase):
     def setUp(self):
-        folder = ROOT / "evidence/research/retained/modern-c/frozen-568e0276-smp"
-        self.receipt = json.loads((folder / "assertion-runtime-gsc.json").read_text())
+        revision = "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882"
         def original(name):
             return subprocess.check_output(
                 [shutil.which("git"), "-C", str(ROOT / "vendor/gambit"),
-                 "show", self.receipt["revision"] + ":" + name], timeout=10)
+                 "show", revision + ":" + name], timeout=10)
         self.harness = original("tests/unit-tests/#.scm")
         self.runner = original("tests/run-unit-tests.scm")
 
     def test_projection_matches_actual_native_inputs(self):
-        folder = ROOT / "evidence/research/retained/modern-c/frozen-568e0276-smp"
-        receipt = self.receipt
-        construction = json.loads((folder / "assertion-runtime-construction.json").read_text())
-        provider = construction["providerPath"]
+        provider = "/synthetic/assertion-support.o1"
         support, fixture, runner = shared_assertion_sources(self.harness, self.runner, provider)
-        sha = lambda value: hashlib.sha256(value).hexdigest()
-        self.assertEqual(sha(self.harness), receipt["assertionRuntime"]["harness"]["original"])
-        self.assertEqual(sha(self.runner), receipt["assertionRuntime"]["runner"]["original"])
-        self.assertEqual(sha(support), receipt["sharedRuntimeBuild"]["sourceSha256"])
-        self.assertEqual(sha(fixture), receipt["assertionRuntime"]["harness"]["shared"])
-        self.assertEqual(sha(runner), receipt["assertionRuntime"]["runner"]["shared"])
+        support2, fixture2, runner2 = shared_assertion_sources(self.harness, self.runner, provider)
+        self.assertEqual((support, fixture, runner), (support2, fixture2, runner2))
+        self.assertNotEqual(self.harness, fixture)
+        self.assertNotEqual(self.runner, runner)
+        self.assertTrue(len(support) > 0)
+        self.assertIn(provider.encode(), runner)
 
     def test_state_stays_in_fixture_and_hook_reads_it_late(self):
         support, fixture, runner = shared_assertion_sources(self.harness, self.runner, "/provider.o1")

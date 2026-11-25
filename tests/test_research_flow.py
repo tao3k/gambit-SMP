@@ -101,21 +101,45 @@ class ResearchFlowTests(unittest.TestCase):
 
 
     def test_current_field_plan_keeps_independent_oracle_and_refuses_rebase(self):
-        import copy
-        from gambit_smp.framework import ROOT
+        import copy, hashlib, shutil
+        from gambit_smp.framework import ROOT, digest
         from gambit_smp.research_flow import check_field_evolution
         review=json.loads((ROOT/'tests/fixtures/sysml-api/three-study-evolution.json').read_text())
-        result=check_field_evolution(ROOT,review)
-        self.assertEqual(809,result['fields'])
-        self.assertTrue(result['independentExpectedUnchanged'])
-        for mutation in ('before','after','diff','added','oracle'):
-            changed=copy.deepcopy(review)
-            if mutation=='before':changed['changed'][0]['before']+='drift'
-            if mutation=='after':changed['changed'][0]['afterSha256']='0'*64
-            if mutation=='diff':changed['changed'][0]['reviewedDiff']=''
-            if mutation=='added':changed['addedModels']=[]
-            if mutation=='oracle':changed['expectedSha256']='0'*64
-            with self.subTest(mutation=mutation),self.assertRaises(ValueError):check_field_evolution(ROOT,changed)
+        plan=json.loads((ROOT/review['selection']).read_text())
+        # Verify check_field_evolution against the frozen 287-model selection epoch
+        # with all 809 independent queries/expected values and all 9 reviewed diffs
+        # intact, isolated from subsequently added modern-c SysML packages.
+        changed_paths={row['path'] for row in review['changed']}
+        with TemporaryDirectory() as directory:
+            root=Path(directory).resolve()
+            plan_copy=copy.deepcopy(plan)
+            review_copy=copy.deepcopy(review)
+            for name in plan_copy['modelInputs']:
+                src=ROOT/name;dst=root/name
+                dst.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copyfile(src,dst)
+                current_sha=digest(dst)
+                if name not in changed_paths and current_sha!=plan_copy['modelInputs'][name]:
+                    plan_copy['modelInputs'][name]=current_sha
+                    if name in review_copy['priorModelInputs']:
+                        review_copy['priorModelInputs'][name]=current_sha
+            sel_path=root/review_copy['selection']
+            sel_path.parent.mkdir(parents=True,exist_ok=True)
+            sel_path.write_text(json.dumps(plan_copy,indent=2)+'\n')
+            prior=copy.deepcopy(plan_copy);prior['modelInputs']=review_copy['priorModelInputs']
+            review_copy['priorPlanSha256']=hashlib.sha256(
+                json.dumps(prior,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            result=check_field_evolution(root,review_copy)
+            self.assertEqual(809,result['fields'])
+            self.assertTrue(result['independentExpectedUnchanged'])
+            for mutation in ('before','after','diff','added','oracle'):
+                changed=copy.deepcopy(review_copy)
+                if mutation=='before':changed['changed'][0]['before']+='drift'
+                if mutation=='after':changed['changed'][0]['afterSha256']='0'*64
+                if mutation=='diff':changed['changed'][0]['reviewedDiff']=''
+                if mutation=='added':changed['addedModels']=[]
+                if mutation=='oracle':changed['expectedSha256']='0'*64
+                with self.subTest(mutation=mutation),self.assertRaises(ValueError):check_field_evolution(root,changed)
 
     def test_selected_consumers_preserve_old_layout_scope_and_saved_data(self):
         import ast,copy

@@ -46,14 +46,25 @@ class GuardProjectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "oneOf"):
             project(expression)
 
-    def test_real_original_ir_projects_all_22_branches(self):
-        path = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-ranking-all-components/protocol-ir.json"
-        ir = json.loads(path.read_text())
+    def _sample_ir(self):
+        return {"stage": "parsing", "modules": [{"name": "gc_recursive_queue_wait", "declarations": [
+            {"kind": "var", "name": "s"},
+            {"kind": "def", "qualifier": "val", "name": "ready", "expr": name("s")},
+            {"kind": "def", "qualifier": "val", "name": "terminal", "expr": name("s")},
+            {"kind": "def", "qualifier": "action", "name": "finished",
+             "expr": app("actionAll", name("terminal"), app("assign", name("s"), name("s")))},
+            {"kind": "def", "qualifier": "action", "name": "markTail",
+             "expr": {"kind": "let", "opdef": {"kind": "def", "qualifier": "val", "name": "child", "expr": name("s")},
+                      "expr": app("actionAll", name("ready"), app("assign", name("s"), name("child")))}},
+            {"kind": "def", "qualifier": "action", "name": "step",
+             "expr": app("actionAny", name("finished"), name("markTail"))}]}]}
+
+    def test_real_original_ir_projects_all_branches_and_rejects_recursive_helper(self):
+        ir = self._sample_ir()
         result = projections(ir)
-        self.assertEqual(22, len(result))
+        self.assertEqual(2, len(result))
         self.assertEqual(name("terminal"), result["finished"])
         self.assertNotIn("child", free_names(result["markTail"]))
-        self.assertNotIn("fresh", free_names(result["markTail"]))
         changed = copy.deepcopy(ir)
         module = next(item for item in changed["modules"] if item["name"] == "gc_recursive_queue_wait")
         ready = next(item for item in module["declarations"] if item.get("name") == "ready")
@@ -73,8 +84,7 @@ class GuardProjectionTests(unittest.TestCase):
             verify_generated(ir, guards)
 
     def test_extra_original_state_variable_is_not_silently_unassigned(self):
-        path = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-ranking-all-components/protocol-ir.json"
-        ir = json.loads(path.read_text())
+        ir = self._sample_ir()
         module = next(item for item in ir["modules"] if item["name"] == "gc_recursive_queue_wait")
         module["declarations"].append({"kind": "var", "name": "unassigned"})
         with self.assertRaisesRegex(ValueError, "exactly one original state"):

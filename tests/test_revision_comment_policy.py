@@ -65,6 +65,7 @@ class RevisionCommentPolicyTests(unittest.TestCase):
             commitMatrixFieldRequiredFact=[[x] for x in matrix_fields],
             commitMatrixPacketFact=[],commitMatrixRowFact=[],commitMatrixFieldFact=[],
             commitMatrixRefFact=[],commitMatrixValueValidFact=[],commitMatrixOutcomeFact=[],
+            commitEfficiencyClaimFact=[],
             controlExpectReadyFact=[["complete-comment"], ["runtime-positive"]], controlExpectBlockedFact=[])
         scenarios = ["complete-comment", "absent-unit", "absent-comment", "stale-comment",
                      *["omit-" + field for field in fields], "absent-matrix", "stale-matrix",
@@ -101,6 +102,7 @@ class RevisionCommentPolicyTests(unittest.TestCase):
             if scenario != "absent-matrix":
                 matrix_hash = content_digest([scenario,"matrix"])
                 facts["commitMatrixPacketFact"].append([scenario, "wrong" if scenario=="stale-matrix" else packet_hash, matrix_hash])
+                facts["commitEfficiencyClaimFact"].append([matrix_hash, "foundation"])
                 if scenario != "empty-matrix":
                     measured = scenario in {"regressed-matrix", "mixed-benefit-matrix", "runtime-positive"}
                     facts["commitMatrixRowFact"].append([matrix_hash,"runtime","measurement" if measured else "unmeasured","ops/s"])

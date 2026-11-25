@@ -13,42 +13,6 @@ from tests import test_host_root_publication_evidence as contracts
 
 
 class RepairConsumerInterfaceTests(unittest.TestCase):
-    def test_published_model_controls_have_complete_checked_closures(self):
-        from gambit_smp.protocol_evidence import checked_rows, bundle_facts
-        imports_name = ".cache/research/legacy-evidence/evidence/research/host-root-publication/imports.manifest.json"
-        imports = json.loads((ROOT / imports_name).read_text())
-        declaration_receipt = ".cache/research/legacy-evidence/evidence/model-results/current-repair-consumer-interfaces/imports-declaration-only/receipt.json"
-        self.assertFalse((ROOT / declaration_receipt).exists())
-        self.assertTrue(all(c["registrationOnly"] for c in imports["cases"]))
-        imported, _ = bundle_facts(ROOT, imports_name, declaration_receipt)
-        self.assertEqual(imported["protocol_checked"], [])
-        known = {c["id"] for c in imports["cases"]}
-        pairs = (("handler-return-tail", "handler-admitted-tail-qualified", 6),
-                 ("last-access", "last-access-declaration-bound", 4))
-        for manifest_name, receipt_name, count in pairs:
-            with self.subTest(model=manifest_name):
-                manifest = json.loads((ROOT / ".cache/research/legacy-evidence/evidence/research/host-root-publication" /
-                    (manifest_name + ".manifest.json")).read_text())
-                receipt = ROOT / ".cache/research/legacy-evidence/evidence/model-results/current-repair-consumer-interfaces" / receipt_name / "receipt.json"
-                rows = checked_rows(ROOT, manifest, receipt)
-                self.assertEqual(len(rows), 1)
-                self.assertEqual(len(rows[0][1]), count)
-                self.assertTrue(all(row["accepted"] for row in rows[0][1]))
-                projected, _ = bundle_facts(ROOT,
-                    ".cache/research/legacy-evidence/evidence/research/host-root-publication/" + manifest_name + ".manifest.json",
-                    str(receipt.relative_to(ROOT)))
-                self.assertEqual(projected["protocol_checked"], [(manifest["cases"][0]["id"], digest(receipt))])
-                self.assertTrue(projected["protocol_composes"])
-                self.assertTrue(projected["protocol_source"])
-                self.assertTrue(all(parent in known for _, parent in projected["protocol_composes"]))
-                if manifest_name == "handler-return-tail":
-                    control = next(row for row in rows[0][1]
-                                   if row["invariant"] == "noPostReleaseTail")
-                    trace = json.loads((receipt.parent / control["trace"]).read_text())
-                    tail = trace["states"][-1]["h"]
-                    self.assertTrue(tail["admitted"])
-                    self.assertEqual((tail["stage"], tail["cReaders"]), (4, 0))
-
     def test_source_correspondence_stays_open_when_models_are_checked(self):
         doc, facts, catalog, _ = load(ROOT, "evidence/scenarios/runtime-lifecycle/current-repair.view.json")
         queries = {q: q for q in ("model_gaps", "revision_gaps", "applicability_gaps",

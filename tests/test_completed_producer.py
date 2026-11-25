@@ -680,7 +680,7 @@ class NativeAncestryTests(unittest.TestCase):
         for name in ['lib/x.scm','lib/_x.c','gsc-boot','gsi/gsi','gsc/gsc','lib/libgambit.a',
                      'include/gambit.h','tests/smp/suite.scm','tests/smp/catalog.scm']:
             save(str((self.runtime/name).relative_to(self.root)),'unit fixture '+name)
-        profile=Path(__file__).resolve().parents[1]/'.cache/research/legacy-evidence/evidence/research/worker-role-handoff/profile.json'
+        profile=Path(__file__).resolve().parents[1]/'evidence/fixtures/gerbil-bazel-build-profile/profile.json'
         p=save('evidence/profile.json',profile.read_text());flags=read_profile(p)['flags']
         patch=save('evidence/source.patch','synthetic source bytes')
         self.lock=self.json('evidence/source.lock.json',dict(schema='gambit-runtime-source-lock.v1',

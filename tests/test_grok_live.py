@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from gambit_smp.grok_control import send
 from gambit_smp.grok_session import run
-from test_grok_session import GrokSessionTests, provider_path
+from tests import test_grok_session as _grok_session
 
 
 FAKE_PROVIDER = r'''
@@ -45,7 +45,7 @@ class LiveSessionTests(unittest.TestCase):
     def test_unverified_permission_boundary_blocks_before_lease(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
-            launch = GrokSessionTests().make_launch(root)
+            launch = _grok_session.GrokSessionTests().make_launch(root)
             with self.assertRaisesRegex(ValueError, "read permissions are not verified"):
                 run(launch, execute=True, wall_seconds=20, acp=True)
             self.assertFalse((root / ".state/provider-control").exists())
@@ -53,12 +53,12 @@ class LiveSessionTests(unittest.TestCase):
     def test_supervised_live_instruction_preserves_custody_and_receipt(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
-            launch = GrokSessionTests().make_launch(root)
+            launch = _grok_session.GrokSessionTests().make_launch(root)
             executable = root / "grok"
             executable.write_text("#!" + os.sys.executable + "\n" + FAKE_PROVIDER)
             executable.chmod(0o700)
             descriptor = root / ".state/provider-control/repair/diagnostic.json"
-            with patch.dict(os.environ, PATH=provider_path(root)), patch(
+            with patch.dict(os.environ, PATH=_grok_session.provider_path(root)), patch(
                     'gambit_smp.grok_live.permission_boundary_verified', return_value=True), patch(
                     'gambit_smp.grok_live.supervisor_sources', return_value={'test': 'fixture'}):
                 with ThreadPoolExecutor(max_workers=1) as pool:
@@ -86,12 +86,12 @@ class LiveSessionTests(unittest.TestCase):
     def test_resume_reuses_original_context_and_policy(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
-            launch = GrokSessionTests().make_launch(root)
+            launch = _grok_session.GrokSessionTests().make_launch(root)
             executable = root / "grok"
             executable.write_text("#!" + os.sys.executable + "\n" + FAKE_PROVIDER)
             executable.chmod(0o700)
             descriptor = root / ".state/provider-control/repair/diagnostic.json"
-            with patch.dict(os.environ, PATH=provider_path(root)), patch(
+            with patch.dict(os.environ, PATH=_grok_session.provider_path(root)), patch(
                     'gambit_smp.grok_live.permission_boundary_verified', return_value=True), patch(
                     'gambit_smp.grok_live.supervisor_sources', return_value={'test': 'fixture'}):
                 with ThreadPoolExecutor(max_workers=1) as pool:

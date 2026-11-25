@@ -64,7 +64,7 @@ class RecursiveSchemeInventoryTests(unittest.TestCase):
                  patch('gambit_smp.native_capabilities.compiler'), \
                  patch('gambit_smp.gambit_build_primitives.rebuild_source_core') as rebuild:
                 with self.assertRaisesRegex(ValueError, 'Scheme input inventory changed'):
-                    source_core({'runtime': {}}, Mock())
+                    source_core({'runtime': {}}, Mock(planned_steps=()))
             rebuild.assert_not_called()
 
 

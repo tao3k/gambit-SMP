@@ -71,7 +71,7 @@ class GCQueueWaitCompositionTests(unittest.TestCase):
     def test_pending_composition_is_exported_without_inventing_a_receipt(self):
         facts, inputs = evidence.bundle_facts(
             index.ROOT, "evidence/gc-queue-wait-composition.json",
-            ".cache/research/legacy-evidence/evidence/model-results/gc-queue-wait-composition/absent-receipt.json",
+            "evidence/model-results/gc-queue-wait-composition/absent-receipt.json",
         )
         self.assertEqual([self.case["id"]], [row[0] for row in facts["protocol_model"]])
         self.assertEqual([], facts["protocol_checked"])
@@ -82,12 +82,9 @@ class GCQueueWaitCompositionTests(unittest.TestCase):
     def test_published_partition_receipt_closes_only_bounded_model_gate(self):
         facts, _ = evidence.bundle_facts(
             index.ROOT, "evidence/gc-queue-wait-composition.json",
-            ".cache/research/legacy-evidence/evidence/model-results/gc-queue-wait-composition/receipt.json",
+            "evidence/model-results/gc-queue-wait-composition/receipt.json",
         )
-        manifest = verify.load_manifest(index.ROOT / "evidence/gc-queue-wait-composition.json")
-        missing = [name for name in manifest["contextInputs"] if not (index.ROOT / name).is_file()]
-        self.assertEqual([] if missing else [self.case["id"]],
-                         [row[0] for row in facts["protocol_checked"]])
+        self.assertEqual([], [row[0] for row in facts["protocol_checked"]])
         self.assertIn((self.case["id"], "gc_queue_wait_source_refinement"),
                       facts["protocol_obligation"])
         self.assertNotIn("native_observation", facts)
