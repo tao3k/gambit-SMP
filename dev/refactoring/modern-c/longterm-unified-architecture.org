@@ -1,0 +1,215 @@
+#+TITLE: Long-Term Unified Gambit SMP Architecture & Formal Engineering Workflow
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+CATEGORY: modern-c
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+#+PROPERTY: COLUMNS %ITEM %OWNER %STATUS %REFINEMENT_STATUS
+#+TODO: DESIGN ALIGNED VERIFIED | ADOPTED RETIRED
+
+* ALIGNED Executive Scope: Unified Long-Term Contract + Zero-Rework Vertical Slices
+:PROPERTIES:
+:ID: 8f7c4b1a-9e2d-4c31-b509-2a6e11d84f01
+:CUSTOM_ID: longterm-unified-architecture
+:OWNER: Gambit SMP Runtime, Compiler & Formal Verification Architecture
+:AUTHORITY: GambitLongTermUnifiedArchitecture; GambitRuntimeComposition; GambitFrameContract; GambitGenerationalAdmission; GambitGenerationalBarrier; GambitAdvantageArchitecture
+:STATUS: architecture-aligned-formal-gates-verified
+:REFINEMENT_STATUS: sysml-quint-lean-verified-source-open
+:EVIDENCE_CLASS: unified-design-papers-sysml-quint-lean
+:DEPENDS_ON: ROOT-HANDOFF; CONTROL-ORIGIN; GC-WORK-CLOSURE; FL-ENCODE; WB-H; GEN-H
+:END:
+
+Baseline =824f5dc6= on =tao3k/gambit= (=modern-c=) achieved **15/15 green PR CI** (=Gambit SMP= PR =45825872739= 9/9 + Non-SMP =Gambit= PR =45825872746= 6/6) across Linux GCC C23, macOS arm64, Windows MINGW32/MINGW64/MSVC, and Clang C23 TSan, landing Tier 1 robustness hardening, Tier 2 performance amplification, Families 8--12 convergence (resolving upstream =gambit/gambit#1067=), Option A removal of legacy emulated sync, Tier 3.3 blocking-FFI park/unpark, Tier 3.2 work-stealing & Dekker wakeup scheduling, and Tier 3.1 Phase 2 bounded generational Minor GC (**10.15x--24.96x** wall / **20.66x--182.49x** GC reduction on retained-heap workloads).
+
+Rather than executing ad-hoc local optimizations (risking throwaway semispace code) OR attempting an un-isolated big-bang rewrite across compiler frames, concurrent GC, and OS I/O (breaking fault isolation and green CI), this specification locks **one unified long-term architectural contract upfront** and decomposes delivery into **five strictly decoupled, zero-rework vertical slices**:
+
+1. *Wave A (Tier 3.1 Phase 3)* :: Close all three empirically measured scaling anomalies in =824f5dc6= (=___rest_fast_grant_fits= lock-free =fast_span=, generational =___STILL= with non-pointer zero-dirty and SATB-ready mark epoch, =O(Y)= Minor GC coordinator & =BARRIER()= compression) plus Darwin =dlclose= fast exit (Issue =#6= / PR =#7=) and Issue =#5= audit closure.
+2. *Slice 1 (Unified =FrameSpec= / =PointId= Semantic Authority)* :: Retire duplicated C-macro frame layout inference across =gsc/_t-c-2.scm=, =lib/_kernel.scm=, =lib/_io.scm=, and =lib/mem.c= BEFORE touching Concurrent Major GC.
+3. *Slice 2 (Non-Moving Mark-Region Mature Space + Concurrent SATB Major GC)* :: Build directly on Tier 3.1's already pre-store =___GC_WRITE_BARRIER(ps, obj, slot_ptr, new_val)= (where =*slot_ptr= is the SATB old value!), Wave A's generational =___STILL= mark-epoch word, Tier 3.3's parked FFI root handoff, and Slice 1's single =FrameSpec= authority.
+4. *Slice 3 (=kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Work-Stealing Parallel Stdlib)* :: Replace =O(N)= =select=/=poll= (=FD_SETSIZE=1024=) with persistent kernel interest queues parked cleanly via Tier 3.3, and expose standard Scheme C11-ordered atomics (=SRFI-230=), lock-free Chase-Lev deques/channels, and structured fork-join (=pmap=/=future=).
+5. *Slice 4 (=tao3k/gerbil= SMP Parallel Compiler + Full-Runtime Clang TSan + Same-Source 12/12 Release Seal)* :: Prove the complete architecture at scale on Gerbil's 1,778-module stdlib and compiler, close =wholeRuntimeAdmitted = true= on one cryptographically sealed producer, and tag the formal release.
+
+Native OpenSysML v2 owns the typed structural contracts and requirement laws in [[file:models/sysml/longterm-unified-architecture.sysml][longterm-unified-architecture.sysml]]. The rendered interconnection graph is generated directly from SysML via =sysml -strict -render= into [[file:diagrams/longterm-unified-architecture.d2][longterm-unified-architecture.d2]] / [[file:diagrams/longterm-unified-architecture.svg][longterm-unified-architecture.svg]].
+
+* ALIGNED Canonical Academic Paper Ledger & Mechanism Boundaries
+:PROPERTIES:
+:CUSTOM_ID: longterm-paper-ledger
+:OWNER: Architecture & Formal Methods
+:EVIDENCE_CLASS: primary-literature-grounded
+:END:
+
+Tracked machine-readable manifest: [[file:../../../evidence/papers-longterm-unified.json][evidence/papers-longterm-unified.json]] (schema =gambit-smp-papers.v1=, extending [[file:../../../evidence/papers.json][evidence/papers.json]] and [[file:../../../evidence/papers-audit-expansion.json][evidence/papers-audit-expansion.json]] additively).
+
+#+NAME: longterm-paper-matrix
+| Paper / Standard | Venue / Year | Target Slice | Adopted Mechanism | Explicit Non-Import / Refutation Boundary |
+|------------------+--------------+--------------+-------------------+-------------------------------------------|
+| Feeley & Miller, /A Parallel Virtual Machine for Efficient Scheme Compilation/ | ACM LFP 1990 | Slice 1, Slice 4 | Logical =FrameSpec=/=PointId=, bidirectional target knowledge, explicit operand storage classes, measurement feedback | PVM futures do not prove SMP safety or allow simultaneous cross-core invocation of one continuation |
+| Feeley, /Polling Efficiently on Stock Hardware/ | ACM FPCA 1993 | Wave A, Slice 1 | Cheap stack/heap limit polling and =fast_span= grant reload at declared safepoints | Polling alone does not cover blocking C FFI without Tier 3.3 park/unpark |
+| Feeley, /A Portable Implementation of First-Class Continuations.../ | Scheme WS 2000 | Slice 1, Slice 2 | Lazy stack-to-heap capture, break frames, multi-shot continuations with C interop | Captured mature frames remain mutable (=##frame-set!=); old age never implies immutability |
+| Diwan, Moss & Hudson, /Compiler Support for Garbage Collection/ | ACM PLDI 1992 | Slice 1 | Compiler-emitted exact per-call-site (=PointId=) pointer liveness tables | Static types replaced by dynamic Gambit tags + explicit unboxed raw-F64 slot scrubbing |
+| Yuasa, /Real-Time Garbage Collection on General-Purpose Machines/ | JSS 1990 | Wave A, Slice 2 | SATB pre-store deletion barrier + black-allocation during active mark for bounded termination | Uniprocessor assumptions replaced by C23 acquire/release & per-processor SATB buffers |
+| Huelsbergen & Winterbottom, /Very Concurrent Mark-&-Sweep GC (VCGC)/ | ACM ISMM 1998 | Slice 2 | Color-epoch non-moving concurrent mark + concurrent sweep with coarse phase barriers | Requires explicit C23 atomic mark-word ops to guarantee strict DRF and TSan cleanliness |
+| Blackburn & McKinley, /Immix: A Mark-Region Garbage Collector/ | ACM PLDI 2008 | Slice 2 | Block/line mark-region non-moving mature space + opportunistic STW defragmentation on msections | Opportunistic evacuation runs only at explicit STW cuts; concurrent cycles stay non-moving |
+| Marlow et al., /Parallel Generational-Copying GC with a Block-Structured Heap/ | ACM ISMM 2008 | Wave A, Slice 2 | Block-structured parallel generational evacuation, card/remembered-set scanning, parallel promotion | GHC lazy-thunk promotion/blackholing does not transfer to strict Scheme |
+| Sivaramakrishnan et al., /Retrofitting Parallelism onto OCaml/ | ACM ICFP 2020 | Wave A, Slice 2 | Coordinated STW parallel Minor GC paired with concurrent SATB Major GC (piggybacked phase cuts) + FFI domain rendezvous | Gambit retains multi-shot continuations and C23 atomics rather than OCaml one-shot fibers or C volatiles |
+| Ueno & Ohori, /A Fully Concurrent GC for Functional Programs on Multicore/ | ACM ICFP 2016 | Slice 2 | Non-moving bitmap-marked segments + lock-free SATB write-barrier stacks for functional runtimes | SML# tagless bitmaps differ from Gambit tagged headers and external =___STILL= refcounts |
+| Lemon, /Kqueue: A Generic and Scalable Event Notification Facility/ | USENIX ATC 2001 | Slice 3 | Persistent kernel interest sets (=kqueue=/=epoll=), =O(ready)= dispatch, =EVFILT_USER=/=eventfd= wakeups | Kernel FD reuse still requires explicit userspace FD-generation custody fence before =close(fd)= |
+| Le, Pop, Cohen & Zappa Nardelli, /Correct and Efficient Work-Stealing for Weak Memory Models/ | ACM PPoPP 2013 | Slice 3 | C11 relaxed/acquire/release/seq_cst Chase-Lev deque proven sound on ARM64/POWER | Deque backing storage must remain GC-traced Scheme vectors or registered root banks |
+| Nieper-Wisskirchen, /SRFI-230: Atomic Operations/ | SRFI Final 2021 | Slice 3 | Standard Scheme =atomic-box=/=fxbox=/=flag=/=pair= & fences lowered directly onto =___ORDERED_WORD_NATIVE= | Ordinary Scheme =vector-set!=/=set-car!= remain DRF-0 non-atomic writes |
+
+* ALIGNED Complete 8-Stage Formal Engineering Workflow (Org -> SysML v2 -> QNT -> Lean -> CBMC -> TSan -> AB/BA)
+:PROPERTIES:
+:CUSTOM_ID: longterm-formal-workflow
+:OWNER: Formal Verification & Release Engineering
+:STATUS: active-mandatory-pipeline
+:END:
+
+Every slice (Wave A through Slice 4) MUST pass all 8 stages sequentially before any commit is authorized or merged. Passing an earlier stage never substitutes for a later stage (per [[file:../../modeling/standards.org][dev/modeling/standards.org]]):
+
+#+NAME: eight-stage-workflow
+| Stage | Artifact / Authority | Tool & Exact Command | Failure / Refutation Gate |
+|-------+----------------------+----------------------+---------------------------|
+| **Stage 1: Problem & Paper Alignment** | Org spec + =papers-*.json= | Author requirements, paper mechanisms, and explicit non-import boundaries in Org | Reject hand-waving or importing unsound cross-language assumptions (e.g., OCaml one-shot stacks or racy C volatiles) |
+| **Stage 2: Structural & Contract Modeling** | Native OpenSysML v2 (=.sysml=) | =sysml -strict -validate dev= | **0 errors** across all 150+ packages; every new law must reference canonical =GambitRuntimeComposition= without mutating sealed digests |
+| **Stage 3: Diagram Projection** | Native SysML -> D2 -> SVG | =sysml -strict -render '#interconnection:GambitLongTermUnifiedArchitecture::LongTermSliceGraph' -render-form d2 -o ... dev && d2 ...= | Zero hand-edited structural drift; rendered graph matches SysML connections 1-to-1 |
+| **Stage 4: Behavioral Interleaving & Mutation-Killing** | Quint V2 (=.qnt=) | =quint test <spec.qnt> && quint run --invariant=safe --max-samples=2000 --max-steps=30 <spec.qnt>= | **100% positive tests PASS**, **2000/2000 random traces safe**, AND **100% of real-bug mutants MUST violate =safe=** |
+| **Stage 5: Unbounded Inductive Proof** | Standalone Lean 4 (=.lean=) | =lean dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean= | **0 errors, 0 warnings, 0 =sorry=** (grep-enforced) |
+| **Stage 6: Weak-Memory C Contract Check** | CBMC =--mm pso= (=.c= harnesses) | =cbmc --mm pso -DUSE_GUARD=1 harness.c= (PASS) + =-DUSE_GUARD=0= (MUST FAIL) | Every ARM64/PSO fence and atomic transition must pass safe mode and kill the barrier-removed mutant |
+| **Stage 7: Native Implementation, PBT & Full-Runtime TSan** | =tao3k/gambit= =modern-c= + CI | Non-SMP =--enable-debug make check= + SMP =run-multicore-suite.py p1,p2,p4 --include-scaling= + Clang C23 =-fsanitize=thread= + **15/15 GitHub Actions PR CI** | 0 failures, 0 TSan races, 0 RSS/footprint cap breaches across Linux, macOS arm64, Windows MINGW32/MINGW64/MSVC |
+| **Stage 8: Paired Measurement & Governance Custody** | Python =gambit_smp.revision_matrix= + =trajectory submit= | Interleaved =N>=5= AB/BA paired medians -> =normalize_matrix= / =benefit_admission(integration=True)= -> dual PR reports (=gambit#1= & =gambit-SMP#1=) + Issue update + =trajectory submit= | =admitted=True=, =regressionRows=[]=, honest control rows retained, cryptographic =Matrix-SHA256= and =trajectory= receipt recorded |
+
+* ALIGNED Slice-by-Slice Architectural Contracts & Zero-Throwaway Coupling
+:PROPERTIES:
+:CUSTOM_ID: longterm-slice-contracts
+:END:
+
+** Wave A — Tier 3.1 Phase 3 & Micro-Architecture Bottleneck Closure (Next Immediate Execution)
+:PROPERTIES:
+:CUSTOM_ID: slice-wave-a
+:STATUS: READY_FOR_EXECUTION
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/tier31p3_still_and_rest_fastpath_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+:END:
+
+Empirically motivated by three concrete scaling anomalies discovered in =824f5dc6='s =run-multicore-suite.py --include-scaling= output, plus open Issues =#5= and =#6=:
+
+1. *Lock-Free =___rest_fast_grant_fits= =fast_span= Bypass* (=lib/_mem/rc-allocation.inc=, =lib/_kernel.scm=, =lib/_kernel.c=):
+   - *Observed flaw*: =par_rest_alloc_m65536= scaled *negatively* at =0.73x= on =p4= (isolated =RSUM_ONLY=: =p1= =0.052s= / =0.046s= user -> =p4= =0.080s= / =0.291s= user = *6.3x CPU burn* with only =1.7ms= GC!) because =___rest_fast_grant_fits= calls =___owned_stack_span()= (=___gc_copy_acquire(&ms->copy_gate)= + =___PSTATE= TLS) and touches non-atomic shared globals on every variadic/keyword call.
+   - *Long-term aligned fix*: Mirror =___group_demand_enter='s processor-owned byte-range leaf =fast_span= check (=stack_fast_floor_b=, =stack_fast_limit_b=, =heap_fast_lo_b=, =heap_fast_bytes=) gated by =!rest_attempt_owner && !rest_observation_map=, and keep =fast_span= strictly invalidated across GC epochs (verified by =tier31p3_still_and_rest_fastpath_v2.qnt= & =rest_fast_span_requires_current_epoch=).
+2. *Generational =___STILL= Objects + Non-Pointer Zero-Dirty* (=lib/_mem/object-allocation.inc=, =lib/_mem/generational.inc=, =lib/_mem/still-sweep.inc=):
+   - *Observed flaw*: =par_alloc_gc_m65536= (=make-f64vector 256= = 257 words > =___MSECTION_BIGGEST=255=) spent *73.5%* wall time in GC (=4= Minor GCs = =151.6ms=, *38ms/Minor GC*!) because =object-allocation.inc:236= unconditionally sets =___STILL_DIRTY=1= even on non-pointer =f64vector=/=u8vector=/=string= objects, and Minor GC never sweeps dead young =___STILL= objects.
+   - *Long-term aligned fix*:
+     - Only set =___STILL_DIRTY= for pointer-bearing subtypes (aligned with =scan_mature_object=).
+     - Split per-processor =still_objs_= into =young_still_objs_= (allocated since last GC) vs =mature_still_objs_= (promoted). Minor GC marks reachable + =refcount > 0= young still objects (promoting them to =mature_still_objs_=) and sweeps/frees unmarked dead =young_still_objs_= in parallel across GC workers.
+     - *Zero-throwaway Slice 2 alignment*: Reserve a clean age + mark-epoch layout in the still header so Slice 2's Concurrent SATB Major GC reuses =mature_still_objs_= non-moving mark-sweep directly without header ABI churn.
+3. *=O(Y)= Minor GC =p4= Coordinator & =BARRIER()= Compression* (=lib/_mem/generational.inc=, =lib/_mem/collection-round.inc=):
+   - *Observed flaw*: =par_gc_pause_live_heap= Minor GC time jumped *6.6x* from =p1= (=2.3ms= / =0.18ms= per GC) to =p4= (=15.3ms= / =1.18ms= per GC) with =gc_user ≈ gc_real= (serial coordinator bottleneck: 15--16 =BARRIER()= calls + 4 full =O(M+Y)= linear scans over 155 msections).
+   - *Long-term aligned fix*: Preserve mature section invariants (=gc_src_offset == active_offset=, =scan_end_words == mature_words=) across Minor GCs so =prepare_generational_round= and =finalize_gc_sections= walk only =[young_head .. tail]= (=O(Y)=); skip =rebuild_mature_snapshot= in =O(1)= when =nb_msections_mature_= did not grow; coalesce redundant Minor GC =BARRIER()= points (skipping empty weak/will/still barriers).
+4. *Open Issue =#6= (Darwin =dlclose= Fast Exit) & Issue =#5= Verification*:
+   - Port PR =#7='s final-exit Darwin =dlclose= fast path into =lib/os_dyn.c= (cutting macOS Gerbil 969-module exit from =10--11s= to =~15ms= while preserving ordinary cleanup/destructors/=atexit=), and post verified source closure reference on Issue =#5= (=lib/_mem/allocation-limits.inc:254=).
+
+** Slice 1 — Unified =FrameSpec= / =PointId= Semantic Authority
+:PROPERTIES:
+:CUSTOM_ID: slice-1-framespec
+:STATUS: DESIGN_ALIGNED
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/unified_framespec_authority_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+:END:
+
+Refines [[file:../architecture/runtime/interfaces/frame-contract-design.org][frame-contract-design.org]] and [[file:advantage-architecture-design.org][advantage-architecture-design.org]]. **Must precede Slice 2** so Concurrent Major GC consumes one exact, machine-verified root/liveness/barrier authority instead of 6 duplicated C macros:
+
+- Scheme compiler (=gsc/_front.scm=, =gsc/_t-c-2.scm=, =gsc/_t-c-3.scm=) emits one canonical =FrameSpec= + =PointId= table per module cohort (preserving distinct =cfs= vs physical =F=, distinct callback vs recursive-return live masks, and explicit =UnresolvedOutline -> BoundOutline= setup transition).
+- Runtime GC scanner (=lib/_mem/object-scanning.inc=), continuation capture/restore (=lib/_kernel.scm=, =lib/_thread.scm=), and debugger/serializer (=lib/_io.scm=) consume the identical =FrameSpec= decoder and =i -> F+1-i= slot bijection.
+- Retires redundant per-call-site C macro expansions, shrinking GCC-16 single-host compile RSS toward =< 4 GiB=.
+
+** Slice 2 — Non-Moving Mark-Region Mature Space + Concurrent SATB Major GC
+:PROPERTIES:
+:CUSTOM_ID: slice-2-concurrent-major
+:STATUS: DESIGN_ALIGNED
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/concurrent_major_satb_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+:END:
+
+Grounded in Yuasa (1990), Huelsbergen & Winterbottom VCGC (1998), Blackburn & McKinley Immix (2008), Ueno & Ohori (ICFP 2016), and Sivaramakrishnan et al. OCaml 5 (ICFP 2020):
+
+- *Phase 2a (Non-Moving Immix Mark-Region Mature Space)*: Replace 2x-semispace mature copying on Major GC with block/line mark-region non-moving mature msections + segregated/bump-into-hole allocation + optional STW opportunistic defragmentation on severely fragmented blocks. Immediately cuts mature memory overhead ~2x and stabilizes mature object addresses for concurrent marking.
+- *Phase 2b (Concurrent SATB Major Marking + Concurrent Sweeping)*:
+  - Reuse Tier 3.1's *already pre-store* =___GC_WRITE_BARRIER(ps, obj, slot_ptr, new_val)=: when =vm->mem.major_mark_active_ != 0=, load =old = *slot_ptr= before store, check white mark-bit, and push =old= to the processor's bounded lock-free SATB buffer (falling back cleanly if full).
+  - Piggyback STW Initial-Mark and STW Remark onto sub-millisecond Minor GC cuts; promote young survivors directly as *BLACK* during active marking (guaranteeing bounded mark work and strict termination!).
+  - Drain SATB buffers into the Major mark stack on every Minor GC and Remark; never begin concurrent sweep until global =markStack= and all per-processor SATB buffers are proven empty; enforce active-phase adoption on Tier 3.3 =___leave_blocking_ffi= unpark.
+  - Mandatory verification gate: CBMC =--mm pso= weak-memory proof + **Full-Runtime Clang =-fsanitize=thread= CI job** running =t1--t5= and =c1--c11= with 0 data races.
+
+** Slice 3 — =kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Parallel Stdlib
+:PROPERTIES:
+:CUSTOM_ID: slice-3-io-stdlib
+:STATUS: DESIGN_ALIGNED
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+:END:
+
+- *Evented SMP I/O Reactor (=lib/os_io.c=)*: Add native =kqueue= (macOS/BSD, Lemon 2001) and =epoll= (Linux) backends behind =___device_select=, keeping =poll=/=select= as portable fallback for Windows/other POSIX. Park reactor wait calls cleanly via Tier 3.3 =___enter_blocking_ffi= so idle I/O threads never stall STW GC, enforce userspace FD-generation custody before =close(fd)= (zero ABA), and pair close/wake with Dekker =EVFILT_USER=/=eventfd= notifications.
+- *Standard Parallel & Atomic Library*:
+  - =SRFI-230= (=atomic-box=, =atomic-fxbox=, =atomic-flag=, =atomic-pair=, explicit memory-order fences) lowered directly to =___ORDERED_WORD_NATIVE= + =gsc/_prims.scm=.
+  - Weak-memory-verified Chase-Lev work-stealing deque (Le et al. PPoPP 2013) + structured fork-join (=parallel-map=, =future=/=force=, bounded lock-free channels, concurrent sharded hash tables) running on Tier 3.2 work-stealing + Tier 3.1 generational GC.
+
+** Slice 4 — =tao3k/gerbil= SMP Parallel Compilation & Same-Source 12/12 Release Seal
+:PROPERTIES:
+:CUSTOM_ID: slice-4-gerbil-seal
+:STATUS: DESIGN_ALIGNED
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/gerbil_consumer_closure.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/GerbilProducerClosure.lean
+:END:
+
+- Benchmark =gsc= self-compilation and full 8-stage Gerbil build on the unified runtime.
+- Fix the 3 documented upstream =tao3k/gerbil= =smp= runtime concurrency bugs (=util.ss= =__lock-inline!=, =mop.ss= =__shadow-classes-lock= unwind safety, =error.ss= recursion) and replace serialized =with-driver-mutex= with parallel per-module compile sessions.
+- Re-sign Families 1--12 on ONE cryptographically sealed producer (=wholeRuntimeAdmitted = true=), sync =vendor/gambit= submodule, and publish the formal Gambit SMP Release Tag.
+
+* ALIGNED Adversarial Red-Team Design Challenges (7 Engineering Pitfalls Caught Before Coding)
+:PROPERTIES:
+:CUSTOM_ID: longterm-redteam-challenges
+:OWNER: Adversarial Formal Verification
+:STATUS: modeled-and-mutant-killed
+:END:
+
+Every formal model in this package was deliberately engineered to *attack* tempting implementation shortcuts before writing C or Scheme code. Seven concrete concurrency/GC bugs (including a live multi-cycle weak-table Use-After-Free discovered directly by Quint random exploration on seed =0x139ec581e61921c6=!) were caught at design time and locked into **28 executable Quint V2 mutation-killers + 17 zero-warning Lean 4 theorems**:
+
+#+NAME: adversarial-redteam-ledger
+| # | Target Slice | Adversarial Attack / Tempting Shortcut | Concrete Failure If Missed | Hardened Design Requirement & Mutant Killer |
+|---+--------------+----------------------------------------+----------------------------+---------------------------------------------|
+| 1 | Wave A (=___STILL=) | Parallel Minor GC workers =W0/W1= both reach the same =young_still= object and push it to =still_objs_to_scan= without atomic CAS claim; OR Minor GC invokes dead young =___sFOREIGN= release callback inline in STW | Singly-linked =still_objs_to_scan= forms a cycle (infinite GC hang), or arbitrary C destructor re-enters locked runtime during STW | Atomic =___WORD_CAS_ACQUIRE= claim (=marked: 0 -> 1=, =pushCount <= 1=) + defer dead young =___sFOREIGN= to =vm->lifecycle->cleanup= (=mutant4DoublePushCycleKilledTest=, =mutant5InlineStwForeignReleaseKilledTest=) |
+| 2 | Wave A (=___rest= =fast_span=) | Shared stack+heap msection (=stack_msection == heap_msection=) publishes overlapping =heap_fast_hi= and =stack_fast_floor= | Variadic pair write collides into active Scheme stack frame | Enforce =heap_fast_hi <= stack_fast_floor= in =publish_fast_span= + strict GC-epoch invalidation (=mutant6StaleFastSpanKilledTest=, =mutant7SharedSpanOverlapKilledTest=) |
+| 3 | Slice 1 (=FrameSpec=) | Dynamic =.o1= module unloads its =FrameSpec= table while a captured continuation still references its =PointId=; OR raw unboxed IEEE-754 F64 spill slot is exposed on =PointId= transition without scrubbing | Dangling metadata dereference on continuation restore/GC, or =SIGSEGV= scanning raw =double= bits as =___SCMOBJ= | Cohort pin count (=cohortPinCount > 0= blocks metadata free) + mandatory =targ-scrub-dirty-unboxed= before live-mask transition (=mutant5DanglingCohortUnloadKilledTest=, =mutant6UnscrubbedRawF64KilledTest=) |
+| 4 | Slice 2 (Concurrent Major GC) | Mutator reads a *WHITE* mature object from a weak GC hash table or =(will-testator w)= during active =MARKING= into a strong local root, then drops the weak table ("Weak Resurrection") | Concurrent sweeper frees live object while strongly held by mutator (Use-After-Free) | Mandatory SATB read-barrier (=satb_shade(obj)=) on weak-table lookup and will-testator read whenever =major_mark_active != 0= (=mutant6WeakResurrectionUafKilledTest=) |
+| 5 | Slice 2 (Multi-Cycle Weak Clearing — *Caught Live by Quint!*) | Concurrent sweep frees an unreachable *WHITE* weak target without atomically clearing its weak-table entry during STW Remark first (discovered live by Quint seed =0x139ec581e61921c6=!) | Mutator reads the stale weak entry during/after sweep or in Cycle 2 -> Use-After-Free on freed mature memory | STW Remark MUST atomically clear every dead (=WHITE=) weak-table / will entry *before* transitioning =MARKING -> SWEEPING= (=mutant9SweepBeforeWeakClearKilledTest=, =weak_clear_before_sweep_prevents_stale_read=) |
+| 6 | Slice 2 (SATB Overflow & CAS) | Bounded per-processor SATB buffer overflows under heavy mutation, OR =##vector-cas!= / =SRFI-230= =atomic-box-cas!= mutates a mature slot without SATB old-value shading | Silent drop of overwritten mature edge -> live subgraph swept | Sticky =satbOverflow= flag triggering bounded Remark fallback scan + CAS old-value SATB shading (=mutant7SatbOverflowDropKilledTest=, =mutant8CasWithoutSatbKilledTest=) |
+| 7 | Slice 3 (=kqueue=/=epoll= & =SRFI-230=) | Peer registers new =EV_ADD= borrow while =close(fd)= is in =CLOSING_DRAIN=, OR =SRFI-230= =atomic-box-set!= stores a young Scheme object into a mature atomic box without generational card barrier | Unbounded =close(fd)= starvation / FD-reuse ABA, or Minor GC loses young referent inside mature =atomic-box= | Monotone borrower refcount where =CLOSING_DRAIN= immediately rejects new borrows (=EBADF=), plus card+SATB barriers on =SRFI-230= pointer atomic boxes (=mutant2AdmitDuringClosingKilledTest=, =mutant6AtomicBoxMissingBarrierKilledTest=) |
+
+* ALIGNED Reproducible Formal Verification Commands
+:PROPERTIES:
+:CUSTOM_ID: longterm-verify-commands
+:END:
+
+#+BEGIN_SRC sh :eval never
+# 1. Strict OpenSysML v2 validation across all dev/ packages (must be 0 errors)
+sysml -strict -validate dev
+
+# 2. Direct SysML v2 -> D2 -> SVG architecture projection
+sysml -strict -render '#interconnection:GambitLongTermUnifiedArchitecture::LongTermSliceGraph' \
+  -render-form d2 -o dev/refactoring/modern-c/diagrams/longterm-unified-architecture.d2 dev
+d2 dev/refactoring/modern-c/diagrams/longterm-unified-architecture.d2 \
+  dev/refactoring/modern-c/diagrams/longterm-unified-architecture.svg
+
+# 3. Quint V2 unit tests + mutation-killers + 2000-trace invariant exploration
+for spec in \
+  dev/refactoring/modern-c/models/quint/v2/tier31p3_still_and_rest_fastpath_v2.qnt \
+  dev/refactoring/modern-c/models/quint/v2/unified_framespec_authority_v2.qnt \
+  dev/refactoring/modern-c/models/quint/v2/concurrent_major_satb_v2.qnt \
+  dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt; do
+  quint test "$spec"
+  quint run --invariant=safe --max-samples=2000 --max-steps=30 "$spec"
+done
+
+# 4. Standalone Lean 4 refinement proofs (must be 0 errors, 0 warnings, 0 sorry)
+! grep -Eq '\bsorry\b' dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+lean dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+#+END_SRC
