@@ -1,0 +1,114 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "family11-gerbil-tools-v13",
+  "scope": "Family 11 (11/12: gerbil) complete 8-stage downstream consumer closure (boot-gxi -> stage0 -> stage1 -> stdlib -> libgerbil -> lang -> tools -> correctness) bound directly to the sealed v13 Gambit producer under strict <8 GiB RSS with durable stdlibBatchSize=16 checkpoints.",
+  "timeoutPolicy": {
+    "mode": "per-stage",
+    "overheadSeconds": 30
+  },
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/dev-family8-10-unified/family8-12-v13.lock.json",
+    "evidence/fixtures/dev-family8-10-unified/family8-12-v13.patch",
+    "evidence/research/retained/modern-c/family8-12-v13/completed-producer.json",
+    "evidence/fixtures/dev-family11-gerbil/gerbil-v11.lock.json",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-family11-gerbil/observations-tools.json",
+    "evidence/fixtures/dev-family11-gerbil/binding-tools.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-family8-10-unified/family8-12-v13.lock.json"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/retained/modern-c/family8-12-v13/completed-producer.json"
+      }
+    },
+    {
+      "id": "gerbil",
+      "capability": "gerbil.build",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 3600,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-family11-gerbil/gerbil-v11.lock.json",
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "throughStage": "tools",
+        "stdlibBatchSize": 16
+      }
+    },
+    {
+      "id": "gerbil-test",
+      "capability": "gerbil.test",
+      "dependsOn": [
+        "gerbil"
+      ],
+      "budgetSeconds": 3600,
+      "arguments": {
+        "build": {
+          "step": "gerbil",
+          "output": "observations"
+        }
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "gerbil",
+        "gerbil-test"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-family11-gerbil/binding-tools.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

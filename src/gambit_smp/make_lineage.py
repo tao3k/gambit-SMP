@@ -1,5 +1,6 @@
 """Witness Gambit's existing Make recipes inside a managed bootstrap lease."""
 
+import fcntl
 import hashlib
 import json
 import os
@@ -9,9 +10,142 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 
 from gambit_smp.framework import digest
 from gambit_smp.workspace import write
+
+
+def _build_memory_budget_bytes():
+    """Return the active runner RSS budget (flag/env overridable, <= 8 GiB default)."""
+    env_budget = os.environ.get("GAMBIT_BUILD_MEMORY_BYTES")
+    if env_budget is not None and env_budget.strip():
+        return max(512 * 1024 ** 2, int(env_budget))
+    try:
+        physical = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+        if isinstance(physical, int) and physical > 0:
+            return min(physical, 8 * 1024 ** 3)
+    except (AttributeError, OSError, ValueError):
+        pass
+    return 8 * 1024 ** 3
+
+
+def estimate_recipe_memory_bytes(kind, ordered_paths):
+    """Estimate peak RSS of one compiler/emitter recipe from its input size.
+
+    Allows full make -j8 concurrency for normal C files (160 MiB each -> 8 jobs
+    = 1.28 GiB) while dynamically throttling simultaneous giant generated C files
+    (2-8 MiB -> 1.2-2.2 GiB each) so the process group stays strictly < 8 GiB.
+    """
+    mib = 1024 * 1024
+    if kind == "object":
+        c_bytes = 0
+        for p in ordered_paths:
+            path = Path(p)
+            if path.suffix == ".c" and path.is_file():
+                c_bytes += path.stat().st_size
+        # Empirical GCC-16 peak RSS on Gambit generated C: ~450x source bytes
+        # clamped to [160 MiB, 2200 MiB].
+        est = max(160 * mib, min(2200 * mib, c_bytes * 450))
+        return est
+    if kind == "emit":
+        return 768 * mib
+    return 256 * mib
+
+
+def _live_group_rss_bytes():
+    """Read live kernel RSS of our current process group without spawning a child."""
+    try:
+        from gambit_smp.process_identity import group_memory
+        return int(group_memory(os.getpgrp()).get("rssBytes", 0))
+    except Exception:
+        return 0
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+class _AdaptiveMemorySlot:
+    """Deadlock-free real-time memory-pressure admission gate across make -jN workers."""
+
+    def __init__(self, directory, est_bytes, budget_bytes=None):
+        self.directory = Path(directory)
+        self.lock_path = self.directory / ".memory-slots.lock"
+        self.state_path = self.directory / ".memory-slots.json"
+        self.est_bytes = int(est_bytes)
+        self.budget_bytes = int(budget_bytes) if budget_bytes else _build_memory_budget_bytes()
+        self.pid_key = str(os.getpid())
+        self.acquired = False
+
+    def _read_active(self):
+        if not self.state_path.is_file():
+            return {}
+        try:
+            data = json.loads(self.state_path.read_text())
+            if not isinstance(data, dict):
+                return {}
+            return {k: int(v) for k, v in data.items() if k.isdigit() and _pid_alive(int(k))}
+        except (OSError, ValueError, TypeError):
+            return {}
+
+    def _write_active(self, active):
+        tmp = self.state_path.with_suffix(f".tmp.{self.pid_key}")
+        tmp.write_text(json.dumps(active, sort_keys=True) + "\n")
+        tmp.replace(self.state_path)
+
+    def __enter__(self):
+        soft_est_limit = int(self.budget_bytes * 0.68)
+        live_limit = int(self.budget_bytes * 0.75)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        while True:
+            with self.lock_path.open("a+") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    active = self._read_active()
+                    active_est = sum(active.values())
+                    # Empty active set ALWAYS admits (strict deadlock freedom).
+                    if not active:
+                        admit = True
+                    else:
+                        live_rss = _live_group_rss_bytes()
+                        admit = (
+                            active_est + self.est_bytes <= soft_est_limit
+                            and live_rss + self.est_bytes <= live_limit
+                        )
+                    if admit:
+                        active[self.pid_key] = self.est_bytes
+                        self._write_active(active)
+                        self.acquired = True
+                        return self
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            time.sleep(0.25)
+
+    def __exit__(self, exc_type, exc, tb):
+        if not self.acquired:
+            return False
+        try:
+            with self.lock_path.open("a+") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    active = self._read_active()
+                    active.pop(self.pid_key, None)
+                    self._write_active(active)
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        self.acquired = False
+        return False
 
 
 def read(path):
@@ -86,6 +220,16 @@ def prepare(directory, source, generated, gcc, scheme_inputs, run=capture_comman
     return "GAMBIT_BUILD_WITNESS=" + shlex.join(
         ["env", "PYTHONPATH=" + str(package_root), sys.executable,
          str(Path(__file__).resolve()), str(directory.resolve())])
+
+
+def prepare_memory_gate(directory):
+    """Return a GAMBIT_BUILD_WITNESS assignment enforcing only _AdaptiveMemorySlot."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    package_root = Path(__file__).resolve().parent.parent
+    return "GAMBIT_BUILD_WITNESS=" + shlex.join(
+        ["env", "PYTHONPATH=" + str(package_root), sys.executable,
+         str(Path(__file__).resolve()), "--memory-gate", str(directory.resolve())])
 
 
 def action_directory(directory, pass_number, kind, name):
@@ -201,12 +345,14 @@ def run_recipe(directory, pass_number, kind, target, prerequisites, argv):
     # invocation uses the same birth/exec launcher as other managed commands.
     from gambit_smp.research_flow import _approved_command
     from gambit_smp.task_processes import spawn
-    approval = _approved_command.set(tuple(str(part) for part in command))
-    try:
-        process = spawn(command, executable=str(executable))
-    finally:
-        _approved_command.reset(approval)
-    returncode = process.wait()
+    est_bytes = estimate_recipe_memory_bytes(kind, ordered)
+    with _AdaptiveMemorySlot(directory, est_bytes):
+        approval = _approved_command.set(tuple(str(part) for part in command))
+        try:
+            process = spawn(command, executable=str(executable))
+        finally:
+            _approved_command.reset(approval)
+        returncode = process.wait()
     if returncode:
         if output.exists() or output.is_symlink():
             # Preserve the failed child's exact bytes, outside Make's target
@@ -543,6 +689,31 @@ bootstrap: core
 
 
 def main(args):
+    if args and args[0] == "--memory-gate":
+        gate_dir = Path(args[1])
+        rest = list(args[2:])
+        if rest and rest[0] in {"1", "2"}:
+            rest = rest[1:]
+        kind = rest[0]
+        if kind == "promote":
+            return 0
+        if kind not in {"emit", "object", "archive", "index", "link"}:
+            raise ValueError("unknown Make memory-gate recipe kind")
+        separator = rest.index("--")
+        ordered_paths = rest[2:separator]
+        command = rest[separator + 1:]
+        est_bytes = estimate_recipe_memory_bytes(kind, ordered_paths)
+        from gambit_smp.research_flow import _approved_command
+        from gambit_smp.task_processes import spawn
+        resolved = shutil.which(command[0]) or command[0]
+        with _AdaptiveMemorySlot(gate_dir, est_bytes):
+            approval = _approved_command.set(tuple(str(part) for part in command))
+            try:
+                process = spawn(command, executable=str(Path(resolved).resolve()))
+            finally:
+                _approved_command.reset(approval)
+            rc = process.wait()
+        return rc if rc >= 0 else 128 - rc
     directory, pass_number, kind, target, *rest = args
     directory = Path(directory)
     pass_number = int(pass_number)

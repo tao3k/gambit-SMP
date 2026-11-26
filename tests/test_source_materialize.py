@@ -421,7 +421,34 @@ class SourceMaterializeTests(unittest.TestCase):
         v10_path = source.ROOT / "evidence/fixtures/dev-family7-stress-gsc/family7-stress-gsc-v10.lock.json"
         v10_lock = json.loads(v10_path.read_text())
         validate_source_lock(v10_lock)
-        for rel, row in v10_lock["files"].items():
+        v11_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-10-v11.lock.json"
+        v11_lock = json.loads(v11_path.read_text())
+        validate_source_lock(v11_lock)
+        v12_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v12.lock.json"
+        v12_lock = json.loads(v12_path.read_text())
+        validate_source_lock(v12_lock)
+        v13_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v13.lock.json"
+        v13_lock = json.loads(v13_path.read_text())
+        validate_source_lock(v13_lock)
+        v14_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v14.lock.json"
+        v14_lock = json.loads(v14_path.read_text())
+        validate_source_lock(v14_lock)
+        v15_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v15.lock.json"
+        v15_lock = json.loads(v15_path.read_text())
+        validate_source_lock(v15_lock)
+        v16_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v16.lock.json"
+        v16_lock = json.loads(v16_path.read_text())
+        validate_source_lock(v16_lock)
+        v17_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v17.lock.json"
+        v17_lock = json.loads(v17_path.read_text())
+        validate_source_lock(v17_lock)
+        v25_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v25.lock.json"
+        v25_lock = json.loads(v25_path.read_text())
+        validate_source_lock(v25_lock)
+        v26_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v26.lock.json"
+        v26_lock = json.loads(v26_path.read_text())
+        validate_source_lock(v26_lock)
+        for rel, row in v26_lock["files"].items():
             self.assertEqual(digest(source.ROOT / "vendor/gambit" / rel), row["candidateSha256"], rel)
 
 

@@ -1557,7 +1557,7 @@ def bootstrap(args, ctx):
         witness = make_lineage.prepare(
             lineage_directory, source, generated, gcc, scheme,
             lambda argv: ctx.require("emitter-loader", argv, source, 10))
-    ctx.require("bootclean", [ctx.tools["make"], "bootclean"], source, 10)
+    ctx.require("bootclean", [ctx.tools["make"], "bootclean"], source, 60)
     if not generated or any((source / name).exists() for name in generated):
         raise ValueError("generated C removal was not established")
     command = core_command(capacity, "from-scratch")

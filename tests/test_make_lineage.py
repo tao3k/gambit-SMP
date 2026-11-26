@@ -79,7 +79,7 @@ class MakeLineageTests(unittest.TestCase):
         from gambit_smp.native_capabilities import host_tools
         compiler = cls._default_cc()
         environment = {key: value for key, value in os.environ.items()
-                       if key not in {'SDKROOT', 'LIBRARY_PATH', 'CPATH'}}
+                       if key not in {'SDKROOT', 'LIBRARY_PATH', 'CPATH', 'LD_LIBRARY_PATH'}}
         _, environment = host_tools(compiler, [{'capability': 'gambit.bootstrap'}], environment)
         # Use the production resolver: an ambient package-manager ld/as must
         # not replace the selected Darwin toolchain in the transport fixture.

@@ -112,6 +112,58 @@ package GambitLongTermUnifiedArchitecture {
         }
     }
 
+    part def ConcurrentMajorImmixRecyclingState {
+        attribute majorPhaseIdle : Boolean;
+        attribute cardAlignedHoleBounds : Boolean;
+        attribute allLinesInHoleDead : Boolean;
+        attribute closingFillerCoversRemainder : Boolean;
+        attribute postRemarkContractionAdmitted : Boolean;
+        attribute holeRecycleAdmitted : Boolean;
+    }
+    requirement def ConcurrentMajorImmixRecyclingLaw {
+        subject ir : ConcurrentMajorImmixRecyclingState;
+        require constraint {
+            (not ir.holeRecycleAdmitted or
+             (ir.majorPhaseIdle and ir.cardAlignedHoleBounds and
+              ir.allLinesInHoleDead and ir.closingFillerCoversRemainder)) and
+            ir.postRemarkContractionAdmitted
+        }
+    }
+
+    part def ParallelRemarkMarkBufferState {
+        attribute localMarkBuffersFlushed : Boolean;
+        attribute activeRemarkWorkersZero : Boolean;
+        attribute parallelSweepPartitionDisjoint : Boolean;
+        attribute majorMarkActive : Boolean;
+        attribute idleCoreMarkExecuted : Boolean;
+        attribute sweepTransitionAdmitted : Boolean;
+    }
+    requirement def ParallelRemarkMarkBufferLaw {
+        subject pr : ParallelRemarkMarkBufferState;
+        require constraint {
+            (not pr.sweepTransitionAdmitted or
+             (pr.localMarkBuffersFlushed and pr.activeRemarkWorkersZero)) and
+            pr.parallelSweepPartitionDisjoint and
+            (not pr.idleCoreMarkExecuted or pr.majorMarkActive)
+        }
+    }
+
+    part def InterruptIdleDekkerState {
+        attribute stackTripOffFenced : Boolean;
+        attribute waitIdleChecksPendingInterrupt : Boolean;
+        attribute crossCoreCardBarrierVmSafe : Boolean;
+        attribute weakTableFlagsAcquireLoad : Boolean;
+    }
+    requirement def InterruptIdleDekkerLaw {
+        subject dk : InterruptIdleDekkerState;
+        require constraint {
+            dk.stackTripOffFenced and
+            dk.waitIdleChecksPendingInterrupt and
+            dk.crossCoreCardBarrierVmSafe and
+            dk.weakTableFlagsAcquireLoad
+        }
+    }
+
     part def EventedReactorState {
         attribute reactorParkedInKernel : Boolean;
         attribute blockingStwGc : Boolean;
@@ -130,6 +182,50 @@ package GambitLongTermUnifiedArchitecture {
             (not io.kernelCloseExecuted or (io.fdCloseRequested and io.fdCustodyDrained)) and
             io.dekkerWakeBarrierPaired and
             io.srfi230AtomicBoxBarriered
+        }
+    }
+
+    part def AdaptiveHeapScalingState {
+        attribute censusOversizedReleased : Boolean;
+        attribute contractionHistoryDecays : Boolean;
+        attribute lowerBoundPreserved : Boolean;
+        attribute gscContractedBeforeCc1 : Boolean;
+        attribute smpHeadroomSublinear : Boolean;
+        attribute explicitLivePercentHonored : Boolean;
+        attribute largeStillDirectMmap : Boolean;
+        attribute mailboxEmptyCheckUnderMutex : Boolean;
+        attribute slice2MajorGcCompatible : Boolean;
+    }
+    requirement def AdaptiveHeapScalingLaw {
+        subject m : AdaptiveHeapScalingState;
+        require constraint {
+            m.censusOversizedReleased and
+            m.contractionHistoryDecays and
+            m.lowerBoundPreserved and
+            m.gscContractedBeforeCc1 and
+            m.smpHeadroomSublinear and
+            m.explicitLivePercentHonored and
+            m.largeStillDirectMmap and
+            m.mailboxEmptyCheckUnderMutex and
+            m.slice2MajorGcCompatible
+        }
+    }
+
+    part def GerbilMulticoreMemoryChallengeState {
+        attribute sameProducerAbiClosed : Boolean;
+        attribute workersWithin8GiBEnvelope : Boolean;
+        attribute zeroDualPeakGscCc1Overlap : Boolean;
+        attribute stdlibDriverIdleFootprintBounded : Boolean;
+        attribute lockPoisoningRejected : Boolean;
+    }
+    requirement def GerbilMulticoreMemoryChallengeLaw {
+        subject g : GerbilMulticoreMemoryChallengeState;
+        require constraint {
+            g.sameProducerAbiClosed and
+            g.workersWithin8GiBEnvelope and
+            g.zeroDualPeakGscCc1Overlap and
+            g.stdlibDriverIdleFootprintBounded and
+            g.lockPoisoningRejected
         }
     }
 
@@ -240,7 +336,7 @@ package GambitLongTermUnifiedArchitecture {
     part slice0WaveA : ArchitectureSlice {
         attribute :>> sliceId = "WaveA";
         attribute :>> title = "Tier 3.1p3: Lock-Free Rest Fast-Span, Generational Still, O(Y) Minor GC, Darwin dlclose (#6)";
-        attribute :>> status = "READY_FOR_EXECUTION";
+        attribute :>> status = "STAGE8_CLOSED_COMMITTED";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/tier31p3_still_and_rest_fastpath_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
         attribute :>> cbmcTarget = "tests/contracts/modern-c/weak-memory/ (still_young_sweep + rest_fast_span PSO)";
@@ -249,7 +345,7 @@ package GambitLongTermUnifiedArchitecture {
     part slice1FrameSpec : ArchitectureSlice {
         attribute :>> sliceId = "Slice1";
         attribute :>> title = "Unified FrameSpec / PointId Semantic Authority (PlanAbi + GeneratedCheckpoint + ControlRoots)";
-        attribute :>> status = "DESIGN_ALIGNED";
+        attribute :>> status = "STAGE8_CLOSED_COMMITTED";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/unified_framespec_authority_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
         attribute :>> cbmcTarget = "FrameSpec IFD/OFD encoder-decoder & internal-return cfs/F equivalence harness";
@@ -257,12 +353,12 @@ package GambitLongTermUnifiedArchitecture {
     }
     part slice2ConcurrentMajor : ArchitectureSlice {
         attribute :>> sliceId = "Slice2";
-        attribute :>> title = "Non-Moving Mark-Region Mature Space + Concurrent SATB Major GC";
-        attribute :>> status = "DESIGN_ALIGNED";
+        attribute :>> title = "Non-Moving Immix Mark-Region Mature Space (Line-Hole Recycling) + Parallel Remark/Sweep + Per-Processor Mark Buffers + Idle-Core Marking + Concurrent SATB Major GC";
+        attribute :>> status = "PRODUCTION_SYSTEM_V2_ACTIVE";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/concurrent_major_satb_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
-        attribute :>> cbmcTarget = "SATB pre-store deletion barrier + VCGC mark-epoch C11/PSO harness + Full-Runtime Clang TSan";
-        attribute :>> exitGate = "Sub-ms p99 pause across multi-GB mature heap; 0 TSan races on full runtime PBT; Minor+Major+FFI park composition green across 15/15 CI";
+        attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice2_satb_major_pso.c + slice2_interrupt_idle_dekker_pso.c + Apple Clang C23 TSan";
+        attribute :>> exitGate = "Parallel STW Remark + Immix line-hole recycling + post-Remark contraction; 0 TSan races across t1/t5/t6/c1/c5; 69/69 multicore PBT; 438/438 official SMP; N=5 AB/BA revision_matrix admitted=true; 15/15 CI green";
     }
     part slice3IoAndStdlib : ArchitectureSlice {
         attribute :>> sliceId = "Slice3";
@@ -277,10 +373,19 @@ package GambitLongTermUnifiedArchitecture {
         attribute :>> sliceId = "Slice4";
         attribute :>> title = "Gerbil SMP Parallel Compiler + Full-Runtime TSan + Same-Source 12/12 Release Seal";
         attribute :>> status = "DESIGN_ALIGNED";
-        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/gerbil_consumer_closure.qnt";
+        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/GerbilProducerClosure.lean";
         attribute :>> cbmcTarget = "tests/contracts/modern-c/gerbil/abi-seal-check/harness.c";
         attribute :>> exitGate = "Gerbil 8/8 stages + parallel stdlib build; wholeRuntimeAdmitted=true on single sealed producer; official Release Tag";
+    }
+    part memoryEnvelopeTrack : ArchitectureSlice {
+        attribute :>> sliceId = "MemoryEnvelope";
+        attribute :>> title = "Adaptive Heap Contraction, Sub-Linear O(sqrt(P)) Floor, Direct-mmap Still/Census, & Pre-cc1 gsc Trim (v26 <-> Slice 2)";
+        attribute :>> status = "ACTIVE_SYNCED_WITH_SLICE2";
+        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/adaptive_heap_scaling_and_reclaim_v2.qnt";
+        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean";
+        attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c";
+        attribute :>> exitGate = "Zero O(P) linear floor growth p1..p8; gsc+cc1 dual-peak cut >=1.5 GiB at 8c; stdlib driver fp < 3 GiB; par_rest_alloc >= 2.5x p8; 12/12 same-source PASS";
     }
 
     /* ------------------------------------------------------------------ */
@@ -293,7 +398,10 @@ package GambitLongTermUnifiedArchitecture {
 
     part LongTermSliceGraph {
         part baseline824f5dc6 : SliceNode {
-            attribute :>> label = "Baseline 824f5dc6 (Tier 1-2 + 3.1p2 + 3.2 + 3.3, 15/15 CI GREEN)";
+            attribute :>> label = "Baseline 824f5dc6 + Sealed v25 12/12 (Tier 1-3.3 / Same-Source 12/12 GREEN)";
+        }
+        part memoryEnvelope : SliceNode {
+            attribute :>> label = "Memory Envelope Track: Direct-mmap Census/Still + Contraction + O(sqrt(P)) Floor + Pre-cc1 Trim";
         }
         part waveA : SliceNode {
             attribute :>> label = "Wave A: Tier 3.1p3 (Rest fast_span + Generational Still + O(Y) Minor + #6)";
@@ -302,7 +410,7 @@ package GambitLongTermUnifiedArchitecture {
             attribute :>> label = "Slice 1: Unified FrameSpec & PointId Authority";
         }
         part slice2ConcurrentMajor : SliceNode {
-            attribute :>> label = "Slice 2: Immix Mark-Region Mature + Concurrent SATB Major GC";
+            attribute :>> label = "Slice 2 (v2 Production): Immix Line-Hole Recycling + Parallel Remark/Sweep + SATB Major GC";
         }
         part slice3IoAndStdlib : SliceNode {
             attribute :>> label = "Slice 3: kqueue/epoll Reactor + SRFI-230 & Parallel Stdlib";
@@ -312,6 +420,9 @@ package GambitLongTermUnifiedArchitecture {
         }
 
         connection base_to_waveA connect baseline824f5dc6 to waveA;
+        connection base_to_memenv connect baseline824f5dc6 to memoryEnvelope;
+        connection memenv_to_major connect memoryEnvelope to slice2ConcurrentMajor;
+        connection memenv_to_seal connect memoryEnvelope to slice4GerbilSeal;
         connection waveA_to_framespec connect waveA to slice1FrameSpec;
         connection framespec_to_major connect slice1FrameSpec to slice2ConcurrentMajor;
         connection waveA_to_io_stdlib connect waveA to slice3IoAndStdlib;

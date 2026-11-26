@@ -1,0 +1,213 @@
+#+TITLE: Families 8--12 Unified Architecture, P0-2 Binding-Read Activation, and Formal Assurance Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:2 num:nil
+#+PROPERTY: header-args :eval never-export
+
+* Overview and Non-Splicing Governance :modern_c:smp:architecture:
+:PROPERTIES:
+:CUSTOM_ID: families-8-12-architecture
+:AUTHORITY: GambitFamilies8To12Composition
+:BASELINE: 1b1aa854
+:PROFILE: 884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69
+:END:
+
+Following the standalone closure of Family 7 (=7/12: stress-gsc= on sealed =v10=,
+[[file:family7-stress-gsc-closure.org][family7-stress-gsc-closure.org]]), this document defines the unified DEV-first
+architecture, formal-model ownership, and native acceptance strategy for:
+
+1. =P0-2= Binding-Read Activation (single-page =primitive_value=, fast-path
+   =___primitive_ref= with =root_writer_open= fallback, and generated-module
+   =___GLOBALVARPRIMREF= fast dispatch under =___ORDERED_WORD_NATIVE=).
+2. Stage 10 modular =gambit.h= / =___global_state_struct= dynamic ABI stability
+   across Darwin =-bundle -D___DYNAMIC= modules.
+3. Family 8 (=8/12: registry=), Family 9 (=9/12: lifecycle=), Family 10
+   (=10/12: gc-ffi=), Family 11 (=11/12: gerbil=), and Family 12
+   (=12/12: release=).
+
+** Strict Non-Splicing and Resource Policy
+
+- *Same-source conjunction*: The cumulative 12-family SMP acceptance ledger
+  never splices cross-source credit. Families 8--12 receipts verify their own
+  exact sealed producer and manifest; promoting the whole-runtime numerator to
+  =12/12= requires all 12 families (including re-signed Families 2--5) to pass
+  on one final source tree and profile.
+- *Hard 8 GiB compiler RSS ceiling*: Every 2-pass bootstrap, dynamic compilation,
+  and native test campaign must remain strictly below =8 GiB= (=8,589,934,592=
+  bytes) peak process-group RSS.
+- *Immutable Family 7 seal preservation*: New SysML v2 packages extend
+  [[file:models/sysml/smp-dev-composition.sysml][smp-dev-composition.sysml]]
+  and [[file:models/sysml/binding-activation.sysml][binding-activation.sysml]]
+  additively via [[file:models/sysml/families-8-12-composition.sysml][families-8-12-composition.sysml]]
+  so that sealed Family 7 (=v10=) model digests remain cryptographically valid.
+- *Adversarial Architecture-Challenge Mandate (CBMC, Quint, Lean 4, ASCENT)*:
+  Formal models and C harnesses are *never* passive post-hoc documentation sync.
+  Every CBMC harness, Quint V1/V2 protocol spec (with explicit mutation-killing
+  counterexample modules), standalone =0-sorry= Lean 4 proof, and ASCENT-routed
+  static structural verifier exists to *adversarially challenge* Gambit-SMP
+  architecture—actively probing non-contiguous carrier gaps, slow-path retry
+  corruption, bare dynamic =.o1= symbol leaks across all 329+ =___IMP_FUNC=
+  macros, weak-memory PSO reorderings, and cross-core migration livelocks so
+  that defects are eliminated structurally at the root rather than masked by
+  symptom-level configuration.
+
+* Adversarial Challenge Matrix (v11 -> v26 Structural Root Hardening) :challenges:
+
+| Architectural Defect / Challenge | Root Cause (Not Symptom Patch) | Quint / Mutation-Killer | Lean 4 (=0 sorry=) | CBMC C Harness | ASCENT / Static Structural Gate |
+|----------------------------------+--------------------------------+-------------------------+--------------------+----------------+---------------------------------|
+| Raw IEEE-754 F64 spill leak & retry ordering (=mutex-suspension -p2 --priority-cycle= SIGSEGV) | =gsc/_t-c-2.scm= spilled raw F64 into GVM reg/slot across =___group_demand_enter= without post-grant scrub and indexed =raw?= logically; pre-enter scrub would corrupt slow-path retries | =gc_ffi_worker_domain_v2.qnt= (=gc_ffi_v2_buggy_raw_f64=) | =RawF64ScrubRefinement.lean= + =GcFfiRootRefinement.lean::post_grant_scrub_survives_double_retry_and_cleans_carrier= & =pre_enter_scrub_corrupts_retry_witness= | =gc-ffi/entry-root-bundle/harness.c= (double-retry uint64 bit-exact roundtrip + scrub) | =verify_v12_architectural_anchors= + F6REST01 reverse trace validation |
+| Dynamic =.o1= ABI boundary leak (Gerbil =stage0= 4/185 =___publish_raw_stack_span=) | Header macro in =gvm_operations.h.in= called bare =___IMP_FUNC= without 4-way =___IMP_FUNC <-> ___GSTATE <-> setup.c <-> ___EXT= closure | =gerbil_consumer_closure.qnt= (=unexportedDynamicSymbolFailsStage0Test=) | =GerbilProducerClosure.lean::unexported_dynamic_abi_blocks_admission= | =gerbil/abi-seal-check/harness.c= (=f11.unexported-dynamic-symbol-rejected=) | ASCENT =f11-dynamic-o1-abi-closure= -> =abi-closure-auditor= (=verify_dynamic_o1_abi_closure= scanning all 325+ =___IMP_FUNC=s) |
+| Primary =P0= live-worker undercount & non-contiguous carrier gap (=root-task --collector=) | =root-tasks.inc:640= looped =i=0= over child-only =launches[i].native_live=; non-contiguous gap could dispatch =members[i%count]= to dead carrier | =gc_ffi_worker_domain.qnt= (=omittingPrimaryP0ClampsWorkerCountTest=) | =GcFfiRootRefinement.lean::contiguous_prefix_every_assigned_executor_is_live= & =non_contiguous_gap_caught_by_contiguous_prefix= | =gc-ffi/entry-root-bundle/harness.c= (=f10.non-contiguous-gap-clamped-to-live-prefix=) | =verify_v12_architectural_anchors= |
+| Post-GC owner foreign-finalizer drain re-entry & NULL =___c_closure_self()= (=worker-root-domains= SIGSEGV) | After =reopen_rc_roots=, =vm=LIVE= and =rc=OPEN= while =cleanup[id].draining=1=; =___lifecycle_enter=, =___lifecycle_gc_admitted=, =root_writer_open=, and =___garbage_collect= omitted =draining \|\| uncertain=, and =make_sfun_stack_marker= dereferenced NULL =___c_closure_self()= | =gc_ffi_worker_domain.qnt= (=ownerCleanupDrainRefusesReentryTest=, =drainReentryWithoutGuardFatalTest=) | =GcFfiRootRefinement.lean::draining_blocks_all_reentry_and_gc=, =naive_v12_gate_falsely_admits_during_drain=, =null_c_closure_self_refused_safely= | =gc-ffi/entry-root-bundle/harness.c= (=f10.drain-blocks-*=, =f10.null-c-closure-self-refused-before-deref=) | =verify_v12_architectural_anchors= |
+| Captured-frame census silent skip (=test-collector-diagnostics= line 1143) | =fdfec33a= replaced ={c->failed=1;return;}= with =break;= in =copy-planning.inc:191=, allowing unmapped raw stack addresses to bypass census refusal | =captured_chain_seal.qnt= (=parkedBoundRejectsInHalfSkipTest=) | (Frame grant soundness in =GcFfiRootRefinement.lean=) | =collector-diagnostics.c= (=SOURCE-CENSUS-CAPTURE-UNMAPPED=) | =verify_v12_architectural_anchors= |
+| Overflow group-demand retirement (=test7=/=test9=) & physical-exit SFUN borrow (=test-marker-input=) | =lib/_kernel.scm= raised stack/heap overflow before =___group_demand_retire=; =sfun-entry.inc:32= holds RC borrow until =___end_sfun= physical unwind | =gc_ffi_worker_domain.qnt= (=overflowWithoutRetireFatalTest=, =unmatchedEarlyUnwindControlTest=) | =GcFfiRootRefinement.lean::overflow_retires_demand_before_raise= & =sfun_physical_exit_drains_borrow_custody= | =gc-ffi/entry-root-bundle/harness.c= (=f10.overflow-retires-demand-before-raise=, =f10.sfun-borrow-*=) | =verify_v12_architectural_anchors= |
+| Cross-core =c-define= return livelock & re-entrant will self-deadlock (=45d83511=+=be59e642=) | =##thread-migrate-to!= lacked target pinning; =handler_return_to_c= clobbered =R1=; =##gc-finalize!= re-entered SRFI-18 mutex | =v2/smp_migration_and_wills_v2.qnt= (3 mutation-killers) | =CompiledHostRefinementV2.lean= | =weak-memory/*_pso.c= | ASCENT =multicore-tool-routing.rules.scm= + =gambit-multicore-pbt= |
+| Concurrent SMP =open-process=/=process-status= permanent hang (=Gerbil stage1= =P=6= deadlock) | =os_io.c:9200= =pthread_sigmask= only masked =SIGCHLD= on spawning thread while sibling threads ran wildcard =waitpid(-1)= in async =sigchld_signal_handler=, stealing unregistered children; plus unlocked =dgroup->list= + circular =head=-skip bug | =smp_process_reap_custody.qnt= (5/5 + 2000 traces; =wildcardSigchldMutantKilledTest=, =headSkipMutantKilledTest=) | =SmpProcessReapRefinement.lean= (6 theorems, 0 =sorry=) | =lifecycle/process-reap-custody/harness.c= (310/310 CBMC) | =verify_v12_architectural_anchors= (forbids =waitpid(-1)=, requires =process_reap_mutex= + =device_group_mutex=) |
+| Single-host GCC-16 compiler RSS cliff (=test-marker-input= =8.05 GiB= -> =7.91 GiB=) | =declarations_end.h.in= omitted =noinline= on =___global_page_at=/=___binding_global=/=___binding_primitive= despite its own comment, causing GCC-16 =-O1= to inline the probe loop into all 592 =root-task.c= sites | =binding_read_activation.qnt= | =BindingReadActivationRefinement.lean= | =binding-read/activation-equivalence/harness.c= | =verify_v12_architectural_anchors= (=___BINDING_NOINLINE=) |
+| 500x+ Rest/Keyword-Rest GC amplification (=Gerbil stdlib= 500ms STW GC per 0.5--1 MiB with 1.65 GiB free nursery) | =lib/_kernel.scm= (=handler_get_rest=/=handler_get_key_rest=) gated pre-GC extension on =!___lifecycle_gc_admitted=, unconditionally calling =___garbage_collect= on every 512 KiB TLAB exhaustion without consuming already-budgeted free nursery msections (matching =___heap_limit=); fixed via zero-growth =___rest_take_free_section= in =lib/_mem/heap-sections.inc= | =smp_rest_nursery_refill.qnt= (5/5 + 2000 traces; 3 mutation-killers: =legacyPerSectionGcMutantKilledTest=, =unboundedPreGcGrowthMutantKilledTest=, =plantedShortBypassMutantKilledTest=) | =SmpRestNurseryRefinement.lean= (8 theorems, 0 =sorry=) | =gc-ffi/rest-nursery-refill/harness.c= (169/169 CBMC) | =verify_v12_architectural_anchors= (=___rest_take_free_section= + free-nursery gate) |
+| Concurrent SMP =close(fd)= vs =___device_select= =EBADF= / FD-reuse ABA, idle-processor =0xc3= SIGSEGV, & =FOR_EVENT= half-closed =process-status= 214% CPU busy-spin (=Gerbil= =gsc= 4.04 GiB leak) | =lib/os_io.c= closed OS fds without draining peer =___device_select= borrowers, =##thread-report-scheduler-error!= used =async?=#f= on idle processors, and =FOR_EVENT= (process exit wait) falsely passed =RD\|WR= into =___device_select_borrow=, spinning at 214% CPU and +37--200 MiB/s whenever stdin/stdout closed before =process-status=; fixed via =device_select_mutex=/=active_select_list= borrow-fence + =dir = 0= for =FOR_EVENT= + =async?=#t= safe delivery | =smp_io_select_close_custody.qnt= (9/9 + 2000 traces; 5 mutation-killers incl. =forEventSpuriousDirBusySpinMutantKilledTest=) | =SmpIoSelectCloseRefinement.lean= (12 theorems, 0 =sorry=) | =lifecycle/io-select-close-custody/harness.c= (296/296 CBMC) | =verify_v12_architectural_anchors= (=device_select_mutex=, =active_select_list=, =FOR_EVENT dir=0=, =##thread-report-scheduler-error! #t=) |
+| Zero-growth admitted nursery continuation & mandatory STW GC on =max_heap==0= (=gsc= 0-GC unbounded heap leak) | =lib/_mem/allocation-limits.inc= allowed =___heap_continue_on_free_section= to grow =adjust_msections= 1.5x even when =___lifecycle_gc_admitted(___ps)==1=, had a lock-order TOCTOU in =bump_heap_section_for_demand=, and returned =0= from =___stack_limit= on heap-only shortage; gated 1.5x growth strictly behind =!___lifecycle_gc_admitted=, moved free-space check inside =ALLOC_MEM_LOCK()=, and returned =2= to force genuine STW GC | =smp_rest_nursery_refill.qnt= (8/8 + 2000 traces; incl. =heapContinueUnboundedGrowthMutantKilledTest= & =stackLimitSkipGcMutantKilledTest=) | =SmpRestNurseryRefinement.lean= (12 theorems, 0 =sorry=) | =gc-ffi/rest-nursery-refill/harness.c= (179/179 CBMC) | =verify_v12_architectural_anchors= (=!___lifecycle_gc_admitted= guard in =allocation-limits.inc=) |
+| Oversized-SCC bin inflation & per-host GCC quadratic-pass RSS cliff (Gerbil =eval~0.scm= 7.45 GiB -> 1.17 GiB) | =gsc/_t-c-1.scm= inflated =target= by =max-comp= and =configuration.h.in= only gated optimization at module level (=___LBLCOUNT > 6000=), letting a 2140-label host inside a 5726-label module run quadratic GCC passes; isolated oversized SCCs and added flag-driven =--enable-optimized-host-limit[=auto\|0\|N]= + per-host =___PH_ATTRS= + =-cfg-host-limit N= | =cfg_host_partition.qnt= (14/14 + 2000 traces) | =CfgHostPartitionRefinement.lean= (0 =sorry=) | =compiled-host/cfg-host-partition/harness.c= (114/114 CBMC) | =verify_v12_architectural_anchors= (=___OPTIMIZED_HOST_LIMIT=, =___PH_ATTRS=, =-cfg-host-limit=) |
+| Multi-core dead from-space RSS waste & scale-invariant CPU+RAM reclamation (=lib/_mem/movable-sections.inc=) | Unreclaimed opposite semispace halves doubled RSS across parallel workers, and a RAM-only =RAM/128= threshold scaled linearly with worker count (=2.0 GiB= wasted across 8 workers on 32 GiB/12c); redesigned =--enable-gc-fromspace-reclaim=auto\|off\|N= to =RAM / (64 * max(1, cpus))= clamped to =[16 MiB, 128 MiB]=, proving =c * (RAM / (64 * c)) <= RAM / 64= | =gc_fromspace_reclaim.qnt= (9/9 + 2000 traces; 5 mutation-killers) | =GcFromspaceReclaimRefinement.lean= (incl. =aggregate_dead_fromspace_bounded_fraction_of_ram=, 0 =sorry=) | =gc-ffi/fromspace-reclaim/harness.c= (84/84 CBMC) | =verify_v12_architectural_anchors= (=msection_os_cpu_count=, =msection_adaptive_reclaim_min_sections=) |
+| Darwin direct =posix_spawn= child-env =PATH= + architecture-adaptive =___CACHE_LINE_SIZE= + zero-write MESI disarm + =make -j8= live memory-pressure admission gate | Replaced =vfork/fork= hazards with direct =posix_spawn= + child-env =PATH= search, guarded per-processor hot fields by =___CACHE_LINE_SIZE=, eliminated MESI ping-pong in =___rest_disarm_attempt=, and replaced hardcoded =7 GiB -> -j1= in =gambit_build_primitives.py= with =896 MiB= (=-j8=) + deadlock-free live =group_memory= admission gate in =make_lineage.py= (extended to =seed-core= via =--memory-gate= in =v26=) | =smp_spawn_and_rest_fastpath.qnt= | =SmpSpawnAndRestFastpathRefinement.lean= (0 =sorry=) | =test_build_capacity.py= + =test_make_lineage.py= (48/48 OK) | =verify_v12_architectural_anchors= (=___CACHE_LINE_SIZE=, =POSIX_SPAWN_SETSIGMASK=, child-env =PATH=) |
+| O(P)/O(W) linear multicore RSS explosion, 16-GC contraction ratchet, =census.queue= HWM leak, =MALLOC_LARGE (empty)= retention, & =gsc+cc1= dual-peak coexistence (=v26= Unified Memory Scaling Envelope) | =copy-planning.inc= never freed doubled =census.queue= (512 MiB leak); =capacity-resize.inc= enforced a 16-GC contraction ratchet and linear =+ 2*P= headroom; flat =live_percent=50%= forced 4x semispace on large AST heaps; =aligned-allocation.inc= routed large still/msections through =libmalloc=; =gsc/_gsclib.scm= spawned =cc1= before collecting dead =c#cf= heap; fixed via direct =mmap=/=munmap= (>=64 KiB) + post-round =census.queue= release + OS allocator pressure relief + collapse-aware contraction + =O(sqrt(P))= headroom + hardware-adaptive =live_percent= (honoring =-:l<N>=) + pre-=##gambuild= =(##gc)= | =v2/adaptive_heap_scaling_and_reclaim_v2.qnt= (10/10 + 8 mutation-killers + 2000 traces) & =v2/gerbil_multicore_memory_challenge_v2.qnt= (8/8 + 6 mutation-killers + 2000 traces) | =AdaptiveHeapScalingRefinement.lean= (12 theorems, 0 =sorry=) | =models/cbmc/adaptive_heap_scaling_pso.c= (42/42 PSO PASS, =-DUSE_MUTEX_GUARD=0= killed) + native =c12= (kills =v25= ratchet; 91% 1-GC contraction on =v26=) & =c13= (Gerbil 8-worker =25-30 MiB fp=) | =verify_v12_architectural_anchors= (=___USE_MMAP_LARGE_HEAP=, =census_queue_free=, =gc_adaptive_live_percent=, =gc_smp_nursery_headroom=, =___gc_request_contraction=) |
+| =par_rest_alloc= negative SMP scaling (=0.64x= at =p8=) & unconditional mailbox =condvar= spinlock (=v26=) | =___rest_fast_grant_fits= acquired =copy_gate= spinlock via =___owned_stack_span= on every variadic/keyword call, and =##thread-send-with-mb= unconditionally locked mailbox =condvar=; fixed via Wave-A-aligned lock-free processor-owned =fast_span= check (=p8= *0.64x -> 3.84x*, *10.7x* faster) and strict-DRF mutex-guarded waiter flag in =macro-condvar-name= | =v2/adaptive_heap_scaling_and_reclaim_v2.qnt= (=fastSpanBypassMutantKilledTest=, =mailboxUnlockedCheckMutantKilledTest=) | =AdaptiveHeapScalingRefinement.lean= | =models/cbmc/adaptive_heap_scaling_pso.c= (PSO mailbox wakeup soundness + unlocked mutant killed) | =verify_v12_architectural_anchors= (=stack_fast_floor_b=, =macro-condvar-name-set!=) |
+
+* Formal Model Ownership Matrix (SysML v2 + Quint + Lean 4 + CBMC) :models:
+
+| Scope | SysML v2 Package | Quint Protocol Model | Standalone Lean 4 Proof (0 =sorry=) | CBMC C Contract Harness | Retained Manifest |
+|-------+------------------+----------------------+-------------------------------------+-------------------------+-------------------|
+| =P0-2= Binding-Read | [[file:models/sysml/binding-read-activation-p02.sysml][GambitBindingReadActivationP02]] | [[file:models/quint/binding_read_activation.qnt][binding_read_activation.qnt]] | [[file:models/lean/BindingReadActivationRefinement.lean][BindingReadActivationRefinement.lean]] | [[file:../../../tests/contracts/modern-c/binding-read/activation-equivalence/harness.c][activation-equivalence/harness.c]] | [[file:../../../evidence/research/retained/modern-c/registry/manifest.json][registry/manifest.json]] |
+| =8/12= Registry | [[file:models/sysml/registry-acceptance.sysml][GambitRegistryAcceptance]] | [[file:models/quint/vm_registry.qnt][vm_registry.qnt]] | [[file:models/lean/VmRegistryRefinement.lean][VmRegistryRefinement.lean]] | [[file:../../../tests/contracts/modern-c/registry/incarnation-guard/harness.c][incarnation-guard/harness.c]] | [[file:../../../evidence/research/retained/modern-c/registry/manifest.json][registry/manifest.json]] |
+| =9/12= Lifecycle | [[file:models/sysml/lifecycle-acceptance.sysml][GambitLifecycleAcceptance]] | [[file:models/quint/vm_resize_transaction.qnt][vm_resize_transaction.qnt]], [[file:models/quint/startup_custody.qnt][startup_custody.qnt]], [[file:models/quint/smp_process_reap_custody.qnt][smp_process_reap_custody.qnt]], [[file:models/quint/smp_io_select_close_custody.qnt][smp_io_select_close_custody.qnt]] | [[file:models/lean/VmLifecycleClosureRefinement.lean][VmLifecycleClosureRefinement.lean]], [[file:models/lean/VMResizeTransaction.lean][VMResizeTransaction.lean]], [[file:models/lean/StartupCustody.lean][StartupCustody.lean]], [[file:models/lean/SmpProcessReapRefinement.lean][SmpProcessReapRefinement.lean]], [[file:models/lean/SmpIoSelectCloseRefinement.lean][SmpIoSelectCloseRefinement.lean]] | [[file:../../../tests/contracts/modern-c/lifecycle/unknown-join-isolation/harness.c][unknown-join-isolation/harness.c]], [[file:../../../tests/contracts/modern-c/lifecycle/process-reap-custody/harness.c][process-reap-custody/harness.c]], [[file:../../../tests/contracts/modern-c/lifecycle/io-select-close-custody/harness.c][io-select-close-custody/harness.c]] | [[file:../../../evidence/research/retained/modern-c/lifecycle/manifest.json][lifecycle/manifest.json]] |
+| =10/12= GC/FFI | [[file:models/sysml/gc-ffi-acceptance.sysml][GambitGcFfiAcceptance]] | [[file:models/quint/ffi_root_admission.qnt][ffi_root_admission.qnt]], [[file:models/quint/gc_ffi_worker_domain.qnt][gc_ffi_worker_domain.qnt]], [[file:models/quint/smp_rest_nursery_refill.qnt][smp_rest_nursery_refill.qnt]], [[file:models/quint/gc_fromspace_reclaim.qnt][gc_fromspace_reclaim.qnt]], [[file:models/quint/cfg_host_partition.qnt][cfg_host_partition.qnt]], [[file:models/quint/v2/adaptive_heap_scaling_and_reclaim_v2.qnt][adaptive_heap_scaling_and_reclaim_v2.qnt]] | [[file:models/lean/GcFfiRootRefinement.lean][GcFfiRootRefinement.lean]], [[file:models/lean/SmpRestNurseryRefinement.lean][SmpRestNurseryRefinement.lean]], [[file:models/lean/GcFromspaceReclaimRefinement.lean][GcFromspaceReclaimRefinement.lean]], [[file:models/lean/CfgHostPartitionRefinement.lean][CfgHostPartitionRefinement.lean]], [[file:models/lean/AdaptiveHeapScalingRefinement.lean][AdaptiveHeapScalingRefinement.lean]] | [[file:../../../tests/contracts/modern-c/gc-ffi/entry-root-bundle/harness.c][entry-root-bundle/harness.c]], [[file:../../../tests/contracts/modern-c/gc-ffi/rest-nursery-refill/harness.c][rest-nursery-refill/harness.c]], [[file:../../../tests/contracts/modern-c/gc-ffi/fromspace-reclaim/harness.c][fromspace-reclaim/harness.c]], [[file:../../../tests/contracts/modern-c/compiled-host/cfg-host-partition/harness.c][cfg-host-partition/harness.c]], [[file:models/cbmc/adaptive_heap_scaling_pso.c][adaptive_heap_scaling_pso.c]] | [[file:../../../evidence/research/retained/modern-c/gc-ffi/manifest.json][gc-ffi/manifest.json]] |
+| =11/12= Gerbil | [[file:models/sysml/gerbil-acceptance.sysml][GambitGerbilAcceptance]] | [[file:models/quint/gerbil_consumer_closure.qnt][gerbil_consumer_closure.qnt]], [[file:models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt][gerbil_multicore_memory_challenge_v2.qnt]] | [[file:models/lean/GerbilProducerClosure.lean][GerbilProducerClosure.lean]], [[file:models/lean/AdaptiveHeapScalingRefinement.lean][AdaptiveHeapScalingRefinement.lean]] | [[file:../../../tests/contracts/modern-c/gerbil/abi-seal-check/harness.c][abi-seal-check/harness.c]] | [[file:../../../evidence/research/retained/modern-c/gerbil/manifest.json][gerbil/manifest.json]] |
+| =12/12= Release | [[file:models/sysml/release-acceptance.sysml][GambitReleaseAcceptance]] | [[file:models/quint/release_cohort_admission.qnt][release_cohort_admission.qnt]] | [[file:models/lean/ReleaseCohortAlgebra.lean][ReleaseCohortAlgebra.lean]] | (Empirical cohort + offline Python auditor) | [[file:../../../evidence/research/retained/modern-c/release/manifest.json][release/manifest.json]] |
+
+* Engineering Cuts and Design Amplification :design:
+
+** P0-2 Binding-Read Activation
+
+1. *Single-page =primitive_value=* (=vendor/gambit/lib/_mem/global-bindings.inc=):
+   Previously, =primitive_value(vm, g)= called =primitive_cell(vm, g)= and
+   =primitive_flag(vm, g)=, issuing two separate =___global_page(vm, g->val)=
+   hash-directory lookups per primitive read. Merging them into a single
+   =___global_page(vm, g->val)= lookup followed by acquire-load of
+   =page->primitive_set= and acquire-load of =page->primitive[slot]= halves
+   directory probe work while keeping exact acquire ordering (proved equivalent
+   in =BindingReadActivationRefinement.lean::singlePage_equiv_dualPage= and
+   =activation-equivalence/harness.c=).
+2. *Authenticated =___primitive_ref= fast path* (=vendor/gambit/lib/_mem/global-bindings.inc=):
+   When =ps != 0 && ps->context != 0 && ps->context->binding_view.vm == ___VMSTATE_FROM_PSTATE(ps)=,
+   =___primitive_ref= reads directly via =primitive_value(view_vm, g)= without
+   re-entering =root_writer_open(ps)=. Whenever =binding_view.vm == 0= (during
+   GC root freeze, parking, raw native entry, or context exit), execution falls
+   back to =root_writer_open(ps)= unchanged.
+3. *Generated-module =___GLOBALVARPRIMREF= fast dispatch* (=vendor/gambit/include/_gambit/declarations_end.h.in=):
+   Under =defined(___MODULE_NAME) && ___ORDERED_WORD_NATIVE=, redefine
+   =___GLOBALVARPRIMREF(gv)= to resolve via =___binding_vm ? ___binding_primitive(___binding_vm, ___GLOBALVARSTRUCT(gv)) : ___EXT(___primitive_ref)(___ps, ___GLOBALVARSTRUCT(gv))=,
+   matching =___PRM(i,glo)= across =_kernel.c=, =_system.c=, and =_io.c= while
+   keeping =___EXT(___primitive_ref)= exported in =___global_state_struct= for
+   =-D___DYNAMIC= modules.
+
+** Wave 2: Family 8 (Registry) and Family 9 (Lifecycle)
+
+- *Family 8 (=registry=)* verifies lifetime-before-read, VM incarnation matching,
+  native and emulated ordered synchronization (=test-ordered-sync=,
+  =test-ordered-sync-emulated=), VM lifecycle and host checks (=test-vm-lifecycle=),
+  binding activation (=test-binding-activation=), runtime roles (=test-runtime-roles=),
+  globals snapshot (=test-globals-snapshot=), symkey publication (=test-symkey-publication=),
+  and pipe domain (=test-pipe-domain=).
+- *Family 9 (=lifecycle=)* verifies all 10 fault modes of =test-startup-publication=
+  (=--nonzero=, =--marker-gc=, =--calibration=, =--early-retire=, =--unknown=,
+  =--unknown-create=, =--unknown-expanded=, =--unknown-retire=, =--unknown-requester=,
+  =--unknown-vm=), =test-vm-lifecycle=, =test-mutex-suspension= (=p1= and =p2=),
+  and =unknown-join-worker-domains.scm=, enforcing that an unknown-join fault
+  quarantines its own roots/debt while a disjoint healthy VM still completes GC.
+
+** Wave 3: Family 10 (GC/FFI)
+
+- Combines upstream =test7= (=mem.scm=), =test8= (=client.c= + =server.scm=),
+  =test9= (dynamic =mem.o1=) with the full modern-c root/entry/worker suite:
+  =test-sfun-entry= (6 modes), =test-marker-input=, =test-root-task= (9 modes),
+  =test-symkey-views=, =test-symkey-callback=, =test-rest-parameters=,
+  =test-frame-contract=, =test-entry=, =test-rc-roots=, =test-collector-diagnostics=,
+  and =W < R= worker-root decoupling (=worker-arena.scm=, =worker-root-domains.scm=).
+
+** Wave 4: Family 11 (Gerbil) and Family 12 (Release Paired Cohort)
+
+- *Family 11 (=gerbil=)* enforces exact transitive producer/ABI closure across
+  all 8 downstream stages (=boot-gxi -> stage0 -> stage1 -> stdlib -> libgerbil -> lang -> tools -> correctness=)
+  bound to one sealed Gambit producer (=gsi/gsc/libgambit.a/gambit.h= SHA-256 and
+  SMP capability mask) under live process-group RSS and Darwin =phys_footprint=
+  enforcement (=gambit_smp.families_8_12_audit.run_audited_command= +
+  =gambit_smp.process_identity.groups_memory(..., footprint=True)=).
+- *Family 12 (=release=)* pairs matched =v10= baseline vs sealed =v17= candidate
+  producers on identical machine/profile/budget limits, reporting completed work,
+  censors, wall/pause quantiles, and peak RSS (< 8 GiB), while enforcing
+  strict same-source 12/12 conjunction in the offline auditor.
+
+* Gerbil-Side SMP Adaptation Boundary (=tao3k/gerbil= =smp= Branch) :gerbil:smp:boundary:
+
+Full-closure =v17= testing against pinned upstream Gerbil v0.19 (=1cfb032c7a1612637da6205f5f8a15683eba3ba0=)
+cleanly separated *Gambit-SMP runtime defects* (fixed and formally proved in =v17=)
+from *upstream Gerbil runtime/tooling SMP defects*. Upstream Gerbil sources are
+never patched ad hoc inside the =gambit-SMP= verification mirror; all Gerbil-side
+SMP adaptations below are explicitly scoped for a dedicated =smp= branch in
+=tao3k/gerbil=:
+
+1. *Gerbil Runtime Inline Spinlock & MOP Shadow-Class Poisoning (=util.ss=, =mop.ss=, =error.ss=)*:
+   - Root-caused via live =/usr/bin/sample= stack capture during =std/net/repl-test.ss=
+     under =GAMBOPT=p6= (caught and terminated by the =run_audited_command= live
+     Darwin =phys_footprint= guard):
+     - =src/gerbil/runtime/util.ss:24-55= (=__lock-inline!= / =__unlock-inline!=)
+       implements a two-slot =(vector 0 #f)= spinlock with a non-atomic SMP
+       window where =mx[0] == 1= while =mx[1] == #f=, and invokes
+       =(macro-thread-end-condvar owner)= without checking =(not owner)=.
+     - =src/gerbil/runtime/mop.ss:1296-1321= (=__shadow-class=) holds the global
+       =__shadow-classes-lock= without =unwind-protect= or termination deferral.
+       When =src/std/net/repl.ss:69= calls =(thread-terminate! server)= during
+       active exception wrapping, killing the holder permanently poisons
+       =__shadow-classes-lock= with a dead owner.
+     - =src/gerbil/runtime/error.ss:77-91= (=wrap-runtime-exception=) wraps the
+       resulting deadlock/type exception into =RuntimeException=, which re-enters
+       =__shadow-class= -> infinite recursive exception + =##continuation-capture=
+       allocation (~350 MiB/s; previously reached 59.87 GiB =phys_footprint= before
+       live footprint enforcement was added to =run_audited_command=).
+     - =src/gerbil/runtime/table.ss:700= (=__object->eq-hash=) also hashes the
+       table object =__object-eq-hash= instead of =__object-eq-hash-next=.
+   - *=tao3k/gerbil= =smp= branch fix*: Replace non-atomic two-slot
+     =__lock-inline!= with an atomic single-word owner CAS or Gambit SMP mutex
+     under =unwind-protect= / interrupt-deferral, add a re-entrancy guard in
+     =wrap-runtime-exception= for deadlock/MOP exceptions, and eliminate unsafe
+     =thread-terminate!= while holding runtime locks in =std/net/repl.ss=.
+2. *=gxtest= and =gxtags= SMP Serial/Concurrent Isolation*:
+   - =src/tools/gxtest.ss= and =src/tools/gxtags.ss= share mutable global
+     expander, module registry, and test-harness state across multi-module runs
+     within a single process without SMP concurrency boundaries, compounding
+     memory retention and cross-test contamination under multi-core SMP.
+   - *=tao3k/gerbil= =smp= branch fix*: Add SMP-safe per-module/per-worker
+     process isolation and bounded memory/concurrency scheduling in =gxtest= and
+     =gxtags=.
+3. *Upstream Gerbil v0.19 (=1cfb032c=) macOS Portability Defects (5 isolated items)*:
+   - =src/std/os/socket.ss:100,210= (=AF_INET= =bind()= =addrlen=106= -> =EINVAL=
+     and non-Linux =accept()= passing =-EAGAIN= to =fcntl=/=close=),
+   - =src/std/vector/u8vector.ss:597= (=__LITTLE_ENDIAN= evaluates to =0= on macOS),
+   - =src/std/os/kqueue.ss:60= (=void*= pointer type mismatch on =kevent*=),
+   - =src/std/string/path-test.ss:167= (=/etc= -> =/private/etc= symlink) and
+     =src/gerbil/test/gxc-test.ss= (=gcc-16 -static= unsupported on macOS),
+   - Dead =src/v0.19-WIP/**= and =src/tools/gxhttpd-test.ss= referencing removed
+     v0.18 modules (=:std/coroutine=, =:std/amb=, =:std/sugar=).
+4. *=vmmap=-Verified Gerbil =stdlib= Single-Process Driver Retention (Slice 2 Target)*:
+   - Live =vmmap --summary= profiling of =gxi ./build.ss= during Gerbil =stdlib=
+     (600+ modules expanded in one process) confirmed that while all =v25= =gsc=
+     and =cc1= children stayed small (=33--99 MiB= =gsc=, =160--820 MiB= =cc1=),
+     and =v25= =fromspace-reclaim= reclaimed all =3.3 GiB= (=7,054= msections)
+     of drained from-space (=0 KiB= dirty), the idle parent =gxi= driver retained
+     =4.22 GiB= Darwin =phys_footprint= (=3.22 GiB= active half =VM_ALLOCATE=
+     from =live_percent=50= sizing over =1.76 GiB= live AST tables + uncollected
+     nursery, plus =1.00 GiB= =MALLOC= incl. =504 MiB= =MALLOC_LARGE (empty)=).
+   - Long-term architecture alignment ([[file:longterm-unified-architecture.org][Slice 2 Immix non-moving mature + concurrent SATB major GC]]):
+     non-moving mature regions plus adaptive large-heap =live_percent= and
+     post-GC =malloc_zone_pressure_relief= will eliminate this idle driver
+     retention without modifying Gerbil's build scripts.

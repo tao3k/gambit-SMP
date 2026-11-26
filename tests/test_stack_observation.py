@@ -19,8 +19,10 @@ class StackObservationTests(unittest.TestCase):
                   "arguments": {"stackSampleAfterSeconds": 20}}]
         with patch("gambit_smp.native_capabilities.sys.platform", "darwin"), \
              patch("gambit_smp.native_capabilities.shutil.which", return_value="/usr/bin/true"), \
+             patch("gambit_smp.framework.execute", side_effect=lambda argv, *a, **k: (0, "/opt/dev/bin/" + argv[-1] + "\n", False, 0.0)), \
              patch.object(Path, "is_file", return_value=True), \
-             patch.object(Path, "resolve", lambda path, **kwargs: path):
+             patch.object(Path, "resolve", lambda path, **kwargs: path), \
+             patch("gambit_smp.native_capabilities.os.access", return_value=True):
             tools, _ = host_tools(Path("/usr/bin/true"), steps, {})
             self.assertEqual(Path("/usr/bin/sample"), tools["darwinSample"])
             tools, _ = host_tools(Path("/usr/bin/true"), [], {})

@@ -20,31 +20,68 @@ class MemoryCapacityTests(unittest.TestCase):
         self.assertFalse(plan['reservationIsMeasuredUpperBound'])
         self.assertEqual(['make','-j1','GAMBOPT=p1','core'],core_command(plan))
 
-    def test_eight_gibibyte_runner_admits_one_compiler_job(self):
-        with patch("os.sysconf", side_effect=lambda name: 4096 if name == "SC_PAGE_SIZE" else 2 * 1024 ** 2):
-            reservation = host_compiler_reservation()
+    def test_eight_gibibyte_runner_admits_eight_parallel_compiler_jobs(self):
+        with patch.dict("os.environ", {}, clear=False):
+            with patch("os.sysconf", side_effect=lambda name: 4096 if name == "SC_PAGE_SIZE" else 2 * 1024 ** 2):
+                reservation = host_compiler_reservation()
         plan = build_capacity(12, **reservation)
-        self.assertEqual(1, plan["makeJobs"])
+        self.assertEqual(8, plan["makeJobs"])
         self.assertEqual(1, plan["compilerProcessors"])
         self.assertEqual(8 * 1024 ** 3, plan["memoryBytes"])
         self.assertEqual(8 * 1024 ** 3, compiler_rss_limit(reservation))
-        self.assertEqual(["make", "-j1", "GAMBOPT=p1", "core"], core_command(plan))
+        self.assertEqual(["make", "-j8", "GAMBOPT=p1", "core"], core_command(plan))
 
-    def test_thirty_two_gibibyte_host_stays_within_eight_gibibyte_envelope(self):
-        with patch("os.sysconf", side_effect=lambda name: 4096 if name == "SC_PAGE_SIZE" else 8 * 1024 ** 2):
-            reservation = host_compiler_reservation()
+    def test_thirty_two_gibibyte_host_runs_eight_jobs_within_eight_gibibyte_envelope(self):
+        with patch.dict("os.environ", {}, clear=False):
+            with patch("os.sysconf", side_effect=lambda name: 4096 if name == "SC_PAGE_SIZE" else 8 * 1024 ** 2):
+                reservation = host_compiler_reservation()
         plan = build_capacity(12, **reservation)
-        self.assertEqual(1, plan["makeJobs"])
+        self.assertEqual(8, plan["makeJobs"])
         self.assertEqual(1, plan["compilerProcessors"])
         self.assertEqual(8 * 1024 ** 3, reservation["memory_bytes"])
         self.assertEqual(8 * 1024 ** 3, compiler_rss_limit(reservation))
-        self.assertEqual(["make", "-j1", "GAMBOPT=p1", "core"], core_command(plan))
+        self.assertEqual(["make", "-j8", "GAMBOPT=p1", "core"], core_command(plan))
+
+    def test_low_ram_host_throttles_parallelism_adaptively(self):
+        with patch.dict("os.environ", {}, clear=False):
+            with patch("os.sysconf", side_effect=lambda name: 4096 if name == "SC_PAGE_SIZE" else 512 * 1024):
+                reservation = host_compiler_reservation()
+        plan = build_capacity(12, **reservation)
+        self.assertEqual(1, plan["makeJobs"])
+        self.assertEqual(2 * 1024 ** 3, reservation["memory_bytes"])
 
     def test_memory_credits_and_cpu_both_limit_concurrency(self):
         self.assertEqual(2,build_capacity(12,memory_bytes=1000,parent_reserve_bytes=200,
                                         job_reserve_bytes=400)['makeJobs'])
         self.assertEqual(2,build_capacity(2,memory_bytes=1000,parent_reserve_bytes=200,
                                         job_reserve_bytes=100)['makeJobs'])
+
+    def test_make_lineage_adaptive_memory_estimator_scales_with_c_source_size(self):
+        from gambit_smp.make_lineage import estimate_recipe_memory_bytes
+        with TemporaryDirectory() as tmp:
+            small = Path(tmp) / "small.c"
+            small.write_bytes(b"x" * (32 * 1024))
+            giant = Path(tmp) / "giant.c"
+            giant.write_bytes(b"x" * (4 * 1024 * 1024))
+            small_est = estimate_recipe_memory_bytes("object", [small])
+            giant_est = estimate_recipe_memory_bytes("object", [giant])
+            self.assertEqual(160 * 1024 * 1024, small_est)
+            self.assertGreaterEqual(giant_est, 1600 * 1024 * 1024)
+            self.assertLessEqual(giant_est, 2200 * 1024 * 1024)
+            self.assertEqual(768 * 1024 * 1024, estimate_recipe_memory_bytes("emit", [small]))
+
+    def test_make_lineage_memory_gate_executes_command_under_slot(self):
+        from gambit_smp import make_lineage
+        with TemporaryDirectory() as tmp:
+            gate_dir = Path(tmp) / "gate"
+            out_file = Path(tmp) / "ran.txt"
+            rc = make_lineage.main([
+                "--memory-gate", str(gate_dir), "object", "foo.o", "foo.c", "--",
+                sys.executable, "-c", f"from pathlib import Path; Path({str(out_file)!r}).write_text('ok')",
+            ])
+            self.assertEqual(0, rc)
+            self.assertEqual("ok", out_file.read_text())
+            self.assertEqual(0, make_lineage.main(["--memory-gate", str(gate_dir), "promote", "a", "b"]))
 
     def test_incomplete_invalid_or_oversized_reservation_refuses(self):
         for args in [dict(memory_bytes=1),dict(memory_bytes=True,parent_reserve_bytes=0,job_reserve_bytes=1),

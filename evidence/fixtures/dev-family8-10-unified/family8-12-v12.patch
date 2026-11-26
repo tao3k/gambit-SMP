@@ -1,0 +1,1266 @@
+diff --git a/gsc/_t-c-2.scm b/gsc/_t-c-2.scm
+index bf78647f..a70f1b51 100644
+--- a/gsc/_t-c-2.scm
++++ b/gsc/_t-c-2.scm
+@@ -697,6 +697,22 @@
+                   (targ-unboxed-loc->code loc stamp)
+                   (list 'append "___F64_FROM_U64(___CAST(___U64," source "))"))))))))
+ 
++(define (targ-scrub-dirty-unboxed)
++  ;; Overwrite raw IEEE-754 bit spills with ___FAL immediately after
++  ;; ___group_demand_enter succeeds so dead spilled registers/slots cannot
++  ;; leak unboxed doubles into subsequent ___RETI GC root maps.
++  (targ-each-dirty-unboxed
++   (lambda (loc stamp)
++     (cond ((reg? loc)
++            (targ-emit
++             (targ-loc-no-invalidate loc (targ-opnd (make-obj false-object)))))
++           ((stk? loc)
++            (targ-rd-fp)
++            (targ-emit
++             (list "SET_STK"
++                   (- (stk-num loc) targ-proc-fp)
++                   (targ-opnd (make-obj false-object)))))))))
++
+ (define (targ-finish-write-group)
+   (if targ-proc-demand-lbl
+       (let ((plan targ-proc-demand-plan))
+@@ -828,6 +844,7 @@
+                                          (targ-demand-label-operand pre)
+                                          ";___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit);}"
+                                          #\newline))
++                                  (targ-scrub-dirty-unboxed)
+                                   (set! targ-proc-demand-lbl pre)
+                                   (set! targ-proc-demand-stack-end (+ targ-proc-fp stack))
+                                   (set! targ-proc-demand-plan
+@@ -1347,11 +1364,12 @@
+                (lambda (i var)
+                  (let ((raw?
+                         (and targ-demand-raw-spills?
+-                             (or (let ((s (targ-frame-slot-index var frame)))
+-                                   (and s (targ-fp-cache-dirty? (make-stk s))))
+-                                 (let ((r (targ-frame-reg-index var frame)))
+-                                   (and r (targ-fp-cache-dirty?
+-                                           (make-reg r))))))))
++                             (if (< i cfs-after-alignment)
++                                 (targ-fp-cache-dirty? (make-stk (+ i 1)))
++                                 (let ((j (- i cfs-after-alignment)))
++                                   (and (>= j 0)
++                                        (< j (targ-nb-gvm-regs))
++                                        (targ-fp-cache-dirty? (make-reg j))))))))
+                    (and (not raw?)
+                         (or (frame-live? var frame)
+                             (let ((j (- i cfs-after-alignment)))
+@@ -4789,6 +4807,7 @@
+          (let ((fs (frame-size targ-proc-exit-frame)))
+            (targ-end-of-block-checks poll? fs)
+            (targ-emit (targ-adjust-stack fs))
++           (targ-finish-write-group)
+            (targ-emit-jump-inline "THREAD_SAVE" safe? nb-args)
+            (targ-rd-fp)
+            (targ-wr-fp)
+@@ -4804,6 +4823,7 @@
+          (let ((fs (frame-size targ-proc-exit-frame)))
+            (targ-end-of-block-checks poll? fs)
+            (targ-emit (targ-adjust-stack fs))
++           (targ-finish-write-group)
+            (targ-emit-jump-inline "THREAD_RESTORE" safe? nb-args)
+            (targ-rd-fp)
+            (targ-wr-fp)
+@@ -4818,6 +4838,7 @@
+          (let ((fs (frame-size targ-proc-exit-frame)))
+            (targ-end-of-block-checks poll? fs)
+            (targ-emit (targ-adjust-stack fs))
++           (targ-finish-write-group)
+            (targ-emit-jump-inline "THREAD_PARK" safe? nb-args)
+            (targ-rd-fp)
+            (targ-wr-fp)
+@@ -4843,6 +4864,7 @@
+          (let ((fs (frame-size targ-proc-exit-frame)))
+            (targ-end-of-block-checks poll? fs)
+            (targ-emit (targ-adjust-stack fs))
++           (targ-finish-write-group)
+            (targ-emit-jump-inline "CONTINUATION_CAPTURE" safe? nb-args)
+            (targ-rd-fp)
+            (targ-wr-fp)
+@@ -4857,6 +4879,7 @@
+          (let ((fs (frame-size targ-proc-exit-frame)))
+            (targ-end-of-block-checks poll? fs)
+            (targ-emit (targ-adjust-stack fs))
++           (targ-finish-write-group)
+            (targ-emit-jump-inline "CONTINUATION_GRAFT_NO_WINDING" safe? nb-args)
+            (targ-rd-fp)
+            (targ-wr-fp)
+@@ -4870,6 +4893,7 @@
+          (let ((fs (frame-size targ-proc-exit-frame)))
+            (targ-end-of-block-checks poll? fs)
+            (targ-emit (targ-adjust-stack fs))
++           (targ-finish-write-group)
+            (targ-emit-jump-inline "CONTINUATION_RETURN_NO_WINDING" safe? nb-args)
+            (targ-rd-fp)
+            (targ-wr-fp)
+diff --git a/include/_gambit/declarations_end.h.in b/include/_gambit/declarations_end.h.in
+index 1951d5b2..d867ceb3 100644
+--- a/include/_gambit/declarations_end.h.in
++++ b/include/_gambit/declarations_end.h.in
+@@ -45,8 +45,10 @@ static ___SCMOBJ *___global_cell_address(___virtual_machine_state vm, int id)
+ #if defined(___MODULE_NAME) && ___ORDERED_WORD_NATIVE
+ #undef ___PRM
+ #undef ___GLO
++#undef ___GLOBALVARPRIMREF
+ #define ___PRM(i,glo)(___binding_vm ? ___binding_primitive(___binding_vm,&___GLOSTRUCT(i,glo)) : ___EXT(___primitive_ref)(___ps,&___GLOSTRUCT(i,glo)))
+ #define ___GLO(i,glo)(___binding_vm ? ___WORD_LOAD_ACQUIRE(___binding_global(___binding_vm,&___GLOSTRUCT(i,glo))) : ___WORD_LOAD_ACQUIRE(&___GLOCELL(___GLOSTRUCT(i,glo).val)))
++#define ___GLOBALVARPRIMREF(gv)(___binding_vm ? ___binding_primitive(___binding_vm,___GLOBALVARSTRUCT(gv)) : ___EXT(___primitive_ref)(___ps,___GLOBALVARSTRUCT(gv)))
+ static ___SCMOBJ *___binding_global(___virtual_machine_state vm, ___glo_struct *global)
+ {
+ #ifdef ___SINGLE_VM
+diff --git a/include/_gambit/global_state.h.in b/include/_gambit/global_state.h.in
+index 588689f4..078594cb 100644
+--- a/include/_gambit/global_state.h.in
++++ b/include/_gambit/global_state.h.in
+@@ -1173,6 +1173,8 @@ typedef struct ___global_state_struct
+              ___WORD group_point, ___WORD *attempt_out), ());
+     void (*___group_demand_commit)
+        ___P((___processor_state ps, ___WORD group_point, ___WORD attempt), ());
++    void (*___publish_raw_stack_span)
++       ___P((___processor_state ___ps, ___WORD *top, ___WORD *brk), ());
+     ___WORD (*___rest_observation_room)
+        ___P((___processor_state ps), ());
+     ___WORD (*___rest_observation_settled)
+diff --git a/include/_gambit/gvm_operations.h.in b/include/_gambit/gvm_operations.h.in
+index 5be6f586..644e0d3d 100644
+--- a/include/_gambit/gvm_operations.h.in
++++ b/include/_gambit/gvm_operations.h.in
+@@ -2436,7 +2436,7 @@ if (___R0 == ___ps->handler_break) \
+   frame = ___STK(-___BREAK_FRAME_NEXT); \
+ else \
+   { \
+-    ___publish_raw_stack_span(___ps,___fp,___ps->context->stack_break); \
++    ___EXT(___publish_raw_stack_span)(___ps,___fp,___ps->context->stack_break); \
+     ___SET_STK(-___FRAME_STACK_RA,___R0) \
+     ___R0 = ___ps->handler_break; \
+     frame = ___CAST(___SCMOBJ,___fp); \
+@@ -2776,7 +2776,7 @@ if (___R0 == ___ps->handler_break) \
+   frame = ___STK(-___BREAK_FRAME_NEXT); \
+ else \
+   { \
+-    ___publish_raw_stack_span(___ps,___fp,___ps->context->stack_break); \
++    ___EXT(___publish_raw_stack_span)(___ps,___fp,___ps->context->stack_break); \
+     ___SET_STK(-___FRAME_STACK_RA,___R0) \
+     ___R0 = ___ps->handler_break; \
+     frame = ___CAST(___SCMOBJ,___fp); \
+diff --git a/include/_gambit/runtime_protocols.h.in b/include/_gambit/runtime_protocols.h.in
+index 88c9676c..5fc8fde2 100644
+--- a/include/_gambit/runtime_protocols.h.in
++++ b/include/_gambit/runtime_protocols.h.in
+@@ -1220,8 +1220,56 @@ ___IMP_FUNC(int,___group_demand_enter)
+          ___SIZE_TS stack_words, ___SIZE_TS heap_words,
+          ___WORD group_point, ___WORD *attempt_out), ());
+ #if defined(___BIND_LATE) && !defined(___CAN_IMPORT_DYNAMICALLY)
+-#define ___group_demand_enter(ps,hp,fp,sw,hw,pt,att) \
++#define ___GROUP_DEMAND_ENTER_CALL(ps,hp,fp,sw,hw,pt,att) \
+   ___EXT(___group_demand_enter)((ps),(hp),(fp),(sw),(hw),(pt),(att))
++#else
++#define ___GROUP_DEMAND_ENTER_CALL(ps,hp,fp,sw,hw,pt,att) \
++  (___group_demand_enter)((ps),(hp),(fp),(sw),(hw),(pt),(att))
++#endif
++#if !defined(___INCLUDED_FROM_MEM) && (!defined(___LBLCOUNT) || (___LBLCOUNT < 6000)) && \
++    defined(__GNUC__)
++/* Value-based processor-owned byte-range fast-span admission (proved equivalent
++ * to allocation-limits.inc:1179-1197 in CompiledHostRefinementV2.lean & CBMC).
++ * Dereferencing (*hp_ptr, *fp_ptr, *att_ptr) lets GCC fold *(&___hp) back to
++ * register-allocated ___hp, ___fp, ___demand_attempt on the fast path, keeping
++ * address-taken temporaries confined to the cold slow-path branch. */
++#define ___group_demand_enter(ps,hp_ptr,fp_ptr,sw,hw,pt,att_ptr) \
++  ({ \
++    ___processor_state const ___gd_ps = (ps); \
++    ___WORD *___gd_h = *(hp_ptr); \
++    ___WORD *___gd_f = *(fp_ptr); \
++    ___SIZE_TS const ___gd_sw = (sw); \
++    ___SIZE_TS const ___gd_hw = (hw); \
++    int ___gd_ok = 0; \
++    if (__builtin_expect(___gd_ps != 0 && ___gd_ps->context != 0 && \
++                         ___gd_f != 0 && ___gd_h != 0 && \
++                         ___gd_sw >= 0 && ___gd_hw >= 0, 1)) { \
++      ___UWORD const ___gd_sd = ___CAST(___UWORD, ___gd_f) - ___gd_ps->stack_fast_floor_b; \
++      if (__builtin_expect( \
++            ___gd_sd < ___gd_ps->stack_fast_limit_b && \
++            (___gd_sd / sizeof(___WORD)) >= (___UWORD)___gd_sw && \
++            (___gd_hw == 0 || \
++             ((___CAST(___UWORD, ___gd_h) - ___gd_ps->heap_fast_lo_b) < ___gd_ps->heap_fast_bytes && \
++              ((___gd_ps->heap_fast_bytes - (___CAST(___UWORD, ___gd_h) - ___gd_ps->heap_fast_lo_b)) / sizeof(___WORD)) >= (___UWORD)___gd_hw)), \
++            1)) { \
++        ___gd_ps->context->hp = ___gd_h; \
++        ___gd_ps->context->fp = ___gd_f; \
++        *(att_ptr) = 0; \
++        ___gd_ok = 1; \
++      } \
++    } \
++    if (__builtin_expect(!___gd_ok, 0)) { \
++      ___WORD ___gd_att = *(att_ptr); \
++      ___gd_ok = ___GROUP_DEMAND_ENTER_CALL(___gd_ps, &___gd_h, &___gd_f, ___gd_sw, ___gd_hw, (pt), &___gd_att); \
++      *(hp_ptr) = ___gd_h; \
++      *(fp_ptr) = ___gd_f; \
++      *(att_ptr) = ___gd_att; \
++    } \
++    ___gd_ok; \
++  })
++#elif defined(___BIND_LATE) && !defined(___CAN_IMPORT_DYNAMICALLY)
++#define ___group_demand_enter(ps,hp,fp,sw,hw,pt,att) \
++  ___GROUP_DEMAND_ENTER_CALL((ps),(hp),(fp),(sw),(hw),(pt),(att))
+ #endif
+ ___IMP_FUNC(int,___group_demand_granted)
+    ___P((___processor_state ps, ___WORD group_point, ___WORD attempt,
+diff --git a/lib/_kernel.scm b/lib/_kernel.scm
+index f293ee9b..6f0f77b2 100644
+--- a/lib/_kernel.scm
++++ b/lib/_kernel.scm
+@@ -377,14 +377,15 @@ end-of-code
+        ___R_ALL
+        ___SET_R0(___FRAME_FETCH_RA)
+ 
+-       if (___group_demand_blocked(___ps))
+-         ___group_demand_fail(___ps);
+-       else if (overflow)
++       if (overflow)
+          {
++           ___group_demand_retire(___ps);
+            ___COVER_STACK_LIMIT_HANDLER_HEAP_OVERFLOW;
+            ___JUMPPRM(___SET_NARGS(0),
+                       ___PRMCELL(___G__23__23_raise_2d_stack_2d_overflow_2d_exception.prm))
+          }
++       else if (___group_demand_blocked(___ps))
++         ___group_demand_fail(___ps);
+      }
+ 
+    /* A write-group demand is a backing service, not an interrupt poll.
+@@ -1624,11 +1625,13 @@ end-of-code
+      if (!___FIXEQ(___VECTORELEM(unwind_destination, 1),
+                    ___FIX(___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps)))))
+        {
+-         /* not the same processor that created frame */
++         /* not the same processor that created frame; preserve return value in R1 */
++         ___SCMOBJ ret_val = ___R1;
++         ___SCMOBJ target_id = ___VECTORELEM(unwind_destination, 1);
+          ___COVER_RETURN_TO_C_HANDLER_WRONG_PROCESSOR;
+          ___SET_R0(___ps->handler_return_to_c)
+-         ___SET_R1(___VECTORELEM(unwind_destination, 1))
+-         ___JUMPPRM(___SET_NARGS(1),
++         ___PUSH_ARGS2(ret_val, target_id)
++         ___JUMPPRM(___SET_NARGS(2),
+                     ___PRMCELL(___G__23__23_c_2d_return_2d_on_2d_other_2d_processor.prm))
+        }
+      else
+@@ -2416,11 +2419,13 @@ end-of-code
+ (define-prim (##c-return-on-other-processor-hook-set! x)
+   (set! ##c-return-on-other-processor-hook x))
+ 
+-(define-prim (##c-return-on-other-processor id)
++(define-prim (##c-return-on-other-processor val id)
+   (##declare (not interrupts-enabled))
+   (let ((proc ##c-return-on-other-processor-hook))
+     (if (##procedure? proc)
+-        (proc id)
++        (begin
++          (proc id)
++          val)
+         (##raise-wrong-processor-c-return-exception))))
+ 
+ (implement-library-type-number-of-arguments-limit-exception)
+@@ -2556,7 +2561,11 @@ end-of-code
+               ___R_ALL
+               ___SET_R0(___FRAME_FETCH_RA)
+               if (overflow || ___group_demand_blocked(___ps))
+-                ___RESULT = ___TRU;
++                {
++                  if (overflow)
++                    ___group_demand_retire(___ps);
++                  ___RESULT = ___TRU;
++                }
+               else
+                 ___RESULT = ___FAL;
+             }
+@@ -2658,29 +2667,112 @@ end-of-code
+ (define-prim (##clear-gc-interrupt-jobs!)
+   (##clear-jobs! ##gc-interrupt-jobs))
+ 
+-(define-prim (##gc-finalize!)
++(define ##gc-finalizing-threads (##vector '()))
++
++(define-prim (##gc-finalizing-member? self lst)
++  (let loop ((x lst))
++    (and (##pair? x)
++         (or (##eq? (##car x) self)
++             (loop (##cdr x))))))
++
++(define-prim (##gc-finalizing-remq self lst)
++  (cond ((##null? lst) '())
++        ((##eq? (##car lst) self) (##cdr lst))
++        (else (##cons (##car lst) (##gc-finalizing-remq self (##cdr lst))))))
++
++(define-prim (##gc-finalizing-enter! self)
+   (##declare (not interrupts-enabled))
+-  (let ((will
+-         (##c-code #<<end-of-code
++  (if (##not self)
++      #t
++      (let loop ()
++        (let ((cur (##vector-ref ##gc-finalizing-threads 0)))
++          (if (##gc-finalizing-member? self cur)
++              #f
++              (if (##eq? (##vector-cas! ##gc-finalizing-threads 0 (##cons self cur) cur) cur)
++                  #t
++                  (loop)))))))
++
++(define-prim (##gc-finalizing-leave! self)
++  (##declare (not interrupts-enabled))
++  (if self
++      (let loop ()
++        (let ((cur (##vector-ref ##gc-finalizing-threads 0)))
++          (if (##gc-finalizing-member? self cur)
++              (if (##not (##eq? (##vector-cas! ##gc-finalizing-threads 0
++                                               (##gc-finalizing-remq self cur)
++                                               cur)
++                                cur))
++                  (loop)))))))
++
++(define-prim (##gc-pop-executable-will!)
++  (##declare (not interrupts-enabled))
++  (##c-code #<<end-of-code
+ 
+-          ___WORD exec_wills = ___ps->mem.executable_wills_;
++#ifndef ___SINGLE_THREADED_VMS
++   static ___TICKETLOCK exec_will_lock = ___TICKETLOCK_INIT_STATIC;
++   ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
++   int self_id = ___PROCESSOR_ID(___ps, vm);
++   int count = vm->processor_count;
++   ___WORD will_res = ___FAL;
++   int k;
++
++   ___TICKETLOCK_LOCK(exec_will_lock);
++   for (k = 0; k < count; k++)
++     {
++       ___processor_state p = ___PSTATE_FROM_PROCESSOR_ID((self_id + k) % count, vm);
++       ___WORD exec_wills = p->mem.executable_wills_;
++       if (___UNTAG(exec_wills) != 0)
++         {
++           ___WORD will = ___SUBTYPED_FROM_START(___UNTAG(exec_wills));
++           p->mem.executable_wills_ = ___WILL_NEXT_FIELD(will);
++           will_res = will;
++           break;
++         }
++     }
++   ___TICKETLOCK_UNLOCK(exec_will_lock);
++   ___RESULT = will_res;
++#else
++   ___WORD exec_wills = ___ps->mem.executable_wills_;
+ 
+-          if (___UNTAG(exec_wills) == 0) /* end of list? */
+-            ___RESULT = ___FAL;
+-          else
+-            {
+-              ___WORD will = ___SUBTYPED_FROM_START(___UNTAG(exec_wills));
+-              ___ps->mem.executable_wills_ = ___WILL_NEXT_FIELD(will);
+-              ___RESULT = will;
+-            }
++   if (___UNTAG(exec_wills) == 0) /* end of list? */
++     ___RESULT = ___FAL;
++   else
++     {
++       ___WORD will = ___SUBTYPED_FROM_START(___UNTAG(exec_wills));
++       ___ps->mem.executable_wills_ = ___WILL_NEXT_FIELD(will);
++       ___RESULT = will;
++     }
++#endif
+ 
+ end-of-code
+-)))
+-    (if will
+-      (begin
+-        (##will-execute! will)
+-        (##gc-finalize!))
+-      (##gc-final-will-registry!))))
++))
++
++(define-prim (##gc-finalize!)
++  (##declare (not interrupts-enabled))
++  (let ((self (macro-current-thread)))
++    ;; Non-reentrant per-thread finalization: if a second ___INTR_GC arrives
++    ;; while `self` is already executing a will action (potentially holding a
++    ;; non-reentrant SRFI-18 mutex), skip nested finalization; the outer loop
++    ;; below will drain all newly executable wills once the current action ends.
++    (if (##not (and self
++                    (##gc-finalizing-member? self (##vector-ref ##gc-finalizing-threads 0))))
++        (let ((first-will (##gc-pop-executable-will!)))
++          (if first-will
++              (if (##gc-finalizing-enter! self)
++                  (let ()
++                    (##with-exception-catcher
++                     (lambda (exc)
++                       (##gc-finalizing-leave! self)
++                       (##raise exc))
++                     (lambda ()
++                       (let drain ((will first-will))
++                         (if will
++                             (begin
++                               (##will-execute! will)
++                               (drain (##gc-pop-executable-will!)))
++                             (##gc-final-will-registry!)))))
++                    (##gc-finalizing-leave! self)))
++              (##gc-final-will-registry!))))))
+ 
+ (define-prim (##will-execute! will)
+   (##declare (not interrupts-enabled))
+@@ -2694,39 +2786,47 @@ end-of-code
+           (action testator))
+       (##void))))
+ 
+-(define ##final-will-registry (macro-make-fifo))
++;; Lock-free SMP-safe final-will registry (1-slot vector updated via ##vector-cas!)
++(define ##final-will-registry (##vector '()))
++
++(define-prim (##final-will-registry-push! will)
++  (##declare (not interrupts-enabled))
++  (let loop ()
++    (let ((cur (##vector-ref ##final-will-registry 0)))
++      (if (##not (##eq? (##vector-cas! ##final-will-registry 0 (##cons will cur) cur) cur))
++          (loop)))))
++
++(define-prim (##final-will-registry-take-all!)
++  (##declare (not interrupts-enabled))
++  (let loop ()
++    (let ((cur (##vector-ref ##final-will-registry 0)))
++      (if (##null? cur)
++          '()
++          (if (##eq? (##vector-cas! ##final-will-registry 0 '() cur) cur)
++              cur
++              (loop))))))
+ 
+ (define-prim (##execute-final-wills!)
+   (##declare (not interrupts-enabled))
+-  (let ((registry ##final-will-registry))
+-    (let ((lst (macro-fifo-remove-all! registry)))
+-      (let loop ((x lst))
+-        (if (##not (##null? x))
+-          (begin
+-            (##will-execute! (##car x))
+-            (loop (##cdr x))))))))
++  (let loop ((x (##final-will-registry-take-all!)))
++    (if (##not (##null? x))
++      (begin
++        (##will-execute! (##car x))
++        (loop (##cdr x))))))
+ 
+ (define-prim (##gc-final-will-registry!)
+   (##declare (not interrupts-enabled))
+-  (let ((registry ##final-will-registry))
+-    (let loop ((curr registry)
+-               (next (macro-fifo-next registry)))
+-      (if (##null? next)
+-        (macro-fifo-tail-set! registry curr)
+-        (let* ((will (macro-fifo-elem next))
+-               (action (##will-action will)))
+-          (if action
+-            (begin
+-              (macro-fifo-next-set! curr next)
+-              (loop next
+-                    (macro-fifo-next next)))
+-            (loop curr
+-                  (macro-fifo-next next))))))))
++  (let ((lst (##final-will-registry-take-all!)))
++    (let loop ((x lst))
++      (if (##not (##null? x))
++        (let ((will (##car x)))
++          (if (##will-action will)
++            (##final-will-registry-push! will))
++          (loop (##cdr x)))))))
+ 
+ (define-prim (##make-final-will testator action)
+-  (let* ((registry ##final-will-registry)
+-         (will (##make-will testator action)))
+-    (macro-fifo-insert-at-head! registry will)
++  (let ((will (##make-will testator action)))
++    (##final-will-registry-push! will)
+     will))
+ 
+ (define-prim (##handle-gc-interrupt!)
+diff --git a/lib/_mem/global-bindings.inc b/lib/_mem/global-bindings.inc
+index bea8401e..8aa3598d 100644
+--- a/lib/_mem/global-bindings.inc
++++ b/lib/_mem/global-bindings.inc
+@@ -32,16 +32,30 @@ ___HIDDEN ___UWORD primitive_mask(___glo_struct *g)
+ }
+ ___HIDDEN ___SCMOBJ primitive_value(___virtual_machine_state vm, ___glo_struct *g)
+ {
+-  ___SCMOBJ *cell=primitive_cell(vm,g);
+-  if (cell != 0 && (___WORD_LOAD_ACQUIRE(primitive_flag(vm,g)) & primitive_mask(g)))
+-    return ___WORD_LOAD_ACQUIRE(cell);
++#ifdef ___SINGLE_VM
++  (void)vm;
++  if (___WORD_LOAD_ACQUIRE(&g->primitive_set))
++    return ___WORD_LOAD_ACQUIRE(&g->primitive_value);
++#else
++  ___global_slot_page *page=___global_page(vm,g->val);
++  if (page != 0 && (___WORD_LOAD_ACQUIRE(&page->primitive_set) & primitive_mask(g)))
++    return ___WORD_LOAD_ACQUIRE(&page->primitive[g->val%___WORD_WIDTH]);
++#endif
+   return ___PRMCELL(g->prm);
+ }
+ ___EXP_FUNC(___SCMOBJ,___primitive_ref)
+    ___P((___processor_state ps, ___glo_struct *g), (ps,g)
+ ___processor_state ps; ___glo_struct *g;)
+ {
+-  if (g == 0 || !root_writer_open(ps))
++  if (g == 0)
++    { rc_contract_error("Primitive read outside current root ownership"); return ___FAL; }
++  if (ps != 0 && ps == ___PSTATE && ps->context != 0)
++    {
++      ___virtual_machine_state view_vm=ps->context->binding_view.vm;
++      if (view_vm != 0 && view_vm == ___VMSTATE_FROM_PSTATE(ps))
++        return primitive_value(view_vm,g);
++    }
++  if (!root_writer_open(ps))
+     { rc_contract_error("Primitive read outside current root ownership"); return ___FAL; }
+   return primitive_value(___VMSTATE_FROM_PSTATE(ps),g);
+ }
+diff --git a/lib/_mem/root-tasks.inc b/lib/_mem/root-tasks.inc
+index 2df50aa2..197d528f 100644
+--- a/lib/_mem/root-tasks.inc
++++ b/lib/_mem/root-tasks.inc
+@@ -637,11 +637,16 @@ ___BOOL ___root_round_publish(___processor_state ps)
+       round->state != ___ROOT_ROUND_CLOSING ||
+       !___root_globals_begin(&round->globals,ps,round->epoch)) return 0;
+   { int i; ___WORD requested=___WORD_LOAD_ACQUIRE(&round->collection.requested_workers);
+-    int live=0;
++    /* Processor 0 is the primary VM coordinator carrier (never spawned via
++     * vm_resize launches[1..N-1]); count the contiguous live carrier prefix
++     * starting at P0 so every round->members[i % count] executor is guaranteed
++     * native_live even under a non-contiguous launch fault. */
++    int live=(round->participants>0)?1:0;
+     int count;
+     ___vm_lifecycle *life=round->vm->lifecycle;
+-    if(life)for(i=0;i<round->participants && i<___MAX_PROCESSORS;i++)
++    if(life)for(i=1;i<round->participants && i<___MAX_PROCESSORS;i++)
+       if(___WORD_LOAD_ACQUIRE(&life->launches[i].native_live))live++;
++      else break;
+     if(live<1)live=1;
+     count=(requested>0 && requested<round->participants)?(int)requested:round->participants;
+     if(count>live)count=live;
+diff --git a/lib/_thread.scm b/lib/_thread.scm
+index 5aec4b56..2959a243 100644
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -1400,6 +1400,33 @@
+                (##thread-intr-service! interrupt)
+                (##thread-intr-propagate! interrupt))))))
+ 
++(define-prim (##thread-intr-propagate-locked! interrupt)
++
++  (##declare (not interrupts-enabled))
++
++  ;; Hoisted out of ##thread-intr-propagate! to avoid allocating a closure
++  ;; capturing `thread` on every interrupt propagation.
++  (let ((thread (macro-thread-request-target interrupt)))
++    (if (macro-terminated-thread-given-initialized? thread)
++        #f
++        (let ((last-processor (macro-thread-last-processor thread)))
++          (macro-lock-processor! last-processor)
++          (let ((running?
++                 (##eq? thread
++                        (macro-processor-current-thread last-processor)))
++                (id (macro-processor-id last-processor)))
++            (macro-unlock-processor! last-processor)
++            (if running?
++                id
++                (begin
++                  (let ((tail (macro-thread-interrupts-tail thread)))
++                    (macro-thread-interrupts-tail-set! thread interrupt)
++                    (if (##null? tail)
++                        (macro-thread-interrupts-head-set! thread interrupt)
++                        (##vector-set! tail 0 interrupt)))
++                  (macro-add-thread-to-run-queue-of-current-processor-preferably! thread)
++                  #f)))))))
++
+ (define-prim (##thread-intr-propagate! interrupt)
+ 
+   (##declare (not interrupts-enabled))
+@@ -1411,26 +1438,7 @@
+          (processor
+           (##thread-lock-remove-btq-toq!
+            thread
+-           (lambda (interrupt)
+-             (if (macro-terminated-thread-given-initialized? thread)
+-                 #f
+-                 (let ((last-processor (macro-thread-last-processor thread)))
+-                   (macro-lock-processor! last-processor)
+-                   (let ((running?
+-                          (##eq? thread
+-                                 (macro-processor-current-thread last-processor)))
+-                         (id (macro-processor-id last-processor)))
+-                     (macro-unlock-processor! last-processor)
+-                     (if running?
+-                         id
+-                         (begin
+-                           (let ((tail (macro-thread-interrupts-tail thread)))
+-                             (macro-thread-interrupts-tail-set! thread interrupt)
+-                             (if (##null? tail)
+-                                 (macro-thread-interrupts-head-set! thread interrupt)
+-                                 (##vector-set! tail 0 interrupt)))
+-                           (macro-add-thread-to-run-queue-of-current-processor-preferably! thread)
+-                           #f))))))
++           ##thread-intr-propagate-locked!
+            interrupt)))
+     (if processor
+         (##raise-high-level-interrupt processor interrupt))))
+@@ -1781,8 +1789,10 @@
+             timeout-val)))
+ 
+   (let* ((timeout
+-          (##absrel-timeout->timeout
+-           (if (##eq? absrel-timeout (macro-absent-obj)) #f absrel-timeout)))
++          (if (or (##not absrel-timeout)
++                  (##eq? absrel-timeout (macro-absent-obj)))
++              #t
++              (##absrel-timeout->timeout absrel-timeout)))
+          (joined? (##thread-join-wait! thread timeout)))
+     (done thread absrel-timeout timeout-val joined?)))
+ 
+@@ -3251,27 +3261,37 @@
+ 
+ (define-prim (##thread-migrate-to! id)
+   (##declare (not interrupts-enabled))
+-  ;; A runnable publication transfers the saved activation, not a live caller.
+-  ;; Retain the Thread lease through both destination insertion and source
+-  ;; current-thread withdrawal. A dequeuer can only trylock and retry meanwhile.
+-  (macro-lock-current-thread!)
+-  (macro-thread-save!
+-   (lambda (current-thread id)
+-     (let ((p (##processor id)))
+-       (macro-lock-processor! p)
+-       ;;TODO: reenable
+-       ;;(macro-thread-unboost-and-clear-quantum-used! current-thread)
+-       (macro-thread-resume-thunk-set! current-thread ##thread-void-action!)
+-       (##btq-insert! p current-thread)
+-       (macro-unlock-processor! p)
+-       ;; Never hold two processor locks: opposite migrations must not form a
+-       ;; processor->processor cycle. Thread ownership covers this interval.
+-       (macro-lock-current-processor!)
+-       (macro-processor-current-thread-set! (macro-current-processor) #f)
+-       (macro-unlock-thread! current-thread)
+-       (##wait-abort! p)
+-       (##thread-schedule-with-acquired-processor!)))
+-   id))
++  (if (##not (##fx= id (##current-processor-id)))
++      (let ((old-pinned (macro-thread-pinned (macro-current-thread))))
++        ;; A runnable publication transfers the saved activation, not a live caller.
++        ;; Retain the Thread lease through both destination insertion and source
++        ;; current-thread withdrawal, and pin the migrating thread to target
++        ;; processor `p` before insertion so neither the source processor nor an
++        ;; idle peer can work-steal it back before `p` wakes up (preventing
++        ;; self-steal livelock and unbounded stack msection growth on cross-core
++        ;; C returns). Restore `old-pinned` immediately upon resuming on `p`.
++        (macro-lock-current-thread!)
++        (macro-thread-save!
++         (lambda (current-thread id)
++           (let ((p (##processor id)))
++             (macro-thread-pinned-set! current-thread p)
++             (macro-lock-processor! p)
++             ;;TODO: reenable
++             ;;(macro-thread-unboost-and-clear-quantum-used! current-thread)
++             (macro-thread-resume-thunk-set! current-thread ##thread-void-action!)
++             (##btq-insert! p current-thread)
++             (macro-unlock-processor! p)
++             ;; Never hold two processor locks: opposite migrations must not form a
++             ;; processor->processor cycle. Thread ownership covers this interval.
++             (macro-lock-current-processor!)
++             (macro-processor-current-thread-set! (macro-current-processor) #f)
++             (macro-unlock-thread! current-thread)
++             (##wait-abort! p)
++             (##thread-schedule-with-acquired-processor!)))
++         id)
++        (macro-lock-current-thread!)
++        (macro-thread-pinned-set! (macro-current-thread) old-pinned)
++        (macro-unlock-current-thread!))))
+ 
+ (define-prim (##thread-start-on! id thread)
+   (##declare (not interrupts-enabled))
+diff --git a/lib/setup.c b/lib/setup.c
+index a4a83464..b5543a7e 100644
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -6398,6 +6398,7 @@ ___HIDDEN void setup_dynamic_linking ___PVOID
+   ___GSTATE->___bind_primitive = ___bind_primitive;
+   ___GSTATE->___group_demand_enter = ___group_demand_enter;
+   ___GSTATE->___group_demand_commit = ___group_demand_commit;
++  ___GSTATE->___publish_raw_stack_span = ___publish_raw_stack_span;
+   ___GSTATE->___rest_observation_room = ___rest_observation_room;
+   ___GSTATE->___rest_observation_settled = ___rest_observation_settled;
+   ___GSTATE->___rest_observation_last_demand = ___rest_observation_last_demand;
+diff --git a/tests/collector-diagnostics.c b/tests/collector-diagnostics.c
+index 83de6002..8e1b4d23 100644
+--- a/tests/collector-diagnostics.c
++++ b/tests/collector-diagnostics.c
+@@ -20,6 +20,7 @@ static void before_final_restore_read(void);
+ 
+ #ifndef ___GAMBIT_DEV_RESTORE_PROBE
+ ___global_state_struct ___gstate0;
++___THREAD_LOCAL_STORAGE_CLASS void *___tls_ptr;
+ #endif
+ 
+ /* Census entry negatives must reject before reaching the allocation path.
+@@ -44,6 +45,26 @@ void ___free_mem(void *ptr, int line, char *file)
+   abort();
+ }
+ 
++#ifndef ___DEBUG_ALLOC_MEM
++void *___alloc_mem_heap(___SIZE_T bytes)
++#else
++void *___alloc_mem_heap(___SIZE_T bytes, int line, char *file)
++#endif
++{
++  fputs("unexpected heap allocation in collector diagnostic\n",stderr);
++  abort();
++}
++
++#ifndef ___DEBUG_ALLOC_MEM
++void ___free_mem_heap(void *ptr)
++#else
++void ___free_mem_heap(void *ptr, int line, char *file)
++#endif
++{
++  fputs("unexpected heap free in collector diagnostic\n",stderr);
++  abort();
++}
++
+ static char report[32768];
+ static size_t used;
+ static int expect_fatal;
+diff --git a/tests/frame-continuation.scm b/tests/frame-continuation.scm
+index 442f7aeb..3f4f066c 100644
+--- a/tests/frame-continuation.scm
++++ b/tests/frame-continuation.scm
+@@ -1,11 +1,10 @@
++(c-declare "#include \"mem.h\"\n#include \"rc.h\"\n#include \"root.h\"")
+ ;; Select the scan executor census through the VM's internal atomic request.
+ ;; The frozen root population and all native cleanup owners remain unchanged.
+ ((c-lambda () void #<<c-end
+ ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
+ ___WORD count = 1;
+-___WORD old = ___gc_atomic_load(&vm->gc_round.requested_workers);
+-while (___gc_cas(&vm->gc_round.requested_workers,old,count) != old)
+-  old = ___gc_atomic_load(&vm->gc_round.requested_workers);
++___WORD_STORE_RELEASE(&___COLLECTION(vm).requested_workers, count);
+ c-end
+ ))
+ ;;; End-to-end generated frame/ABI control: native suffix, GC, repeated restore.
+@@ -77,6 +76,6 @@ c-end
+ 
+ (if (not ((c-lambda () bool #<<c-end
+ ___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___ps);
+-___return(vm->gc_round.worker_count==(1) && vm->gc_round.participant_count==vm->processor_count);
++___return(___COLLECTION(vm).worker_count==(1) && ___COLLECTION(vm).participant_count==vm->processor_count);
+ c-end
+ ))) (error "requested map worker/root split was not observed"))
+diff --git a/tests/makefile.in b/tests/makefile.in
+index 0799dd66..64453036 100644
+--- a/tests/makefile.in
++++ b/tests/makefile.in
+@@ -261,7 +261,7 @@ test-frame-contract:
+ 	@SETDLPATH@ FRAME_SPEC_FIXTURES=frame-spec-fixtures.h $(rootfromhere)/gsc/gsc@exe@ -:~~bin=$(srcdirpfx)$(rootfromhere)/bin,~~lib=$(srcdirpfx)$(rootfromhere)/lib,~~include=$(srcdirpfx)$(rootfromhere)/include -f -i $(srcdirpfx)frame-spec.scm
+ 	$(MAKE) test-frame-contract-build BUILD_EXE_OUTPUT_FILENAME_PARAM=frame-contract@exe@ BUILD_EXE_INPUT_FILENAMES_PARAM=$(srcdirpfx)frame-contract.c BUILD_EXE_CC_OPTIONS_PARAM=-I.
+ 	@SETDLPATH@ ./frame-contract@exe@
+-	@SETDLPATH@ $(rootfromhere)/gsc/gsc@exe@ -:~~bin=$(srcdirpfx)$(rootfromhere)/bin,~~lib=$(srcdirpfx)$(rootfromhere)/lib,~~include=$(srcdirpfx)$(rootfromhere)/include -f -exe -o frame-continuation@exe@ $(srcdirpfx)frame-continuation.scm
++	@SETDLPATH@ $(rootfromhere)/gsc/gsc@exe@ -:~~bin=$(srcdirpfx)$(rootfromhere)/bin,~~lib=$(srcdirpfx)$(rootfromhere)/lib,~~include=$(srcdirpfx)$(rootfromhere)/include -f -exe -cc-options "-DHAVE_CONFIG_H -I$(srcdirpfx)$(rootfromhere)/include -I$(srcdirpfx)$(rootfromhere)/lib" -o frame-continuation@exe@ $(srcdirpfx)frame-continuation.scm
+ 	@SETDLPATH@ ./frame-continuation@exe@
+ 	@SETDLPATH@ $(rootfromhere)/gsc/gsc@exe@ -:~~bin=$(srcdirpfx)$(rootfromhere)/bin,~~lib=$(srcdirpfx)$(rootfromhere)/lib,~~include=$(srcdirpfx)$(rootfromhere)/include -f -exe -cc-options "-DHAVE_CONFIG_H -I$(srcdirpfx)$(rootfromhere)/include -I$(srcdirpfx)$(rootfromhere)/lib" -o frame-continuation-roots@exe@ $(srcdirpfx)frame-continuation-roots.scm
+ 	@SETDLPATH@ ./frame-continuation-roots@exe@
+@@ -460,7 +460,7 @@ test-entry-build: $(srcdirpfx)test-entry.h
+ 
+ .PHONY: test-runtime-roles
+ test-runtime-roles:
+-	$(MAKE) test-frame-contract-build BUILD_EXE_OUTPUT_FILENAME_PARAM=runtime-roles@exe@ BUILD_EXE_INPUT_FILENAMES_PARAM=$(srcdirpfx)runtime-roles.c BUILD_EXE_CC_OPTIONS_PARAM=-I.
++	$(MAKE) test-frame-contract-build BUILD_EXE_OUTPUT_FILENAME_PARAM=runtime-roles@exe@ BUILD_EXE_INPUT_FILENAMES_PARAM=$(srcdirpfx)runtime-roles.c BUILD_EXE_CC_OPTIONS_PARAM="-I. -I$(srcdirpfx)$(rootfromhere)/lib"
+ 	@SETDLPATH@ ./runtime-roles@exe@
+ 	rm -f runtime-roles@exe@ runtime-roles@obj@
+ 
+diff --git a/tests/rc-root-origin.scm b/tests/rc-root-origin.scm
+index c1c2d9de..540a78fa 100644
+--- a/tests/rc-root-origin.scm
++++ b/tests/rc-root-origin.scm
+@@ -6,6 +6,7 @@
+ ;;; Never dereference a possibly stale RC payload: compare tagged words only.
+ (c-declare #<<c-end
+ #include "mem.h"
++#include "lifecycle.h"
+ #if defined(__APPLE__)
+ #include <dlfcn.h>
+ #endif
+@@ -255,15 +256,27 @@ c-end
+ (define arm-join-fault (c-lambda (bool) int "rc_join_fault"))
+ (define join-fault-calls (c-lambda () int "rc_join_fault_calls"))
+ (define quarantined-source?
+-  (c-lambda () bool
+-    "___result=!___root_slot_available(___VMSTATE_FROM_PSTATE(___PSTATE),1);"))
++  (c-lambda () bool #<<c-end
++___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___PSTATE);
++___vm_lifecycle *r=vm->lifecycle;
++___result=r!=0 && (___WORD_LOAD_ACQUIRE(&r->launches[1].uncertain)!=0 || resize_retained(vm));
++c-end
++))
+ (define recover-actual-join
+   (c-lambda () bool #<<c-end
+ ___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___PSTATE);
+-___SCMOBJ error=___thread_join(&___PSTATE_FROM_PROCESSOR_ID(1,vm)->os_thread);
++___vm_lifecycle *r=vm->lifecycle;
++___SCMOBJ error=r ? ___thread_join(&r->launches[1].thread) : ___FIX(___UNKNOWN_ERR);
+ /* This control supplies a fresh actual platform result, not a fabricated
+  * success flag or a protocol for a possibly executing/unknown owner. */
+-if(error==___FIX(___NO_ERR)) ___root_note_join(vm,1,1);
++if(error==___FIX(___NO_ERR)) {
++  ___MUTEX_LOCK(r->gate);
++  r->launches[1].joined=1;
++  ___WORD_STORE_RELEASE(&r->launches[1].native_live,0);
++  ___WORD_STORE_RELEASE(&r->launches[1].uncertain,0);
++  r->resize_phase=___RESIZE_IDLE;
++  ___MUTEX_UNLOCK(r->gate);
++}
+ ___result=error==___FIX(___NO_ERR);
+ c-end
+ ))
+diff --git a/tests/root-task.scm b/tests/root-task.scm
+index 8ef38f2e..9f5bd178 100644
+--- a/tests/root-task.scm
++++ b/tests/root-task.scm
+@@ -836,7 +836,7 @@ ___SCMOBJ test_marker_vector(___processor_state ps,___SIZE_TS n,___SCMOBJ init)
+   ___SIZE_T extra=test_marker_mode==6?0:1;
+   ___RC_LOCK(d);
+   test_marker_custody=d->nodes==test_marker_base_nodes+extra &&
+-    d->borrows==test_marker_base_borrows+(test_marker_mode==7?0:extra);
++    d->borrows==test_marker_base_borrows+extra;
+   ___RC_UNLOCK(d);
+   if (test_marker_mode==2) return ___FIX(___HEAP_OVERFLOW_ERR);
+   if (test_marker_mode==1 || test_marker_mode==5 || test_marker_mode==6 || test_marker_mode==7) {
+@@ -965,16 +965,20 @@ c-end
+ ))
+ (define sfun-raw-node-delta (c-lambda () int
+  "___result=___CAST(int,___PSTATE->mem.rc_domain_->nodes)-___CAST(int,test_sfun_nodes);"))
++(define sfun-raw-borrow-delta (c-lambda () int
++ "___result=___CAST(int,___PSTATE->mem.rc_domain_->borrows)-___CAST(int,test_marker_base_borrows);"))
+ (define sfun-raw-returned (c-lambda () int "___result=test_sfun_returned;"))
+ (c-define (sfun-escape-driver value) (scheme-object) int "test_sfun_escape_driver" ""
+  (let ((result
+    (call/cc (lambda (exit) (set! sfun-escape exit)
+               (sfun-raw-invoke value 1) 'unexpected-return))))
+   ;; A Scheme continuation may resume inside the still-running C trampoline.
+-  ;; The inner C frame has not returned: its root must remain live through GC.
++  ;; The inner C frame has not returned: its root span and RC borrow remain
++  ;; live through GC until physical C exit unwinds ___end_sfun.
+   (##gc)
+-  (if (and (eq? result 'escaped) (= (sfun-raw-state) 14)
+-           (= (sfun-raw-node-delta) 1) (= (sfun-raw-returned) 0)) 1 0)))
++  (if (and (eq? result 'escaped) (= (sfun-raw-state) 12)
++           (= (sfun-raw-node-delta) 1) (= (sfun-raw-borrow-delta) 1)
++           (= (sfun-raw-returned) 0)) 1 0)))
+ (define sfun-physical-exit
+  (c-lambda (scheme-object) bool #<<c-end
+ ___rc_domain *d=___PSTATE->mem.rc_domain_;
+diff --git a/tests/runtime-roles.c b/tests/runtime-roles.c
+index 091f3b16..a4617863 100644
+--- a/tests/runtime-roles.c
++++ b/tests/runtime-roles.c
+@@ -1,6 +1,9 @@
+ /* VM-owned execution storage. This checks representation and public accessors;
+  * reassigning a carrier here does not admit live migration in the runtime. */
+ #include "gambit.h"
++#include "mem.h"
++#include "rc.h"
++#include "root.h"
+ #include "test-entry.h"
+ #include <stdio.h>
+ #include <string.h>
+@@ -13,7 +16,7 @@ GAMBIT_TEST_MAIN
+   ___processor_state_struct a, b;
+   ___execution_context contexts[2];
+   ___collector_worker workers[2];
+-  ___gc_participant participants[2];
++  ___root_member participants[2];
+   ___processor_state ___ps = &a;
+   ___WORD sentinel[2];
+   ___SCMOBJ x, y, z;
+diff --git a/tests/smp/gc/unknown-join-worker-domains.scm b/tests/smp/gc/unknown-join-worker-domains.scm
+index 270ed988..3a1f7a91 100644
+--- a/tests/smp/gc/unknown-join-worker-domains.scm
++++ b/tests/smp/gc/unknown-join-worker-domains.scm
+@@ -1,6 +1,10 @@
+ (declare (standard-bindings) (extended-bindings))
+ (##namespace ("gambit#tests#smp#gc#unknown_join_worker_domains#" arm fault-count note-entry entries hold-start phase capacity assigned base-capacity base-assigned retained-root? retained-phase? retained-reinit-rejected? isolated? collections end-control require-test await-entry request))
+ (c-declare #<<c-end
++#include "mem.h"
++#include "rc.h"
++#include "root.h"
++#include "lifecycle.h"
+ #include <dlfcn.h>
+ #include <stdlib.h>
+ #include <stdatomic.h>
+@@ -20,26 +24,35 @@ c-end
+ (define note-entry (c-lambda () void "atomic_fetch_add(&entry_count,1);"))
+ (define entries (c-lambda () int "___return(atomic_load(&entry_count));"))
+ (define hold-start (c-lambda (int) void "((void (*)(int))dlsym(RTLD_DEFAULT,\"resize_test_hold_start\"))(___arg1);"))
+-(define phase (c-lambda () int "___return(___VMSTATE_FROM_PSTATE(___ps)->resize.phase);"))
++(define phase (c-lambda () int "___return(___VMSTATE_FROM_PSTATE(___ps)->lifecycle->resize_phase);"))
+ (define capacity (c-lambda () int "___return(___VMSTATE_FROM_PSTATE(___ps)->mem.the_msections_->nb_sections);"))
+ (define assigned (c-lambda () int "___return(___VMSTATE_FROM_PSTATE(___ps)->mem.nb_msections_assigned_);"))
+-(define base-capacity (c-lambda () int "___return(___VMSTATE_FROM_PSTATE(___ps)->resize.base_capacity);"))
+-(define base-assigned (c-lambda () int "___return(___VMSTATE_FROM_PSTATE(___ps)->resize.base_assigned);"))
+-(define retained-root? (c-lambda () bool "___return(___VMSTATE_FROM_PSTATE(___ps)->resize.thunk!=___FAL);"))
+-(define retained-phase? (c-lambda () bool "___return(___VMSTATE_FROM_PSTATE(___ps)->resize.phase==___RESIZE_RETAINED);"))
++(define base-capacity (c-lambda () int "___return(___VMSTATE_FROM_PSTATE(___ps)->mem.the_msections_->nb_sections);"))
++(define base-assigned (c-lambda () int "___return(___VMSTATE_FROM_PSTATE(___ps)->lifecycle->saved_assigned);"))
++(define retained-root? (c-lambda () bool #<<c-end
++___vm_lifecycle *r=___VMSTATE_FROM_PSTATE(___ps)->lifecycle;
++___return(r && r->launches[r->first].uncertain && r->launches[r->first].entry==___LAUNCH_ABORT);
++c-end
++))
++(define retained-phase? (c-lambda () bool "___return(resize_retained(___VMSTATE_FROM_PSTATE(___ps)));"))
+ (define retained-reinit-rejected? (c-lambda () bool #<<c-end
+ ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(___ps);
+-___SCMOBJ root = vms->resize.thunk;
+-___WORD generation = vms->resize.generation;
++___vm_lifecycle *r = vms->lifecycle;
++___WORD generation = r->generation;
+ int before=___GSTATE->setup_state;
+ if (___cleanup() || ___GSTATE->setup_state != before) { ___return(0); }
+ ___SCMOBJ err = ___setup(&___GSTATE->setup_params);
+ ___return(err != ___FIX(___NO_ERR) && ___GSTATE->setup_state == before &&
+-          vms->resize.phase == ___RESIZE_RETAINED &&
+-          vms->resize.thunk == root && vms->resize.generation == generation);
++          r->generation == generation);
++c-end
++))
++(define isolated? (c-lambda () bool #<<c-end
++___vm_lifecycle *r=___VMSTATE_FROM_PSTATE(___ps)->lifecycle;
++___return(r && r->resize_phase==___RESIZE_IDLE &&
++          r->slots[r->first].root==0 && r->slots[r->first+1].root==0 &&
++          r->launches[r->first].uncertain && r->launches[r->first].entry==___LAUNCH_ABORT);
+ c-end
+ ))
+-(define isolated? (c-lambda () bool "___return(___VMSTATE_FROM_PSTATE(___ps)->resize.abort_isolated);"))
+ (define collections (c-lambda () double "___return(___VMSTATE_FROM_PSTATE(___ps)->mem.nb_gcs_);"))
+ (define end-control (c-lambda () void "_Exit(0);"))
+ (define (require-test p label) (if (not p) (error label)))
+@@ -56,7 +69,7 @@ c-end
+         (note-entry)
+         (##startup-processor!))
+       n)))
+-((c-lambda () void "___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___ps); ___WORD old=___gc_atomic_load(&vm->gc_round.requested_workers); while(___gc_cas(&vm->gc_round.requested_workers,old,1)!=old) old=___gc_atomic_load(&vm->gc_round.requested_workers);"))
++((c-lambda () void "___WORD_STORE_RELEASE(&___COLLECTION(___VMSTATE_FROM_PSTATE(___ps)).requested_workers, 1);"))
+ (require-test (= (##current-vm-processor-count) 1) "initial population")
+ (require-test (= (request 3) 0) "healthy cohort setup")
+ (await-entry 2)
+@@ -71,7 +84,7 @@ c-end
+ (let ((before (collections)))
+   (##gc) (##gc) (##gc)
+   (require-test (>= (- (collections) before) 3) "healthy cohort GC blocked"))
+-(require-test ((c-lambda () bool "___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___ps); ___return(vm->gc_round.participant_count==3 && vm->gc_round.worker_count==1 && vm->gc_participants[0].resume.restored && vm->gc_participants[1].resume.restored && vm->gc_participants[2].resume.restored);")) "unequal worker/root round not observed")
++(require-test ((c-lambda () bool "___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___ps); ___return(___COLLECTION(vm).participant_count==3 && ___COLLECTION(vm).worker_count==1 && ___RESUME(vm,0).restored && ___RESUME(vm,1).restored && ___RESUME(vm,2).restored);")) "unequal worker/root round not observed")
+ (require-test (= (fault-count 3) 1) "held native actor not in flight")
+ (require-test (retained-root?) "VM root lost")
+ (hold-start 0)
+diff --git a/tests/smp/gc/worker-arena.scm b/tests/smp/gc/worker-arena.scm
+index 272b14bc..990a5b19 100644
+--- a/tests/smp/gc/worker-arena.scm
++++ b/tests/smp/gc/worker-arena.scm
+@@ -5,6 +5,9 @@
+ (##namespace ("gambit#tests#smp#gc#worker_arena#"
+               install! finish! coherent? refill-count mode loan? roots seen check))
+ (c-declare #<<c-end
++#include "mem.h"
++#include "rc.h"
++#include "root.h"
+ /* Existing allocator test hook: deny NEW section refill for this one GC.
+  * Reserved destination and restoration sections are unchanged. */
+ static ___msection *worker_arena_no_section(void) { return 0; }
+@@ -22,8 +25,8 @@ c-end
+ (define finish!
+   (c-lambda () bool #<<c-end
+ ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
+-___collector_worker *w = ___ps->collector;
+-___gc_resume_space *r = &vm->gc_participants[0].resume;
++___collector_worker *w = &___COLLECTORS(vm)[0];
++___gc_resume_space *r = &___RESUME(vm, 0);
+ ___context_mem *m = &___ps->context->mem;
+ vm->mem.custom_msection_alloc_ = 0; /* restore before any Scheme assertion */
+ ___return(r->loan_used && r->accepted && w->arena.refills == 1 &&
+@@ -40,18 +43,20 @@ c-end
+ (define refill-count
+   (c-lambda () int #<<c-end
+ ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
++___root_round *round = ___ROOT_UNION(vm);
+ int refills = 0;
+ for (int i=0; i<vm->processor_count; i++) {
+-  ___gc_participant *p = &vm->gc_participants[i];
+-  ___collector_worker *w = ___PSTATE_FROM_PROCESSOR_ID(i,vm)->collector;
+-  ___context_mem *m = &p->context->mem;
+-  if (!p->resume.accepted || !p->resume.restored) ___return(-1);
+-  if (w->id >= vm->gc_round.worker_count) continue;
++  ___root_member *mb = &round->members[i];
++  ___gc_resume_space *r = &round->resume[i];
++  ___collector_worker *w = &round->workers[i];
++  ___context_mem *m = &mb->context->mem;
++  if (!r->accepted || !r->restored) ___return(-1);
++  if (i >= round->collection.worker_count) continue;
+   if (!w->arena.handed_off || w->arena.pending ||
+-      w->arena.epoch != vm->gc_round.epoch || w->copy_begin_ || w->tail_cell_ ||
++      w->arena.epoch != round->collection.epoch || w->copy_begin_ || w->tail_cell_ ||
+       m->words_prev_msections_ < w->arena.retired_words ||
+-      m->stack_msection_ != p->resume.stack_section ||
+-      (p->resume.loan_used && m->alloc_stack_limit_ < p->resume.loan_limit))
++      m->stack_msection_ != r->stack_section ||
++      (r->loan_used && m->alloc_stack_limit_ < r->loan_limit))
+     ___return(-1);
+   refills += w->arena.refills;
+ }
+@@ -61,29 +66,31 @@ c-end
+ (define coherent?
+   (c-lambda () bool #<<c-end
+ ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
++___root_round *round = ___ROOT_UNION(vm);
+ int count = vm->processor_count;
+-unsigned char seen[___MAX_PROCESSORS] = {0};
+-if (count < 1 || vm->gc_round.participant_count != count ||
+-    vm->gc_round.worker_count < 1 || vm->gc_round.worker_count > count) ___return(0);
++if (count < 1 || round->state != ___ROOT_ROUND_IDLE ||
++    round->collection.participant_count != count ||
++    round->collection.worker_count < 1 || round->collection.worker_count > count) ___return(0);
+ for (int i=0; i<count; ++i) {
+   ___processor_state carrier = ___PSTATE_FROM_PROCESSOR_ID(i,vm);
+-  ___collector_worker *worker = carrier->collector;
+-  if (worker->vm != vm || worker->id < 0 || worker->id >= count || seen[worker->id] ||
+-      worker->phase != ___GC_WORKER_IDLE ||
+-      !vm->gc_participants[i].resume.accepted ||
+-      !vm->gc_participants[i].resume.restored ||
+-      vm->gc_participants[i].context != carrier->context ||
+-      vm->gc_participants[i].phase != ___GC_RUNNING ||
+-      vm->gc_origins[i].state != 0 ||
+-      vm->gc_root_tasks[i].phase != ___GC_ROOT_CLEANUP ||
+-      vm->gc_root_tasks[i].claim != 2) ___return(0);
+-  seen[worker->id] = 1;
+-  if (worker->id < vm->gc_round.worker_count) {
+-    if (worker->reserve != &vm->gc_participants[i].resume ||
+-        !worker->arena.handed_off || worker->arena.epoch != vm->gc_round.epoch ||
++  ___root_member *mb = &round->members[i];
++  ___gc_resume_space *r = &round->resume[i];
++  ___collector_worker *worker = &round->workers[i];
++  if (mb->context != carrier->context || carrier->collector != 0 ||
++      mb->rc->joined_round != 0 || mb->rc->phase != ___RC_OPEN ||
++      mb->rc->task.state != ___ROOT_DONE ||
++      mb->global_task.state != ___ROOT_DONE ||
++      mb->stack_task.state != ___ROOT_DONE ||
++      mb->bank_task.state != ___ROOT_DONE ||
++      !r->accepted || !r->restored || r->epoch != round->epoch) ___return(0);
++  if (i < round->collection.worker_count) {
++    if (worker->vm != vm || worker->id != i ||
++        worker->phase != ___GC_WORKER_IDLE ||
++        r->source_worker != i ||
++        !worker->arena.handed_off || worker->arena.epoch != round->collection.epoch ||
+         worker->arena.pending || worker->copy_begin_ || worker->tail_cell_)
+       ___return(0);
+-  } else if (worker->reserve != 0 || vm->gc_participants[i].resume.source_worker != -1)
++  } else if (r->source_worker != -1)
+     ___return(0);
+ }
+ ___return(1);
+diff --git a/tests/smp/gc/worker-root-domains.scm b/tests/smp/gc/worker-root-domains.scm
+index 1ef15dfb..ca5993c7 100644
+--- a/tests/smp/gc/worker-root-domains.scm
++++ b/tests/smp/gc/worker-root-domains.scm
+@@ -4,6 +4,10 @@
+   collect answer first second third rc-check? rc-drop! callback callback! callback-value
+   callback-count callback-void callback-count! callback-void! scopes-drained?))
+ (c-declare #<<c-end
++#include "mem.h"
++#include "rc.h"
++#include "root.h"
++#include "lifecycle.h"
+ #include <pthread.h>
+ #include <stdatomic.h>
+ #include <string.h>
+@@ -19,10 +23,8 @@ static ___SCMOBJ domain_objects[___MAX_PROCESSORS], domain_children[___MAX_PROCE
+ static _Atomic int domain_child_releases[___MAX_PROCESSORS];
+ static _Atomic int domain_cleanup_rejected, domain_slot_rejected;
+ static _Atomic int domain_reentry_rejected, domain_run_rejected, domain_collect_rejected, domain_alloc_rejected;
+-extern ___SCMOBJ *___borrow_rc_root(___processor_state,void *);
+-extern void ___return_rc_root(void *);
+ static void *domain_rc[___MAX_PROCESSORS];
+-static ___SCMOBJ *domain_rc_root[___MAX_PROCESSORS];
++static const ___SCMOBJ *domain_rc_root[___MAX_PROCESSORS];
+ static _Atomic int domain_rc_rejected;
+ static _Atomic int domain_initialization_rejected;
+ static int domain_initialization_closed(___processor_state ps) {
+@@ -30,11 +32,10 @@ static int domain_initialization_closed(___processor_state ps) {
+   int id=___PROCESSOR_ID(ps,vm);
+   ___execution_context *context=ps->context;
+   ___collector_worker *worker=ps->collector;
+-  ___WORD incarnation=vm->gc_origins[id].incarnation;
+   ___WORD *fp=context->fp, *hp=context->hp;
+-  ___rc_header *head=&context->mem.rc_head_;
++  ___rc_header *head=&ps->mem.rc_domain_->head;
+   ___rc_header *next=head->next, *prev=head->prev;
+-  if (!___gc_cleanup_empty(&vm->gc_participants[id].cleanup)) return 0;
++  if (___lifecycle_deferred_words(ps)!=0) return 0;
+   if (___setup_pstate(ps,vm)!=___FIX(___UNKNOWN_ERR)) {
+     /* Stop before returning through frames an incorrect setup may overwrite.
+      * This is also the predecessor's bounded negative control. */
+@@ -42,8 +43,7 @@ static int domain_initialization_closed(___processor_state ps) {
+     exit(2);
+   }
+   return ps->context==context && ps->collector==worker &&
+-    vm->gc_origins[id].incarnation==incarnation &&
+-    vm->gc_participants[id].phase==___GC_RUNNING &&
++    ps->mem.rc_domain_->phase==___RC_OPEN &&
+     context->fp==fp && context->hp==hp &&
+     head->next==next && head->prev==prev;
+ }
+@@ -55,9 +55,8 @@ static ___SCMOBJ domain_release(void *p) {
+   if (!pthread_equal(pthread_self(),d->thread) || ___PROCESSOR_ID(ps,vm)!=d->owner)
+     atomic_fetch_add(&domain_bad,1);
+   {
+-    ___gc_cleanup_escrow *e=&vm->gc_participants[d->owner].cleanup;
+-    if (!e->pending || !e->inflight || e->payload!=p || e->release_fn!=domain_release ||
+-        vm->gc_participants[d->owner].phase!=___GC_OWNER_CLEANUP)
++    ___owner_cleanup *e=&vm->lifecycle->cleanup[d->owner];
++    if (!e->draining || !e->inflight || e->payload!=p || e->release_fn!=domain_release)
+       atomic_fetch_add(&domain_bad,1);
+   }
+   if (d->generation) {
+@@ -66,9 +65,9 @@ static ___SCMOBJ domain_release(void *p) {
+     ___SCMOBJ obj, err, oversized;
+     void *denied_bank=0;
+     ___SCMOBJ unchanged=*domain_rc_root[d->owner], marker=___FIX(123);
+-    if (___begin_sfun(ps,&denied_bank,unchanged,2)!=___FIX(___NO_ERR) &&
++    if (___begin_sfun(ps,2,unchanged,&denied_bank)!=___FIX(___NO_ERR) &&
+         denied_bank==0 && ___alloc_rc(___PSP 0)==0 &&
+-        !___set_data_rc(domain_rc[d->owner],___FAL) &&
++        !___try_set_data_rc(ps,domain_rc[d->owner],___FAL) &&
+         ___borrow_rc_root(ps,domain_rc[d->owner])==0 &&
+         ___make_sfun_stack_marker(ps,&marker,unchanged)!=___FIX(___NO_ERR) &&
+         marker==___FIX(123) && *domain_rc_root[d->owner]==unchanged)
+@@ -87,24 +86,22 @@ static ___SCMOBJ domain_release(void *p) {
+       int before=___GSTATE->setup_state;
+       ___cleanup();
+       if (before==1 && ___GSTATE->setup_state==before && vm->processor_count==3 &&
+-          vm->gc_participants[d->owner].phase==___GC_OWNER_CLEANUP)
++          vm->lifecycle->cleanup[d->owner].draining)
+         atomic_fetch_add(&domain_cleanup_rejected,1);
+       else atomic_fetch_add(&domain_bad,1);
+     }
+     {
+-      ___WORD before=vm->gc_origins[d->owner].incarnation;
+       ___execution_context *context=ps->context;
+       ___collector_worker *worker=ps->collector;
+ #ifndef ___SINGLE_THREADED_VMS
+       int sync=ps->sync_initialized;
+ #endif
+       if (___setup_pstate(ps,vm)==___FIX(___UNKNOWN_ERR) &&
+-          vm->gc_origins[d->owner].incarnation==before &&
+           ps->context==context && ps->collector==worker &&
+ #ifndef ___SINGLE_THREADED_VMS
+           ps->sync_initialized==sync &&
+ #endif
+-          vm->gc_participants[d->owner].phase==___GC_OWNER_CLEANUP)
++          vm->lifecycle->cleanup[d->owner].draining)
+         atomic_fetch_add(&domain_slot_rejected,1);
+       else atomic_fetch_add(&domain_bad,1);
+     }
+@@ -138,7 +135,7 @@ static int domain_record(___processor_state ps, ___SCMOBJ root) {
+   if (!domain_initialization_closed(ps)) return 0;
+   atomic_fetch_add(&domain_initialization_rejected,1);
+   domain_rc[id]=___alloc_rc(___PSP 0);
+-  if (!domain_rc[id] || !___set_data_rc(domain_rc[id],root)) return 0;
++  if (!domain_rc[id] || !___try_set_data_rc(ps,domain_rc[id],root)) return 0;
+   domain_rc_root[id]=___borrow_rc_root(ps,domain_rc[id]);
+   if (!domain_rc_root[id]) return 0;
+   ___release_rc(domain_rc[id]); /* borrow owns the only native reference */
+@@ -178,15 +175,16 @@ if (atomic_load(&domain_bad) || atomic_load(&domain_reentry_rejected)!=3 ||
+     atomic_load(&domain_collect_rejected)!=3 || atomic_load(&domain_alloc_rejected)!=3)
+   ___return(0);
+ for (int i=0;i<3;i++) {
+-  if (!___gc_cleanup_empty(&vm->gc_participants[i].cleanup)) ___return(0);
+-  ___WORD *base=(___WORD *)vm->gc_participants[i].context->mem.still_objs_;
++  ___processor_state p=___PSTATE_FROM_PROCESSOR_ID(i,vm);
++  if (___lifecycle_deferred_words(p)!=0 || vm->lifecycle->cleanup[i].pending!=0) ___return(0);
++  ___WORD *base=(___WORD *)p->context->mem.still_objs_;
+   ___SIZE_TS words=0; int child_found=0;
+   for (;base;base=(___WORD *)base[___STILL_LINK]) {
+     words+=base[___STILL_LENGTH];
+     if (!___arg1 && base+___STILL_BODY==___BODY0(domain_children[i])) child_found++;
+   }
+-  if (words!=vm->gc_participants[i].context->mem.words_still_objs_ ||
+-      vm->gc_participants[i].context->mem.words_still_objs_deferred_!=0 ||
++  if (words!=p->context->mem.words_still_objs_ ||
++      p->context->mem.words_still_objs_deferred_!=0 ||
+       (!___arg1 && (child_found!=1 || atomic_load(&domain_child_releases[i])!=0)) ||
+       (___arg1 && atomic_load(&domain_child_releases[i])!=1)) ___return(0);
+ }
+@@ -199,33 +197,34 @@ c-end
+ (define workers!
+   (c-lambda (int) void #<<c-end
+ ___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___ps);
+-___WORD old=___gc_atomic_load(&vm->gc_round.requested_workers);
+-while (___gc_cas(&vm->gc_round.requested_workers,old,___arg1)!=old)
+-  old=___gc_atomic_load(&vm->gc_round.requested_workers);
++___WORD_STORE_RELEASE(&___COLLECTION(vm).requested_workers,___arg1);
+ c-end
+ ))
+ (define coherent?
+   (c-lambda (int) bool #<<c-end
+ ___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___ps);
+-if (vm->processor_count!=3 || vm->gc_round.participant_count!=3 ||
+-    vm->gc_round.worker_count!=___arg1) ___return(0);
++___root_round *round=___ROOT_UNION(vm);
++if (vm->processor_count!=3 || round->state!=___ROOT_ROUND_IDLE ||
++    round->collection.participant_count!=3 ||
++    round->collection.worker_count!=___arg1) ___return(0);
+ for (int i=0;i<3;i++) {
+-  ___gc_participant *p=&vm->gc_participants[i];
+-  int rank=(i+1)%3;
+-  if (p->phase!=___GC_RUNNING || p->resume.epoch!=vm->gc_round.epoch ||
+-      !p->resume.accepted || !p->resume.restored ||
+-      p->resume.source_worker!=(rank<___arg1 ? rank : -1) ||
+-      vm->gc_root_tasks[i].phase!=___GC_ROOT_CLEANUP ||
+-      vm->gc_root_tasks[i].claim!=2 || vm->gc_origins[i].state!=0)
++  ___root_member *m=&round->members[i];
++  ___gc_resume_space *r=&round->resume[i];
++  ___collector_worker *w=&round->workers[i];
++  if (m->rc->joined_round!=0 || m->rc->phase!=___RC_OPEN ||
++      m->rc->task.state!=___ROOT_DONE || m->global_task.state!=___ROOT_DONE ||
++      m->stack_task.state!=___ROOT_DONE || m->bank_task.state!=___ROOT_DONE ||
++      m->owner->collector!=0 || r->epoch!=round->epoch ||
++      !r->accepted || !r->restored ||
++      r->source_worker!=(i<___arg1 ? i : -1))
+     ___return(0);
+-  ___collector_worker *w=___PSTATE_FROM_PROCESSOR_ID(i,vm)->collector;
+-  if (w->phase!=___GC_WORKER_IDLE || w->id!=rank) ___return(0);
+-  if (rank<___arg1) {
+-    if (!w->arena.handed_off || w->arena.epoch!=vm->gc_round.epoch ||
+-        w->reserve!=&p->resume || w->arena.pending || w->tail_cell_ || w->copy_begin_ ||
++  if (i<___arg1) {
++    if (w->phase!=___GC_WORKER_IDLE || w->id!=i ||
++        !w->arena.handed_off || w->arena.epoch!=round->collection.epoch ||
++        w->arena.pending || w->tail_cell_ || w->copy_begin_ ||
+         w->copy_request.state || w->copied_words>w->copied_source_words)
+       ___return(0);
+-  } else if (w->reserve!=0) ___return(0);
++  }
+ }
+ ___return(1);
+ c-end
+@@ -302,7 +301,7 @@ c-end
+ (define scopes-drained?
+   (c-lambda () bool #<<c-end
+ ___virtual_machine_state vm=___VMSTATE_FROM_PSTATE(___ps);
+-for(int i=0;i<3;i++) if(vm->execution_contexts[i].mem.rc_root_borrows_) ___return(0);
++for(int i=0;i<3;i++) if(___PSTATE_FROM_PROCESSOR_ID(i,vm)->mem.rc_domain_->borrows) ___return(0);
+ ___return(1);
+ c-end
+ ))

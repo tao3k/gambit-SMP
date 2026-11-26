@@ -701,6 +701,51 @@ def accepted_smp_progress(root, baseline_path, candidate_path, previous=None):
                 wholeSmpAdmitted=len(prefix)==len(families))
 
 
+def require_registry_smp_evidence(root, receipt, *, runtime=None):
+    """Validate Family 8 (registry + P0-2 binding-read) receipt against live models and producer."""
+    from gambit_smp.families_8_12_audit import audit_registry_family
+    verdict = audit_registry_family(Path(root), receipt, runtime=runtime)
+    if not verdict["passed"]:
+        raise ValueError("; ".join(verdict["gaps"]))
+    return verdict
+
+
+def require_lifecycle_smp_evidence(root, receipt, *, runtime=None):
+    """Validate Family 9 (lifecycle fault & unknown-join isolation) receipt."""
+    from gambit_smp.families_8_12_audit import audit_lifecycle_family
+    verdict = audit_lifecycle_family(Path(root), receipt, runtime=runtime)
+    if not verdict["passed"]:
+        raise ValueError("; ".join(verdict["gaps"]))
+    return verdict
+
+
+def require_gc_ffi_smp_evidence(root, receipt, *, runtime=None):
+    """Validate Family 10 (gc-ffi + W < R worker domains) receipt."""
+    from gambit_smp.families_8_12_audit import audit_gc_ffi_family
+    verdict = audit_gc_ffi_family(Path(root), receipt, runtime=runtime)
+    if not verdict["passed"]:
+        raise ValueError("; ".join(verdict["gaps"]))
+    return verdict
+
+
+def require_gerbil_smp_evidence(root, receipt, *, runtime=None):
+    """Validate Family 11 (gerbil 8-stage producer/ABI closure) receipt."""
+    from gambit_smp.families_8_12_audit import audit_gerbil_family
+    verdict = audit_gerbil_family(Path(root), receipt, runtime=runtime)
+    if not verdict["passed"]:
+        raise ValueError("; ".join(verdict["gaps"]))
+    return verdict
+
+
+def require_release_smp_evidence(root, receipt):
+    """Validate Family 12 (paired release cohort + non-splicing 12/12 conjunction) receipt."""
+    from gambit_smp.families_8_12_audit import audit_release_family
+    verdict = audit_release_family(Path(root), receipt)
+    if not verdict["passed"]:
+        raise ValueError("; ".join(verdict["gaps"]))
+    return verdict
+
+
 def checked_suite_coverage(run):
     """Require current sealed receipt custody before projecting observed coverage."""
     from gambit_smp.research_kernel import inspect

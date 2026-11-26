@@ -29,6 +29,9 @@ Rather than executing ad-hoc local optimizations (risking throwaway semispace co
 4. *Slice 3 (=kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Work-Stealing Parallel Stdlib)* :: Replace =O(N)= =select=/=poll= (=FD_SETSIZE=1024=) with persistent kernel interest queues parked cleanly via Tier 3.3, and expose standard Scheme C11-ordered atomics (=SRFI-230=), lock-free Chase-Lev deques/channels, and structured fork-join (=pmap=/=future=).
 5. *Slice 4 (=tao3k/gerbil= SMP Parallel Compiler + Full-Runtime Clang TSan + Same-Source 12/12 Release Seal)* :: Prove the complete architecture at scale on Gerbil's 1,778-module stdlib and compiler, close =wholeRuntimeAdmitted = true= on one cryptographically sealed producer, and tag the formal release.
 
+*Cross-Stream Convergence (=v26= Same-Source 12/12 Seal <-> =824f5dc6= Wave A / Slice 2 Major GC)*:
+While the Slice 2 stream advances Immix non-moving mature space and concurrent SATB Major GC above =824f5dc6=, the sealed =v25= audit exposed eight orthogonal, empirically quantified *Memory Scaling & O(P)/O(W) RSS Envelope* bottlenecks. All memory-envelope optimizations are locked below as a **zero-throwaway shared contract** and are now **fully implemented, formally verified, and 12/12 same-source admitted on sealed =v26=** ([[file:families-8-to-12-closure.org][families-8-to-12-closure.org]], =wholeRuntimeAdmitted = true=): cutting full 2-pass =make -j8= bootstrap by *-25%* (=717.95s=, =source-core= *-1.60 GiB*), cutting 8-core Gerbil =stage0= by *-1.52 GiB RSS / -1.65 GiB fp* (=5.487 GiB / 4.797 GiB=), unlocking **8-core =stage1=** (=6.918 GiB=) and **5-core =stdlib=** (*2.0x faster*, =1347.2s=, *-1.01 GiB fp*), cutting total 8-stage Gerbil wall time by *-41.5%* (=3760.1s -> 2201.3s=), and turning =par_rest_alloc_m65536= at =p8= from =0.64x= to *=3.84x=* (*10.7x faster*, =rest-parameter-smp-p8= =46.0 ms= = *16.3x faster* than =v10=). Every mechanism transfers 1-to-1 into Wave A / Slice 2 Immix Major GC without rework or file conflict.
+
 Native OpenSysML v2 owns the typed structural contracts and requirement laws in [[file:models/sysml/longterm-unified-architecture.sysml][longterm-unified-architecture.sysml]]. The rendered interconnection graph is generated directly from SysML via =sysml -strict -render= into [[file:diagrams/longterm-unified-architecture.d2][longterm-unified-architecture.d2]] / [[file:diagrams/longterm-unified-architecture.svg][longterm-unified-architecture.svg]].
 
 * ALIGNED Canonical Academic Paper Ledger & Mechanism Boundaries
@@ -122,22 +125,30 @@ Refines [[file:../architecture/runtime/interfaces/frame-contract-design.org][fra
 - Runtime GC scanner (=lib/_mem/object-scanning.inc=), continuation capture/restore (=lib/_kernel.scm=, =lib/_thread.scm=), and debugger/serializer (=lib/_io.scm=) consume the identical =FrameSpec= decoder and =i -> F+1-i= slot bijection.
 - Retires redundant per-call-site C macro expansions, shrinking GCC-16 single-host compile RSS toward =< 4 GiB=.
 
-** Slice 2 — Non-Moving Mark-Region Mature Space + Concurrent SATB Major GC
+** Slice 2 — Non-Moving Immix Mark-Region Mature Space + Production Concurrent SATB Major GC (v2)
 :PROPERTIES:
 :CUSTOM_ID: slice-2-concurrent-major
-:STATUS: DESIGN_ALIGNED
+:STATUS: PRODUCTION_SYSTEM_V2_ACTIVE
 :QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/concurrent_major_satb_v2.qnt
 :LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+:CBMC_HARNESS: dev/refactoring/modern-c/models/cbmc/slice2_satb_major_pso.c; dev/refactoring/modern-c/models/cbmc/slice2_interrupt_idle_dekker_pso.c
 :END:
 
 Grounded in Yuasa (1990), Huelsbergen & Winterbottom VCGC (1998), Blackburn & McKinley Immix (2008), Ueno & Ohori (ICFP 2016), and Sivaramakrishnan et al. OCaml 5 (ICFP 2020):
 
-- *Phase 2a (Non-Moving Immix Mark-Region Mature Space)*: Replace 2x-semispace mature copying on Major GC with block/line mark-region non-moving mature msections + segregated/bump-into-hole allocation + optional STW opportunistic defragmentation on severely fragmented blocks. Immediately cuts mature memory overhead ~2x and stabilizes mature object addresses for concurrent marking.
-- *Phase 2b (Concurrent SATB Major Marking + Concurrent Sweeping)*:
-  - Reuse Tier 3.1's *already pre-store* =___GC_WRITE_BARRIER(ps, obj, slot_ptr, new_val)=: when =vm->mem.major_mark_active_ != 0=, load =old = *slot_ptr= before store, check white mark-bit, and push =old= to the processor's bounded lock-free SATB buffer (falling back cleanly if full).
-  - Piggyback STW Initial-Mark and STW Remark onto sub-millisecond Minor GC cuts; promote young survivors directly as *BLACK* during active marking (guaranteeing bounded mark work and strict termination!).
-  - Drain SATB buffers into the Major mark stack on every Minor GC and Remark; never begin concurrent sweep until global =markStack= and all per-processor SATB buffers are proven empty; enforce active-phase adoption on Tier 3.3 =___leave_blocking_ffi= unpark.
-  - Mandatory verification gate: CBMC =--mm pso= weak-memory proof + **Full-Runtime Clang =-fsanitize=thread= CI job** running =t1--t5= and =c1--c11= with 0 data races.
+- *Phase 2a (Non-Moving Immix Mark-Region Mature Space + Line-Hole Recycling + Post-Remark Contraction)*:
+  - Replace 2x-semispace mature copying on Major GC with 128-word line / 64-word card mark-region non-moving mature msections: live mature objects remain pinned in place; 100%-dead mature sections unlink to the FREE YOUNG tail in =O(1)=; dead =WHITE= objects inside live sections are coalesced into leaf =___sU8VECTOR= fillers while preserving exact =section_card_starts=.
+  - *Immix Line-Hole Recycling*: During non-moving sweep, record the largest contiguous 64-word card-aligned dead hole =[major_hole_start, major_hole_end)= (>= 512 words) per mature section. During =IDLE= Minor GCs (=major_phase_ == ___GC_MAJOR_IDLE= and not starting Initial-Mark), promote young survivors directly into recycled Immix holes (=gc_is_dest = 3=) without allocating new mature msections; close the unused remainder =[cursor, hole_end)= in =finalize_gc_sections= (strictly after parallel chunk-stealing drains!) with valid leaf fillers and preserve any remaining >= 512-word suffix for the next Minor GC.
+  - *Adaptive Pacing & Post-Remark Contraction*: Trigger Concurrent Major GC early at =1.5x= mature section / mature still growth (clamped with min headroom) instead of waiting for =2.0x=, allow =resize_heap= to contract reclaimed free sections immediately after a completed Concurrent Major Remark (=major_action == ___GC_MAJOR_ACTION_REMARK=), and schedule bounded opportunistic STW defragmentation when fragmented =<50%=-live sections exceed threshold.
+- *Phase 2b (Concurrent SATB Major Marking + Per-Processor Mark Buffers + Idle-Core Marking + Parallel STW Remark & Sweep)*:
+  - Reuse Tier 3.1's *already pre-store* =___GC_WRITE_BARRIER(ps, obj, slot_ptr, new_val)=: when =ps->mem.satb_active_ != 0=, load =old = *slot_ptr= via =___WORD_LOAD_RELAXED= before store, check white mark-bit, and push =old= to the processor's bounded non-allocating SATB buffer (=___GC_SATB_BUF_CAP = 256=, sticky =satb_overflow_= fallback on overflow).
+  - *Per-Processor Lock-Free Local Mark-Stack Buffers*: Each processor owns =ps->mem.major_mark_local_buf_[128]= for zero-lock fast push/pop during concurrent slices and parallel STW Remark, batch-spilling/stealing 64 entries under =major_mark_lock_= only on buffer full/empty.
+  - *Idle-Core Cooperative Marking*: Before an idle SMP processor enters =##wait-idle-if-unchanged!= (=lib/_thread.scm=, strictly inside =(enable-smp ...)= for 0-byte Non-SMP drift), execute one 32K-word cooperative mark slice whenever =ps->mem.satb_active_ != 0 && ps->primlock_depth == 0=, accelerating concurrent marking with idle cores at zero extra thread overhead.
+  - *4-Barrier Parallel STW Remark & Parallel Non-Moving Sweep*: Partition STW Remark across all =g->worker_count= GC workers: (R-A) parallel SATB + =major_mark_local_buf_= flush + parallel global mark-stack drain with atomic active-worker quiescence; (R-B) coordinator overflow recovery, mature will resolution, atomic weak-table dead-entry clearing *before* =SWEEPING=, and SATB disarm; (R-C) parallel =i % W= in-place dead-object coalescing / Immix hole discovery across =mature_sections_[]= + parallel per-processor mature =___STILL= sweep; (R-D) =O(M)= coordinator unlink of 100%-dead sections, adaptive threshold update, and heap contraction.
+- *Phase 2c (Interrupt-Idle Dekker Wakeup Hardening & Zero-Race TSan Closure)*:
+  - Close the x86_64 TSO / ARM64 PSO interrupt-idle race in =lib/setup.c= (=___SHARED_MEMORY_BARRIER()= after =___STACK_TRIP_OFF()= in =___service_interrupts_pstate= / =___refresh_interrupts_pstate=) paired with pending-interrupt & =interrupts-head= (=macro-struct-slot-acquire processor 20=) checks in =##wait-idle-if-unchanged!= and post-wait drain in =lib/_thread.scm=.
+  - Route cross-processor C runtime card barriers through VM-level atomic =___gc_write_barrier_slot_vm= (+ =card_overflow_any_=) so remote cores never touch another processor's private hint/SATB buffer, and keep =gc_hash_table_rehash_in_situ= strictly DRF under Clang C23 =-fsanitize=thread= via =___WORD_LOAD_ACQUIRE= on =FLAGS= and narrowed =___GC_WRITE_BARRIER_RANGE=.
+  - Mandatory verification gate: Quint V2 (13 mutation-killers + ITF Python replay), Lean 4 (22 zero-sorry theorems), CBMC =--mm pso= (2 harnesses, 7 mutants killed), Clang C23 =-fsanitize=thread= across =t1/t5/t6/c1/c5= (0 non-signal races), Python =gambit_smp.revision_matrix= (=N=5= AB/BA =admitted=True=), and 15/15 GitHub Actions PR CI green.
 
 ** Slice 3 — =kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Parallel Stdlib
 :PROPERTIES:
@@ -164,14 +175,42 @@ Grounded in Yuasa (1990), Huelsbergen & Winterbottom VCGC (1998), Blackburn & Mc
 - Fix the 3 documented upstream =tao3k/gerbil= =smp= runtime concurrency bugs (=util.ss= =__lock-inline!=, =mop.ss= =__shadow-classes-lock= unwind safety, =error.ss= recursion) and replace serialized =with-driver-mutex= with parallel per-module compile sessions.
 - Re-sign Families 1--12 on ONE cryptographically sealed producer (=wholeRuntimeAdmitted = true=), sync =vendor/gambit= submodule, and publish the formal Gambit SMP Release Tag.
 
-* ALIGNED Adversarial Red-Team Design Challenges (7 Engineering Pitfalls Caught Before Coding)
+** Memory Scaling Envelope & Sub-Linear Multicore RSS Track (Zero-Throwaway Shared Contract: Sealed v26 12/12 <-> Slice 2)
+:PROPERTIES:
+:CUSTOM_ID: slice-memory-envelope
+:STATUS: VERIFIED_SEALED_V26_SYNCED_WITH_SLICE2
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/adaptive_heap_scaling_and_reclaim_v2.qnt; dev/refactoring/modern-c/models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean
+:CBMC_HARNESS: dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c
+:END:
+
+Empirically audited on =v25= and **verified end-to-end across 100/100 multicore PBT/scaling + 12/12 same-source admission on sealed =v26=**. Every mechanism below is flag/hardware-adaptive (zero hardcodes) and composes orthogonally with the sibling thread's Wave A generational =___STILL= and Slice 2 Immix non-moving mature + concurrent SATB Major GC:
+
+1. *=census.queue= Direct =mmap= & Post-Round Release* (=lib/_mem/copy-planning.inc=, =lib/_mem/rc-allocation.inc=):
+   - *Audited flaw*: =census_enqueue_grow= geometrically doubled =c->queue= via =malloc/memcpy/free= (peaking at =768 MiB= transient + =504 MiB= stranded =MALLOC_LARGE (empty)= on Gerbil =stdlib=) and never released =c->queue= until VM exit, leaking =64--512 MiB= per live VM / idle =gsc=.
+   - *Shared contract*: Back oversized =census.queue= (=>= 64 KiB=) directly via =mmap=/=munmap= (zero =MALLOC_LARGE (empty)=), release oversized buffers (> =512 KiB=) at the end of =plan_copy_round= whenever =state != ALLOCATING/RETAINED && !replacement && !retired= (preserving =peak_bytes= and unknown-fault custody). Transfers directly to Slice 2 concurrent mark-stack/SATB worklists.
+2. *Collapse-Aware Contraction History & =gsc= Pre-=##gambuild= Heap Trim* (=lib/_mem/capacity-resize.inc=, =lib/_kernel.scm=, =gsc/_gsclib.scm=):
+   - *Audited flaw*: Live 8-worker Gerbil =stage0= profiling proved =8 x cc1= (=3.76 GiB=) coexisted with =8 x idle gsc= (=1.88 GiB=, up to =365 MiB= per single idle =gsc= blocked in =##gambuild=), because =gsc/_gsclib.scm= never freed dead codegen garbage before spawning =gcc-16=, and =___TARGET_HEAP_SPACE_HIST_LENGTH = 16= pinned =the_msections= at historical peak for 16 consecutive GCs via =SET_MAX(ths, recent_history)=.
+   - *Shared contract (verified on =v26=)*: Replace static 16-GC pinning with collapse-aware decaying history (=--enable-gc-heap-contraction[=auto|legacy]=) plus immediate post-codegen =(##gc)= contraction in =gsc/_gsclib.scm= before =##gambuild=, strictly preserving =target_nb_sections >= lower_bound_nb_sections=. Native =c12= kills =v25= (=ratio=1.04=) while passing =5/5= on =v26= (91.4% 1-GC contraction at =p1=, 80.8% at =p4=); 8-core Gerbil =stage0= dropped *-1.52 GiB RSS / -1.65 GiB fp*. Transfers directly to Slice 2 Immix empty-block =munmap= after burst phases.
+3. *Sub-Linear SMP Nursery Headroom & Processor-Aware =avail= Budgeting* (=lib/_mem/capacity-resize.inc=, =lib/_mem/memory-lifecycle.inc=):
+   - *Audited flaw*: =smp_nursery_sections = nb_msections_assigned + overflow + 2 * P= added =+2 MiB/core= on top of already-assigned =2 * P= sections (=34 MiB= empty floor at =p8=, =258 MiB= at =p64=), while =prepare_mem_pstate= divided free space by 2 regardless of =P=.
+   - *Shared contract (verified on =v26=)*: Replace linear =2 * P= with sub-linear =headroom(P) = (P <= 2) ? P : (2 + isqrt(P))= and scale =prepare_mem_pstate= per-processor =avail= smoothly with =P= (=div = min(P + 1, 8)=), cutting =c11=/=c2= =p1 -> p8= RSS slope by *-57%* / *-49%*.
+4. *Hardware-Adaptive Large-Heap =live_percent= Damping* (=lib/_mem/memory-lifecycle.inc=, =lib/setup.c=, =lib/setup.h=):
+   - *Audited flaw*: Flat =live_percent = 50%= forced =2.0x= active-half (=4.0x= virtual) overhead on multi-GB heaps (Gerbil =stdlib= =1.76 GiB= live -> =3.53 GiB= active half -> =7.69 GiB= footprint at 3c; =tfib_stress= -> =7.09 GiB= fp).
+   - *Shared contract (verified on =v26=)*: Honor explicit =-:l<N>= / =___set_live_percent= verbatim (zero ABI change to =___setup_params_struct=); when default/auto (=--enable-gc-adaptive-sizing[=auto|off]=), smoothly ramp effective =live_percent= from =50%= (for =live <= soft_budget/8=) up to =80%= (for =live >= soft_budget/2=, where =soft_budget = phys_mem / max(2, cpus)= bounded by =max_heap=). Unlocked **5-core Gerbil =stdlib=** at =6.677 GiB= fp (*-1.01 GiB* lower than =v25= at 3c, *2.0x faster*). Directly reused as Slice 2 Immix Major GC pacing curve.
+5. *Direct =mmap= Large =___STILL= & =msection= Blocks + Post-Sweep OS Pressure Relief + =resize_heap=-First Ordering* (=lib/_mem/aligned-allocation.inc=, =lib/_mem/still-sweep.inc=, =lib/_mem/collection-round.inc=):
+   - *Shared contract (verified on =v26=)*: Allocate =>= 64 KiB= heap-aligned blocks (both =msection=s and large =___STILL= buffers, non-exec) directly via =mmap=/=munmap= (eliminating =libmalloc= power-of-2 padding and Darwin =MALLOC_LARGE (empty)= overhang — =tfib_stress= =peakFP - peakRSS= dropped from =+1.04 GiB= to =0.00 GiB=); run =resize_heap= *before* =reclaim_drained_source_pages=; invoke =malloc_zone_pressure_relief(NULL, 0)= (Darwin) / =malloc_trim(0)= (glibc) when freed =malloc=-backed still memory reaches =4 MiB=.
+6. *Wave A Lock-Free =___rest_fast_grant_fits= =fast_span= + Strict-DRF Mutex-Guarded Mailbox Wakeup* (=lib/_mem/rc-allocation.inc=, =lib/_thread.scm=):
+   - *Shared contract (verified on =v26=)*: Aligns =v26= directly with Wave A's lock-free processor-owned =fast_span= check (turning =par_rest_alloc_m65536= at =p8= from =0.64x= to *=3.84x=* = *10.7x faster*, and =rest-parameter-smp-p8= to =46.0 ms= = *16.3x faster* vs =v10=), and tracks active mailbox receiver waiters under mailbox =mutex= in =(macro-condvar-name cv)= so =##thread-send-with-mb= skips =##condvar-signal-no-reschedule!= when idle (zero missed wakeups, zero TSan races, verified under CBMC =--mm pso= with =-DUSE_MUTEX_GUARD=0= killed).
+
+* ALIGNED Adversarial Red-Team Design Challenges (15 Engineering Pitfalls Caught & Mutant-Killed)
 :PROPERTIES:
 :CUSTOM_ID: longterm-redteam-challenges
 :OWNER: Adversarial Formal Verification
 :STATUS: modeled-and-mutant-killed
 :END:
 
-Every formal model in this package was deliberately engineered to *attack* tempting implementation shortcuts before writing C or Scheme code. Seven concrete concurrency/GC bugs (including a live multi-cycle weak-table Use-After-Free discovered directly by Quint random exploration on seed =0x139ec581e61921c6=!) were caught at design time and locked into **28 executable Quint V2 mutation-killers + 17 zero-warning Lean 4 theorems**:
+Every formal model in this package was deliberately engineered to *attack* tempting implementation shortcuts before writing C or Scheme code. Fifteen concrete concurrency/GC bugs (including a live multi-cycle weak-table Use-After-Free discovered directly by Quint random exploration on seed =0x139ec581e61921c6= and the Linux CI =t1= interrupt-idle Store-Load deadlock!) are locked into **32+ executable Quint V2 mutation-killers, 22 zero-warning Lean 4 theorems, and 7 CBMC =--mm pso= weak-memory mutant killers**:
 
 #+NAME: adversarial-redteam-ledger
 | # | Target Slice | Adversarial Attack / Tempting Shortcut | Concrete Failure If Missed | Hardened Design Requirement & Mutant Killer |
@@ -183,6 +222,14 @@ Every formal model in this package was deliberately engineered to *attack* tempt
 | 5 | Slice 2 (Multi-Cycle Weak Clearing — *Caught Live by Quint!*) | Concurrent sweep frees an unreachable *WHITE* weak target without atomically clearing its weak-table entry during STW Remark first (discovered live by Quint seed =0x139ec581e61921c6=!) | Mutator reads the stale weak entry during/after sweep or in Cycle 2 -> Use-After-Free on freed mature memory | STW Remark MUST atomically clear every dead (=WHITE=) weak-table / will entry *before* transitioning =MARKING -> SWEEPING= (=mutant9SweepBeforeWeakClearKilledTest=, =weak_clear_before_sweep_prevents_stale_read=) |
 | 6 | Slice 2 (SATB Overflow & CAS) | Bounded per-processor SATB buffer overflows under heavy mutation, OR =##vector-cas!= / =SRFI-230= =atomic-box-cas!= mutates a mature slot without SATB old-value shading | Silent drop of overwritten mature edge -> live subgraph swept | Sticky =satbOverflow= flag triggering bounded Remark fallback scan + CAS old-value SATB shading (=mutant7SatbOverflowDropKilledTest=, =mutant8CasWithoutSatbKilledTest=) |
 | 7 | Slice 3 (=kqueue=/=epoll= & =SRFI-230=) | Peer registers new =EV_ADD= borrow while =close(fd)= is in =CLOSING_DRAIN=, OR =SRFI-230= =atomic-box-set!= stores a young Scheme object into a mature atomic box without generational card barrier | Unbounded =close(fd)= starvation / FD-reuse ABA, or Minor GC loses young referent inside mature =atomic-box= | Monotone borrower refcount where =CLOSING_DRAIN= immediately rejects new borrows (=EBADF=), plus card+SATB barriers on =SRFI-230= pointer atomic boxes (=mutant2AdmitDuringClosingKilledTest=, =mutant6AtomicBoxMissingBarrierKilledTest=) |
+| 8 | Memory Envelope (=census.queue= & =___STILL=) | Retain high-water-mark =census.queue= across mutator execution or route =>= 64 KiB= still buffers through =libmalloc= without OS pressure relief | =512 MiB--1.0 GiB= stranded per VM / idle =gsc= and =504 MiB= =MALLOC_LARGE (empty)= charged to Darwin =phys_footprint= | Direct =mmap=/=munmap= for oversized =census.queue= and =>= 64 KiB= still objects + post-=plan_copy_round= release + post-sweep pressure relief (=mutant1CensusQueueLeakKilledTest=, =mutant7LargeStillMallocEmptyRetentionKilledTest=) |
+| 9 | Memory Envelope (Contraction & =gsc+cc1=) | Keep static 16-GC max history ratchet OR spawn =##gambuild= (=cc1=) before contracting dead =c#cf= heap OR over-contract below =lower_bound_nb_sections= | =8 x idle gsc= (=1.88 GiB=) coexists with =8 x cc1= (=7.01 GiB= peak), OR premature section unmap corrupts active/restore stacks | Collapse-aware decaying history + pre-=##gambuild= =(##gc)= trim strictly bounded by =lower_bound_nb_sections= (=mutant2HistoryRatchetPinsIdleHeapKilledTest=, =mutant3GscCc1DualPeakCoexistenceKilledTest=, =mutant5UnsafeOverContractionBelowLiveKilledTest=) |
+| 10 | Memory Envelope (=O(P)= Floor & Adaptive =live_percent=) | Keep linear =+2*P= extra nursery headroom at =P=8..64=, OR let adaptive =live_percent= override an explicit user =-:l<N>= flag | =258 MiB= empty floor per VM at =P=64=, OR silent violation of user-configured GC contract | Sub-linear =headroom(P) <= 2 + isqrt(P)= + hardware-adaptive =50%->80%= ramp gated strictly by =!live_percent_explicit= (=mutant4LinearPerCoreFloorExplosionKilledTest=, =mutant6AdaptiveOverridesExplicitLivePercentKilledTest=) |
+| 11 | SMP Mailbox Wakeup (=_thread.scm=) | Check mailbox waiter flag *without* holding mailbox =mutex= to skip =##condvar-signal-no-reschedule!= | Lost wakeup on ARM64/PSO when receiver enters =##mutex-signal-and-condvar-wait!= between sender's unlock and unlocked waiter read | Record & consume active waiter flag in =(macro-condvar-name cv)= *while holding* mailbox =mutex= (strict DRF, zero ABI change), proven deadlock-free under CBMC =--mm pso= (=mutant8MailboxSkipSignalRacyWaiterKilledTest=, =adaptive_heap_scaling_pso.c= kills =-DUSE_MUTEX_GUARD=0=) |
+| 12 | Slice 2 v2 (Per-Processor Mark Buffers) | STW Remark transitions =MARKING -> SWEEPING= while a processor still retains shaded pointers in its lock-free =major_mark_local_buf_= | Unscanned mature subgraph remains =WHITE= and is overwritten by =___sU8VECTOR= filler during sweep (Use-After-Free) | Mandatory flush of every processor's =major_mark_local_buf_= + parallel active-worker quiescence (=major_remark_working_ == 0 && global == 0=) before =SWEEPING= (=mutant10DropLocalMarkBufKilledTest=, =satb_parallel_quiescence_all_queues_empty=, =MUTANT_SKIP_LOCAL_MARK_FLUSH=1=) |
+| 13 | Slice 2 v2 (Immix Line-Hole Recycling) | Promote young survivors into an interior Immix hole =[hole_lo, hole_hi) < major_snapshot_words= while concurrent =MARKING= is active, OR overwrite =NULL_CHUNK_LINK= inside a hole before parallel chunk-stealing drains | Newly promoted object sits at offset =< major_snapshot_words= with mark bit =0= (=WHITE= -> swept!), OR stealing worker scans past chunk terminator into garbage | Strictly gate Immix hole recycling on =major_phase_ == ___GC_MAJOR_IDLE && major_action != START && !lineLive=, and close =[cursor, hole_hi)= fillers strictly inside post-barrier =finalize_gc_sections= (=mutant11RecycleLiveLineKilledTest=, =immix_hole_recycle_disjoint_from_live_lines=, =immix_hole_closing_filler_covers_remainder=) |
+| 14 | Slice 2 v2 (Idle-Core Marking & Post-Remark Contraction) | Let idle cores enter =___gc_major_mark_slice= without checking =major_phase_ == ___GC_MAJOR_MARKING=, OR keep =is_minor= contraction block active after a completed Concurrent Major Remark | Idle core races with non-moving sweep or =resize_heap= never contracts reclaimed 100%-dead sections (RSS ratchets +55%) | Acquire-load phase guard inside =___gc_major_mark_slice= + idle scheduler check on =satb_active_ && primlock_depth == 0= + allow =resize_heap= contraction when =major_action == ___GC_MAJOR_ACTION_REMARK= (=mutant12IdleCoreMarkDuringSweepKilledTest=) |
+| 15 | Slice 2 v2 (Interrupt-Idle Dekker & Cross-Core WB) | Clear =___STACK_TRIP_OFF()= without Store-Load barrier before reading =intr_flag[]=, enter =##wait-idle-if-unchanged!= without checking pending interrupts/=interrupts-head=, or invoke remote-processor =___GC_WRITE_BARRIER= | x86_64 TSO / ARM64 PSO lost wakeup deadlock (=t1= Linux CI =cpu=0.15s= / 120s timeout!) and TSan data race on remote =card_hints_= / =gc_hash_table= =FLAGS= | =___SHARED_MEMORY_BARRIER()= after =___STACK_TRIP_OFF()= + pending-interrupt/=interrupts-head= recheck in =##wait-idle-if-unchanged!= + VM-level atomic =___gc_write_barrier_slot_vm= + =___WORD_LOAD_ACQUIRE= on =FLAGS= (=mutant13UnfencedTripOffMissedInterruptKilledTest=, =dekker_interrupt_idle_no_lost_wakeup=, =slice2_interrupt_idle_dekker_pso.c=) |
 
 * ALIGNED Reproducible Formal Verification Commands
 :PROPERTIES:
@@ -204,12 +251,38 @@ for spec in \
   dev/refactoring/modern-c/models/quint/v2/tier31p3_still_and_rest_fastpath_v2.qnt \
   dev/refactoring/modern-c/models/quint/v2/unified_framespec_authority_v2.qnt \
   dev/refactoring/modern-c/models/quint/v2/concurrent_major_satb_v2.qnt \
-  dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt; do
+  dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt \
+  dev/refactoring/modern-c/models/quint/v2/adaptive_heap_scaling_and_reclaim_v2.qnt \
+  dev/refactoring/modern-c/models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt; do
   quint test "$spec"
   quint run --invariant=safe --max-samples=2000 --max-steps=30 "$spec"
 done
 
 # 4. Standalone Lean 4 refinement proofs (must be 0 errors, 0 warnings, 0 sorry)
-! grep -Eq '\bsorry\b' dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
-lean dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+for lf in \
+  dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean \
+  dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean; do
+  ! grep -Eq '\bsorry\b' "$lf"
+  lean "$lf"
+done
+
+# 5. CBMC weak-memory PSO & arithmetic contract checks (safe PASS + mutants FAIL)
+cbmc --mm pso -DUSE_MUTEX_GUARD=1 --bounds-check --pointer-check --signed-overflow-check --unsigned-overflow-check \
+  dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c
+! cbmc --mm pso -DUSE_MUTEX_GUARD=0 dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c
+
+cbmc --mm pso -DUSE_SATB_GUARD=1 dev/refactoring/modern-c/models/cbmc/slice2_satb_major_pso.c
+for flag in "-DUSE_SATB_GUARD=0" "-DMUTANT_SKIP_WEAK_CLEAR=1" "-DMUTANT_SKIP_WEAK_READ_BARRIER=1" "-DMUTANT_SKIP_LOCAL_MARK_FLUSH=1"; do
+  ! cbmc --mm pso $flag dev/refactoring/modern-c/models/cbmc/slice2_satb_major_pso.c
+done
+
+cbmc --mm pso -DUSE_DEKKER_FENCE=1 -DCHECK_PENDING_INTR=1 -DUSE_CARD_RELEASE=1 \
+  dev/refactoring/modern-c/models/cbmc/slice2_interrupt_idle_dekker_pso.c
+for flag in "-DUSE_DEKKER_FENCE=0" "-DCHECK_PENDING_INTR=0" "-DUSE_CARD_RELEASE=0"; do
+  ! cbmc --mm pso $flag dev/refactoring/modern-c/models/cbmc/slice2_interrupt_idle_dekker_pso.c
+done
+
+# 6. Python Evidence Chain: publication audit + Quint ITF check + N=5 AB/BA revision_matrix + trajectory custody
+.venv/bin/python -m gambit_smp.research_publication
+.venv/bin/gambit-smp --task family7-gambit-opt trajectory clues '((bindings ()))'
 #+END_SRC

@@ -27,13 +27,31 @@ def build_errors(output):
 
 
 def host_compiler_reservation():
-    """Bound every native compiler build within an 8 GiB runner envelope."""
+    """Derive adaptive parallel compiler reservation within the runner memory envelope.
+
+    Uses 896 MiB per compiler job by default (reflecting v24 CFG host splitting +
+    per-host GCC optimization gating), yielding make -j8 on >=8-core >=8 GiB hosts
+    while keeping the entire compiler process group strictly within <= 8 GiB RSS
+    and automatically throttling on smaller RAM machines. Overridable via
+    GAMBIT_BUILD_MEMORY_BYTES and GAMBIT_BUILD_JOB_RESERVE_BYTES.
+    """
     physical = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
     if type(physical) is not int or physical <= 0:
         raise ValueError("host physical memory is required for the compiler reservation")
-    budget = min(physical, 8 * 1024 ** 3)
+    env_budget = os.environ.get("GAMBIT_BUILD_MEMORY_BYTES")
+    if env_budget is not None and env_budget.strip():
+        budget = min(physical, int(env_budget))
+    else:
+        budget = min(physical, 8 * 1024 ** 3)
     parent = min(1024 ** 3, budget // 4)
-    job = min(7 * 1024 ** 3, budget - parent)
+    avail = budget - parent
+    env_job = os.environ.get("GAMBIT_BUILD_JOB_RESERVE_BYTES")
+    if env_job is not None and env_job.strip():
+        job = min(int(env_job), avail)
+    else:
+        # 896 MiB = (7 GiB) / 8 -> admits up to make -j8 inside an 8 GiB envelope,
+        # scaling down proportionally on low-RAM hosts (4 GiB -> -j3, 2 GiB -> -j1).
+        job = min(896 * 1024 ** 2, avail)
     if job <= 0:
         raise ValueError("host memory cannot reserve one compiler job")
     return {"memory_bytes": budget, "parent_reserve_bytes": parent,
@@ -189,7 +207,7 @@ def build_hosted_core(stages, source, budget, *, required_generated=None, bootst
     shutil.copy2(bootstrap_compiler or source/"gsc/igsc.scm", boot)
     boot.chmod(boot.stat().st_mode | 0o111)
     boot_hash = digest(boot)
-    code, _, timed, _ = stages.run("hosted-bootclean", ["make", "bootclean"], source, min(10, budget))
+    code, _, timed, _ = stages.run("hosted-bootclean", ["make", "bootclean"], source, min(60, budget))
     remaining_old = [name for name in generated if (source/name).exists()]
     if code != 0 or timed or remaining_old or digest(boot) != boot_hash:
         return False, {"sourceRegenerationEstablished": False, "remainingOldC": remaining_old}
@@ -214,6 +232,13 @@ def build_seed_core(stages, source, budget):
     argv = core_command(plan)
     if progress_timed:
         argv.insert(1, "--debug=b")
+    mem_res = getattr(stages, "memory_reservation", None) or {}
+    stage_out = getattr(stages, "out", None)
+    lib_mk = source / "lib/makefile"
+    if (mem_res.get("memory_bytes") and stage_out
+            and lib_mk.is_file() and "GAMBIT_BUILD_WITNESS" in lib_mk.read_text()):
+        from gambit_smp.make_lineage import prepare_memory_gate
+        argv.insert(-1, prepare_memory_gate(Path(stage_out) / "seed-memory-gate"))
     code, log, timeout, _ = stages.run("seed-core", argv, source, budget,
         **({"progress": CoreBuildProgress()} if progress_timed else {}))
     artifacts = {name: digest(source / name) for name in
@@ -438,7 +463,7 @@ def rebuild_source_core(stages, source, budget, *, incremental=False, retained_g
     seed_hash = digest(compiler)
     if not incremental:
         shutil.copy2(compiler, source / "gsc-boot")
-        code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(10, budget))
+        code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(60, budget))
         retained = [name for name in generated if (source / name).exists()]
         if code != 0 or timeout or retained or digest(source / "gsc-boot") != seed_hash:
             return False, {"generatedCStillPresent": retained, "scmRegenerationEstablished": False}

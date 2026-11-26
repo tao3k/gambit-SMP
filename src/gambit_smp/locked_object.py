@@ -122,7 +122,7 @@ def rebuild_source_core(stages, source, budget):
     compiler = source / "gsc/gsc"
     seed_hash = digest(compiler)
     shutil.copy2(compiler, source / "gsc-boot")
-    code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(10, budget))
+    code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(60, budget))
     retained = [name for name in generated if (source / name).exists()]
     if code != 0 or timeout or retained or digest(source / "gsc-boot") != seed_hash:
         return False, {"generatedCStillPresent": retained, "scmRegenerationEstablished": False}
