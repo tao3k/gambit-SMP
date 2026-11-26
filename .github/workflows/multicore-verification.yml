@@ -1,0 +1,171 @@
+name: Multicore Formal & Weak-Memory Verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dev/refactoring/modern-c/models/quint/v2/**'
+      - 'dev/refactoring/modern-c/models/lean/**'
+      - 'dev/modeling/ascent/multicore-tool-routing.rules.scm'
+      - 'src/gambit_smp/quint_mbt.py'
+      - 'tests/test_quint_mbt.py'
+      - 'tests/contracts/modern-c/weak-memory/**'
+      - 'tests/contracts/modern-c/ordered-sync/**'
+      - '.github/workflows/multicore-verification.yml'
+      - '.github/actions/multicore-formal-tools/**'
+  pull_request:
+    paths:
+      - 'dev/refactoring/modern-c/models/quint/v2/**'
+      - 'dev/refactoring/modern-c/models/lean/**'
+      - 'dev/modeling/ascent/multicore-tool-routing.rules.scm'
+      - 'src/gambit_smp/quint_mbt.py'
+      - 'tests/test_quint_mbt.py'
+      - 'tests/contracts/modern-c/weak-memory/**'
+      - 'tests/contracts/modern-c/ordered-sync/**'
+      - '.github/workflows/multicore-verification.yml'
+      - '.github/actions/multicore-formal-tools/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quint-v2-and-ascent-routing:
+    name: "Quint V2 Mutation-Killing & ASCENT Routing"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/framework
+      - uses: ./.github/actions/multicore-formal-tools
+        with:
+          install-quint: 'true'
+      - name: Run Quint V2 specs (2000 safe runs + 6 real-bug mutant killers)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for spec in \
+            dev/refactoring/modern-c/models/quint/v2/binding_read_activation_v2.qnt \
+            dev/refactoring/modern-c/models/quint/v2/gc_ffi_worker_domain_v2.qnt \
+            dev/refactoring/modern-c/models/quint/v2/smp_migration_and_wills_v2.qnt; do
+            echo "=== quint test: $spec ==="
+            quint test "$spec"
+            echo "=== quint run --invariant=safe: $spec ==="
+            quint run --invariant=safe --max-samples=2000 --max-steps=25 "$spec"
+          done
+      - name: Run Quint MBT, F6REST01 reverse-trace, and ASCENT routing unit tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONPATH: src:tests
+        run: uv run --no-sync python -m unittest tests.test_quint_mbt -v
+
+  cbmc-weak-memory-pso:
+    name: "CBMC --mm pso Weak-Memory Contracts"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/multicore-formal-tools
+        with:
+          install-cbmc: 'true'
+      - name: Verify positive weak-memory models pass and buggy mutants fail under --mm pso
+        run: |
+          set -euo pipefail
+          check_pso() {
+            local file="$1" flag="$2"
+            echo "=== CBMC --mm pso SAFE ($flag=1): $file ==="
+            cbmc --mm pso "-D${flag}=1" "$file"
+            echo "=== CBMC --mm pso MUTANT MUST FAIL ($flag=0): $file ==="
+            if cbmc --mm pso "-D${flag}=0" "$file"; then
+              echo "ERROR: buggy mutant was NOT caught in $file" >&2
+              exit 1
+            fi
+          }
+          check_pso tests/contracts/modern-c/weak-memory/binding_publish_pso.c USE_FENCE
+          check_pso tests/contracts/modern-c/weak-memory/registry_borrow_pso.c USE_ATOMIC
+          check_pso tests/contracts/modern-c/weak-memory/will_registry_cas_pso.c USE_CAS
+
+  lean4-smp-refinements:
+    name: "Lean 4 SMP & Compiled-Host Refinements"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/multicore-formal-tools
+        with:
+          install-lean: 'true'
+      - name: Verify standalone Lean 4 proofs (0 errors, 0 sorry)
+        run: |
+          set -euo pipefail
+          for proof in \
+            dev/refactoring/modern-c/models/lean/CompiledHostRefinementV2.lean \
+            dev/refactoring/modern-c/models/lean/RawF64ScrubRefinement.lean \
+            dev/refactoring/modern-c/models/lean/SmpMigrationAndWillsRefinement.lean; do
+            echo "=== lean: $proof ==="
+            if grep -Eq '\bsorry\b' "$proof"; then
+              echo "ERROR: sorry found in $proof" >&2
+              exit 1
+            fi
+            lean "$proof"
+          done
+
+  clang-c23-tsan:
+    name: "Clang C23 -Werror=comment & TSan Recon"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/multicore-formal-tools
+        with:
+          install-clang: 'true'
+      - name: Run Clang -std=c23 -Werror=comment -fsanitize=thread positive and negative controls
+        run: |
+          set -euo pipefail
+          cat <<'EOF' > /tmp/tsan_pos_control.c
+          #include <pthread.h>
+          #include <stdatomic.h>
+          static _Atomic int payload = 0;
+          static _Atomic int ready = 0;
+          static void *writer(void *p) {
+            (void)p;
+            atomic_store_explicit(&payload, 42, memory_order_relaxed);
+            atomic_store_explicit(&ready, 1, memory_order_release);
+            return 0;
+          }
+          int main(void) {
+            pthread_t t;
+            if (pthread_create(&t, 0, writer, 0) != 0) return 1;
+            while (!atomic_load_explicit(&ready, memory_order_acquire)) {}
+            int v = atomic_load_explicit(&payload, memory_order_relaxed);
+            pthread_join(t, 0);
+            return v == 42 ? 0 : 2;
+          }
+          EOF
+          clang -std=c23 -Werror=comment -fsanitize=thread -O1 /tmp/tsan_pos_control.c -lpthread -o /tmp/tsan_pos_control
+          /tmp/tsan_pos_control
+          cat <<'EOF' > /tmp/tsan_neg_control.c
+          #include <pthread.h>
+          #include <stdatomic.h>
+          static _Atomic int arrived = 0;
+          static int racy = 0;
+          __attribute__((noinline)) static void bump(int *p) { *p += 1; }
+          static void *worker(void *p) {
+            (void)p;
+            atomic_fetch_add_explicit(&arrived, 1, memory_order_relaxed);
+            while (atomic_load_explicit(&arrived, memory_order_relaxed) < 2) {}
+            for (int i = 0; i < 10000; ++i) bump(&racy);
+            return 0;
+          }
+          int main(void) {
+            pthread_t a, b;
+            pthread_create(&a, 0, worker, 0);
+            pthread_create(&b, 0, worker, 0);
+            pthread_join(a, 0);
+            pthread_join(b, 0);
+            return racy > 0 ? 0 : 1;
+          }
+          EOF
+          clang -std=c23 -fsanitize=thread -O1 /tmp/tsan_neg_control.c -lpthread -o /tmp/tsan_neg_control
+          /tmp/tsan_neg_control 2>/tmp/tsan_neg.err || true
+          grep -q "WARNING: ThreadSanitizer: data race" /tmp/tsan_neg.err

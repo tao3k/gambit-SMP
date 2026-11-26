@@ -17,7 +17,7 @@
  ;;     features: "weak-memory-c11" | "bounded-c-fn" | "full-runtime-c" |
  ;;               "protocol-interleaving" | "lock-graph" | "wire-trace" |
  ;;               "unbounded-law" | "concurrent-adt" | "gc-roots-or-cc" |
- ;;               "ffi-or-multi-vm"
+ ;;               "ffi-or-multi-vm" | "static-abi-closure"
  ;;   toolCapability(tool, feature, rationale)
  ;;   toolInstalled(tool)
 

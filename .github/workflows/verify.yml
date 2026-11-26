@@ -40,6 +40,34 @@ jobs:
             sleep "$attempt"
           done
           "$HOME/.elan/bin/elan" run "$toolchain" lean --version
+      - name: Restore the pinned OpenSysML CLI archive
+        uses: actions/cache@v4
+        with:
+          path: .cache/tasks/repair-9-12/ci/formal/sysml-linux-amd64.tar.gz
+          key: opensysml-0.10.1-922838f24c1857709bd8b563bb1f4290a81b7f5c7cae1ada22d1134cd8f61fc5
+      - name: Install the pinned OpenSysML CLI for native policy projection
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/tasks/repair-9-12/ci/formal/opensysml
+          archive=.cache/tasks/repair-9-12/ci/formal/sysml-linux-amd64.tar.gz
+          sha=922838f24c1857709bd8b563bb1f4290a81b7f5c7cae1ada22d1134cd8f61fc5
+          if ! echo "$sha  $archive" | sha256sum --check --status; then
+            rm -f "$archive"
+            curl --fail --location --retry 3 --retry-all-errors --connect-timeout 10 --max-time 30 https://github.com/Open-MBEE/OpenSysML/releases/download/v0.10.1/sysml-linux-amd64.tar.gz --output "$archive.pending"
+            echo "$sha  $archive.pending" | sha256sum --check
+            mv "$archive.pending" "$archive"
+          fi
+          echo "$sha  $archive" | sha256sum --check
+          tar -xzf "$archive" -C .cache/tasks/repair-9-12/ci/formal/opensysml
+          bin_dir="$(dirname "$(find .cache/tasks/repair-9-12/ci/formal/opensysml -type f -name sysml | head -n 1)")"
+          test -x "$bin_dir/sysml"
+          "$bin_dir/sysml" --version
+          echo "$GITHUB_WORKSPACE/$bin_dir" >> "$GITHUB_PATH"
+      - name: Restore the cached Quint Rust evaluator
+        uses: actions/cache@v4
+        with:
+          path: ~/.quint
+          key: quint-rust-evaluator-0.33.0-${{ runner.os }}-${{ runner.arch }}
       - name: Restore the immutable formal tool archive
         uses: actions/cache@v4
         with:
@@ -69,6 +97,7 @@ jobs:
       - name: Validate the complete framework including declared sealed domains
         env:
           GAMBIT_SMP_TEST_ENGINE: ${{ github.workspace }}/.cache/tasks/repair-9-12/ci/engine
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run --no-sync gambit-smp --task repair-9-12 validate-review --profile full --out .cache/tasks/repair-9-12/ci/framework-validation
       - run: uv run --no-sync gambit-smp --task repair-9-12 evidence --validate
       - uses: actions/upload-artifact@v4

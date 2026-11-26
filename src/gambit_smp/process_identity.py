@@ -67,7 +67,16 @@ def pids(uid=None,*,pgid=None):
         if count==0 and pgid is not None and ctypes.get_errno() in (0,errno.ESRCH):return []
         if count<=0 or count>=ctypes.sizeof(buffer):raise OSError('incomplete kernel process census')
         return sorted(value for value in buffer[:count//4] if value)
-    result=sorted(int(p.name) for p in Path('/proc').iterdir() if p.name.isdigit() and (uid is None or p.stat().st_uid==uid))
+    result=[]
+    for p in Path('/proc').iterdir():
+        if not p.name.isdigit():continue
+        if uid is not None:
+            try:
+                if p.stat().st_uid!=uid:continue
+            except (FileNotFoundError,ProcessLookupError,PermissionError):
+                continue
+        result.append(int(p.name))
+    result.sort()
     if pgid is not None:result=[pid for pid in result if (info:=process(pid)) and info['pgid']==pgid]
     return result
 

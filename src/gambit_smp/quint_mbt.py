@@ -24,12 +24,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from gambit_smp.rest_observation import HEADER, KINDS, MAGIC, RECORD
+from gambit_smp.task_processes import run as run_process
 
 
 # ---------------------------------------------------------------------------
@@ -299,13 +299,15 @@ def replay_binding_itf_against_gambit(
 
     rt = Path(runtime_dir)
     rt_opts = f"p{processors},~~bin={rt / 'bin'},~~lib={rt / 'lib'},~~include={rt / 'include'}"
-    proc = subprocess.run(
+    proc = run_process(
         [str(gsi), f"-:{rt_opts}", "-e", script],
         capture_output=True,
         text=True,
         timeout=30,
     )
-    passed = proc.returncode == 0 and "QUINT-MBT-REPLAY-PASS" in proc.stdout
+    stdout_text = proc.stdout or ""
+    stderr_text = proc.stderr or ""
+    passed = proc.returncode == 0 and "QUINT-MBT-REPLAY-PASS" in stdout_text
     return {
         "passed": passed,
         "tracePath": str(trace_path),
@@ -314,8 +316,8 @@ def replay_binding_itf_against_gambit(
         "replayedReads": expected_reads,
         "replayedGcs": expected_gcs,
         "exitCode": proc.returncode,
-        "stdout": proc.stdout.strip(),
-        "stderr": proc.stderr.strip(),
+        "stdout": stdout_text.strip(),
+        "stderr": stderr_text.strip(),
     }
 
 
@@ -503,6 +505,7 @@ DEFAULT_TOOL_CAPABILITIES: list[list[str]] = [
     ["gambit-multicore-pbt", "concurrent-adt", "Wing-Gong linearizability (Gambit-Lin) & STM PBT under p2/p4 GC-Hammer"],
     ["gambit-multicore-pbt", "gc-roots-or-cc", "Real Scheme GC/weak-table/will/multi-shot call/cc/denv stress on p2/p4"],
     ["gambit-multicore-pbt", "ffi-or-multi-vm", "Compiled .o1 C-FFI callback re-entry & multi-VM fault isolation stress"],
+    ["abi-closure-auditor", "static-abi-closure", "Exhaustive 4-way ___IMP_FUNC / ___GSTATE / setup.c / ___EXT dynamic .o1 ABI closure proof"],
 ]
 
 FAMILIES_8_TO_12_OBLIGATIONS: list[tuple[str, str, str, list[str]]] = [
@@ -527,14 +530,20 @@ FAMILIES_8_TO_12_OBLIGATIONS: list[tuple[str, str, str, list[str]]] = [
     (
         "f10-gc-ffi-worker-roots",
         "10/12-gc-ffi",
-        "W<R collector worker decoupling, EntryRootSpec moving pins, raw-F64 GC root scrub",
-        ["protocol-interleaving", "lock-graph", "unbounded-law", "gc-roots-or-cc", "ffi-or-multi-vm"],
+        "W<R collector worker decoupling, primary P0 live-worker census, overflow retire, EntryRootSpec/SFUN borrow custody, raw-F64 GC root scrub",
+        ["bounded-c-fn", "protocol-interleaving", "lock-graph", "unbounded-law", "gc-roots-or-cc", "ffi-or-multi-vm"],
     ),
     (
         "f6-f7-write-group-rest-cut",
         "7/12-stress-gsc",
         "Compiled .o1 rest-parameter & write-group heap grant/GC pacing protocol",
         ["wire-trace", "unbounded-law", "gc-roots-or-cc"],
+    ),
+    (
+        "f11-dynamic-o1-abi-closure",
+        "11/12-gerbil",
+        "Exhaustive 4-way header ___IMP_FUNC / ___GSTATE / setup.c / ___EXT dynamic .o1 ABI closure (including ___publish_raw_stack_span)",
+        ["static-abi-closure", "bounded-c-fn", "protocol-interleaving", "unbounded-law"],
     ),
     (
         "f11-f12-multicore-adt-and-cc",
@@ -547,7 +556,7 @@ FAMILIES_8_TO_12_OBLIGATIONS: list[tuple[str, str, str, list[str]]] = [
 
 def detect_installed_tools() -> list[str]:
     """Probe the local host for available verification engines (no fabrication)."""
-    installed: list[str] = ["gambit-multicore-pbt", "quint-trace-val"]
+    installed: list[str] = ["abi-closure-auditor", "gambit-multicore-pbt", "quint-trace-val"]
     if shutil.which("cbmc"):
         installed.append("cbmc-weak-mm")
     if shutil.which("genmc"):
