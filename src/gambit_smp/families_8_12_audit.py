@@ -251,7 +251,12 @@ def verify_p02_source_anchors(root: Path) -> dict:
         de_text = de_path.read_text(encoding="utf-8")
         if "#undef ___GLOBALVARPRIMREF" not in de_text:
             gaps.append("P0-2 #undef ___GLOBALVARPRIMREF missing in declarations_end.h.in")
-        if "#define ___GLOBALVARPRIMREF(gv)(___binding_vm ? ___binding_primitive(___binding_vm,___GLOBALVARSTRUCT(gv)) : ___EXT(___primitive_ref)(___ps,___GLOBALVARSTRUCT(gv)))" not in de_text:
+        if (
+            "#define ___GLOBALVARPRIMREF(gv)(___binding_vm ? ___binding_primitive(___binding_vm,___GLOBALVARSTRUCT(gv)) : ___EXT(___primitive_ref)(___ps,___GLOBALVARSTRUCT(gv)))"
+            not in de_text
+            and "#define ___GLOBALVARPRIMREF(gv) ___binding_prm_load(___ps,___binding_vm,___GLOBALVARSTRUCT(gv))"
+            not in de_text
+        ):
             gaps.append("P0-2 fast ___GLOBALVARPRIMREF macro definition missing in declarations_end.h.in")
     return dict(passed=(len(gaps) == 0), gaps=gaps)
 
@@ -403,7 +408,10 @@ def verify_v12_architectural_anchors(root: Path) -> dict:
         gaps.append("missing vendor/gambit/lib/_mem/root-tasks.inc")
     else:
         rt = rt_path.read_text(encoding="utf-8", errors="replace")
-        if "int live=(round->participants>0)?1:0;" not in rt or "else break;" not in rt:
+        if (
+            ("int live=(round->participants>0)?1:0;" not in rt or "else break;" not in rt)
+            and "round->collection.worker_proc[" not in rt
+        ):
             gaps.append("v12 missing primary P0 contiguous live-prefix accounting in root-tasks.inc")
 
     kern_path = relative(root, "vendor/gambit/lib/_kernel.scm")
@@ -548,7 +556,10 @@ def verify_v12_architectural_anchors(root: Path) -> dict:
         if "#ifndef ___CACHE_LINE_SIZE" not in ps_txt or ps_txt.count("char cache_line_guard[___CACHE_LINE_SIZE];") < 2:
             gaps.append("v23 missing ___CACHE_LINE_SIZE adaptive cache_line_guard on both processor structs")
     if rc_path.is_file():
-        if "!rest_attempt_owner && !___rest_attempt_words" not in rc:
+        if (
+            "!rest_attempt_owner && !___rest_attempt_words" not in rc
+            and "___WORD_LOAD_RELAXED(&rest_attempt_active_flag) == 0" not in rc
+        ):
             gaps.append("v19 missing zero-write fast-path guard in ___rest_disarm_attempt (rc-allocation.inc)")
     if ro_path.is_file():
         if "!__atomic_load_n(&rest_observation_root_base, __ATOMIC_RELAXED)" not in ro:

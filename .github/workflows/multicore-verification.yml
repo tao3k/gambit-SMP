@@ -6,6 +6,7 @@ on:
     paths:
       - 'dev/refactoring/modern-c/models/quint/v2/**'
       - 'dev/refactoring/modern-c/models/lean/**'
+      - 'dev/refactoring/modern-c/models/cbmc/**'
       - 'dev/modeling/ascent/multicore-tool-routing.rules.scm'
       - 'src/gambit_smp/quint_mbt.py'
       - 'tests/test_quint_mbt.py'
@@ -17,6 +18,7 @@ on:
     paths:
       - 'dev/refactoring/modern-c/models/quint/v2/**'
       - 'dev/refactoring/modern-c/models/lean/**'
+      - 'dev/refactoring/modern-c/models/cbmc/**'
       - 'dev/modeling/ascent/multicore-tool-routing.rules.scm'
       - 'src/gambit_smp/quint_mbt.py'
       - 'tests/test_quint_mbt.py'
@@ -40,7 +42,7 @@ jobs:
       - uses: ./.github/actions/multicore-formal-tools
         with:
           install-quint: 'true'
-      - name: Run Quint V2 specs (2000 safe runs + 6 real-bug mutant killers)
+      - name: Run Quint V2 specs (2000 safe runs + mutation-killing suites)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -48,7 +50,11 @@ jobs:
           for spec in \
             dev/refactoring/modern-c/models/quint/v2/binding_read_activation_v2.qnt \
             dev/refactoring/modern-c/models/quint/v2/gc_ffi_worker_domain_v2.qnt \
-            dev/refactoring/modern-c/models/quint/v2/smp_migration_and_wills_v2.qnt; do
+            dev/refactoring/modern-c/models/quint/v2/smp_migration_and_wills_v2.qnt \
+            dev/refactoring/modern-c/models/quint/v2/tier31p3_still_and_rest_fastpath_v2.qnt \
+            dev/refactoring/modern-c/models/quint/v2/concurrent_major_satb_v2.qnt \
+            dev/refactoring/modern-c/models/quint/v2/adaptive_heap_scaling_and_reclaim_v2.qnt \
+            dev/refactoring/modern-c/models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt; do
             echo "=== quint test: $spec ==="
             quint test "$spec"
             echo "=== quint run --invariant=safe: $spec ==="
@@ -74,10 +80,11 @@ jobs:
           set -euo pipefail
           check_pso() {
             local file="$1" flag="$2"
+            shift 2
             echo "=== CBMC --mm pso SAFE ($flag=1): $file ==="
-            cbmc --mm pso "-D${flag}=1" "$file"
+            cbmc --mm pso "$@" "-D${flag}=1" "$file"
             echo "=== CBMC --mm pso MUTANT MUST FAIL ($flag=0): $file ==="
-            if cbmc --mm pso "-D${flag}=0" "$file"; then
+            if cbmc --mm pso "$@" "-D${flag}=0" "$file"; then
               echo "ERROR: buggy mutant was NOT caught in $file" >&2
               exit 1
             fi
@@ -85,6 +92,9 @@ jobs:
           check_pso tests/contracts/modern-c/weak-memory/binding_publish_pso.c USE_FENCE
           check_pso tests/contracts/modern-c/weak-memory/registry_borrow_pso.c USE_ATOMIC
           check_pso tests/contracts/modern-c/weak-memory/will_registry_cas_pso.c USE_CAS
+          check_pso dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c USE_MUTEX_GUARD --unwind 12
+          check_pso dev/refactoring/modern-c/models/cbmc/slice2_satb_major_pso.c USE_SATB_GUARD
+          check_pso dev/refactoring/modern-c/models/cbmc/slice2_interrupt_idle_dekker_pso.c USE_DEKKER_FENCE -DCHECK_PENDING_INTR=1 -DUSE_CARD_RELEASE=1
 
   lean4-smp-refinements:
     name: "Lean 4 SMP & Compiled-Host Refinements"
@@ -95,19 +105,17 @@ jobs:
       - uses: ./.github/actions/multicore-formal-tools
         with:
           install-lean: 'true'
-      - name: Verify standalone Lean 4 proofs (0 errors, 0 sorry)
+      - name: Verify standalone Lean 4 proofs (0 errors, 0 warnings, 0 sorry)
         run: |
           set -euo pipefail
           for proof in \
             dev/refactoring/modern-c/models/lean/CompiledHostRefinementV2.lean \
             dev/refactoring/modern-c/models/lean/RawF64ScrubRefinement.lean \
-            dev/refactoring/modern-c/models/lean/SmpMigrationAndWillsRefinement.lean; do
-            echo "=== lean: $proof ==="
-            if grep -Eq '\bsorry\b' "$proof"; then
-              echo "ERROR: sorry found in $proof" >&2
-              exit 1
-            fi
-            lean "$proof"
+            dev/refactoring/modern-c/models/lean/SmpMigrationAndWillsRefinement.lean \
+            dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean \
+            dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean; do
+            echo "=== lean -DwarningAsError=true: $proof ==="
+            lean -DwarningAsError=true "$proof"
           done
 
   clang-c23-tsan:

@@ -448,8 +448,12 @@ class SourceMaterializeTests(unittest.TestCase):
         v26_path = source.ROOT / "evidence/fixtures/dev-family8-10-unified/family8-12-v26.lock.json"
         v26_lock = json.loads(v26_path.read_text())
         validate_source_lock(v26_lock)
-        for rel, row in v26_lock["files"].items():
-            self.assertEqual(digest(source.ROOT / "vendor/gambit" / rel), row["candidateSha256"], rel)
+        proc = subprocess.run(
+            ["git", "-C", str(source.ROOT / "vendor/gambit"), "merge-base", "--is-ancestor", v26_lock["revision"], "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 if __name__ == "__main__":

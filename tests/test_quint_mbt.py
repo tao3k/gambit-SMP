@@ -4,6 +4,7 @@ Validation, and ASCENT scenario-driven multicore tool routing.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -23,6 +24,9 @@ from gambit_smp.rest_observation import HEADER, KINDS, MAGIC, RECORD
 ROOT = Path(__file__).resolve().parents[1]
 ITF_DIR = ROOT / ".cache/tasks/family7-gambit-opt/quint-v2-itf"
 OPT_RUNTIME = ROOT / ".cache/tasks/family7-gambit-opt/runtime"
+QUINT_V2_DIR = ROOT / "dev/refactoring/modern-c/models/quint/v2"
+
+_HAS_OPT_RUNTIME = (OPT_RUNTIME / "gsi/gsi").is_file() and (OPT_RUNTIME / "gsc/gsc").is_file()
 
 
 def _write_synthetic_f6rest01(path: Path, event_kinds: list[str], *, dropped: int = 0) -> None:
@@ -35,22 +39,147 @@ def _write_synthetic_f6rest01(path: Path, event_kinds: list[str], *, dropped: in
     path.write_bytes(bytes(buf))
 
 
+def _generate_itf_trace(
+    quint_bin: str,
+    spec_path: Path,
+    main_module: str,
+    out_path: Path,
+    *,
+    step_action: str | None = None,
+    seed: int = 101,
+    max_samples: int = 1,
+    max_steps: int = 25,
+    expect_violation: bool = False,
+) -> None:
+    cmd = [
+        quint_bin,
+        "run",
+        f"--main={main_module}",
+        "--invariant=safe",
+        f"--seed={seed}",
+        f"--max-samples={max_samples}",
+        f"--max-steps={max_steps}",
+        f"--out-itf={out_path}",
+    ]
+    if step_action:
+        cmd.append(f"--step={step_action}")
+    cmd.append(str(spec_path))
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    if expect_violation:
+        if not out_path.is_file():
+            raise RuntimeError(
+                f"quint mutant run did not emit counterexample ITF {out_path.name}: "
+                f"rc={res.returncode}\n{res.stdout}\n{res.stderr}"
+            )
+    else:
+        if res.returncode != 0 or not out_path.is_file():
+            raise RuntimeError(
+                f"quint safe run failed for {out_path.name}: rc={res.returncode}\n{res.stdout}\n{res.stderr}"
+            )
+
+
+def _resolve_or_generate_itf_dir() -> tuple[Path | None, tempfile.TemporaryDirectory[str] | None]:
+    required = [
+        "binding_v2_seed101.itf.json",
+        "binding_v2_seed202.itf.json",
+        "binding_v2_seed303.itf.json",
+        "gc_ffi_v2_seed101.itf.json",
+        "gc_ffi_v2_seed202.itf.json",
+        "gc_ffi_v2_seed303.itf.json",
+        "mutant_reorder_cex.itf.json",
+        "mutant_raw_f64_cex.itf.json",
+        "mutant_missed_ffi_cex.itf.json",
+        "smp_mig_wills_v2.itf.json",
+        "smp_buggy_unpinned_migration_cex.itf.json",
+        "smp_buggy_clobber_r1_cex.itf.json",
+        "smp_buggy_reentrant_will_mutex_cex.itf.json",
+    ]
+    if all((ITF_DIR / name).is_file() for name in required):
+        return ITF_DIR, None
+    quint_bin = shutil.which("quint")
+    if not quint_bin:
+        return None, None
+    td = tempfile.TemporaryDirectory(prefix="quint-v2-itf-")
+    out_dir = Path(td.name)
+    binding_spec = QUINT_V2_DIR / "binding_read_activation_v2.qnt"
+    gc_ffi_spec = QUINT_V2_DIR / "gc_ffi_worker_domain_v2.qnt"
+    smp_spec = QUINT_V2_DIR / "smp_migration_and_wills_v2.qnt"
+    for seed in (101, 202, 303):
+        _generate_itf_trace(
+            quint_bin, binding_spec, "binding_read_activation_v2",
+            out_dir / f"binding_v2_seed{seed}.itf.json", seed=seed, max_samples=1, max_steps=20,
+        )
+        _generate_itf_trace(
+            quint_bin, gc_ffi_spec, "gc_ffi_worker_domain_v2",
+            out_dir / f"gc_ffi_v2_seed{seed}.itf.json", seed=seed, max_samples=1, max_steps=20,
+        )
+    _generate_itf_trace(
+        quint_bin, binding_spec, "binding_read_activation_v2_buggy_reorder",
+        out_dir / "mutant_reorder_cex.itf.json", step_action="buggyStep", seed=101, max_samples=500, max_steps=25, expect_violation=True,
+    )
+    _generate_itf_trace(
+        quint_bin, gc_ffi_spec, "gc_ffi_v2_buggy_raw_f64",
+        out_dir / "mutant_raw_f64_cex.itf.json", step_action="buggyStep", seed=101, max_samples=500, max_steps=25, expect_violation=True,
+    )
+    _generate_itf_trace(
+        quint_bin, gc_ffi_spec, "gc_ffi_v2_buggy_missed_ffi_root",
+        out_dir / "mutant_missed_ffi_cex.itf.json", step_action="buggyStep", seed=101, max_samples=500, max_steps=25, expect_violation=True,
+    )
+    _generate_itf_trace(
+        quint_bin, smp_spec, "smp_migration_and_wills_v2",
+        out_dir / "smp_mig_wills_v2.itf.json", seed=101, max_samples=1, max_steps=20,
+    )
+    _generate_itf_trace(
+        quint_bin, smp_spec, "smp_buggy_unpinned_migration",
+        out_dir / "smp_buggy_unpinned_migration_cex.itf.json", step_action="buggyStep", seed=101, max_samples=500, max_steps=25, expect_violation=True,
+    )
+    _generate_itf_trace(
+        quint_bin, smp_spec, "smp_buggy_clobber_r1",
+        out_dir / "smp_buggy_clobber_r1_cex.itf.json", step_action="buggyStep", seed=101, max_samples=500, max_steps=25, expect_violation=True,
+    )
+    _generate_itf_trace(
+        quint_bin, smp_spec, "smp_buggy_reentrant_will_mutex",
+        out_dir / "smp_buggy_reentrant_will_mutex_cex.itf.json", step_action="buggyStep", seed=101, max_samples=500, max_steps=25, expect_violation=True,
+    )
+    return out_dir, td
+
+
 class QuintV2MbtAndAscentRoutingTest(unittest.TestCase):
+    _itf_dir: Path | None = None
+    _itf_tmpdir: tempfile.TemporaryDirectory[str] | None = None
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._itf_dir, cls._itf_tmpdir = _resolve_or_generate_itf_dir()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._itf_tmpdir is not None:
+            cls._itf_tmpdir.cleanup()
+            cls._itf_tmpdir = None
+
+    def _require_itf_dir(self) -> Path:
+        if self._itf_dir is None:
+            self.skipTest("Quint ITF traces unavailable and quint CLI not on PATH")
+        return self._itf_dir
+
     def test_quint_v2_safe_itf_traces_pass_invariants(self) -> None:
+        itf_dir = self._require_itf_dir()
         for seed in (101, 202, 303):
-            b_trace = parse_itf_trace(ITF_DIR / f"binding_v2_seed{seed}.itf.json")
+            b_trace = parse_itf_trace(itf_dir / f"binding_v2_seed{seed}.itf.json")
             b_res = check_binding_v2_itf_invariants(b_trace)
             self.assertTrue(b_res["safe"], f"binding seed {seed} failed: {b_res['violations']}")
             self.assertGreater(b_res["stateCount"], 5)
 
-            g_trace = parse_itf_trace(ITF_DIR / f"gc_ffi_v2_seed{seed}.itf.json")
+            g_trace = parse_itf_trace(itf_dir / f"gc_ffi_v2_seed{seed}.itf.json")
             g_res = check_gc_ffi_v2_itf_invariants(g_trace)
             self.assertTrue(g_res["safe"], f"gc_ffi seed {seed} failed: {g_res['violations']}")
             self.assertGreater(g_res["stateCount"], 5)
 
     def test_quint_v2_mutant_counterexample_traces_detected(self) -> None:
+        itf_dir = self._require_itf_dir()
         # Mutant 1: writer publishes primFlag before primCellAddr
-        t1 = parse_itf_trace(ITF_DIR / "mutant_reorder_cex.itf.json")
+        t1 = parse_itf_trace(itf_dir / "mutant_reorder_cex.itf.json")
         r1 = check_binding_v2_itf_invariants(t1)
         self.assertFalse(r1["safe"])
         invs1 = {v["invariant"] for v in r1["violations"]}
@@ -60,14 +189,14 @@ class QuintV2MbtAndAscentRoutingTest(unittest.TestCase):
         )
 
         # Mutant 2: unscrubbed RawF64 scanned by GC (v10 thread_state.scm bug)
-        t2 = parse_itf_trace(ITF_DIR / "mutant_raw_f64_cex.itf.json")
+        t2 = parse_itf_trace(itf_dir / "mutant_raw_f64_cex.itf.json")
         r2 = check_gc_ffi_v2_itf_invariants(t2)
         self.assertFalse(r2["safe"])
         invs2 = {v["invariant"] for v in r2["violations"]}
         self.assertIn("noRawF64ScannedByGc", invs2)
 
         # Mutant 3: missed FFI root slot while object stays alive via other root
-        t3 = parse_itf_trace(ITF_DIR / "mutant_missed_ffi_cex.itf.json")
+        t3 = parse_itf_trace(itf_dir / "mutant_missed_ffi_cex.itf.json")
         r3 = check_gc_ffi_v2_itf_invariants(t3)
         self.assertFalse(r3["safe"])
         invs3 = {v["invariant"] for v in r3["violations"]}
@@ -77,7 +206,8 @@ class QuintV2MbtAndAscentRoutingTest(unittest.TestCase):
         )
 
     def test_quint_v2_smp_migration_and_wills_safe_and_mutants(self) -> None:
-        safe_trace = parse_itf_trace(ITF_DIR / "smp_mig_wills_v2.itf.json")
+        itf_dir = self._require_itf_dir()
+        safe_trace = parse_itf_trace(itf_dir / "smp_mig_wills_v2.itf.json")
         r_safe = check_smp_migration_wills_v2_itf_invariants(safe_trace)
         self.assertTrue(r_safe["safe"], r_safe["violations"])
 
@@ -87,14 +217,16 @@ class QuintV2MbtAndAscentRoutingTest(unittest.TestCase):
             ("smp_buggy_reentrant_will_mutex_cex.itf.json", "noWillMutexSelfDeadlock"),
         ]
         for fname, inv_name in expected_kills:
-            cex = parse_itf_trace(ITF_DIR / fname)
+            cex = parse_itf_trace(itf_dir / fname)
             res = check_smp_migration_wills_v2_itf_invariants(cex)
             self.assertFalse(res["safe"], f"{fname} should violate {inv_name}")
             self.assertIn(inv_name, {v["invariant"] for v in res["violations"]})
 
+    @unittest.skipUnless(_HAS_OPT_RUNTIME, "requires pre-built native runtime at .cache/tasks/family7-gambit-opt/runtime")
     def test_live_itf_mbt_replay_against_gambit_smp_p2(self) -> None:
+        itf_dir = self._require_itf_dir()
         replay = replay_binding_itf_against_gambit(
-            ITF_DIR / "binding_v2_seed101.itf.json",
+            itf_dir / "binding_v2_seed101.itf.json",
             OPT_RUNTIME,
             processors=2,
         )
@@ -139,6 +271,7 @@ class QuintV2MbtAndAscentRoutingTest(unittest.TestCase):
             self.assertIn("fudge-zone-thrash-guard", {v["rule"] for v in res_thrash["violations"]})
             self.assertEqual(res_thrash["maxConsecutiveSlowGrantsWithoutGc"], 40)
 
+    @unittest.skipUnless(_HAS_OPT_RUNTIME, "requires pre-built native runtime at .cache/tasks/family7-gambit-opt/runtime")
     def test_f6rest01_reverse_trace_validation_on_live_native_o1_trace(self) -> None:
         # Capture a genuine binary F6REST01 wire trace directly from compiled 45d83511 runtime!
         from gambit_smp.stress_gsc_link4 import _init_wire_trace_file
@@ -188,18 +321,21 @@ class QuintV2MbtAndAscentRoutingTest(unittest.TestCase):
         self.assertTrue({"cbmc-weak-mm", "genmc", "clang-tsan", "quint-mbt", "gambit-multicore-pbt"} <= all_p02_tools)
         self.assertTrue(p02["multiEngineRequired"])
 
-        # Wire-trace obligation routes to quint-trace-val
+        # Wire-trace obligation routes to quint-trace-val and lean4 (lean4 may be
+        # in optionalUninstalledTools on CI runners that only install Quint).
         f67 = plan["routing"]["f6-f7-write-group-rest-cut"]
+        all_f67_tools = set(f67["executableTools"]) | set(f67["optionalUninstalledTools"])
         self.assertIn("quint-trace-val", f67["executableTools"])
-        self.assertIn("lean4", f67["executableTools"])
+        self.assertIn("lean4", all_f67_tools)
 
-        # 2. Simulated environment WITH genmc installed: genmc moves automatically to executableTools
+        # 2. Simulated environment WITH genmc + lean4 installed: all move to executableTools
         with_genmc = route_multicore_obligations(
             ROOT,
             installed_tools=["cbmc-weak-mm", "genmc", "clang-tsan", "quint-mbt", "quint-trace-val", "lean4", "gambit-multicore-pbt"],
         )
         self.assertIn("genmc", with_genmc["routing"]["p0-2-binding-read-activation"]["executableTools"])
         self.assertEqual(with_genmc["routing"]["p0-2-binding-read-activation"]["optionalUninstalledTools"], [])
+        self.assertIn("lean4", with_genmc["routing"]["f6-f7-write-group-rest-cut"]["executableTools"])
 
 
 if __name__ == "__main__":

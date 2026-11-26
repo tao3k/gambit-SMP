@@ -181,7 +181,9 @@ def emitter_loader_identity(path, run=capture_command):
         output = run(["readelf", "-d", str(path)])
         libraries = re.findall(r"\(NEEDED\).*?\[([^\]]+)\]", output)
         if ("(RPATH)" in output or "(RUNPATH)" in output
-                or any(not re.fullmatch(r"lib(?:c|m|dl|pthread|rt|util|gcc_s)\.so(?:\.\d+)*", name)
+                or any(not re.fullmatch(
+                    r"(?:lib(?:c|m|dl|pthread|rt|util|gcc_s)|ld-linux(?:-[a-z0-9_]+)?)\.so(?:\.\d+)*",
+                    name)
                        for name in libraries)):
             raise ValueError("witnessed emitter must use the static Gambit profile and system libraries")
     else:
