@@ -34,14 +34,14 @@ def _historical_stage_dir(ctx):
 
 
 def _git_historical_blob(root, orig):
-    import subprocess
+    from gambit_smp import task_processes
     for rev in _HISTORICAL_GIT_REVISIONS:
-        probe = subprocess.run(
+        probe = task_processes.run(
             ["git", "-C", str(root), "cat-file", "-e", f"{rev}:{orig}"],
             capture_output=True,
         )
         if probe.returncode == 0:
-            blob = subprocess.run(
+            blob = task_processes.run(
                 ["git", "-C", str(root), "cat-file", "blob", f"{rev}:{orig}"],
                 capture_output=True,
                 check=True,
