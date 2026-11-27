@@ -49,7 +49,7 @@ def process(pid):
         boot=int(next(line.split()[1] for line in Path('/proc/stat').read_text().splitlines() if line.startswith('btime ')))
         return dict(pid=int(pid),ppid=int(fields[1]),pgid=int(fields[2]),uid=Path(f'/proc/{pid}').stat().st_uid,
                     startTicks=ticks,startSeconds=boot+ticks//hz,startMicroseconds=(ticks%hz)*1000000//hz,method='proc-stat-starttime')
-    except FileNotFoundError:return None
+    except (FileNotFoundError,ProcessLookupError):return None
 
 
 def pids(uid=None,*,pgid=None):
@@ -192,7 +192,7 @@ def resident_bytes(identity):
         value=int(info.resident_size)
     else:
         try:value=int(Path(f'/proc/{pid}/statm').read_text().split()[1])*os.sysconf('SC_PAGE_SIZE')
-        except FileNotFoundError:return None
+        except (FileNotFoundError,ProcessLookupError):return None
     return value if same_birth(identity,process(pid)) else None
 
 
