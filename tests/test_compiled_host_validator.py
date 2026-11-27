@@ -247,8 +247,8 @@ ___END_P_COD
         harness = (ROOT / "tests/contracts/modern-c/compiled-host/source-bound-macro-equiv/harness.c").read_text()
         sync_specs = [
             ("vendor/gambit/include/_gambit/object_access.h.in", 31, 44, "object_access"),
-            ("vendor/gambit/include/_gambit/runtime_protocols.h.in", 1231, 1249, "runtime_protocols_commit"),
-            ("vendor/gambit/include/_gambit/runtime_protocols.h.in", 1265, 1275, "runtime_protocols_gate2"),
+            ("vendor/gambit/include/_gambit/runtime_protocols.h.in", 1438, 1456, "runtime_protocols_commit"),
+            ("vendor/gambit/include/_gambit/runtime_protocols.h.in", 1472, 1482, "runtime_protocols_gate2"),
         ]
         for rel, start, end, tag in sync_specs:
             with self.subTest(tag=tag):

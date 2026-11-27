@@ -96,7 +96,7 @@ class CompositionProjectionTest(unittest.TestCase):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(ROOT / name, path)
             path = target / 'vendor/gambit/lib/_mem/collection-round.inc'
-            text = path.read_text().replace('___RESUME(___vms,worker_id).restored=1;',
+            text = path.read_text().replace('___RESUME(___vms,proc_id).restored=1;',
                                             '/* missing restored publication */', 1)
             path.write_text(text)
             with self.assertRaises(ValueError):

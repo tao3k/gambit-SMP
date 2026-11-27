@@ -16,15 +16,15 @@ from ascent import Engine
 SOURCE_OBLIGATIONS = {
     "production-barrier": {
         "vendor/gambit/lib/_mem/collection-round.inc": (
-            "move_continuation(___PSPNC);", "___RESUME(___vms,worker_id).restored=1;",
-            "BARRIER();", "free_unmarked_still_objs(___PSPNC);", "BARRIER();",
-            "___RESUME(___vms,worker_id).source_drained=1;", "BARRIER();",
+            "move_continuation(___PSPNC);", "___RESUME(___vms,proc_id).restored=1;",
+            "BARRIER();", "free_unmarked_still_objs(___PSPNC);",
+            "___RESUME(___vms,proc_id).source_drained=1;", "BARRIER();",
             "retire_drained_source_claims(___ROOT_UNION(___vms),the_msections,rc_epoch)",
         ),
         "vendor/gambit/lib/_mem/heap-sections.inc": (
             "___BOOL retire_drained_source_claims", "round->participants!=round->collection.participant_count",
             "resume->source_half!=source", "!resume->source_drained",
-            "retire_section_claims(sections,source);",
+            "retire_section_claims(sections, source, is_minor);",
         ),
         "vendor/gambit/lib/setup.h": ("#define BARRIER() barrier_sync_noop (___PSPNC)",),
         "vendor/gambit/lib/setup.c": (
@@ -66,8 +66,8 @@ SOURCE_OBLIGATIONS = {
         "vendor/gambit/include/_gambit/stack_operations.h.in": (
             "#define ___R_HEAP_EXPR ___hp=___PSHEAP",),
         "vendor/gambit/lib/_thread.c": (
-            "#define ___PH_PROC ___H__23__23_thread_2d_join_2d_wait_21_",
-            "___SET_STK(1,___ALLOC_CLO(4UL))", "___CHECK_HEAP(2,4096)",
+            "#define ___PH_PROC ___H__23__23_tcp_2d_service_2d_register_21_",
+            "___SET_STK(1,___ALLOC_CLO(4UL))", "___CHECK_HEAP(3,4096)",
         ),
         "vendor/gambit/lib/_thread.scm": (
             "(define-prim (##thread-join-wait! thread timeout)",
@@ -131,7 +131,7 @@ SOURCE_OBLIGATIONS = {
         ),
         "vendor/gambit/lib/_mem/configuration.inc": (
             "#define words_movable_objs(ps)", "(2*(ps->mem.words_prev_msections_",
-            "#define bytes_occupied(ps)", "words_movable_objs(___ps)) * ___WS)",
+            "#define bytes_occupied(ps)", "words_movable_objs(ps)) * ___WS)",
         ),
         "vendor/gambit/lib/_mem/allocation-statistics.inc": (
             "___F64 ___bytes_allocated", "bytes_allocated_minus_occupied + bytes_occupied(___ps)",
@@ -148,7 +148,7 @@ SOURCE_OBLIGATIONS = {
         ),
         "vendor/gambit/include/_gambit/gvm_operations.h.in": (
             "#define ___THREAD_SAVE", "___ps->context->stack_break = ___fp;",
-            "___CONTINUATION_FRAME_FIELD(___THREAD_CONT_FIELD(thread)) = frame;",
+            "___CONTINUATION_FRAME_FIELD(___wbc) = frame;",
             "#define ___CONTINUATION_CAPTURE", "frame = ___CAST(___SCMOBJ,___fp);",
             "___SET_STK(-___BREAK_FRAME_NEXT,frame)", "___ps->context->stack_break = ___fp;",
         ),
@@ -181,7 +181,7 @@ SOURCE_OBLIGATIONS = {
             "if (slot==frame.link+1 ||", "___FP_SET_STK(base,slot,value)",
             "___WORD ___continuation_next_stack", "section=lock_source_stack_frame(",
             "source_break_agrees(base,known_break,next)", "___FP_SET_STK(base,-___FRAME_STACK_RA,next)",
-            "___CONTINUATION_FRAME_FIELD(cont)=successor;", "___gc_copy_release(&section->copy_gate)",
+            "___WORD_STORE_RELAXED(&___CONTINUATION_FRAME_FIELD(cont), successor);", "___gc_copy_release(&section->copy_gate)",
         ),
     },
     "binding-provenance": {

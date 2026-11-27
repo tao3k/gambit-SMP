@@ -171,7 +171,7 @@ static mock_gstate g_state_obj;
 #define ___REST_OBS_POP(fp) ___EXT(___rest_observation_pop_fast)((fp))
 #endif
 /* END_SYNC: object_access */
-/* BEGIN_SYNC: vendor/gambit/include/_gambit/runtime_protocols.h.in:1231-1249 */
+/* BEGIN_SYNC: vendor/gambit/include/_gambit/runtime_protocols.h.in:1438-1456 */
 #if defined(___BIND_LATE) && !defined(___CAN_IMPORT_DYNAMICALLY)
 #define ___GROUP_DEMAND_COMMIT_CALL(ps,point,attempt) \
   ___EXT(___group_demand_commit)((ps),(point),(attempt))
@@ -179,7 +179,7 @@ static mock_gstate g_state_obj;
 #define ___GROUP_DEMAND_COMMIT_CALL(ps,point,attempt) \
   (___group_demand_commit)((ps),(point),(attempt))
 #endif
-#if !defined(___LBLCOUNT) || (___LBLCOUNT < 6000)
+#if !defined(___LBLCOUNT) || (___LBLCOUNT < 3000)
 #ifdef ___GAMBIT_REST_OBSERVATION
 #define ___group_demand_commit(ps,point,attempt) \
   do { if (__builtin_expect((attempt) != 0 || ___REST_OBS_ACTIVE, 0)) ___GROUP_DEMAND_COMMIT_CALL((ps),(point),(attempt)); } while (0)
@@ -192,8 +192,8 @@ static mock_gstate g_state_obj;
   ___GROUP_DEMAND_COMMIT_CALL((ps),(point),(attempt))
 #endif
 /* END_SYNC: runtime_protocols_commit */
-/* BEGIN_SYNC: vendor/gambit/include/_gambit/runtime_protocols.h.in:1265-1275 */
-#if !defined(___LBLCOUNT) || (___LBLCOUNT < 6000)
+/* BEGIN_SYNC: vendor/gambit/include/_gambit/runtime_protocols.h.in:1472-1482 */
+#if !defined(___LBLCOUNT) || (___LBLCOUNT < 3000)
 #define ___GATE2_OPEN(ps,proc,label,point,fp) \
   do { if (__builtin_expect(___REST_OBS_ACTIVE, 0)) ___EXT(___gate2_group_site)(ps,proc,label,point,fp,1); } while (0)
 #define ___GATE2_ENTER(ps,proc,label,point,fp) \
