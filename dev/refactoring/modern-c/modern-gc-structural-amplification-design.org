@@ -1,0 +1,291 @@
+#+TITLE: Gambit SMP Modern GC & Multicore Runtime Structural Amplification Design (Post-Phase A/B/C)
+#+AUTHOR: Gambit SMP Architecture Research
+#+OPTIONS: toc:3 num:t
+
+* 1. Purpose, Scope, and Non-Collision Boundary
+
+This document defines the *structural amplification layer* above the sibling
+Phase A/B/C Modern GC baseline (=vendor/gambit= =35f805d6=,
+=docs/modern-gc-architecture-rfc.md=, and =big_oldgen_chez_immix.qnt=).
+
+Its mandate is to answer one architectural question with primary-source rigor:
+*how do we systematically amplify throughput, tail latency, multi-core scaling,
+and multi-process RSS efficiency across Gambit SMP and Gerbil SMP without
+introducing read barriers or breaking Gambit's C/FFI and multi-shot =call/cc=
+contracts?*
+
+All research inputs in this document are anchored to:
+- 16 newly verified, SHA-256-pinned primary academic PDFs in
+  =evidence/papers-modern-gc-architecture.json= and
+  =evidence/papers-modern-gc-architecture.lock.json=, with reviewed chapter
+  notes under =docs/papers/{ocaml5-retropar-2020,ocaml5-memory-and-effects,lxr-immix-and-g1,local-heaps-dlg-marlow,chez-racket-and-membalancer,workstealing-and-polling,evented-io-kqueue-epoll}.md=.
+- Complete paper progress ledger and machine-checkable evidence chain in
+  =dev/refactoring/modern-c/modern-gc-paper-progress-and-evidence-chain.org=,
+  =dev/modeling/inputs/papers-modern-gc-amplification.json=, and
+  =evidence/modern-gc-amplification-verification-receipt.json=.
+- Direct local runtime audits of:
+  - *OCaml 5.5.1*: =vendor/ocaml/runtime/{shared_heap,major_gc,minor_gc,domain,fiber,memory}.c= and =caml/{address_class,sizeclasses,minor_gc}.h=.
+  - *Chez Scheme 10.0*: =vendor/chez/c/{segment.c,segment.h,gc.c}=.
+  - *Erlang/OTP 28*: =vendor/erlang-otp/erts/emulator/beam/erl_gc.c=.
+  - *Gambit SMP Phase A3*: =vendor/gambit/lib/_mem/local-nursery.inc= (lines 1–737).
+
+** Non-Collision Boundary
+This design and its four companion formal models (=modern-gc-amplification.sysml=,
+=modern_gc_amplification_v2.qnt=, =ModernGcAmplificationRefinement.lean=, and
+=modern_gc_amplification_pso.c=) are strictly additive. They do not modify any
+active Phase A/B/C C source file, release-seal branch, or existing manifest/lock.
+
+* 2. Empirical Baseline & Residual Bottleneck Diagnosis
+
+Measured on Apple M2 Pro (12 cores: 8P + 4E, =phase-a3-escape-reset= vs Rust
+Tokio+Rayon in =.cache/benchmarks/*/comparison_w12.json=):
+
+| Benchmark | p12 Time | Speedup (p1->p12) | GC Share | Ratio vs Rust | Dominant Residual Bottleneck |
+|-----------+----------+-------------------+----------+---------------+------------------------------|
+| =par_compute_fib= | 0.1157s | 8.27x | ~0% | 1.5x | Pure compute (near parity) |
+| =par_gc_pause_live_heap= | 0.0112s | 5.88x | 5.4% | *0.6x (beats Rust)* | Phase B/C concurrent major mark working well |
+| =par_rest_alloc_m65536= | 0.0368s | 4.40x | 19.5% | 2.9x | Rest-arg allocation + nursery churn + STW entry |
+| =par_alloc_gc_m65536= | 0.0290s | 2.90x | *38.9%* | *4.0x* | Local nursery aborts, =ALLOC_MEM_LOCK()= in local still GC, mixed movable+still fallback |
+| =par_sync_mailbox_cas= | 0.0508s | 0.16x | — | 3.7x | Contended scheduler/mailbox handoff & wakeup |
+
+Audit of =vendor/gambit/lib/_mem/local-nursery.inc= exposes the exact structural
+causes of the 38.9% GC tax on =par_alloc_gc_m65536=:
+1. =try_local_young_still_gc= still takes the global =ALLOC_MEM_LOCK()= mutex on
+   every local sweep (=local-nursery.inc:371-376=) to update
+   =occupied_words_still=, serializing independent cores.
+2. =try_local_movable_nursery_gc= caps survivors at =___LOCAL_MOV_MAX_LIVE = 200=,
+   double-copies survivors through a 32 KiB stack scratch buffer
+   (=___LOCAL_MOV_SCRATCH_WORDS = 4096=, =heap -> scratch -> heap=), and *aborts*
+   whenever =young_still_objs_ != 0= — preventing mixed movable+still workloads
+   from staying local.
+3. Both local paths use a binary =local_young_escaped_ != 0= latch: a single
+   escaped young object permanently disables local GC on that processor until
+   the next global STW.
+4. Across the write barrier and concurrent major mark loop, Gambit still calls
+   =find_msection()= / =___gc_find_msection_cached()= (=O(log M)= binary search
+   over =ms->sections[]=) and performs naive pointer-chasing marking without
+   software prefetch decoupling.
+
+* 3. The Eight Structural Amplification Levers
+
+Ranked by expected amplification impact on Gambit SMP + Gerbil SMP workloads:
+
+** Lever 1 (Amp-1): Lock-Free Unified Movable+Still Local Nursery + Bounded Escape Promotion
+- *Literature & Vendor Anchor*: Marlow & Peyton Jones ISMM '11 (§4.4, §5.3, §6.2.3:
+  hybrid movable nursery + Immix-style sticky heap; +73% median throughput under
+  oversubscribed/heterogeneous cores; warning against +92.6% viral transitive
+  promotion); OCaml 5.5.1 =minor_gc.c=.
+- *Mechanism*:
+  1. Replace global =ALLOC_MEM_LOCK()= in =try_local_young_still_gc= with a
+     lock-free per-processor =still_words_delta= counter flushed atomically via
+     =atomic_fetch_add_explicit(..., memory_order_release)= when exceeding a
+     chunk threshold (e.g. 64 KiB) or at STW.
+  2. Unify movable and young-still local GC into a single processor-local minor
+     pass: promote surviving movable objects directly into the processor's
+     creator-owned mature Immix msection (zero 32 KiB stack scratch double-copy,
+     zero 200-object cap!) while sweeping dead local young-still blocks in the
+     same pass.
+  3. Adopt Marlow's =Global=-block skip optimization: once a young-still block
+     escapes to shared state, mark it =STILL_BLOCK_GLOBAL= so subsequent local
+     sweeps skip it in =O(1)= instead of aborting local GC or re-scanning it.
+  4. Replace the binary =local_young_escaped_= abort latch with a bounded
+     per-processor escape-promotion budget (promote escaped objects + immutable
+     closure up to =K= words per epoch; only fall back to global STW if budget
+     exhausted), avoiding viral transitive promotion of mutable graphs.
+- *Formal Verification*: =modern_gc_amplification_v2.qnt= (unified local pass +
+  escaped-still protection + Mutants 3 & 4); =modern_gc_amplification_pso.c=
+  (lock-free =still_words_delta= accounting + Mutant C).
+
+** Lever 2 (Amp-1): Contiguous Virtual Nursery Arena + O(1) Radix/Aligned Msection Directory
+- *Literature & Vendor Anchor*: OCaml 5.5.1 =caml/address_class.h:55=
+  (=Is_young(v)= = 2 pointer compares, zero memory loads); Chez Scheme 10.0
+  =vendor/chez/c/segment.h:29-38= (O(1) multi-level radix =SegInfo(i)=).
+- *Mechanism*:
+  1. Reserve a single contiguous virtual address span =[nursery_base, nursery_end)=
+     at VM startup (using =mmap(PROT_NONE)= / =VirtualAlloc(MEM_RESERVE)= and
+     committing per-processor slices on demand). Checking whether any pointer is
+     young becomes a single unsigned range check:
+     =(uintptr_t)(p - nursery_base) < nursery_span= — zero table lookups and
+     zero branch mispredictions!
+  2. Align mature =msection= allocations to a power-of-two chunk boundary (e.g.,
+     512 KiB or 2 MiB) or index them via a Chez-style 2-level radix table so
+     resolving an object's =msection= descriptor and card/line metadata in both
+     the write barrier and concurrent major mark loop is strict =O(1)= (bitmask
+     or 2 table loads) instead of =O(log M)= binary search in =find_msection()=.
+- *Formal Verification*: =ModernGcAmplificationRefinement.lean= (unbounded
+  uniqueness and disjointness of contiguous virtual arena ownership) + hardware
+  micro-benchmark in =.cache/tasks/arch-amplification-bench/=.
+
+** Lever 3 (Amp-2): OCaml-5 256-Entry Software Prefetch Ring + Compressed =addrmap= Mark Stack
+- *Literature & Vendor Anchor*: OCaml 5.5.1 =vendor/ocaml/runtime/major_gc.c:159-236, 1423-1549=
+  (=prefetch_buffer_t=, =PREFETCH_BUFFER_MIN = 64=, dual-cacheline
+  =prefetch_block(v)=, and =mark_stack_prune= compressed =addrmap=).
+- *Mechanism*:
+  1. Concurrent and parallel major marking on large Gerbil/Gambit heaps (>16 MiB)
+     is DRAM pointer-chasing latency-bound (~60–100 ns per LLC miss). Insert a
+     processor-local 256-entry FIFO prefetch ring between popping a child
+     pointer and dereferencing its header/fields: enqueueing issues
+     =__builtin_prefetch(child_hdr, 0, 1)= and =__builtin_prefetch(child + 3, 0, 1)=
+     and only pops for scanning once ring occupancy >= 64 (or draining at mark
+     end), keeping ~64 independent memory requests in flight across the CPU's
+     line fill buffers (MLP).
+  2. Bound mark-stack memory under deep/wide graphs by compressing overflow
+     mark-stack pages into an OCaml-style per-msection word-granularity bitset
+     (=addrmap=), permanently ruling out historical 768 MiB mark-queue blowups.
+- *Hardware Micro-Benchmark*: Measured directly on Apple M2 Pro in Section 5.
+
+** Lever 4 (Amp-2): Opportunistic Major GC Slices During STW Entry Spin (Hybrid P+E Core Amplifier)
+- *Literature & Vendor Anchor*: OCaml 5.5.1 =vendor/ocaml/runtime/domain.c:1814-1930=
+  (=caml_try_run_on_all_domains_with_spin_work= and =enter_spin_callback=);
+  Feeley FPCA '93 balanced polling.
+- *Mechanism*:
+  - On hybrid Apple Silicon (8P + 4E) and oversubscribed CI VMs, fast P-cores
+    frequently arrive at STW minor-GC or remark barriers microseconds to
+    milliseconds ahead of E-cores or OS-preempted peers.
+  - While polling for remaining peers in =STW_PHASE_ENTERING=, an arrived core
+    executes short bounded concurrent major mark/sweep slices (e.g., 64 objects
+    per slice) before re-checking the arrival counter.
+  - Strict protocol contract: spin-work MUST check =stw_phase == ENTERING= and
+    publish =spin_work_active = 0= with release ordering BEFORE incrementing the
+    STW-ready barrier; the STW coordinator MUST observe all peers arrived and
+    =spin_work_active == 0= with acquire ordering before flipping major-GC color
+    or phase state.
+- *Formal Verification*: =modern_gc_amplification_v2.qnt= (Mutant 5),
+  =ModernGcAmplificationRefinement.lean= (phase disjointness theorem), and
+  =modern_gc_amplification_pso.c= (PSO fence check + Mutant A).
+
+** Lever 5 (Amp-2): Incremental Stack-Frame Watermark Scanning
+- *Literature & Vendor Anchor*: OCaml 5.5.1 =vendor/ocaml/runtime/fiber.c:285-293=
+  (=SCANNING_ONLY_RECENT_FRAMES=, =Already_scanned= / =Mark_scanned=);
+  Sivaramakrishnan et al. PLDI '21 (§5.2–5.4).
+- *Mechanism*:
+  - Deep recursive Scheme code and Gerbil macro-expansion/compilation build deep
+    continuation stacks where older frames rarely change between minor GCs.
+  - Maintain a per-processor =stack_scanned_watermark= (or per-frame scanned
+    mark bit). Minor GC scans frames from top-of-stack downward and stops upon
+    reaching =stack_scanned_watermark=.
+  - Soundness invariant: returning below the watermark, mutating a stack slot at
+    depth =<= watermark=, or reinstating/unwinding a multi-shot =call/cc=
+    continuation resets =stack_scanned_watermark= to the modified/unwound frame
+    boundary. Minor GC root scanning drops from =O(stack depth)= to
+    =O(new frames since last minor GC)=.
+- *Formal Verification*: =modern_gc_amplification_v2.qnt= (Mutant 6) and
+  =ModernGcAmplificationRefinement.lean= (watermark soundness theorem).
+
+** Lever 6 (Amp-3): LXR SATB-with-Interruptions + Line-Reuse-Counter Remset Safety + Initializing-Store Elision
+- *Literature & Vendor Anchor*: Zhao, Blackburn, McKinley PLDI '22 (LXR §3.1–3.4:
+  1.6% unified field-logging barrier, 2-bit side-table RC, SATB-with-interruptions,
+  line reuse counter); Zhao & Blackburn VEE '20 (avoiding G1's 12.4% dual
+  barrier); Dolan et al. PLDI '18 (§8.1: zero-cost initializing stores via
+  minor-GC/promotion fence).
+- *Mechanism*:
+  1. Enforce LXR's *SATB-with-interruptions* safety invariant across Gambit's
+     concurrent SATB major GC and any prompt/minor reclamation path: no unmarked
+     mature object may be deleted while =satb_active == true=.
+  2. Attach a compact monotonic =line_reuse_epoch= (e.g., 16-bit counter per
+     Immix line or per msection recycling generation) checked whenever deferred
+     remembered-set / dirty-card entries are scanned, preventing stale entries
+     from misinterpreting freshly recycled lines.
+  3. Elide SATB/generational write barriers on compiler-known initializing
+     stores to freshly allocated objects (=caml_initialize= / Dolan §8.1),
+     relying on the existing promotion/STW release fence.
+- *Formal Verification*: =modern_gc_amplification_v2.qnt= (Mutants 1 & 2),
+  =ModernGcAmplificationRefinement.lean= (unbounded SATB snapshot preservation &
+  stale remset rejection theorems), and =modern_gc_amplification_pso.c= (seqlock
+  line-reuse PSO check + Mutant B).
+
+** Lever 7 (Amp-3): Chez-Style Immortal / Static Generation + Immix Demand-Driven Overflow Block
+- *Literature & Vendor Anchor*: Chez Scheme 10.0 =vendor/chez/c/gc.c:37, 855, 1949=
+  (=static_generation=); Blackburn & McKinley PLDI '08 (Immix §3.1.1 demand-driven
+  overflow block, §5.4 Tables 3–4).
+- *Mechanism*:
+  1. Promote permanently live boot/compiler structures (=lib/_gambit#.scm=
+     globals, Gerbil expander/symbol/module tables) into a =GEN_STATIC= cohort
+     after initial load or after surviving =N= major cycles. Major marking skips
+     =GEN_STATIC= entirely unless a dirty-card write barrier flags an incoming
+     mutation to a non-static object, cutting steady-state major mark volume on
+     multi-unit Gerbil compilation.
+  2. Pair recycled mature Immix msections with a per-processor clean *overflow*
+     msection: when a promoted medium object does not fit the current line hole
+     in a recycled msection, divert it to the overflow msection instead of
+     abandoning remaining small holes in the recycled msection.
+
+** Lever 8 (Amp-4): Compositional =(L, g, s)= MemBalancer + OCaml-5 Global Work Pacing + Off-Heap Immutable RefC Binaries
+- *Literature & Vendor Anchor*: Kirisame, Shenoy, Panchekha OOPSLA '22
+  (MemBalancer Eq. 2: =M = L + sqrt(L * g / (c * s))=, EWMA =alpha_g = 0.95=,
+  =alpha_s = 0.5=, 30% GC time or 8.2%–16% heap savings; Racket 8.5 deployment
+  -10% build RSS); OCaml 5.5.1 =major_gc.c:862-1057= (=alloc_counter=/=work_counter=);
+  Erlang/OTP 28 =erl_gc.c= (off-heap =ProcBin= + =shrink_new_heap=);
+  Racket-on-Chez ICFP '19 (§4.3 immutability tag bit, §4.6 phantom byte strings).
+- *Mechanism*:
+  1. Replace static live-percent heuristics with MemBalancer's exact
+     compositional controller:
+     =M = L* + max(E_min, sqrt(L* * (g_m*/g_t*) / (c * (s_m*/s_t*)))) + M_nursery=
+     sampled at minor-GC/safepoint boundaries (zero extra OS heartbeat thread).
+     Across 8 parallel =gsc= / Gerbil build processes, this coordinates memory
+     budgets *without inter-process communication*, giving fast-allocating
+     processes headroom while shrinking idle/slow processes automatically.
+  2. Pair MemBalancer's heap limit with OCaml 5's global =alloc_counter= /
+     =work_counter= concurrent mark pacing (plus phantom external-memory bytes
+     for FFI buffers) so concurrent major GC always finishes ahead of =M=
+     without emergency STW fallback.
+  3. Behind an explicit immutability tag bit (Chez ICFP '19 §4.3), allow large
+     immutable =u8vector= / string payloads (> 1 KiB) to back onto off-heap
+     atomically ref-counted buffers (Erlang 28 =ProcBin= style), eliminating
+     repeated copying and GC scanning of large read-only byte payloads across
+     SMP threads.
+- *Formal Verification*: =ModernGcAmplificationRefinement.lean= proves
+  MemBalancer's exact two-heap Cauchy-Schwarz / Lagrange optimality theorem and
+  sublinear headroom ratio theorem over unbounded integer workloads.
+
+* 4. Amplification Impact Matrix & Phased Rollout
+
+| Wave | Levers | Primary Target Workloads | Expected Structural Mechanism | Formal Models Ready |
+|------+--------+--------------------------+-------------------------------+---------------------|
+| Amp-1 | Lever 1 (Unified Lock-Free Local Nursery) + Lever 2 (Virtual Nursery Arena + O(1) Msection Lookup) | =par_alloc_gc_m65536= (38.9% GC -> target <15%), =par_rest_alloc_m65536=, Gerbil parallel build | Eliminates =ALLOC_MEM_LOCK()=, 32 KiB double-copy, mixed still abort, and =O(log M)= =find_msection= | SysML, Quint V2, Lean 4, CBMC PSO |
+| Amp-2 | Lever 3 (256-Entry Prefetch Ring + =addrmap=) + Lever 4 (Opportunistic STW-Spin Slices) + Lever 5 (Incremental Stack Watermark) | Large live heaps (>64 MiB), hybrid 8P+4E M2/M3/Intel CPUs, deep Gerbil macro/compiler stacks | Hides 60–100 ns DRAM mark latency, converts P-core spin waste into major progress, cuts stack scan to =O(delta)= | SysML, Quint V2, Lean 4, CBMC PSO |
+| Amp-3 | Lever 6 (LXR SATB-with-Interruptions + Line Reuse Epoch + Init-Store Elision) + Lever 7 (=GEN_STATIC= + Overflow Immix) | Long-running multi-module Gerbil compilation, tight-heap services | Safe prompt reclamation under SATB, zero stale-remset corruption, skips immortal compiler tables, dense line packing | SysML, Quint V2, Lean 4, CBMC PSO |
+| Amp-4 | Lever 8 (True =(L, g, s)= MemBalancer + Global Work Pacing + Off-Heap RefC Immutable Binaries) | 8x parallel =gsc=/Gerbil CI builds, network/I/O servers with large byte payloads | Compositional multi-process RSS/GC-time Pareto optimality, zero-copy immutable buffer sharing | SysML, Lean 4 |
+
+* 5. Evaluation Discipline (LBO + Hardware Micro-Benchmarks + Non-Import Boundaries)
+
+** Isolated Apple M2 Pro Hardware Micro-Benchmarks
+To verify the micro-architectural leverage of Levers 1, 2, and 3 on real Apple
+Silicon before modifying any Gambit C source, an isolated C23 benchmark
+(=.cache/tasks/arch-amplification-bench/bench_amp.c=, compiled with =clang -O3 -pthread=)
+measured three hot-path primitives on Apple M2 Pro (arm64):
+
+| Micro-Benchmark | Baseline Pattern | Amplified Pattern | Measured Speedup | Checksum Match |
+|-----------------+------------------+-------------------+------------------+----------------|
+| 64 MiB Random-Graph Mark (1,048,576 x 64 B) | Naive DFS stack mark (=0.0238s=) | OCaml-5 256-entry prefetch ring, =PREFETCH_BUFFER_MIN=64= (=0.0139s=) | *1.71x* | =1572864==1572864= |
+| 20M Msection Lookups (=M=1024=) | =O(log M)= binary search (=0.8951s=) | Chez-10 / aligned =O(1)= shift+table lookup (=0.0134s=) | *66.92x* | =71466777953==71466777953= |
+| 8-Thread Local-Still Flush (3.2M sweeps) | Global =pthread_mutex_t= (=0.0705s=) | Batched per-proc atomic =release= flush (=0.0036s=) | *19.83x* | =204800000==204800000= |
+
+These isolated micro-benchmarks confirm hardware-level latency and contention
+headroom on Apple M2 Pro; they do *not* constitute a full-VM Gambit SMP
+acceptance claim.
+
+** Full-VM LBO Evaluation Protocol
+Following =lbo-ispass-2022= (Cai, Blackburn, Bond, Maas ISPASS 2022), every
+amplification wave MUST be evaluated on native Gambit SMP + Gerbil SMP using:
+1. *Wall-clock time* and *total multi-core CPU cycles* (distilling LBO so
+   concurrent background work or spin loops cannot hide behind spare cores).
+2. *Metered tail latency* (p99/p99.9 under load, not isolated GC pause times).
+3. *Peak and mean RSS* across both single-VM (12-core) and 8-process parallel
+   Gerbil builds.
+4. *Native correctness gates first*: full Gambit SMP test suite, TSan clean run,
+   Gerbil SMP bootstrap + full test suite. No paper number or micro-benchmark
+   substitutes for native runtime acceptance.
+
+** Explicit Non-Import Boundaries
+- *NO read barriers (LVB / Brooks / virtual-memory trap)*: incompatible with
+  Gambit's unbarriered C/FFI pointers and penalized heavily in LBO CPU cycles.
+- *NO replacement of Immix contiguous mature space with free-list size classes*:
+  RC Immix Tables 1–2 prove free lists add +8.7%–9.3% mutator time and
+  +26.6%–32.9% L1 cache misses.
+- *NO DLG immutable-object duplication*: violates Scheme =eq?= object identity.
+- *NO restriction of =call/cc= to one-shot fibers*: Gambit must retain full
+  R5RS/R7RS multi-shot continuations.
+- *NO assumption of OCaml Local DRF under C23 data races*: all cross-processor
+  runtime state requires explicit C23 atomic orderings verified under CBMC PSO
+  and ThreadSanitizer.
