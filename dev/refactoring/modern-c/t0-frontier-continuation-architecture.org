@@ -487,3 +487,54 @@ Formal verification for Phase C4-A:
     Tokio's =32.0us=!).
   - =ht_effect_pingpong=: *w=1* *1.284M/s* (*P50 64us*, *4 GCs / 1ms*, *15.5 MiB*); *w=12*
     throughput jumped +80% vs C9 (=621K--680K/s=, *P50 71--75us*, *34.5--37.5 MiB*).
+
+* 14. Phase C11: Same-=denv= Continuation Barrier Skip, Single-=copy_gate= Stack Restore & Fused C23 Direct Handoff
+
+** 14.1 Architectural Upgrades (=vendor/gambit=, 100% upstream-clean)
+1. *Same-=denv= Fast-Path Barrier & Cache-Reset Skip (=include/_gambit/gvm_operations.h.in=)*:
+   - Guarded the 4 =___GC_WRITE_BARRIER= calls and =denv_cache1..3= resets in both
+     =___CONTINUATION_GRAFT_NO_WINDING= and =___JUMP_CONTINUATION_RETURN_NO_WINDING2= with
+     =if (___EXPECT_FALSE(___THREAD_DENV_FIELD(thread) != temp))=. Because Gambit =denv=
+     vectors are immutable (=macro-make-denv=), pointer equality preserves exact parameter
+     cache consistency while keeping =denv_cache1..3= hot across fiber switches.
+2. *Single-=copy_gate= Merged Stack Restore (=lib/_mem/continuation-roots.inc=)*:
+   - In =___restore_stack_break_frame=, when =top= resides in the carrier's own active
+     =stack_msection=, skipped the separate =___owned_stack_span()= =copy_gate= lock/unlock
+     and computed =dest_room= (strictly reserving =___MSECTION_FUDGE=) directly under the
+     single =copy_gate= acquired by =lock_source_stack_frame()=, halving atomic lock
+     overhead per same-core continuation resume. Cross-section restores continue to query
+     =___owned_stack_span()= BEFORE acquiring the source =copy_gate= (strictly <= 1 gate
+     held at any time => zero AB-BA deadlock).
+3. *Fused C23 Direct Handoff + Zero-=dmb-ish= Dekker Park-Recv (=lib/gambit/fiber/fiber.scm=)*:
+   - Added single-C-block =%ch-try-direct-handoff-c!= (1 relaxed load skip when =rxw == 0=,
+     single bounded spinlock acquire + =load_acq(tail) == load_acq(head)= linearizability
+     check + SATB-safe intrusive wait-queue pop) and =%vyukov-try-pop-dekker-c!= using C23
+     =memory_order_seq_cst= load on =seq[idx]= paired with =seq_cst= store on =rxw= (ARM64
+     =stlr= + =ldar= without extra =dmb ish=).
+
+** 14.2 3-Layer Adversarial Formal Verification (Phase C11, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/single_gate_restore_denv_cache_and_fused_handoff_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (=1,317ms=; at-most-one-=copy_gate= deadlock freedom,
+  exact =___MSECTION_FUDGE= headroom, same-=denv= cache consistency, fused direct-handoff FIFO).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/SingleGateRestoreDenvRefinement.lean=):
+  4 theorems, 0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso=)* (=tests/contracts/modern-c/gc-ffi/single-gate-restore-denv-smp/harness.c=):
+  0 of 10 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_SKIP_DENV_UPDATE_WHEN_DIFF=, =INJECT_BUG_NO_FUDGE_RESERVE=,
+  =INJECT_BUG_NESTED_COPY_GATE=, =INJECT_BUG_FUSED_PARK_NO_DEKKER_FENCE=.
+
+** 14.3 Full SMP Verification Gate & Performance Results
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,087/1,087 PASS*
+  (=(srfi 226)= 488/488, =(gambit effect)= 372/372, =(gambit fiber)= 104/104,
+  =(srfi 230)= 68/68 =p12=, =(gambit concurrent)= 55/55 =p12=).
+- Continuation & Fiber Endurance: *10/10* =p12= =gambit_continuation_bench.o1= PASS +
+  *15/15* consecutive 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*).
+- Paired benchmark highlights (measured under concurrent host load avg =38.56=):
+  - =ht_effect_pingpong= (*w=12*): jumped *+2.2x* vs C10 to *1.33M--1.484M/s*, *P50 72us*,
+    *P99 5.43--8.77ms* (-3.5x vs C10), *gc_ms 26--47ms* (-5.5x), *RSS 27.7 MiB*!
+    (*w=1*: *1.268M/s*, *P50 65us*, *P99 263us*, *4 GCs / 1ms*, *15.3 MiB*).
+  - =ht_fiber_fanout_100k= (*w=12*): new all-time *P50 record 438us* (beats Rust Tokio 1.54's
+    =468us= even under load avg 38.56!), throughput +85% vs C10 (=388K--391K/s=, *gc_ms 36ms*);
+    *w=1*: *2.102M/s* (*P50 398us*, *gc_ms 4ms*, *17.6 MiB*).
+  - =ht_generator_stream=: *w=1* *8.02M/s* (*P50 24us*, *P99 30us*, *0 GCs / 0ms*, *15.5 MiB*);
+    *w=12* jumped +3.0x vs C10 to *12.53M--12.97M/s* (*P50 25us* vs Tokio's =32.0us=, *gc_ms 2ms*).
