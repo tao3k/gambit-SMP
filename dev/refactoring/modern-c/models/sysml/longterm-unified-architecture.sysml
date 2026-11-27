@@ -342,6 +342,26 @@ package GambitLongTermUnifiedArchitecture {
         }
     }
 
+    part def Slice4GerbilSmpState {
+        attribute singleSlotAtomicOwnerLock : Boolean;
+        attribute shadowClassLockUnwindSafe : Boolean;
+        attribute replThreadLoopSelfBounded : Boolean;
+        attribute compilerCompileSessionIsolated : Boolean;
+        attribute moduleContextTableMutexGuarded : Boolean;
+        attribute parallelWorkersWithinEnvelope : Boolean;
+    }
+    requirement def Slice4GerbilSmpLaw {
+        subject s4 : Slice4GerbilSmpState;
+        require constraint {
+            s4.singleSlotAtomicOwnerLock and
+            s4.shadowClassLockUnwindSafe and
+            s4.replThreadLoopSelfBounded and
+            s4.compilerCompileSessionIsolated and
+            s4.moduleContextTableMutexGuarded and
+            s4.parallelWorkersWithinEnvelope
+        }
+    }
+
     /* ------------------------------------------------------------------ */
     /* 2. Primary Academic Paper Anchors                                  */
     /* ------------------------------------------------------------------ */
@@ -560,12 +580,12 @@ package GambitLongTermUnifiedArchitecture {
     }
     part slice4GerbilRelease : ArchitectureSlice {
         attribute :>> sliceId = "Slice4";
-        attribute :>> title = "Gerbil SMP Parallel Compiler + Full-Runtime TSan + Same-Source 12/12 Release Seal";
-        attribute :>> status = "DESIGN_ALIGNED";
-        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt";
-        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/GerbilProducerClosure.lean";
-        attribute :>> cbmcTarget = "tests/contracts/modern-c/gerbil/abi-seal-check/harness.c";
-        attribute :>> exitGate = "Gerbil 8/8 stages + parallel stdlib build; wholeRuntimeAdmitted=true on single sealed producer; official Release Tag";
+        attribute :>> title = "Gerbil SMP Runtime/Compiler Concurrency Closure + Full-Runtime TSan + Same-Source 12/12 Release Seal";
+        attribute :>> status = "FORMAL_VERIFIED_NATIVE_IN_PROGRESS";
+        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/slice4_gerbil_smp_runtime_and_compiler_v2.qnt + gerbil_multicore_memory_challenge_v2.qnt";
+        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/Slice4GerbilSmpRefinement.lean + GerbilProducerClosure.lean";
+        attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice4_gerbil_inline_lock_pso.c + tests/contracts/modern-c/gerbil/abi-seal-check/harness.c";
+        attribute :>> exitGate = "Gerbil 8/8 stages + smp-runtime-test + parallel stdlib build; tao3k/gerbil smp PR green; wholeRuntimeAdmitted=true on single sealed producer; official Release Tag";
     }
     part memoryEnvelopeTrack : ArchitectureSlice {
         attribute :>> sliceId = "MemoryEnvelope";

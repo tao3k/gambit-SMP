@@ -653,6 +653,36 @@ class NativeRecipeTests(unittest.TestCase):
                 self.assertEqual(sorted(str(file) for file in files),
                                  sorted(file for row in rows for file in row["files"]))
 
+    def test_parallel_shards_submit_largest_first_without_reordering_plan(self):
+        import time
+        runtime = self.root / "lpt-runtime"
+        for name in ("gsi", "gsc", "lib", "include", "bin"):
+            (runtime / name).mkdir(parents=True)
+        copied = self.root / "lpt-tests"
+        (copied / "unit-tests").mkdir(parents=True)
+        files = [Path(f"f{i:02d}.scm") for i in range(10)]
+        for file in files:
+            (copied / "unit-tests" / file).write_text("fixture")
+        directory = self.root / "lpt-whole-parallel"
+        directory.mkdir()
+        ctx = recipes.ExecutionContext(self.root, self.root, directory, {}, time.monotonic() + 10, {}, {}, {})
+        submitted_sizes = []
+        @quiescent_execute_fixture
+        def executed(argv, cwd, timeout, **kwargs):
+            selected = [str(arg) for arg in argv if str(arg).startswith("unit-tests/")]
+            submitted_sizes.append(len(selected))
+            return 0, f"PASSED ALL {len(selected)} UNIT TESTS\n", False, 0.01
+        with patch.object(recipes, "execute", side_effect=executed):
+            rows = native.run_suite_groups(ctx, runtime, copied,
+                {"regime": "whole-parallel", "mode": "gsc", "batchBudgetSeconds": 1,
+                 "groupBudgetSeconds": {"small": {"files": ["f00.scm"], "budgetSeconds": 10}},
+                 "fileBudgetSeconds": {"f03.scm": 20}},
+                files, 1, "p1")
+        self.assertTrue(all(row["accepted"] for row in rows))
+        self.assertEqual(sorted(submitted_sizes, reverse=True), submitted_sizes)
+        self.assertEqual(list(range(len(rows))), [row["shard"] for row in rows])
+        self.assertEqual(["f00.scm"], rows[0]["files"])
+
     def test_additional_fixture_is_hash_bound_and_cannot_replace_upstream(self):
         source = self.root / "spawn.scm"
         source.write_text("(test-equal 0 0)")
