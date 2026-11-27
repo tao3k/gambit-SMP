@@ -172,6 +172,11 @@ package GambitLongTermUnifiedArchitecture {
         attribute fdCustodyDrained : Boolean;
         attribute kernelCloseExecuted : Boolean;
         attribute dekkerWakeBarrierPaired : Boolean;
+        attribute fdGenMismatchForcesFreshReg : Boolean;
+        attribute requiresFullWakesParkedReactors : Boolean;
+        attribute dynamicReactorCapacity : Boolean;
+        attribute forkResetsReactor : Boolean;
+        attribute regularFileAlwaysReadyCached : Boolean;
         attribute srfi230AtomicBoxBarriered : Boolean;
     }
     requirement def EventedReactorParkLaw {
@@ -181,6 +186,11 @@ package GambitLongTermUnifiedArchitecture {
             (not io.fdCloseRequested or io.closingRejectsNewBorrows) and
             (not io.kernelCloseExecuted or (io.fdCloseRequested and io.fdCustodyDrained)) and
             io.dekkerWakeBarrierPaired and
+            io.fdGenMismatchForcesFreshReg and
+            io.requiresFullWakesParkedReactors and
+            io.dynamicReactorCapacity and
+            io.forkResetsReactor and
+            io.regularFileAlwaysReadyCached and
             io.srfi230AtomicBoxBarriered
         }
     }
@@ -500,20 +510,29 @@ package GambitLongTermUnifiedArchitecture {
     part slice3ADynamicDomains : ArchitectureSlice {
         attribute :>> sliceId = "Slice3A";
         attribute :>> title = "OCaml-5 / Erlang-OTP-28 Dynamic Per-Domain VM Tables (Zero Compile-Time [___MAX_PROCESSORS] Arrays in include/ & lib/, Dynamic >64-Core Capacity, O(live) Adaptive GC Workers)";
-        attribute :>> status = "STAGE8_CLOSED_VERIFYING_CI";
+        attribute :>> status = "STAGE8_CLOSED_COMMITTED";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/slice3a_dynamic_vm_domains_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/Slice3ADynamicDomainsRefinement.lean";
         attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice3a_dynamic_domains_pso.c";
         attribute :>> exitGate = "Zero static [___MAX_PROCESSORS] arrays in include/ & lib/; runtime -:p96/-:p128 & live resize 4->80->4; idle GC mature sections bounded by O(live) not O(P); 0 TSan races; 15/15 CI green";
     }
+    part slice3B1EventedIo : ArchitectureSlice {
+        attribute :>> sliceId = "Slice3B1";
+        attribute :>> title = "kqueue/epoll Persistent Evented SMP I/O Reactor (Zero FD_SETSIZE/MAX_CONDVARS Caps, EVFILT_USER/eventfd Wakeup, Tier 3.3 GC-Safe Park, FD-Gen ABA Custody)";
+        attribute :>> status = "STAGE8_CLOSED_COMMITTED";
+        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt";
+        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/SmpIoSelectCloseRefinement.lean";
+        attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice3b1_evented_io_reactor_pso.c";
+        attribute :>> exitGate = ">1024 real OS sockets (c15 1120 FDs p1..p12) without FD_SETSIZE/MAX_CONDVARS caps; 0 STW GC stall & full-sync resize wakeup on parked reactors; fork-safe & regular-file cache; 0 TSan races; 15/15 CI green";
+    }
     part slice3BIoAndStdlib : ArchitectureSlice {
-        attribute :>> sliceId = "Slice3B";
-        attribute :>> title = "kqueue/epoll Evented SMP I/O Reactor + SRFI-230 & Work-Stealing Parallel Stdlib";
+        attribute :>> sliceId = "Slice3B2";
+        attribute :>> title = "SRFI-230 Barriered Atomics & Weak-Memory-Verified Chase-Lev Work-Stealing Parallel Stdlib";
         attribute :>> status = "NEXT_PHASE_DESIGN_READY";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
-        attribute :>> cbmcTarget = "FD-generation close/select ABA + Chase-Lev weak-memory C11/PSO harness";
-        attribute :>> exitGate = ">10,000 concurrent sockets without FD_SETSIZE limit; 0 STW GC stall during idle reactor wait; SRFI-230 & parallel stdlib linearizability + PBT green";
+        attribute :>> cbmcTarget = "Chase-Lev C11/ARM64 PSO work-stealing deque + SRFI-230 generational/SATB barrier harness";
+        attribute :>> exitGate = "SRFI-230 atomic-box/fxbox/flag/pair with card+SATB barriers + Chase-Lev parallel-map/future/force linearizability + PBT + TSan + 15/15 CI green";
     }
     part slice4GerbilRelease : ArchitectureSlice {
         attribute :>> sliceId = "Slice4";
@@ -561,8 +580,11 @@ package GambitLongTermUnifiedArchitecture {
         part slice3ADynamicDomains : SliceNode {
             attribute :>> label = "Slice 3A (CLOSED): Dynamic Per-Domain VM Tables (Zero [MAX_PROCESSORS], >64 Cores) + O(live) GC Workers";
         }
+        part slice3B1EventedIo : SliceNode {
+            attribute :>> label = "Slice 3B-1 (CLOSED): kqueue/epoll Evented SMP I/O Reactor (Zero FD_SETSIZE/MAX_CONDVARS Caps, Tier 3.3 Park)";
+        }
         part slice3BIoAndStdlib : SliceNode {
-            attribute :>> label = "Slice 3B (NEXT): kqueue/epoll Reactor + SRFI-230 & Work-Stealing Parallel Stdlib";
+            attribute :>> label = "Slice 3B-2 (NEXT): SRFI-230 Barriered Atomics & Chase-Lev Work-Stealing Parallel Stdlib";
         }
         part slice4GerbilSeal : SliceNode {
             attribute :>> label = "Slice 4 (FINAL): Gerbil SMP Parallel Compiler + Full TSan + Same-Source 12/12 Release Seal";
@@ -573,8 +595,8 @@ package GambitLongTermUnifiedArchitecture {
         connection framespec_to_major connect slice1FrameSpec to slice2ConcurrentMajor;
         connection major_to_hardening connect slice2ConcurrentMajor to slice25DynamicHardening;
         connection hardening_to_domains connect slice25DynamicHardening to slice3ADynamicDomains;
-        connection hardening_to_io connect slice25DynamicHardening to slice3BIoAndStdlib;
-        connection domains_to_seal connect slice3ADynamicDomains to slice4GerbilSeal;
-        connection io_to_seal connect slice3BIoAndStdlib to slice4GerbilSeal;
+        connection domains_to_io connect slice3ADynamicDomains to slice3B1EventedIo;
+        connection io_to_stdlib connect slice3B1EventedIo to slice3BIoAndStdlib;
+        connection stdlib_to_seal connect slice3BIoAndStdlib to slice4GerbilSeal;
     }
 }

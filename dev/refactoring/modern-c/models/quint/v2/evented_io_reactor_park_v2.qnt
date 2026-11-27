@@ -22,6 +22,10 @@ module evented_io_reactor_park_v2 {
     borrowedGen: int,
     wakeRequested: bool,
     wakePendingInKernel: bool,
+    // Persistent kernel interest set (kqueue/epoll) + FD-generation tracking (Slice 3B-1)
+    kernelRegistered: bool,
+    regGen: int,
+    fullSyncWaiting: bool,
     // SRFI-230 mature atomic-box storing a young pointer
     matureAtomicBoxHasYoung: bool,
     atomicBoxCardMarked: bool,
@@ -31,7 +35,9 @@ module evented_io_reactor_park_v2 {
     heapAccessWhileParkedBug: bool,
     staleEpochAfterUnparkBug: bool,
     lostWakeupBug: bool,
-    atomicBoxMissedBarrierBug: bool
+    atomicBoxMissedBarrierBug: bool,
+    staleKernelInterestHangBug: bool,
+    fullSyncDeadlockBug: bool
   }
 
   var s: State
@@ -48,6 +54,9 @@ module evented_io_reactor_park_v2 {
       borrowedGen: 0,
       wakeRequested: false,
       wakePendingInKernel: false,
+      kernelRegistered: false,
+      regGen: 0,
+      fullSyncWaiting: false,
       matureAtomicBoxHasYoung: false,
       atomicBoxCardMarked: false,
       fdReuseAbaBug: false,
@@ -55,20 +64,27 @@ module evented_io_reactor_park_v2 {
       heapAccessWhileParkedBug: false,
       staleEpochAfterUnparkBug: false,
       lostWakeupBug: false,
-      atomicBoxMissedBarrierBug: false
+      atomicBoxMissedBarrierBug: false,
+      staleKernelInterestHangBug: false,
+      fullSyncDeadlockBug: false
     }
   }
 
-  // Acquire FD custody pin (ONLY permitted in OPEN!) and park reactor in kevent/epoll_wait
+  // Acquire FD custody pin (ONLY permitted in OPEN!) and park reactor in kevent/epoll_wait.
+  // Persistent kqueue/epoll skips kernel EV_ADD/EPOLL_CTL_ADD ONLY when kernelRegistered
+  // AND regGen == fdGen; if fdGen changed (reused FD), it refreshes kernel registration!
   action safeAcquireFdAndPark = all {
     s.reactor == "ACTIVE_SCHEME",
     s.fdState == "OPEN",
+    not(s.fullSyncWaiting),
     s.borrowers < 2,
     s' = {
       ...s,
       reactor: "PARKED_KEVENT",
       borrowers: s.borrowers + 1,
-      borrowedGen: s.fdGen
+      borrowedGen: s.fdGen,
+      kernelRegistered: true,
+      regGen: s.fdGen
     }
   }
 
@@ -125,16 +141,36 @@ module evented_io_reactor_park_v2 {
     }
   }
 
-  // Kernel close(fd) ONLY fires once borrowers == 0 (all waiters drained monotonically!)
+  // Kernel close(fd) ONLY fires once borrowers == 0 (all waiters drained monotonically!).
+  // OS close(fd) auto-removes the closed open-file-description from kqueue/epoll.
   action safePeerCompleteKernelClose = all {
     s.fdState == "CLOSING_DRAIN",
     s.borrowers == 0,
-    s' = { ...s, fdState: "CLOSED_KERNEL", borrowedGen: 0 }
+    s' = { ...s, fdState: "CLOSED_KERNEL", borrowedGen: 0, kernelRegistered: false }
   }
 
   action safeOsReuseFdNewGen = all {
     s.fdState == "CLOSED_KERNEL",
     s' = { ...s, fdState: "OPEN", fdGen: s.fdGen + 1, wakeRequested: false }
+  }
+
+  // Full-roster sync op (OP_VM_RESIZE / OP_FDSET_RESIZE) blocks new parks AND
+  // wakes any parked reactor via select_abort (EVFILT_USER / eventfd) so it cannot deadlock!
+  action safeFullSyncRequestAndWake = all {
+    not(s.fullSyncWaiting),
+    s.reactor == "PARKED_KEVENT",
+    s' = {
+      ...s,
+      fullSyncWaiting: true,
+      wakeRequested: true,
+      wakePendingInKernel: true
+    }
+  }
+
+  action safeFullSyncComplete = all {
+    s.fullSyncWaiting,
+    s.reactor == "ACTIVE_SCHEME",
+    s' = { ...s, fullSyncWaiting: false }
   }
 
   // SRFI-230 (atomic-box-set! mature-abox young-obj): fires card barrier + release store
@@ -152,6 +188,8 @@ module evented_io_reactor_park_v2 {
     safeReactorWakeAndUnpark,
     safePeerCompleteKernelClose,
     safeOsReuseFdNewGen,
+    safeFullSyncRequestAndWake,
+    safeFullSyncComplete,
     safeSrfi230AtomicBoxSetYoung
   }
 
@@ -162,6 +200,12 @@ module evented_io_reactor_park_v2 {
   val activeEpochConsistent =
     (s.reactor != "ACTIVE_SCHEME") or (s.reactorEpoch == s.gcEpoch)
 
+  val parkedHasValidKernelRegistration =
+    (s.reactor != "PARKED_KEVENT") or (s.kernelRegistered and s.regGen == s.fdGen)
+
+  val fullSyncAlwaysWakesParked =
+    not(s.fullSyncWaiting and s.reactor == "PARKED_KEVENT") or s.wakePendingInKernel
+
   val safe =
     not(s.fdReuseAbaBug) and
     not(s.closeStarvationAdmitBug) and
@@ -169,8 +213,12 @@ module evented_io_reactor_park_v2 {
     not(s.staleEpochAfterUnparkBug) and
     not(s.lostWakeupBug) and
     not(s.atomicBoxMissedBarrierBug) and
+    not(s.staleKernelInterestHangBug) and
+    not(s.fullSyncDeadlockBug) and
     noBorrowOnClosedOrReused and
-    activeEpochConsistent
+    activeEpochConsistent and
+    parkedHasValidKernelRegistration and
+    fullSyncAlwaysWakesParked
 
   // --- 6 Real-Bug Mutation Killers ---
 
@@ -208,6 +256,34 @@ module evented_io_reactor_park_v2 {
     s' = { ...s, matureAtomicBoxHasYoung: true, atomicBoxCardMarked: false }
   }
 
+  // Mutant 7 (Slice 3B-1): Persistent kqueue/epoll skips EV_ADD/EPOLL_CTL_ADD on reused FD
+  // because it checked regMask == wantMask without comparing regGen == fdGen -> permanent hang!
+  action buggySkipReRegisterOnReusedFdGen = all {
+    s.reactor == "ACTIVE_SCHEME",
+    s.fdState == "OPEN",
+    s.regGen != s.fdGen,
+    not(s.kernelRegistered),
+    s' = {
+      ...s,
+      reactor: "PARKED_KEVENT",
+      borrowers: s.borrowers + 1,
+      borrowedGen: s.fdGen,
+      staleKernelInterestHangBug: true
+    }
+  }
+
+  // Mutant 8 (Slice 3B-1): OP_VM_RESIZE waits for parked reactor without sending select_abort!
+  action buggyFullSyncWaitWithoutWakeup = all {
+    not(s.fullSyncWaiting),
+    s.reactor == "PARKED_KEVENT",
+    not(s.wakePendingInKernel),
+    s' = {
+      ...s,
+      fullSyncWaiting: true,
+      fullSyncDeadlockBug: true
+    }
+  }
+
   // --- Positive Test ---
   run parkGcMultiBorrowerCloseAndSrfi230Test =
     init
@@ -215,20 +291,27 @@ module evented_io_reactor_park_v2 {
       .then(safeAcquireFdAndPark)
       .then(safePeerBorrowOpenFd)
       .then(safePeerRunStwGcWhileParked)
+      .then(safeFullSyncRequestAndWake)
+      .then(safeReactorWakeAndUnpark)
+      .then(safeFullSyncComplete)
+      .then(safeAcquireFdAndPark)
       .then(safePeerBeginCloseFd)
       .then(safePeerReleaseFdBorrow)
       .then(safeReactorWakeAndUnpark)
       .then(safePeerCompleteKernelClose)
       .then(safeOsReuseFdNewGen)
+      .then(safeAcquireFdAndPark)
       .expect(
         safe and
         s.gcCountWhileParked == 1 and
         s.fdGen == 2 and
-        s.borrowers == 0 and
+        s.regGen == 2 and
+        s.kernelRegistered and
+        s.borrowers == 1 and
         s.reactorEpoch == s.gcEpoch
       )
 
-  // --- 6 Mutant-Killing Negative Tests (all suffixed with Test for `quint test`) ---
+  // --- 8 Mutant-Killing Negative Tests (all suffixed with Test for `quint test`) ---
   run mutant1CloseWithoutDrainKilledTest =
     init.then(safeAcquireFdAndPark).then(safePeerBeginCloseFd)
       .then(buggyCloseWithoutCustodyDrain).expect(not(safe))
@@ -250,4 +333,20 @@ module evented_io_reactor_park_v2 {
   run mutant6AtomicBoxMissingBarrierKilledTest =
     init.then(buggyAtomicBoxSetWithoutBarrier).then(safeAcquireFdAndPark)
       .then(safePeerRunStwGcWhileParked).expect(not(safe))
+
+  run mutant7StaleKernelInterestOnFdReuseKilledTest =
+    init
+      .then(safeAcquireFdAndPark)
+      .then(safePeerBeginCloseFd)
+      .then(safeReactorWakeAndUnpark)
+      .then(safePeerCompleteKernelClose)
+      .then(safeOsReuseFdNewGen)
+      .then(buggySkipReRegisterOnReusedFdGen)
+      .expect(not(safe))
+
+  run mutant8FullSyncDeadlockOnParkedReactorKilledTest =
+    init
+      .then(safeAcquireFdAndPark)
+      .then(buggyFullSyncWaitWithoutWakeup)
+      .expect(not(safe))
 }

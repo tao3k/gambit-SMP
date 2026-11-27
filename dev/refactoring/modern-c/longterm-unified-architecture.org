@@ -221,7 +221,7 @@ Closes the remaining structural memory gaps across P0--P3 on top of =f6510651= /
 ** Slice 3A — OCaml-5 / Erlang-OTP-28 Dynamic Per-Domain VM Tables & =O(live)= Adaptive GC Workers (CLOSED: 3A-1 & 3A-2)
 :PROPERTIES:
 :CUSTOM_ID: slice-3a-dynamic-domains
-:STATUS: STAGE8_CLOSED_VERIFYING_CI
+:STATUS: STAGE8_CLOSED_COMMITTED
 :QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/slice3a_dynamic_vm_domains_v2.qnt
 :LEAN_PROOF: dev/refactoring/modern-c/models/lean/Slice3ADynamicDomainsRefinement.lean
 :CBMC_HARNESS: dev/refactoring/modern-c/models/cbmc/slice3a_dynamic_domains_pso.c
@@ -239,7 +239,23 @@ Eliminated **100%** of compile-time =[___MAX_PROCESSORS]= static arrays across t
    - Replaced the final 3 =[___MAX_PROCESSORS]= arrays in =include/_gambit/vm_state.h.in= (=aligned_pstate=, =execution_contexts= -> 64B-aligned non-relocating =processor_storage= slab with =aligned_pstate0=/=execution_context0= static test fallbacks) and =include/_gambit/memory_state.h.in= (=promo_cands_= -> dynamically sized =2 * processor_capacity= buffer).
    - Dynamic runtime capacity =vm_compute_processor_capacity() = clamp(max(64, 2*hw_cpus, req_p, GAMBIT_MAX_PROCESSORS), 64, 65536)= verified natively with =-:p96=, =-:p128=, live resize =4 -> 80 -> 4= (=GAMBIT_MAX_PROCESSORS=160=), =12/12= =test-startup-publication=, =100%= SMP PBT+scaling =p1..p12=, Non-SMP =--enable-debug make check=, C++17 headers, and =0= Clang C23 TSan races.
 
-** Slice 3B — =kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Parallel Stdlib (Next Phase)
+** Slice 3B-1 — =kqueue=/=epoll= Persistent Evented SMP I/O Reactor (CLOSED)
+:PROPERTIES:
+:CUSTOM_ID: slice-3b1-evented-io
+:STATUS: STAGE8_CLOSED_COMMITTED
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/SmpIoSelectCloseRefinement.lean
+:CBMC_HARNESS: dev/refactoring/modern-c/models/cbmc/slice3b1_evented_io_reactor_pso.c
+:END:
+
+- *Native Persistent Per-Processor Reactor (=lib/os.h=, =lib/os_io.h=, =lib/os_io.c=, =include/_gambit/memory_state.h.in=, =lib/setup.c=)*:
+  - Native =USE_kqueue= (macOS/FreeBSD/OpenBSD/NetBSD/DragonFly, Lemon 2001) using =EVFILT_USER= (1 FD/core, zero self-pipes!) and =USE_epoll= (Linux, Gammo et al. 2004) using =eventfd= (2 FDs/core), retaining =poll=/=select=/=MsgWaitForMultipleObjects= fallback.
+  - Eliminated compile-time =MAX_CONDVARS = 8192=, =FD_SETSIZE = 1024=, and 232 KiB stack arrays (=devs_next=, =pollfds=) via dynamically grown per-reactor tables (=O(ready)= =dirty_fds= clearing, zero per-call kernel re-registration when =(fd, dev_gen, mask)= matches).
+  - *FD-Generation Custody*: Monotonic =dev_gen= assigned on =___device_add_to_group= and bumped on =___device_close= prevents FD-reuse ABA silently stalling persistent interest sets.
+  - *GC-Safe Tier 3.3 Reactor Parking*: =___os_condvar_select= extracts pure C =___device*= pointers and drops =devices= lock (=primlock_depth -> 0=), holding zero moving =___SCMOBJ= across =device_select_impl= while parking the blocking =kevent=/=epoll_wait= inside =___enter_blocking_ffi=/=___leave_blocking_ffi= and matching ready events via an =O(1)= hash set after re-locking; =on_all_processors= wakes all =life->sync_parked[k]= via async-signal-safe =___device_select_abort= when =requires_full= (=OP_VM_RESIZE=/=___cleanup=).
+  - *Fork-Safe & Regular-File Ready Cache*: =owner_pid != getpid()= resets inherited kernel descriptors after =fork()=; per-=(fd, dev_gen)= =always_ready= cache handles regular files (=fstat S_ISREG= on =kqueue=, =EPERM= on =epoll=).
+
+** Slice 3B-2 — =SRFI-230= Barriered Atomics & Chase-Lev Work-Stealing Parallel Stdlib (Next Phase)
 :PROPERTIES:
 :CUSTOM_ID: slice-3-io-stdlib
 :STATUS: NEXT_PHASE_DESIGN_READY
@@ -247,9 +263,8 @@ Eliminated **100%** of compile-time =[___MAX_PROCESSORS]= static arrays across t
 :LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
 :END:
 
-- *Evented SMP I/O Reactor (=lib/os_io.c=)*: Add native =kqueue= (macOS/BSD, Lemon 2001) and =epoll= (Linux) backends behind =___device_select=, keeping =poll=/=select= as portable fallback for Windows/other POSIX. Park reactor wait calls cleanly via Tier 3.3 =___enter_blocking_ffi= so idle I/O threads never stall STW GC, enforce userspace FD-generation custody before =close(fd)= (zero ABA), and pair close/wake with Dekker =EVFILT_USER=/=eventfd= notifications.
 - *Standard Parallel & Atomic Library*:
-  - =SRFI-230= (=atomic-box=, =atomic-fxbox=, =atomic-flag=, =atomic-pair=, explicit memory-order fences) lowered directly to =___ORDERED_WORD_NATIVE= + =gsc/_prims.scm=.
+  - =SRFI-230= (=atomic-box=, =atomic-fxbox=, =atomic-flag=, =atomic-pair=, explicit memory-order fences) lowered directly to =___ORDERED_WORD_NATIVE= + =gsc/_prims.scm= with mandatory generational card + SATB write barriers on pointer stores.
   - Weak-memory-verified Chase-Lev work-stealing deque (Le et al. PPoPP 2013) + structured fork-join (=parallel-map=, =future=/=force=, bounded lock-free channels, concurrent sharded hash tables) running on Tier 3.2 work-stealing + Tier 3.1 generational GC.
 
 ** Slice 4 — =tao3k/gerbil= SMP Parallel Compilation & Same-Source 12/12 Release Seal
@@ -326,6 +341,12 @@ Every formal model in this package was deliberately engineered to *attack* tempt
 | 20 | Slice 2 v3 (Medium =___STILL= Slab Fragmentation & Lock Safety — *Caught Live by Paired AB/BA!*) | Use coarse power-of-2 classes (=4/8/16/32 KiB=) x 8 shards with =256/512 KiB= chunks, OR omit per-bucket lock around =free_mask= / =munmap= empty slab chunks while live slots remain | Up to 50% internal fragmentation (+23.4% RSS regression on =medium_still_wave_p8=!), OR concurrent double-free / live-chunk UAF | 7 fine-grained 25%-step size classes (=4K/6K/8K/12K/16K/24K/32K=, exact 16 KiB page-multiple chunks) x 4 mutex-striped shards + =still_slab_purge_empty()= (flips =medium_still_wave_p8= to =-0.9% RSS= / =-1.0% fp=; =slice2_v3_immix_evac_and_slab_v2.qnt= Mutants 7--9, =slice2_v3_evac_and_slab_pso.c= kills =-DUSE_SLAB_LOCK=0=) |
 | 21 | Slice 3A-1 (Dynamic =round->globals.shards= Post-GC Observer & =sync_targets= Custody — *Caught Live by Non-SMP =root-task --frozen-union=!*) | Clear =snapshot->shards = NULL= in =___root_globals_end= for =round->globals=, OR omit =SYNC_OP_RUNNING=/=DRAINING= gate around initiator-owned =life->sync_targets= | Post-GC =union-observe= crashes dereferencing =round->globals.shards[i]= (SIGSEGV exit 11!), OR concurrent thread overwrites =sync_targets= during =raise_sync_op_interrupt_targets= | Back =round->globals.shards= permanently inside =round->slot_storage= (zero STW =malloc=, readable post-GC at any core count), use inline-64 + heap fallback for standalone stack snapshots, and prove =sync_targets= custody under PSO (=slice3a_dynamic_vm_domains_v2.qnt=, =slice3a_dynamic_domains_pso.c= kills =-DUSE_RUNNING_STATE_GATE=0=) |
 | 22 | Slice 3A-1 (=O(live)= Adaptive GC Worker Downsizing vs Coordinator/Loan/Rebind Invariants) | Shrink =worker_count= without keeping =coordinator_id= at =worker_proc[0]=, OR skip rebinding all 4 member root tasks (=global=/=stack=/=bank=/=rc=), OR demote a processor with insufficient =restore_loan_words=, OR ignore explicit =requested_workers > 0= | Stranded =vm_task=/=symkey_task=, orphaned member root tasks, fatal stack restoration overflow, or violated explicit worker-count probe | Keep =worker_proc[0] == coordinator_id=, check =restore_loan_words >= fudge + 2= for every demoted worker, rebind all 4 root tasks on =0..n-1= before post-plan =BARRIER()=, honor =requested_workers > 0= verbatim (=slice3a_dynamic_vm_domains_v2.qnt= Mutants 4--8, =Slice3ADynamicDomainsRefinement.lean= 12 theorems) |
+| 23 | Slice 3B-1 (Regular Files on =epoll= / =kqueue=) | Submit regular file descriptors (=S_ISREG=) directly to =epoll_ctl= or =EVFILT_READ= on =kqueue= without caching | =epoll_ctl= fails with =EPERM= and =kqueue= =EVFILT_READ= hangs at EOF on regular files (breaks Gambit =tests/= TEST 2 =< error.scm=) | Per-=(fd, dev_gen)= =always_ready= cache (=fstat S_ISREG= once on =kqueue=, =EPERM= fallback on =epoll=), reporting immediate readiness without kernel blocking |
+| 24 | Slice 3B-1 (Persistent Reactor =fork()= Invalidation) | Reuse parent's =kqueue= / =epoll= descriptor inside a =fork()= child process | =kqueue= is not inherited (=EBADF=); shared =epoll= fd corrupts parent's kernel interest set | Track =reactor->owner_pid = getpid()= and reset/reopen reactor descriptors whenever =owner_pid != getpid()= (=child_after_fork_always_resets_reactor=) |
+| 25 | Slice 3B-1 (Persistent FD-Reuse ABA) | Skip =EV_ADD=/=EPOLL_CTL_ADD= when cached =reg_mask == want_mask= without checking device generation | Closed FD reused by a new socket never enters kernel interest set -> silent hang | Monotonic =___U64 dev_gen= on =___device= assigned in =___device_add_to_group= and bumped in =___device_close=; mismatch forces fresh kernel registration (=mutant7SkipReRegisterOnReusedFdGenKilledTest=, =fd_reuse_forces_fresh_registration=, =slice3b1_evented_io_reactor_pso.c= kills =-DUSE_FD_GEN_CHECK=0=) |
+| 26 | Slice 3B-1 (=requires_full= Full-Sync vs Parked I/O Reactors) | Wait for =sync_parked_count == 0= in =on_all_processors= (=OP_VM_RESIZE=, =___cleanup=, =OP_FDSET_RESIZE=) without waking parked I/O reactors | Deadlock when an idle core is parked in =kevent=/=epoll_wait= with infinite timeout while another core requests live VM resize or shutdown | Set =sync_block_new_parks++= and call async-signal-safe =___device_select_abort= on every =life->sync_parked[k]= under =sync_part_mut= (=mutant8FullSyncWaitWithoutWakeupKilledTest=, =slice3b1_evented_io_reactor_pso.c= kills =-DUSE_FULL_SYNC_ABORT=0=) |
+| 27 | Slice 3B-1 (=OP_FDSET_RESIZE= UAF & High-Core FD Exhaustion) | Run =OP_FDSET_RESIZE= with parked reactors still reading =fdset=, OR allocate a 2-FD self-pipe per processor under macOS =ulimit -n 256= | Use-after-free on =fdset.readfds= under fallback =select=/=poll=, OR =EMFILE= failure at =-:p128= | Add =OP_FDSET_RESIZE= to =requires_full= for fallback backends, bypass =OP_FDSET_RESIZE= completely on =kqueue=/=epoll=, and use =EVFILT_USER= (1 FD/core, 0 pipes) on macOS/BSD + =eventfd= on Linux while saving/restoring =errno= in =___device_select_abort= |
+| 28 | Slice 3B-1 (Post-=___cleanup_vmstate= Freed-=pstate= UAF — *Caught Live on Linux CI =c7 exit=139=!*) | Dereference a saved =___processor_state= pointer after =___cleanup_vmstate(extra)= freed =extra->processor_storage= | Linux glibc immediately =munmap()=s the ~200 KiB =calloc= slab -> deterministic =SIGSEGV= in =c7=, latent UAF in =root-task.scm= & =vm-lifecycle.scm= | Capture pre-cleanup diagnostics before =___cleanup_vmstate=, preserve =vm->aligned_pstate0.pstate.vmstate = vm= in =vm_free_processor_storage= so =___PSTATE_FROM_PROCESSOR_ID(0, extra)= safely exercises rejected re-entry without UAF |
 
 * ALIGNED Reproducible Formal Verification Commands
 :PROPERTIES:
@@ -368,6 +389,12 @@ for lf in \
 done
 
 # 5. CBMC weak-memory PSO & arithmetic contract checks (safe PASS + mutants FAIL)
+cbmc --mm pso -DUSE_FD_GEN_CHECK=1 -DUSE_FULL_SYNC_ABORT=1 --bounds-check --signed-overflow-check --unsigned-overflow-check --unwind 20 \
+  dev/refactoring/modern-c/models/cbmc/slice3b1_evented_io_reactor_pso.c
+! cbmc --mm pso -DUSE_FD_GEN_CHECK=0 -DUSE_FULL_SYNC_ABORT=1 --unwind 20 \
+  dev/refactoring/modern-c/models/cbmc/slice3b1_evented_io_reactor_pso.c
+! cbmc --mm pso -DUSE_FD_GEN_CHECK=1 -DUSE_FULL_SYNC_ABORT=0 --unwind 20 \
+  dev/refactoring/modern-c/models/cbmc/slice3b1_evented_io_reactor_pso.c
 cbmc --mm pso -DUSE_RUNNING_STATE_GATE=1 --bounds-check --signed-overflow-check --unsigned-overflow-check \
   dev/refactoring/modern-c/models/cbmc/slice3a_dynamic_domains_pso.c
 ! cbmc --mm pso -DUSE_RUNNING_STATE_GATE=0 --bounds-check --signed-overflow-check --unsigned-overflow-check \
