@@ -2211,8 +2211,21 @@ def _run_suite_groups(ctx, runtime, copied, args, files, jobs, option, slots, *,
                 finally:
                     slots.put(slot)
 
+        def shard_priority(item):
+            index, group = item
+            if len(group) == 1:
+                cap = file_caps.get(str(group[0]), 0)
+            else:
+                names = [str(file) for file in group]
+                cap = next((value["budgetSeconds"] for value in group_caps.values()
+                            if value["files"] == names), 0)
+            # Schedule largest/longest-capped shards first (LPT) so workers do not
+            # serialize a large trailing shard after finishing small capped shards.
+            return (-len(group), -cap, index)
+
         with ThreadPoolExecutor(max_workers=jobs) as pool:
-            futures = [pool.submit(worker, item) for item in enumerate(groups)]
+            futures = [pool.submit(worker, item)
+                       for item in sorted(enumerate(groups), key=shard_priority)]
             rows = []
             for future in as_completed(futures):
                 rows.append(future.result())
