@@ -9,9 +9,12 @@ from gambit_smp.framework import digest
 
 CONTRACT = "tests/recipes/ci/upstream-tests.json"
 MODERN_CONTRACT = "tests/recipes/ci/modern-c-upstream-tests.json"
+DEV_MODERN_CONTRACT = "tests/recipes/ci/dev-modern-c-upstream-tests.json"
 ENTRY = "tests/recipes/ci/test-scope.entry.json"
 RULES = "evidence/dsl/upstream-test-scope.ss"
-POLICIES = {CONTRACT: "policy/upstream-tests.json", MODERN_CONTRACT: "policy/modern-c-upstream-tests.json", ENTRY: "policy/upstream-test-scope.entry.json",
+POLICIES = {CONTRACT: "policy/upstream-tests.json", MODERN_CONTRACT: "policy/modern-c-upstream-tests.json",
+            DEV_MODERN_CONTRACT: "policy/dev-modern-c-upstream-tests.json",
+            ENTRY: "policy/upstream-test-scope.entry.json",
             RULES: "policy/upstream-test-scope.ss",
             "tests/recipes/support/incremental-builds/qualified-upstream-tests.json": "policy/qualified-upstream-tests.json",
             "evidence/dsl/qualified-suite-review-rules.ss": "policy/qualified-suite-review-rules.ss"}
@@ -95,10 +98,43 @@ def target_recipes(text, name):
     return '\n'.join(result)
 
 
+def _configured_extensions(configured):
+    exe_matches = re.findall(r'^BUILD_EXE_OUTPUT_FILENAME_PARAM[ \t]*=[ \t]*stack-overflow-undo(\S*)[ \t]*$',
+                             configured, re.M)
+    obj_matches = re.findall(r'\brm -f mem\.c mem_\.c mem(\.\w+)\b', configured)
+    if (len(exe_matches) != 1 or exe_matches[0] not in {'', '.exe'}
+            or not obj_matches or len(set(obj_matches)) != 1
+            or obj_matches[0] not in {'.o', '.obj'}):
+        raise ValueError('configured Make executable/object extension correspondence differs')
+    return exe_matches[0], obj_matches[0]
+
+
+def _substitute_extensions(text, exe_ext, obj_ext):
+    return text.replace('@exe@', exe_ext).replace('@obj@', obj_ext)
+
+
+def _valid_file_prerequisite(word, name, *, build_products=False):
+    if word == '$(srcdirpfx)' + Path(name).name:
+        return True
+    if not build_products:
+        return False
+    if name.startswith('tests/'):
+        rel = name[len('tests/'):]
+        return word in {rel, '$(srcdirpfx)' + rel}
+    return word == '$(rootfromhere)/' + name
+
+
 def validate_execution(execution, targets, source, configured):
     from gambit_smp.recipes import fields
     from gambit_smp.source_capabilities import source_name, sha
-    fields(execution, ('recipeCalls', 'filePrerequisites', 'variables', 'configuredVariables', 'sourceInputs'))
+    fields(execution, ('recipeCalls', 'filePrerequisites', 'variables', 'configuredVariables', 'sourceInputs'),
+           ('buildProducts', 'macroPrerequisites'))
+    build_products = execution.get('buildProducts', False)
+    if type(build_products) is not bool:
+        raise ValueError('typed build-product declaration required')
+    macros = execution.get('macroPrerequisites', {})
+    if not isinstance(macros, dict) or (macros and not build_products):
+        raise ValueError('typed macro prerequisite declarations required')
     calls, files = execution['recipeCalls'], execution['filePrerequisites']
     if (not isinstance(calls, dict) or not isinstance(files, dict)
             or not set(calls) <= targets.keys() or not set(files) <= targets.keys()
@@ -111,7 +147,7 @@ def validate_execution(execution, targets, source, configured):
         sha(identity)
     for target, mapping in files.items():
         if (not isinstance(mapping, dict) or not mapping
-                or any(word != '$(srcdirpfx)' + Path(name).name
+                or any(not _valid_file_prerequisite(word, name, build_products=build_products)
                        or name not in execution['sourceInputs'] for word, name in mapping.items())):
             raise ValueError('source-bound literal file prerequisites required')
         prerequisites = [word for header in target_headers(source.splitlines(), target)
@@ -122,14 +158,24 @@ def validate_execution(execution, targets, source, configured):
         if (not isinstance(selected, list) or len(selected) != len(set(selected))
                 or not set(selected) <= targets.keys()):
             raise ValueError('unique declared recursive Make targets required')
-    for text in [source, *([configured] if configured is not None else [])]:
+    exe_ext, obj_ext = _configured_extensions(configured) if (configured is not None and build_products) else ('@exe@', '@obj@')
+    for token, definition in macros.items():
+        if (not isinstance(token, str) or not re.fullmatch(r'\$\([A-Z][A-Z0-9_]*\)', token)
+                or not isinstance(definition, str) or not definition):
+            raise ValueError('literal Make macro prerequisite definition required')
+        if definition not in source:
+            raise ValueError('Make macro prerequisite differs from source: ' + token)
+        if configured is not None and _substitute_extensions(definition, exe_ext, obj_ext) not in configured:
+            raise ValueError('Make macro prerequisite differs from configured makefile: ' + token)
+    for is_configured, text in [(False, source), *([(True, configured)] if configured is not None else [])]:
         for name, expected in execution['variables'].items():
             writes = re.findall(r'^(?:(?:override|export)\s+)?' + re.escape(name)
                                 + r'[ \t]*([:+?]?=)[ \t]*(.*)$', text, re.M)
             if writes != [('=', expected)]:
                 raise ValueError('Make variable closure differs: ' + name)
         for target in targets:
-            body = target_recipes(text, target)
+            lookup = _substitute_extensions(target, exe_ext, obj_ext) if (is_configured and build_products) else target
+            body = target_recipes(text, lookup)
             observed = []
             for match in re.finditer(r'\$\(MAKE\)\s+([^\s;]+)', body):
                 word = match[1]
@@ -161,18 +207,25 @@ def validate_scope_definition(contract, source, configured=None):
     execution = contract.get("execution", {})
     if 'execution' in contract:
         validate_execution(execution, targets, source, configured)
+    build_products = execution.get("buildProducts", False)
+    macros = execution.get("macroPrerequisites", {})
+    exe_ext, obj_ext = _configured_extensions(configured) if (configured is not None and build_products) else ('@exe@', '@obj@')
     for name, row in targets.items():
         fields(row, ("executable", "headers", "dependencies", "unitSelections"))
-        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name) or type(row["executable"]) is not bool:
+        valid_name = bool(re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)) or (
+            build_products and row["executable"] is False
+            and bool(re.fullmatch(r"[a-z][a-z0-9-]{0,58}@(?:exe|obj)@", name)))
+        if not valid_name or type(row["executable"]) is not bool:
             raise ValueError("typed official target declaration required")
-        headers_for = lambda lines: target_headers(lines, name)
-        headers = headers_for(source_lines)
+        headers = target_headers(source_lines, name)
+        configured_name = _substitute_extensions(name, exe_ext, obj_ext) if (configured is not None and build_products) else name
+        expected_configured = [_substitute_extensions(line, exe_ext, obj_ext) for line in headers] if (configured is not None and build_products) else headers
         if (not headers or row["headers"] != headers
-                or headers_for(configured_lines) != headers):
+                or target_headers(configured_lines, configured_name) != expected_configured):
             raise ValueError("complete configured/source target headers required")
         dependencies = list(dict.fromkeys(word for line in headers for word in line.partition(":")[2].split()))
         files = execution.get("filePrerequisites", {}).get(name, {})
-        dependencies = [word for word in dependencies if word not in files]
+        dependencies = [word for word in dependencies if word not in files and word not in macros]
         if row["dependencies"] != dependencies or not set(dependencies) <= targets.keys():
             raise ValueError("literal target prerequisite correspondence differs")
         selections = row["unitSelections"]

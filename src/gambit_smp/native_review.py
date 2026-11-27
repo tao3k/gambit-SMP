@@ -9,6 +9,85 @@ from gambit_smp.framework import digest, relative
 
 POLICY = "evidence/dsl/suite-review-rules.ss"
 SCHEMA = "typed-native-retry-review.v1"
+_LEGACY_EVIDENCE_PREFIX = ".cache/research/legacy-evidence/"
+_HISTORICAL_GIT_PREFIXES = (
+    "evidence/model-results/",
+    "evidence/source-results/",
+    "evidence/research/",
+)
+_HISTORICAL_GIT_REVISIONS = (
+    "61e875a42c153a12d7ad29b2a718a7540606cfc9",
+    "3fffdcad639661750a2840953b198587c7f2a4a0",
+    "b6e140257297f957a8c1bc559c688e9168ab5e61",
+)
+
+
+def _strip_legacy_prefix(name):
+    if isinstance(name, str) and name.startswith(_LEGACY_EVIDENCE_PREFIX):
+        return name[len(_LEGACY_EVIDENCE_PREFIX):]
+    return name
+
+
+def _historical_stage_dir(ctx):
+    directory = getattr(ctx, "directory", None)
+    return (Path(directory) / "historical-git") if directory is not None else None
+
+
+def _git_historical_blob(root, orig):
+    import subprocess
+    for rev in _HISTORICAL_GIT_REVISIONS:
+        probe = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-e", f"{rev}:{orig}"],
+            capture_output=True,
+        )
+        if probe.returncode == 0:
+            blob = subprocess.run(
+                ["git", "-C", str(root), "cat-file", "blob", f"{rev}:{orig}"],
+                capture_output=True,
+                check=True,
+            )
+            return blob.stdout
+    return None
+
+
+def _materialize_historical_git(root, name, stage_dir):
+    """Materialize immutable historical evidence from reachable Git history into a step-owned cache."""
+    if stage_dir is None or not isinstance(name, str) or not (root / ".git").exists():
+        return None
+    orig = _strip_legacy_prefix(name)
+    if (not orig.startswith(_HISTORICAL_GIT_PREFIXES)
+            or Path(orig).is_absolute() or ".." in Path(orig).parts
+            or "\\" in orig or Path(orig).as_posix() != orig):
+        return None
+    base = Path(stage_dir).resolve()
+    target = (base / orig).resolve()
+    if not target.is_relative_to(base):
+        raise ValueError("historical git materialization escaped step directory: " + name)
+    if not target.is_file():
+        data = _git_historical_blob(root, orig)
+        if data is None:
+            return None
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    if target.name == "archive.json":
+        import json
+        saved = json.loads(target.read_text())
+        files = saved.get("files") if isinstance(saved, dict) else None
+        if isinstance(files, dict):
+            parent_rel = Path(orig).parent.as_posix()
+            for member in files:
+                if (not isinstance(member, str) or Path(member).is_absolute()
+                        or ".." in Path(member).parts or "\\" in member):
+                    continue
+                member_orig = f"{parent_rel}/{member}"
+                member_target = (base / member_orig).resolve()
+                if not member_target.is_relative_to(base) or member_target.is_file():
+                    continue
+                member_data = _git_historical_blob(root, member_orig)
+                if member_data is not None:
+                    member_target.parent.mkdir(parents=True, exist_ok=True)
+                    member_target.write_bytes(member_data)
+    return target
 
 
 def configured_dynamic_options(runtime, compiler):
@@ -184,9 +263,12 @@ def make_operation_scope(args):
         return {"Makefile:" + args["operation"]} if args.get("operation") is not None else set()
     operations = args["operations"]
     if (not isinstance(operations, list) or not operations or len(operations) != len(set(operations))
-            or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)
+            or any(not isinstance(name, str)
+                   or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}|[a-z][a-z0-9-]{0,58}@(?:exe|obj)@", name)
                    for name in operations)
             or not isinstance(args.get("requestedOperations"), list)
+            or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)
+                   for name in args["requestedOperations"])
             or not set(args["requestedOperations"]) <= set(operations)):
         raise ValueError("exact inferred and requested operation inventories required")
     makefile_scope = args.get("makefileScope")
@@ -391,11 +473,12 @@ def environment_change(ctx, change, current, failure, previous, facts, inputs):
     ctx.bind([program, path])
     route, operation = failure["id"], change["path"]
     facts["environment_observation"].append([route, operation])
+    stage_dir = _historical_stage_dir(ctx)
     for control in failure.get("controls", []):
         if control.get("kind") != "outside-sandbox-unchanged-source-and-artifacts":
             continue
-        control_path = source_path(ctx.root, control["receipt"])
-        log = source_path(ctx.root, control["log"])
+        control_path = _historical_path(ctx.root, control["receipt"], stage_dir=stage_dir)
+        log = _historical_path(ctx.root, control["log"], stage_dir=stage_dir)
         record = read_json(control_path)
         if not log.stat().st_size:
             raise ValueError("environment control requires its retained raw log")
@@ -418,7 +501,7 @@ def environment_change(ctx, change, current, failure, previous, facts, inputs):
             milliseconds(record["wholeSuiteBudgetPerMode"])])
 
 
-def _historical_path(root, name):
+def _historical_path(root, name, *, stage_dir=None):
     """Resolve historical failure artifacts relocated out of evidence/ under the Git boundary."""
     from gambit_smp.recipes import source_path
     root = Path(root).resolve()
@@ -430,6 +513,9 @@ def _historical_path(root, name):
             relocated = root / "tests/fixtures/historical-bootstrap" / name[len(prefix):]
             if relocated.exists():
                 return source_path(root, relocated.relative_to(root).as_posix())
+    staged = _materialize_historical_git(root, name, stage_dir)
+    if staged is not None:
+        return staged
     return source_path(root, name) if not str(name).startswith(".cache/") else direct
 
 
@@ -450,9 +536,11 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
     if set(indexed) - set(failures):
         raise ValueError("retry review names an unselected or unknown failure")
 
+    stage_dir = _historical_stage_dir(ctx)
+
     def bound(reference):
         fields(reference, ("path", "sha256"))
-        path = _historical_path(ctx.root, reference["path"])
+        path = _historical_path(ctx.root, reference["path"], stage_dir=stage_dir)
         if digest(path) != reference["sha256"]:
             raise ValueError("retry review evidence identity drift")
         inputs[reference["path"]] = reference["sha256"]
@@ -693,7 +781,8 @@ def historical_observation(ctx, failure, original, inputs, facts):
     from gambit_smp.native_archive import validate
     if "observation" not in failure:
         return failure, original
-    version_path = _historical_path(ctx.root, failure["observation"])
+    stage_dir = _historical_stage_dir(ctx)
+    version_path = _historical_path(ctx.root, failure["observation"], stage_dir=stage_dir)
     version = read_json(version_path)
     fields(version, ("schema", "original", "archive", "log", "agreements"))
     if version["schema"] != "historical-failure-observation.v1":
@@ -702,18 +791,19 @@ def historical_observation(ctx, failure, original, inputs, facts):
     for label in ("original", "archive", "log"):
         reference = version[label]
         fields(reference, ("path", "sha256"))
-        path = _historical_path(ctx.root, reference["path"])
+        path = _historical_path(ctx.root, reference["path"], stage_dir=stage_dir)
         if digest(path) != reference["sha256"]:
             raise ValueError("historical observation reference drift: " + label)
         inputs[reference["path"]] = reference["sha256"]
-    if version["original"] != {"path": failure["receipt"], "sha256": inputs[failure["receipt"]]}:
+    if (_strip_legacy_prefix(version["original"]["path"]) != _strip_legacy_prefix(failure["receipt"])
+            or version["original"]["sha256"] != inputs[failure["receipt"]]):
         raise ValueError("historical observation must retain the exact canonical failure")
-    archive_path = _historical_path(ctx.root, version["archive"]["path"])
+    archive_path = _historical_path(ctx.root, version["archive"]["path"], stage_dir=stage_dir)
     archived_inputs = validate(ctx.root, archive_path.relative_to(ctx.root.resolve()).as_posix())
     # Transcript observations are represented by publication bindings in the
     # validator's input closure. Membership still belongs to the validated
     # archive inventory, not to the set of ordinary repository input paths.
-    log_path = _historical_path(ctx.root, version["log"]["path"])
+    log_path = _historical_path(ctx.root, version["log"]["path"], stage_dir=stage_dir)
     try:
         log_member = log_path.relative_to(archive_path.parent).as_posix()
     except ValueError:
@@ -738,7 +828,7 @@ def historical_observation(ctx, failure, original, inputs, facts):
         if same_type and before == after:
             facts["observation_equal_pointer"].append(
                 [route, agreement["field"], agreement["original"], agreement["observed"]])
-    ctx.bind(_historical_path(ctx.root, name) for name in inputs)
+    ctx.bind(_historical_path(ctx.root, name, stage_dir=stage_dir) for name in inputs)
     return {**failure, "log": version["log"]["path"]}, recovered
 
 
@@ -789,6 +879,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
     selected = {str(path) for path in files}
     facts["current_campaign_file"] = [[name] for name in sorted(selected)]
     selected.update(make_operation_scope(args))
+    stage_dir = _historical_stage_dir(ctx)
     overlaps, failures, budget_compilers = [], {}, []
     seen = set()
     for failure in declared["failures"]:
@@ -797,7 +888,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         seen.add(failure["id"])
         if not selected_scope(failure["file"], selected, files):
             continue
-        observed = _historical_path(ctx.root, failure["receipt"])
+        observed = _historical_path(ctx.root, failure["receipt"], stage_dir=stage_dir)
         prior = read_json(observed)
         inputs[failure["receipt"]] = digest(observed)
         denied = failure_modes(prior)
@@ -875,7 +966,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
                                               if entry["id"] not in distinct]}
         project_review(ctx, reviewable, current, failures, runtime, tested_unit, facts, inputs,
                        producer_binding=producer_binding)
-    ctx.bind(_historical_path(ctx.root, name) for name in inputs)
+    ctx.bind(_historical_path(ctx.root, name, stage_dir=stage_dir) for name in inputs)
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,95}", label):
         raise ValueError("bounded retry observation label required")
     answers = evaluate_observations(ctx, rule_paths, facts,
@@ -899,7 +990,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         check_runtime(runtime, candidate)
     if campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, suite_budget=suite_budget) != current:
         raise ValueError("candidate campaign or topology drift during native inference")
-    if any(digest(_historical_path(ctx.root, name)) != expected for name, expected in inputs.items()):
+    if any(digest(_historical_path(ctx.root, name, stage_dir=stage_dir)) != expected for name, expected in inputs.items()):
         raise ValueError("retry review input drift during native inference")
     ctx.bind([candidate_receipt])
     decisions = answers["decision"]

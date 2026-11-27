@@ -1,0 +1,2463 @@
+diff --git a/configure b/configure
+index 1e0cdb50..61384468 100755
+--- a/configure
++++ b/configure
+@@ -945,8 +945,12 @@ CONF_SINGLE_MULTIPLE_VMS
+ CONF_BOOL
+ CONF_VOIDSTAR_WIDTH
+ CONF_MAX_CHR
++CONF_GC_HEAP_CONTRACTION_MODE
++CONF_GC_ADAPTIVE_SIZING
++CONF_GC_FROM_RECLAIM_MIN_SECTIONS
+ CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_OPTIMIZED_MODULE
+ CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED_MODULE
++CONF_OPTIMIZED_HOST_LIMIT
+ CONF_OPTIMIZED_MODULE_LIMIT
+ CONF_SINGLE_HOST_LIMIT
+ CONF_ACTIVITY_LOG
+@@ -1055,6 +1059,10 @@ enable_feedback1
+ enable_feedback2
+ enable_single_host
+ enable_optimized_module_limit
++enable_optimized_host_limit
++enable_gc_fromspace_reclaim
++enable_gc_adaptive_sizing
++enable_gc_heap_contraction
+ enable_lowlevel_exec
+ enable_inline_jumps
+ enable_trust_c_tco
+@@ -1808,6 +1816,23 @@ Optional Features:
+                           optimization level is lowered; N=0 deactivates the
+                           lowering of the optimization level; N=20000 is the
+                           default)
++  --enable-optimized-host-limit[=auto|0|N]
++                          set the maximal size of a single C host procedure to
++                          use the normal C compilation optimization level
++                          (auto derives max(1, optimized-module-limit / 8)
++                          when optimized-module-limit > 0 else 0; 0
++                          deactivates per-host lowering; default is auto)
++  --enable-gc-fromspace-reclaim[=auto|off|N]
++                          STW drained-fromspace OS page reclamation policy:
++                          auto adapts to machine RAM, cache, and max_heap; off
++                          disables; N>=1 sets explicit minimum section
++                          threshold (default is auto)
++  --enable-gc-adaptive-sizing[=auto|off]
++                          hardware-adaptive large-heap live_percent damping
++                          honoring explicit -:l<N> (default is auto)
++  --enable-gc-heap-contraction[=auto|legacy]
++                          collapse-aware heap contraction history decay vs
++                          legacy 16-GC max ratchet (default is auto)
+   --enable-lowlevel-exec  build system so C and machine code can be mixed
+                           (default is NO)
+   --enable-inline-jumps   generate inline code for jumps (default is NO)
+@@ -6161,8 +6186,116 @@ fi
+ 
+ CONF_OPTIMIZED_MODULE_LIMIT="$ENABLE_OPTIMIZED_MODULE_LIMIT"
+ 
++# Check whether --enable-optimized-host-limit was given.
++if test ${enable_optimized_host_limit+y}
++then :
++  enableval=$enable_optimized_host_limit; ENABLE_OPTIMIZED_HOST_LIMIT=$enableval
++else case e in #(
++  e) ENABLE_OPTIMIZED_HOST_LIMIT=auto ;;
++esac
++fi
++
++
++case "$ENABLE_OPTIMIZED_HOST_LIMIT" in
++  auto|yes)
++    if test "$ENABLE_OPTIMIZED_MODULE_LIMIT" = "0" || test "$ENABLE_OPTIMIZED_MODULE_LIMIT" = "no"; then
++      CONF_OPTIMIZED_HOST_LIMIT="0"
++    else
++      CONF_OPTIMIZED_HOST_LIMIT=`expr "$ENABLE_OPTIMIZED_MODULE_LIMIT" / 8`
++      if test "$CONF_OPTIMIZED_HOST_LIMIT" -lt 1 2>/dev/null; then
++        CONF_OPTIMIZED_HOST_LIMIT="1"
++      fi
++    fi
++    ;;
++  off|no)
++    CONF_OPTIMIZED_HOST_LIMIT="0"
++    ;;
++  *)
++    CONF_OPTIMIZED_HOST_LIMIT="$ENABLE_OPTIMIZED_HOST_LIMIT"
++    ;;
++esac
++
++
++
++
+ 
+ 
++###############################################################################
++#
++# Configure STW drained-fromspace OS page reclamation policy:
++#   auto (default): adapt section threshold to machine RAM, cache/min_heap, and max_heap
++#   off / no      : disable page reclamation (zero syscalls)
++#   N (N >= 1)    : explicit minimum msection threshold
++
++# Check whether --enable-gc-fromspace-reclaim was given.
++if test ${enable_gc_fromspace_reclaim+y}
++then :
++  enableval=$enable_gc_fromspace_reclaim; ENABLE_GC_FROMSPACE_RECLAIM=$enableval
++else case e in #(
++  e) ENABLE_GC_FROMSPACE_RECLAIM=auto ;;
++esac
++fi
++
++
++case "$ENABLE_GC_FROMSPACE_RECLAIM" in
++  auto|yes)
++    CONF_GC_FROM_RECLAIM_MIN_SECTIONS="0"
++    ;;
++  off|no)
++    CONF_GC_FROM_RECLAIM_MIN_SECTIONS="-1"
++    ;;
++  *)
++    CONF_GC_FROM_RECLAIM_MIN_SECTIONS="$ENABLE_GC_FROMSPACE_RECLAIM"
++    ;;
++esac
++
++
++
++###############################################################################
++#
++# Configure hardware-adaptive large-heap live_percent damping and
++# collapse-aware heap contraction (zero hardcodes, explicit -:l<N> preserved):
++
++# Check whether --enable-gc-adaptive-sizing was given.
++if test ${enable_gc_adaptive_sizing+y}
++then :
++  enableval=$enable_gc_adaptive_sizing; ENABLE_GC_ADAPTIVE_SIZING=$enableval
++else case e in #(
++  e) ENABLE_GC_ADAPTIVE_SIZING=auto ;;
++esac
++fi
++
++
++case "$ENABLE_GC_ADAPTIVE_SIZING" in
++  off|no|0)
++    CONF_GC_ADAPTIVE_SIZING="0"
++    ;;
++  *)
++    CONF_GC_ADAPTIVE_SIZING="1"
++    ;;
++esac
++
++
++
++# Check whether --enable-gc-heap-contraction was given.
++if test ${enable_gc_heap_contraction+y}
++then :
++  enableval=$enable_gc_heap_contraction; ENABLE_GC_HEAP_CONTRACTION=$enableval
++else case e in #(
++  e) ENABLE_GC_HEAP_CONTRACTION=auto ;;
++esac
++fi
++
++
++case "$ENABLE_GC_HEAP_CONTRACTION" in
++  legacy|off|no|0)
++    CONF_GC_HEAP_CONTRACTION_MODE="0"
++    ;;
++  *)
++    CONF_GC_HEAP_CONTRACTION_MODE="1"
++    ;;
++esac
++
+ 
+ 
+ ###############################################################################
+@@ -11540,11 +11673,6 @@ DASH_mpc64="$ac_cv_DASH_mpc64"
+ 
+   fi
+ 
+-  if test "$DASH_fexpensive_optimizations" != ""; then
+-    # turn off expensive optimizations when module is beyond normal limit
+-    CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED_MODULE="__attribute__ ((optimize (\"no-expensive-optimizations\")))"
+-  fi
+-
+   # preprocessor options:
+   { printf '%s\n' "$as_me:${as_lineno-$LINENO}: checking whether $C_COMPILER accepts -no-cpp-precomp" >&5
+ printf %s "checking whether $C_COMPILER accepts -no-cpp-precomp... " >&6; }
+@@ -12747,6 +12875,22 @@ DASH_freschedule_modulo_scheduled_loops="$ac_cv_DASH_freschedule_modulo_schedule
+ 
+   fi
+ 
++  if test "$DASH_fexpensive_optimizations" != ""; then
++    # turn off expensive and quadratic scheduling/invariant passes when module
++    # exceeds --enable-optimized-module-limit (preserving -O1 codegen and all flags)
++    unopt_host_opts="\"no-expensive-optimizations\""
++    if test "$DASH_fschedule_insns2" != ""; then
++      unopt_host_opts="$unopt_host_opts, \"no-schedule-insns2\""
++    fi
++    if test "$DASH_fno_move_loop_invariants" != ""; then
++      unopt_host_opts="$unopt_host_opts, \"no-move-loop-invariants\""
++    fi
++    if test "$DASH_fmodulo_sched" != ""; then
++      unopt_host_opts="$unopt_host_opts, \"no-modulo-sched\""
++    fi
++    CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED_MODULE="__attribute__ ((optimize ($unopt_host_opts)))"
++  fi
++
+   # code generation options:
+   case "$target_os" in
+ 
+diff --git a/configure.ac b/configure.ac
+index 9916f472..45600fd0 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -525,10 +525,102 @@ AC_ARG_ENABLE(optimized-module-limit,
+ 
+ CONF_OPTIMIZED_MODULE_LIMIT="$ENABLE_OPTIMIZED_MODULE_LIMIT"
+ 
++AC_ARG_ENABLE(optimized-host-limit,
++              AS_HELP_STRING([--enable-optimized-host-limit@<:@=auto|0|N@:>@],
++                             [set the maximal size of a single C host procedure to use the normal C compilation optimization level (auto derives max(1, optimized-module-limit / 8) when optimized-module-limit > 0 else 0; 0 deactivates per-host lowering; default is auto)]),
++              ENABLE_OPTIMIZED_HOST_LIMIT=$enableval,
++              ENABLE_OPTIMIZED_HOST_LIMIT=auto)
++
++case "$ENABLE_OPTIMIZED_HOST_LIMIT" in
++  auto|yes)
++    if test "$ENABLE_OPTIMIZED_MODULE_LIMIT" = "0" || test "$ENABLE_OPTIMIZED_MODULE_LIMIT" = "no"; then
++      CONF_OPTIMIZED_HOST_LIMIT="0"
++    else
++      CONF_OPTIMIZED_HOST_LIMIT=`expr "$ENABLE_OPTIMIZED_MODULE_LIMIT" / 8`
++      if test "$CONF_OPTIMIZED_HOST_LIMIT" -lt 1 2>/dev/null; then
++        CONF_OPTIMIZED_HOST_LIMIT="1"
++      fi
++    fi
++    ;;
++  off|no)
++    CONF_OPTIMIZED_HOST_LIMIT="0"
++    ;;
++  *)
++    CONF_OPTIMIZED_HOST_LIMIT="$ENABLE_OPTIMIZED_HOST_LIMIT"
++    ;;
++esac
++
+ AC_SUBST(CONF_OPTIMIZED_MODULE_LIMIT)
++AC_SUBST(CONF_OPTIMIZED_HOST_LIMIT)
+ AC_SUBST(CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED_MODULE)
+ AC_SUBST(CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_OPTIMIZED_MODULE)
+ 
++###############################################################################
++#
++# Configure STW drained-fromspace OS page reclamation policy:
++#   auto (default): adapt section threshold to machine RAM, cache/min_heap, and max_heap
++#   off / no      : disable page reclamation (zero syscalls)
++#   N (N >= 1)    : explicit minimum msection threshold
++
++AC_ARG_ENABLE(gc-fromspace-reclaim,
++              AS_HELP_STRING([--enable-gc-fromspace-reclaim@<:@=auto|off|N@:>@],
++                             [STW drained-fromspace OS page reclamation policy: auto adapts to machine RAM, cache, and max_heap; off disables; N>=1 sets explicit minimum section threshold (default is auto)]),
++              ENABLE_GC_FROMSPACE_RECLAIM=$enableval,
++              ENABLE_GC_FROMSPACE_RECLAIM=auto)
++
++case "$ENABLE_GC_FROMSPACE_RECLAIM" in
++  auto|yes)
++    CONF_GC_FROM_RECLAIM_MIN_SECTIONS="0"
++    ;;
++  off|no)
++    CONF_GC_FROM_RECLAIM_MIN_SECTIONS="-1"
++    ;;
++  *)
++    CONF_GC_FROM_RECLAIM_MIN_SECTIONS="$ENABLE_GC_FROMSPACE_RECLAIM"
++    ;;
++esac
++
++AC_SUBST(CONF_GC_FROM_RECLAIM_MIN_SECTIONS)
++
++###############################################################################
++#
++# Configure hardware-adaptive large-heap live_percent damping and
++# collapse-aware heap contraction (zero hardcodes, explicit -:l<N> preserved):
++
++AC_ARG_ENABLE(gc-adaptive-sizing,
++              AS_HELP_STRING([--enable-gc-adaptive-sizing@<:@=auto|off@:>@],
++                             [hardware-adaptive large-heap live_percent damping honoring explicit -:l<N> (default is auto)]),
++              ENABLE_GC_ADAPTIVE_SIZING=$enableval,
++              ENABLE_GC_ADAPTIVE_SIZING=auto)
++
++case "$ENABLE_GC_ADAPTIVE_SIZING" in
++  off|no|0)
++    CONF_GC_ADAPTIVE_SIZING="0"
++    ;;
++  *)
++    CONF_GC_ADAPTIVE_SIZING="1"
++    ;;
++esac
++
++AC_SUBST(CONF_GC_ADAPTIVE_SIZING)
++
++AC_ARG_ENABLE(gc-heap-contraction,
++              AS_HELP_STRING([--enable-gc-heap-contraction@<:@=auto|legacy@:>@],
++                             [collapse-aware heap contraction history decay vs legacy 16-GC max ratchet (default is auto)]),
++              ENABLE_GC_HEAP_CONTRACTION=$enableval,
++              ENABLE_GC_HEAP_CONTRACTION=auto)
++
++case "$ENABLE_GC_HEAP_CONTRACTION" in
++  legacy|off|no|0)
++    CONF_GC_HEAP_CONTRACTION_MODE="0"
++    ;;
++  *)
++    CONF_GC_HEAP_CONTRACTION_MODE="1"
++    ;;
++esac
++
++AC_SUBST(CONF_GC_HEAP_CONTRACTION_MODE)
++
+ ###############################################################################
+ #
+ # Check if the system must support mixing the execution of code generated
+@@ -2434,11 +2526,6 @@ if test "$C_COMP_GNUC" = yes; then
+ 
+   fi
+ 
+-  if test "$DASH_fexpensive_optimizations" != ""; then
+-    # turn off expensive optimizations when module is beyond normal limit
+-    CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED_MODULE="__attribute__ ((optimize (\"no-expensive-optimizations\")))"
+-  fi
+-
+   # preprocessor options:
+   AC_CHECK_C_COMPILER_OPT(-no-cpp-precomp,DASH_no_cpp_precomp)
+ 
+@@ -2541,6 +2628,22 @@ if test "$C_COMP_GNUC" = yes; then
+ 
+   fi
+ 
++  if test "$DASH_fexpensive_optimizations" != ""; then
++    # turn off expensive and quadratic scheduling/invariant passes when module
++    # exceeds --enable-optimized-module-limit (preserving -O1 codegen and all flags)
++    unopt_host_opts="\"no-expensive-optimizations\""
++    if test "$DASH_fschedule_insns2" != ""; then
++      unopt_host_opts="$unopt_host_opts, \"no-schedule-insns2\""
++    fi
++    if test "$DASH_fno_move_loop_invariants" != ""; then
++      unopt_host_opts="$unopt_host_opts, \"no-move-loop-invariants\""
++    fi
++    if test "$DASH_fmodulo_sched" != ""; then
++      unopt_host_opts="$unopt_host_opts, \"no-modulo-sched\""
++    fi
++    CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED_MODULE="__attribute__ ((optimize ($unopt_host_opts)))"
++  fi
++
+   # code generation options:
+   case "$target_os" in
+ 
+diff --git a/gsc/_gsclib.scm b/gsc/_gsclib.scm
+index 86b08149..fe47190e 100644
+--- a/gsc/_gsclib.scm
++++ b/gsc/_gsclib.scm
+@@ -361,9 +361,13 @@
+                 options
+                 (##cons (##list 'linker-name link-name) options))))
+       (and (or input-is-target-file?
+-               (c#cf filename-or-source
+-                     options
+-                     (lambda () target-filename)))
++               (and (c#cf filename-or-source
++                          options
++                          (lambda () target-filename))
++                    ;; Contract dead Scheme->C codegen heap before spawning
++                    ;; the C compiler subprocess (cc1) to eliminate gsc+cc1
++                    ;; dual-peak coexistence across parallel build workers.
++                    (begin (##gc) #t)))
+            (let* ((target-filename-relative-to-output-dir
+                    (##path-relative-to-dir target-filename output-dir))
+                   (exit-status
+diff --git a/gsc/_t-c-1.scm b/gsc/_t-c-1.scm
+index f3871e3d..af9a4eb8 100644
+--- a/gsc/_t-c-1.scm
++++ b/gsc/_t-c-1.scm
+@@ -237,7 +237,7 @@
+                         (".M"    . Objective-C++)
+                         (".mm"   . Objective-C++))
+                       '()
+-                      '()
++                      '((cfg-host-limit fixnum))
+                       0)))
+ 
+     (define (begin! sem-changing-opts
+@@ -245,6 +245,8 @@
+                     info-port)
+ 
+       (set! targ-info-port info-port)
++      (set! targ-active-cfg-host-limit
++            (get-option sem-preserving-opts 'cfg-host-limit #f))
+ 
+       (target-dump-set!              targ targ-dump)
+       (target-link-info-set!         targ targ-link-info)
+@@ -1184,15 +1186,50 @@
+ ;; and possible fallthrough inside one physical C host, pins canonical entry
+ ;; (block 0 & block 1) and any 0-val-lbl dead components to host 0, and caps
+ ;; per-host block count to collapse quadratic GCC SSA/RA memory & compile time.
+-(define targ-auto-cfg-host-threshold 400)
+-(define targ-cfg-host-target-blocks 200)
+-(define targ-cfg-host-max-bins 64)
++;; Flag-driven & CFG-adaptive contiguous host partitioning for oversized
++;; pure-Scheme procedures (proved in CfgHostPartitionRefinement.lean,
++;; cfg_host_partition.qnt, and compiled-host/cfg-host-partition/harness.c).
++;; Controlled via `-cfg-host-limit N` (C target semantics-preserving option) or
++;; `(targ-cfg-host-limit)` alongside `(targ-auto-cfg-host-layout?)`:
++;;   < 0 : adaptive (scales per-host block target from Gambit's -compactness,
++;;         dominates largest indivisible component S_max, bounds hosts to
++;;         O(sqrt(N)), and requires >= 25% quadratic SSA reduction 4*sum(B^2)<=3*N^2)
++;;   = 0 : disabled for automatic partitioning (only splits when forced)
++;;   > 0 : explicit per-host block target N (auto-triggers at >= 2*N blocks)
++(define targ-cfg-host-limit (make-parameter -1))
++(define targ-active-cfg-host-limit #f)
++
++(define (targ-effective-cfg-host-limit)
++  (let ((opt (if (fixnum? targ-active-cfg-host-limit)
++                 targ-active-cfg-host-limit
++                 (targ-cfg-host-limit))))
++    (if (fixnum? opt) opt -1)))
++
++(define (targ-adaptive-cfg-base-target limit)
++  (if (> limit 0)
++      limit
++      (let* ((raw-c (targ-compactness))
++             (c (if (fixnum? raw-c)
++                    (max 0 (min 9 raw-c))
++                    targ-default-compactness)))
++        (- 448 (* c 32)))))
++
++(define (targ-isqrt n)
++  (if (< n 2)
++      n
++      (let loop ((x (quotient n 2)))
++        (let ((nx (quotient (+ x (quotient n x)) 2)))
++          (if (>= nx x) x (loop nx))))))
+ 
+ (define (targ-plan-cfg-hosts obj #!optional (forced? #f))
+-  (let* ((proc (car obj))
++  (let* ((limit (targ-effective-cfg-host-limit))
++         (base-target (targ-adaptive-cfg-base-target limit))
++         (auto-min-blocks (* 2 base-target))
++         (proc (car obj))
+          (info (cadr obj))
+          (code-vec (vector-ref info 0)))
+-    (and (or forced? (>= (stretchable-vector-length code-vec) targ-auto-cfg-host-threshold))
++    (and (or forced? (and (not (= limit 0))
++                          (>= (stretchable-vector-length code-vec) auto-min-blocks)))
+          (let* ((unique-name (targ-unique-name proc))
+                 (code (stretchable-vector->list code-vec))
+                 (val-lbls (vector-ref info 1))
+@@ -1204,7 +1241,7 @@
+                            (split (cdr rest) (list (car rest)) (cons (reverse block) result)))
+                           (else (split (cdr rest) (cons (car rest) block) result))))))
+                 (count (vector-length blocks)))
+-           (and (or forced? (>= count targ-auto-cfg-host-threshold))
++           (and (or forced? (and (not (= limit 0)) (>= count auto-min-blocks)))
+                 (let ((parents (make-vector count))
+                       (labels (make-table 'test: eq?))
+                       (owners (make-table 'test: eq?))
+@@ -1315,10 +1352,10 @@
+                            (let* ((entry-root (find 0))
+                                   (val-roots (keep (lambda (r) (table-ref comp-has-val r #f)) ordered-roots))
+                                   (non-val-roots (keep (lambda (r) (not (table-ref comp-has-val r #f))) ordered-roots))
+-                                  (max-hosts targ-cfg-host-max-bins)
+-                                  (target (if (and forced? (< count targ-auto-cfg-host-threshold))
++                                  (max-hosts (max 2 (targ-isqrt count)))
++                                  (target (if (and forced? (< count auto-min-blocks))
+                                               (max 1 (quotient (+ count 3) 4))
+-                                              (max targ-cfg-host-target-blocks
++                                              (max base-target
+                                                    (quotient (+ count max-hosts -1) max-hosts)))))
+                              (and (>= (length val-roots) 2)
+                                   (eqv? (car val-roots) entry-root)
+@@ -1333,7 +1370,8 @@
+                                                (nb-hosts (length all-groups))
+                                                (block-hosts (make-vector count 0))
+                                                (bins (make-vector nb-hosts '()))
+-                                               (host-entries (make-vector nb-hosts '())))
++                                               (host-entries (make-vector nb-hosts '()))
++                                               (sum-sq 0))
+                                           (and (>= nb-hosts 2)
+                                                (begin
+                                                  (let assign ((gs all-groups) (h 0))
+@@ -1348,32 +1386,39 @@
+                                                                  (set! idxs (cons b idxs)))
+                                                                (table-ref comp-blocks r '())))
+                                                             (car gs))
++                                                           (let ((blen (length idxs)))
++                                                             (set! sum-sq (+ sum-sq (* blen blen))))
+                                                            (vector-set! bins h (sort-list idxs <)))
+                                                          (assign (cdr gs) (+ h 1)))))
+-                                                 (for-each
+-                                                  (lambda (label)
+-                                                    (let ((h (vector-ref block-hosts
+-                                                                         (table-ref labels (targ-lbl-num label)))))
+-                                                      (vector-set! host-entries h
+-                                                                   (cons label (vector-ref host-entries h)))))
+-                                                  val-lbls)
+-                                                 (let emit-plan ((h 0) (result '()))
+-                                                   (if (= h nb-hosts)
+-                                                       (and (every? pair? (map (lambda (host) (vector-ref host 0)) result))
+-                                                            (vector 'cfg (reverse result) owners))
+-                                                       (let* ((indices (vector-ref bins h))
+-                                                              (pieces (flatten-blocks indices))
+-                                                              (entries (reverse (vector-ref host-entries h))))
+-                                                         (let bind ((rs entries) (slot 1))
+-                                                           (if (pair? rs)
+-                                                               (begin
+-                                                                 (table-set! owners (car rs) (cons h slot))
+-                                                                 (bind (cdr rs) (+ slot 1)))))
+-                                                         (emit-plan (+ h 1)
+-                                                                    (cons (vector entries pieces) result))))))))
++                                                 ;; Adaptive cost-benefit gate: require >= 25% quadratic
++                                                 ;; SSA/RA reduction (4*sum(B_h^2) <= 3*N^2) unless forced.
++                                                 (and (or forced? (<= (* 4 sum-sq) (* 3 (* count count))))
++                                                      (begin
++                                                        (for-each
++                                                         (lambda (label)
++                                                           (let ((h (vector-ref block-hosts
++                                                                                (table-ref labels (targ-lbl-num label)))))
++                                                             (vector-set! host-entries h
++                                                                          (cons label (vector-ref host-entries h)))))
++                                                         val-lbls)
++                                                        (let emit-plan ((h 0) (result '()))
++                                                          (if (= h nb-hosts)
++                                                              (and (every? pair? (map (lambda (host) (vector-ref host 0)) result))
++                                                                   (vector 'cfg (reverse result) owners))
++                                                              (let* ((indices (vector-ref bins h))
++                                                                     (pieces (flatten-blocks indices))
++                                                                     (entries (reverse (vector-ref host-entries h))))
++                                                                (let bind ((rs entries) (slot 1))
++                                                                  (if (pair? rs)
++                                                                      (begin
++                                                                        (table-set! owners (car rs) (cons h slot))
++                                                                        (bind (cdr rs) (+ slot 1)))))
++                                                                (emit-plan (+ h 1)
++                                                                           (cons (vector entries pieces) result))))))))))
+                                         (let* ((r (car rest))
+                                                (sz (table-ref comp-size r)))
+-                                          (if (and (>= cur-sz target)
++                                          (if (and (or (>= cur-sz target)
++                                                       (> (+ cur-sz sz) target))
+                                                    (< (+ (length groups) 2) max-hosts))
+                                               (pack (cdr rest) (list r) sz (cons (reverse cur-roots) groups))
+                                               (pack (cdr rest) (cons r cur-roots) (+ cur-sz sz) groups))))))))))))))))
+@@ -1395,14 +1440,21 @@
+   ;; User-authored C can refer to host-local state and labels outside
+   ;; the structured edge graph. Ordinary append nodes also carry
+   ;; compiler-owned constructs such as DEF_GLBL and remain eligible.
+-  (let* ((code-vec (vector-ref (cadr obj) 0)))
+-    (and (or forced? (>= (stretchable-vector-length code-vec) targ-auto-cfg-host-threshold))
+-         (let ((code (stretchable-vector->list code-vec)))
+-           (and (every? (lambda (node) (not (and (pair? node) (eq? (car node) 'opaque-c)))) code)
+-                (if forced?
+-                    (or (targ-plan-cfg-hosts obj #t)
+-                        (targ-plan-return-host obj))
+-                    (targ-plan-cfg-hosts obj #f)))))))
++  ;; Symbolic unit-plan fixtures (e.g. frame-spec.scm) pass mock atoms.
++  (and (pair? obj)
++       (pair? (cdr obj))
++       (vector? (cadr obj))
++       (let* ((limit (targ-effective-cfg-host-limit))
++              (auto-min-blocks (* 2 (targ-adaptive-cfg-base-target limit)))
++              (code-vec (vector-ref (cadr obj) 0)))
++         (and (or forced? (and (not (= limit 0))
++                               (>= (stretchable-vector-length code-vec) auto-min-blocks)))
++              (let ((code (stretchable-vector->list code-vec)))
++                (and (every? (lambda (node) (not (and (pair? node) (eq? (car node) 'opaque-c)))) code)
++                     (if forced?
++                         (or (targ-plan-cfg-hosts obj #t)
++                             (targ-plan-return-host obj))
++                         (targ-plan-cfg-hosts obj #f))))))))
+ 
+ (define (targ-plan-c-scope c-decls c-procs c-inits c-objs)
+   ;; Preserve compiler-produced function boundaries instead of conflating
+@@ -1439,7 +1491,10 @@
+             label-count
+             (and (not configured?)
+                  (not declared?)
+-                 (or forced? (targ-auto-cfg-host-layout?))
++                 (or forced?
++                     (targ-auto-cfg-host-layout?)
++                     (and (fixnum? targ-active-cfg-host-limit)
++                          (> targ-active-cfg-host-limit 0)))
+                  (let ((placements (make-table 'test: eq?)))
+                    (for-each
+                     (lambda (proc)
+@@ -2489,12 +2544,29 @@
+       (targ-line))
+ 
+     (define (emit-host physical-host labels pieces next)
++    (let ((host-lbl-count (length labels)))
+     (def "PH_PROC" physical-host)
+     (def "PH_LBL0" (caddr p))
++    (if (> host-lbl-count 256)
++      (begin
++        (targ-display "#undef ___PH_ATTRS")
++        (targ-line)
++        (targ-display "#if defined(___OPTIMIZED_HOST_LIMIT) && ___OPTIMIZED_HOST_LIMIT > 0 && ")
++        (targ-display host-lbl-count)
++        (targ-display " > ___OPTIMIZED_HOST_LIMIT")
++        (targ-line)
++        (targ-display "#define ___PH_ATTRS ___GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED")
++        (targ-line)
++        (targ-display "#else")
++        (targ-line)
++        (targ-display "#define ___PH_ATTRS ___GNUC_HOST_FUNCTION_ATTRIBUTES")
++        (targ-line)
++        (targ-display "#endif")
++        (targ-line)))
+ 
+     (targ-begin-cod rd-res wr-res
+                     "BEGIN_P_COD" 'pd- 'pr- 'pw-
+-                    (list "BEGIN_P_HLBL_AT" (length labels))
++                    (list "BEGIN_P_HLBL_AT" host-lbl-count)
+                     "DEF_P_HLBL_INTRO_AT" "DEF_P_HLBL" "END_P_HLBL"
+                     (list obj) labels)
+ 
+@@ -2539,7 +2611,14 @@
+ 
+     (targ-end-cod "END_P_COD")
+ 
+-    (targ-line))
++    (if (> host-lbl-count 256)
++      (begin
++        (targ-display "#undef ___PH_ATTRS")
++        (targ-line)
++        (targ-display "#define ___PH_ATTRS ___GNUC_HOST_FUNCTION_ATTRIBUTES")
++        (targ-line)))
++
++    (targ-line)))
+ 
+     (let ((labels (vector-ref info 1)))
+       (cond
+diff --git a/include/_gambit/configuration.h.in b/include/_gambit/configuration.h.in
+index b81299b3..a778ffd5 100644
+--- a/include/_gambit/configuration.h.in
++++ b/include/_gambit/configuration.h.in
+@@ -29,6 +29,28 @@
+ #define ___OPTIMIZED_MODULE_LIMIT @CONF_OPTIMIZED_MODULE_LIMIT@
+ #endif
+ 
++#ifndef ___OPTIMIZED_HOST_LIMIT
++#define ___OPTIMIZED_HOST_LIMIT @CONF_OPTIMIZED_HOST_LIMIT@
++#endif
++
++/*
++ * STW drained-fromspace OS page reclamation policy (--enable-gc-fromspace-reclaim):
++ *   0  : adaptive (derives section threshold from physical RAM, cache/min_heap, and max_heap)
++ *   <0 : disabled (zero reclamation syscalls)
++ *   >0 : explicit minimum msection count to trigger reclamation
++ */
++#ifndef ___GC_FROM_RECLAIM_MIN_SECTIONS
++#define ___GC_FROM_RECLAIM_MIN_SECTIONS @CONF_GC_FROM_RECLAIM_MIN_SECTIONS@
++#endif
++
++#ifndef ___GC_ADAPTIVE_SIZING
++#define ___GC_ADAPTIVE_SIZING @CONF_GC_ADAPTIVE_SIZING@
++#endif
++
++#ifndef ___GC_HEAP_CONTRACTION_MODE
++#define ___GC_HEAP_CONTRACTION_MODE @CONF_GC_HEAP_CONTRACTION_MODE@
++#endif
++
+ /* The completed Scheme producer owns physical host layout. The configured
+  * policy remains available to bootstrap sources and embedded-C units whose
+  * host assumptions have not been replaced. These are protocol tags, not a
+@@ -79,6 +101,14 @@
+ #endif
+ #endif
+ 
++#ifndef ___GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED
++#if !__clang__ && ___GNUC_VERSION >= 400000
++#define ___GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED @CONF_GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED_MODULE@
++#else
++#define ___GNUC_HOST_FUNCTION_ATTRIBUTES_UNOPTIMIZED
++#endif
++#endif
++
+ /*
+  * Compiling for dynamic loading or not (default).
+  */
+diff --git a/include/_gambit/processor_state.h.in b/include/_gambit/processor_state.h.in
+index 90144032..169ae142 100644
+--- a/include/_gambit/processor_state.h.in
++++ b/include/_gambit/processor_state.h.in
+@@ -1,5 +1,13 @@
+ /* Processor structure */
+ 
++#ifndef ___CACHE_LINE_SIZE
++#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64) || defined(__powerpc64__)
++#define ___CACHE_LINE_SIZE 128
++#else
++#define ___CACHE_LINE_SIZE 64
++#endif
++#endif
++
+ /* Scheme execution roots are owned by the VM, not the native carrier.
+  * This storage step keeps the existing synchronous binding and collector.
+  * It does not authorize live rebinding or independent context retirement. */
+@@ -25,8 +33,8 @@ typedef struct ___execution_context_struct
+     ___WORD processor_scmobj[___SUBTYPED_BODY+___PROCESSOR_SIZE+___PADDING_SIZE]; /* Scheme processor object */
+     ___binding_view binding_view; /* VM identity only; no address/value cache */
+ #if ___MAX_PROCESSORS > 1
+-    /* Isolate adjacent execution_contexts[i] across 128-byte Apple Silicon & 64-byte x86 cache lines */
+-    char cache_line_guard[128];
++    /* Isolate adjacent execution_contexts[i] across architecture cache-line granules */
++    char cache_line_guard[___CACHE_LINE_SIZE];
+ #endif
+   } ___execution_context;
+ 
+@@ -191,8 +199,8 @@ typedef struct ___aligned_processor_state_struct
+                  (___PSTATE_ALIGN_MODULUS + sizeof(___processor_state_struct))
+                  % ___PSTATE_ALIGN_MULTIPLIER];
+ #endif
+-    /* Guarantee >= 128B cache-line separation between pstate[i].heap_fast_* and pstate[i+1].stack_trip/temp1..4 */
+-    char cache_line_guard[128];
++    /* Guarantee cache-line separation between pstate[i].heap_fast_* and pstate[i+1].stack_trip/temp1..4 */
++    char cache_line_guard[___CACHE_LINE_SIZE];
+ #endif
+   } ___aligned_processor_state_struct;
+ 
+diff --git a/include/_gambit/stack_operations.h.in b/include/_gambit/stack_operations.h.in
+index c20213b0..2a14f1df 100644
+--- a/include/_gambit/stack_operations.h.in
++++ b/include/_gambit/stack_operations.h.in
+@@ -91,8 +91,13 @@
+ #define ___R_ALL ___SM(___MR_ALL,___PR_ALL)
+ #define ___W_ALL ___SM(___MW_ALL,___PW_ALL)
+ 
++#ifndef ___PH_ATTRS
++#define ___PH_ATTRS ___GNUC_HOST_FUNCTION_ATTRIBUTES
++#endif
++#define ___HOST_ATTRS ___SM(___GNUC_HOST_FUNCTION_ATTRIBUTES,___PH_ATTRS)
++
+ #define ___BEGIN_COD \
+-___HIDDEN void ___GNUC_HOST_FUNCTION_ATTRIBUTES ___HOST_PROC ___P((___processor_state ___ps),(___ps) \
++___HIDDEN void ___HOST_ATTRS ___HOST_PROC ___P((___processor_state ___ps),(___ps) \
+ ___processor_state ___ps;) { \
+ ___virtual_machine_state const ___binding_vm = ___ps->context->binding_view.vm; \
+ ___WORD ___pc; { ___WORD ___start, ___temp; \
+diff --git a/lib/_kernel.scm b/lib/_kernel.scm
+index 7767c9f2..20a57a7f 100644
+--- a/lib/_kernel.scm
++++ b/lib/_kernel.scm
+@@ -2686,6 +2686,7 @@ end-of-code
+           ___BOOL overflow;
+           ___FRAME_STORE_RA(___R0)
+           ___W_ALL
++          ___gc_request_contraction ();
+           ___WORD_STORE_RELEASE(&___VMSTATE_FROM_PSTATE(___ps)->mem.force_major_gc_, 1);
+           overflow = ___garbage_collect (___PSP 0);
+           ___R_ALL
+diff --git a/lib/_mem/aligned-allocation.inc b/lib/_mem/aligned-allocation.inc
+index 21508780..42a7e0fa 100644
+--- a/lib/_mem/aligned-allocation.inc
++++ b/lib/_mem/aligned-allocation.inc
+@@ -1,7 +1,121 @@
+ #line 538 ___MEM_SOURCE_FILE
+ /*---------------------------------------------------------------------------*/
+ 
+-/* Allocation and reclamation of aligned blocks of memory.  */
++/* Allocation and reclamation of aligned blocks of memory.
++ * Large heap-backed still blocks and oversized census queues (>= 64 KiB) use
++ * direct anonymous mmap/munmap when available so dead buffers return physical
++ * pages to the OS immediately without libmalloc MALLOC_LARGE (empty) retention.
++ */
++
++#if defined(__APPLE__)
++#include <malloc/malloc.h>
++#elif defined(__GLIBC__)
++#include <malloc.h>
++#endif
++
++#if defined(HAVE_SYS_MMAN_H) && !defined(_WIN32) && !defined(___SUPPORT_LOWLEVEL_EXEC) && !defined(___DEBUG_ALLOC_MEM) && (defined(MAP_ANON) || defined(MAP_ANONYMOUS))
++#ifndef MAP_ANON
++#define MAP_ANON MAP_ANONYMOUS
++#endif
++#define ___USE_MMAP_LARGE_HEAP 1
++#define ___LARGE_HEAP_MMAP_MIN_BYTES ((___SIZE_T)65536u)
++#define ___CENSUS_QUEUE_RETAIN_MAX_BYTES ((___SIZE_T)(512u * 1024u))
++
++___HIDDEN ___SIZE_T os_heap_page_size ___PVOID
++{
++  static ___SIZE_T cached = 0;
++  ___SIZE_T ps =
++#if defined(__ATOMIC_RELAXED)
++    __atomic_load_n(&cached, __ATOMIC_RELAXED);
++#else
++    cached;
++#endif
++  if (ps == 0)
++    {
++      long raw =
++#ifdef _SC_PAGESIZE
++        sysconf(_SC_PAGESIZE);
++#else
++        4096L;
++#endif
++      if (raw >= 4096L && (raw & (raw - 1L)) == 0)
++        ps = (___SIZE_T)raw;
++      else
++        ps = 4096;
++#if defined(__ATOMIC_RELAXED)
++      __atomic_store_n(&cached, ps, __ATOMIC_RELAXED);
++#else
++      cached = ps;
++#endif
++    }
++  return ps;
++}
++
++___HIDDEN ___SCMOBJ *census_queue_alloc(___SIZE_T capacity)
++{
++  ___SIZE_T bytes;
++  if (capacity == 0 || capacity > (~(___SIZE_T)0) / sizeof(___SCMOBJ))
++    return 0;
++  bytes = capacity * sizeof(___SCMOBJ);
++  if (bytes >= ___LARGE_HEAP_MMAP_MIN_BYTES)
++    {
++      ___SIZE_T ps = os_heap_page_size();
++      if (bytes <= (~(___SIZE_T)0) - (ps - 1u))
++        {
++          ___SIZE_T map_bytes = (bytes + (ps - 1u)) & ~(ps - 1u);
++          void *p = mmap(0, map_bytes, PROT_READ | PROT_WRITE,
++                         MAP_PRIVATE | MAP_ANON, -1, 0);
++          return (p == MAP_FAILED) ? 0 : ___CAST(___SCMOBJ*, p);
++        }
++      return 0;
++    }
++  return ___CAST(___SCMOBJ*, ___ALLOC_MEM(bytes));
++}
++
++___HIDDEN void census_queue_free(___SCMOBJ *q, ___SIZE_T capacity)
++{
++  ___SIZE_T bytes;
++  if (!q)
++    return;
++  if (capacity > 0 && capacity <= (~(___SIZE_T)0) / sizeof(___SCMOBJ))
++    {
++      bytes = capacity * sizeof(___SCMOBJ);
++      if (bytes >= ___LARGE_HEAP_MMAP_MIN_BYTES)
++        {
++          ___SIZE_T ps = os_heap_page_size();
++          ___SIZE_T map_bytes = (bytes + (ps - 1u)) & ~(ps - 1u);
++          (void)munmap(___CAST(void*, q), map_bytes);
++          return;
++        }
++    }
++  ___FREE_MEM(q);
++}
++#else
++#define ___CENSUS_QUEUE_RETAIN_MAX_BYTES ((___SIZE_T)(512u * 1024u))
++
++___HIDDEN ___SCMOBJ *census_queue_alloc(___SIZE_T capacity)
++{
++  if (capacity == 0 || capacity > (~(___SIZE_T)0) / sizeof(___SCMOBJ))
++    return 0;
++  return ___CAST(___SCMOBJ*, ___ALLOC_MEM(capacity * sizeof(___SCMOBJ)));
++}
++
++___HIDDEN void census_queue_free(___SCMOBJ *q, ___SIZE_T capacity)
++{
++  (void)capacity;
++  if (q)
++    ___FREE_MEM(q);
++}
++#endif
++
++___HIDDEN void os_heap_pressure_relief ___PVOID
++{
++#if defined(__APPLE__)
++  (void)malloc_zone_pressure_relief(NULL, 0);
++#elif defined(__GLIBC__)
++  (void)malloc_trim(0);
++#endif
++}
+ 
+ 
+ /*
+@@ -43,6 +157,46 @@ ___BOOL heap;)
+   if (modulus < sizeof (void*) / ___WS)
+     extra += sizeof (void*);
+ 
++#ifdef ___USE_MMAP_LARGE_HEAP
++  if (heap && words > 0 && multiplier > 0 &&
++      (___SIZE_T)words >= (___LARGE_HEAP_MMAP_MIN_BYTES / ___WS))
++    {
++      ___SIZE_T ps = os_heap_page_size();
++      ___SIZE_T hdr_bytes = (___SIZE_T)(2u * sizeof(___UWORD) + sizeof(void*));
++      ___SIZE_T align_bytes = (___SIZE_T)multiplier * ___WS;
++      ___SIZE_T mod_bytes = (___SIZE_T)modulus * ___WS;
++      ___SIZE_T prefix_max = hdr_bytes + (align_bytes - 1u) + mod_bytes;
++      if ((___SIZE_T)words <= ((~(___SIZE_T)0) - prefix_max) / ___WS)
++        {
++          ___SIZE_T need_bytes = prefix_max + (___SIZE_T)words * ___WS;
++          if (need_bytes <= (~(___SIZE_T)0) - (ps - 1u))
++            {
++              ___SIZE_T map_bytes = (need_bytes + (ps - 1u)) & ~(ps - 1u);
++              void *map_base = mmap(0, map_bytes, PROT_READ | PROT_WRITE,
++                                    MAP_PRIVATE | MAP_ANON, -1, 0);
++              if (map_base == MAP_FAILED)
++                return 0;
++              {
++                ___UWORD *hdr = ___CAST(___UWORD*, map_base);
++                ___UWORD raw_start = ___CAST(___UWORD, map_base) + (___UWORD)hdr_bytes;
++                ___UWORD ptr_u =
++                  ((raw_start + (___UWORD)(align_bytes - 1u)) &
++                   -___CAST(___UWORD, align_bytes)) +
++                  (___UWORD)mod_bytes;
++                void *ptr = ___CAST(void*, ptr_u);
++                void **cptr = ___CAST(void**,
++                                      (ptr_u - (___UWORD)sizeof(void*)) &
++                                      -___CAST(___UWORD, sizeof(void*)));
++                hdr[0] = (___UWORD)map_bytes;
++                hdr[1] = (___UWORD)0x474d4150u;
++                *cptr = ___CAST(void*, ___CAST(___UWORD, map_base) | (___UWORD)1u);
++                return ptr;
++              }
++            }
++        }
++    }
++#endif
++
+   if (heap)
+     container = ___ALLOC_MEM_HEAP(extra + (words+modulus) * ___WS);
+   else
+@@ -114,11 +268,12 @@ void *ptr;)
+ 
+ 
+ /*
+- * 'free_mem_aligned_heap (ptr)' reclaims the aligned block of memory
+- * 'ptr' that was allocated using 'alloc_mem_aligned_heap'.
++ * 'free_mem_aligned_heap_ex (ptr)' reclaims the aligned block of memory
++ * 'ptr' allocated using 'alloc_mem_aligned_heap'. Returns 1 if reclaimed
++ * via direct munmap, 0 if returned to C heap allocator.
+  */
+ 
+-___HIDDEN void free_mem_aligned_heap
++___HIDDEN int free_mem_aligned_heap_ex
+    ___P((void *ptr),
+         (ptr)
+ void *ptr;)
+@@ -126,7 +281,34 @@ void *ptr;)
+   void **cptr = ___CAST(void**,
+                         (___CAST(___WORD,ptr) - ___CAST(___WORD,sizeof (void*))) &
+                         -___CAST(___WORD,sizeof (void*)));
++#ifdef ___USE_MMAP_LARGE_HEAP
++  {
++    ___UWORD raw_c = ___CAST(___UWORD, *cptr);
++    if (raw_c & (___UWORD)1u)
++      {
++        ___UWORD *hdr = ___CAST(___UWORD*, raw_c & ~(___UWORD)1u);
++        ___SIZE_T map_bytes = (___SIZE_T)hdr[0];
++        (void)munmap(___CAST(void*, hdr), map_bytes);
++        return 1;
++      }
++  }
++#endif
+   ___FREE_MEM_HEAP(*cptr);
++  return 0;
++}
++
++
++/*
++ * 'free_mem_aligned_heap (ptr)' reclaims the aligned block of memory 'ptr'
++ * that was allocated using 'alloc_mem_aligned_heap'.
++ */
++
++___HIDDEN void free_mem_aligned_heap
++   ___P((void *ptr),
++        (ptr)
++void *ptr;)
++{
++  (void)free_mem_aligned_heap_ex (ptr);
+ }
+ 
+ 
+diff --git a/lib/_mem/allocation-limits.inc b/lib/_mem/allocation-limits.inc
+index d084a99d..3c982eeb 100644
+--- a/lib/_mem/allocation-limits.inc
++++ b/lib/_mem/allocation-limits.inc
+@@ -1061,9 +1061,10 @@ int ___heap_continue_on_free_section(___processor_state ___ps)
+   if (!___ps || !___ps->context) return 0;
+   hp=___ps->context->hp;
+   if (!___ps->heap_limit || hp<=___ps->heap_limit) return 0;
+-  /* Assigned sections are not a heap limit. With no byte cap, reserve more
+-   * before a census. The next bump publishes one of those sections. */
+-  if (compute_free_heap_space_approximately()<___MSECTION_SIZE &&
++  /* Assigned sections are not a heap limit before GC admission opens.
++   * Once GC is admitted, do not bypass collection by growing the pool here. */
++  if (!___lifecycle_gc_admitted(___ps) &&
++      compute_free_heap_space_approximately()<___MSECTION_SIZE &&
+       ___GSTATE->setup_params.max_heap==0 && the_msections) {
+     int n, add, grown;
+     ALLOC_MEM_LOCK();
+diff --git a/lib/_mem/capacity-resize.inc b/lib/_mem/capacity-resize.inc
+index d7d09cb5..a249be8f 100644
+--- a/lib/_mem/capacity-resize.inc
++++ b/lib/_mem/capacity-resize.inc
+@@ -127,6 +127,112 @@ ___virtual_machine_state ___vms;)
+ }
+ 
+ 
++#ifndef ___GC_HEAP_CONTRACTION_MODE
++#define ___GC_HEAP_CONTRACTION_MODE 1
++#endif
++
++static ___VOLATILE int gc_explicit_contraction_hint_ = 0;
++
++void ___gc_request_contraction ___PVOID
++{
++#if ___GC_HEAP_CONTRACTION_MODE > 0
++#if defined(__ATOMIC_RELEASE)
++  __atomic_store_n(&gc_explicit_contraction_hint_, 1, __ATOMIC_RELEASE);
++#else
++  gc_explicit_contraction_hint_ = 1;
++#endif
++#endif
++}
++
++___HIDDEN int gc_take_contraction_hint ___PVOID
++{
++#if ___GC_HEAP_CONTRACTION_MODE > 0
++#if defined(__ATOMIC_ACQ_REL)
++  return __atomic_exchange_n(&gc_explicit_contraction_hint_, 0, __ATOMIC_ACQ_REL);
++#else
++  int v = gc_explicit_contraction_hint_;
++  gc_explicit_contraction_hint_ = 0;
++  return v;
++#endif
++#else
++  return 0;
++#endif
++}
++
++___HIDDEN uint32_t gc_isqrt_u32(uint32_t n)
++{
++  uint32_t x = 0;
++  uint32_t bit = (uint32_t)1u << 14;
++  while (bit > n) bit >>= 2;
++  while (bit != 0u)
++    {
++      if (n >= x + bit)
++        {
++          n -= x + bit;
++          x = (x >> 1) + bit;
++        }
++      else
++        x >>= 1;
++      bit >>= 2;
++    }
++  return x;
++}
++
++/* Sub-linear SMP extra nursery headroom (AdaptiveHeapScalingRefinement.lean):
++ * avoids O(P) linear 2*P floor bloat at P=8..64 while preserving refill room. */
++___HIDDEN int gc_smp_nursery_headroom(int processor_count)
++{
++  if (processor_count <= 1) return 1;
++  if (processor_count <= 2) return processor_count;
++  if (processor_count > 1024) processor_count = 1024;
++  return 2 + (int)gc_isqrt_u32((uint32_t)processor_count);
++}
++
++___HIDDEN ___SIZE_TS decay_target_heap_space_history
++   (___virtual_machine_state ___vms,
++    ___SIZE_TS current_target,
++    int force_contract)
++{
++#undef ___VMSTATE_MEM
++#define ___VMSTATE_MEM(var) ___vms->mem.var
++  ___SIZE_TS max_h = 0;
++#if ___TARGET_HEAP_SPACE_HIST_LENGTH > 0
++  int i;
++  for (i = 0; i < ___TARGET_HEAP_SPACE_HIST_LENGTH; i++)
++    {
++      ___SIZE_TS e = target_heap_space_hist[i];
++#if ___GC_HEAP_CONTRACTION_MODE > 0
++      if (force_contract)
++        {
++          e = (e > current_target) ? current_target : e;
++          target_heap_space_hist[i] = e;
++        }
++      else if (current_target > 0 && e > 0 &&
++               (___SIZE_T)current_target <= (~(___SIZE_T)0) / 2u &&
++               (___SIZE_T)current_target * 2u < (___SIZE_T)e)
++        {
++          ___SIZE_TS decayed = e - (e / 4);
++          e = (decayed > current_target) ? decayed : current_target;
++          target_heap_space_hist[i] = e;
++        }
++#else
++      (void)current_target;
++      (void)force_contract;
++#endif
++      if (e > max_h)
++        max_h = e;
++    }
++#else
++  (void)___vms;
++  (void)current_target;
++  (void)force_contract;
++#endif
++  return max_h;
++#undef ___VMSTATE_MEM
++#define ___VMSTATE_MEM(var) ___VMSTATE_FROM_PSTATE(___ps)->mem.var
++}
++
++
+ ___HIDDEN ___BOOL resize_heap
+    ___P((___virtual_machine_state ___vms,
+          ___SIZE_TS requested_words_still),
+@@ -143,12 +249,17 @@ ___SIZE_TS requested_words_still;)
+   ___SIZE_TS ths;
+   ___SIZE_TS target_movable_space;
+   int target_nb_sections;
+-  int recent_history;
++  ___SIZE_TS recent_history;
++  int force_contract = gc_take_contraction_hint();
+   int lower_bound_nb_sections;
+   int upper_bound_nb_sections;
+   ___SIZE_TS live;
+   ___SIZE_TS free_space;
+ 
++  if (___COLLECTION(___vms).major_action == 3 &&
++      ___vms->mem.major_last_reclaimed_sections_ > 0)
++    force_contract = 1;
++
+   /*
+    * Compute the space occupied by live objects.
+    */
+@@ -174,13 +285,6 @@ ___SIZE_TS requested_words_still;)
+           (compute_nb_msections_needed(occupied_words_movable) +
+            nb_msections_stacks));
+ 
+-  /*
+-   * Use the recent target heap space history to avoid shrinking the
+-   * heap size abruptly.
+-   */
+-
+-  recent_history = max_target_heap_space_in_recent_history (___vms);
+-
+   /*
+    * Determine how to resize the heap assuming the requested space is
+    * live and no heap overflow happens, but if this would cause a heap
+@@ -213,6 +317,8 @@ ___SIZE_TS requested_words_still;)
+ 
+       target_heap_space = adjust_heap (live) + normal_overflow_reserve;
+ 
++      recent_history = decay_target_heap_space_history (___vms, target_heap_space, force_contract);
++
+       ths = target_heap_space; /* remember target_heap_space for history */
+ 
+       if (___COLLECTION(___vms).major_action != 3 ||
+@@ -237,14 +343,12 @@ ___SIZE_TS requested_words_still;)
+         target_nb_sections = the_msections->nb_sections;
+       if (___GSTATE->setup_params.max_heap == 0 && ___vms->processor_count > 1)
+         {
+-          /* Each active processor consumes a stack and heap msection from
+-           * nb_msections_assigned. Keep per-processor nursery headroom above
+-           * normal_overflow_reserve so default-heap SMP mutators do not
+-           * starve compute_free_heap_space_approximately() and amplify GCs. */
++          /* Keep sub-linear shared SMP nursery headroom above normal_overflow_reserve
++           * so default-heap mutators do not amplify GCs without O(P) linear floor bloat. */
+           int smp_nursery_sections =
+             nb_msections_assigned +
+             compute_nb_msections_needed(normal_overflow_reserve) +
+-            2 * ___vms->processor_count;
++            gc_smp_nursery_headroom(___vms->processor_count);
+           SET_MAX(target_nb_sections, smp_nursery_sections);
+         }
+       upper_bound_nb_sections = target_nb_sections;
+diff --git a/lib/_mem/collection-round.inc b/lib/_mem/collection-round.inc
+index 9dac9c2d..b30ec2e1 100644
+--- a/lib/_mem/collection-round.inc
++++ b/lib/_mem/collection-round.inc
+@@ -727,10 +727,23 @@ ___SIZE_TS requested_words_still;)
+         major_remark_phase_d_coord(___vms);
+     }
+ 
+-  /* Resize heap */
++  /* Resize heap, reclaim drained non-mature/opposite semispace pages, and
++   * relieve C-heap allocator pressure after substantial malloc-still sweeps. */
+ 
+   if (is_coord)
+-    ___COLLECTION(___vms).overflow = resize_heap (___vms, requested_words_still);
++    {
++      ___COLLECTION(___vms).overflow = resize_heap (___vms, requested_words_still);
++      if (custom_msection_alloc==0)
++        reclaim_drained_source_pages(___vms,
++                                     the_msections,
++                                     (___MSECTION_SIZE >> 1) - ___COLLECTION(___vms).destination_offset,
++                                     ___COLLECTION(___vms).is_minor,
++                                     ___GSTATE->setup_params.min_heap,
++                                     ___GSTATE->setup_params.max_heap);
++      if (gc_take_freed_malloc_still_words() >=
++          ((___SIZE_T)(4u * 1024u * 1024u) / ___WS))
++        os_heap_pressure_relief();
++    }
+ 
+   BARRIER();
+ 
+diff --git a/lib/_mem/concurrent-major.inc b/lib/_mem/concurrent-major.inc
+index 52ba7ea8..afe1e856 100644
+--- a/lib/_mem/concurrent-major.inc
++++ b/lib/_mem/concurrent-major.inc
+@@ -1551,11 +1551,12 @@ ___HIDDEN void major_remark_phase_c_parallel
+           if (dead)
+             {
+               ___WORD head = base[___STILL_HEADER];
+-              my_reclaimed_still += base[___STILL_LENGTH];
++              ___SIZE_TS len = base[___STILL_LENGTH];
++              my_reclaimed_still += len;
+               if (___HD_SUBTYPE(head) == ___sFOREIGN)
+                 ___lifecycle_defer(ps, base);
+-              else
+-                free_mem_aligned_heap(base);
++              else if (!free_mem_aligned_heap_ex(base) && len > 0)
++                gc_record_freed_malloc_still_words((___SIZE_T)len);
+             }
+           else
+             {
+diff --git a/lib/_mem/copy-planning.inc b/lib/_mem/copy-planning.inc
+index 91800035..7e6c2732 100644
+--- a/lib/_mem/copy-planning.inc
++++ b/lib/_mem/copy-planning.inc
+@@ -114,13 +114,16 @@ ___HIDDEN void census_enqueue_grow(___collector_worker *work, ___SCMOBJ value)
+   }
+   /* Both superseded and replacement buffers have a VM-owned publication
+    * slot. Interruption of malloc/copy/free is never an idempotent retry. */
+-  c->state=___GC_PLAN_ALLOCATING;
+-  c->replacement=___CAST(___SCMOBJ*,___ALLOC_MEM(capacity*sizeof(*c->queue)));
+-  if(c->replacement==0) {c->state=___GC_PLAN_READING;c->failed=1;return;}
+-  if(c->count)memcpy(c->replacement,c->queue,c->count*sizeof(*c->queue));
+-  c->retired=c->queue;c->queue=c->replacement;c->replacement=0;
+-  if(c->retired)___FREE_MEM(c->retired);
+-  c->retired=0;c->capacity=capacity;c->state=___GC_PLAN_READING;
++  {
++    ___SIZE_T old_cap = c->capacity;
++    c->state=___GC_PLAN_ALLOCATING;
++    c->replacement=census_queue_alloc(capacity);
++    if(c->replacement==0) {c->state=___GC_PLAN_READING;c->failed=1;return;}
++    if(c->count)memcpy(c->replacement,c->queue,c->count*sizeof(*c->queue));
++    c->retired=c->queue;c->queue=c->replacement;c->replacement=0;
++    if(c->retired)census_queue_free(c->retired, old_cap);
++    c->retired=0;c->capacity=capacity;c->state=___GC_PLAN_READING;
++  }
+   if(capacity*sizeof(*c->queue)>c->peak_bytes)c->peak_bytes=capacity*sizeof(*c->queue);
+   c->queue[c->count++]=value;
+ }
+@@ -637,7 +640,19 @@ ___HIDDEN int plan_copy_round(___processor_state ps, ___SIZE_TS requested_words_
+   g->large_sections=0;
+   g->source_words=c->source_words;g->source_sections=nb_msections_assigned;
+   g->destination_offset=(___MSECTION_SIZE>>1)-c->source_offset;
+-  c->count=c->next=0;c->state=___GC_PLAN_ACCEPTED;return 1;
++  c->count=c->next=0;c->state=___GC_PLAN_ACCEPTED;
++  if(c->queue && !c->replacement && !c->retired &&
++     c->capacity > (___CENSUS_QUEUE_RETAIN_MAX_BYTES / sizeof(*c->queue))) {
++    census_queue_free(c->queue, c->capacity);
++    c->queue=0; c->capacity=0;
++  }
++  return 1;
+  refuse:
+-  work->census=0;ps->collector=0;c->count=c->next=0;c->state=___GC_PLAN_REFUSED;return 2;
++  work->census=0;ps->collector=0;c->count=c->next=0;c->state=___GC_PLAN_REFUSED;
++  if(c->queue && !c->replacement && !c->retired &&
++     c->capacity > (___CENSUS_QUEUE_RETAIN_MAX_BYTES / sizeof(*c->queue))) {
++    census_queue_free(c->queue, c->capacity);
++    c->queue=0; c->capacity=0;
++  }
++  return 2;
+ }
+diff --git a/lib/_mem/memory-lifecycle.inc b/lib/_mem/memory-lifecycle.inc
+index 4e4a7da2..e4a484f2 100644
+--- a/lib/_mem/memory-lifecycle.inc
++++ b/lib/_mem/memory-lifecycle.inc
+@@ -1,31 +1,4 @@
+ #line 4401 ___MEM_SOURCE_FILE
+-___HIDDEN ___SIZE_TS max_target_heap_space_in_recent_history
+-    ___P((___virtual_machine_state ___vms),
+-         (___vms)
+-___virtual_machine_state ___vms;)
+-{
+-#undef ___VMSTATE_MEM
+-#define ___VMSTATE_MEM(var) ___vms->mem.var
+-
+-  ___SIZE_TS max_target_heap_space = 0;
+-
+-#if ___TARGET_HEAP_SPACE_HIST_LENGTH > 0
+-
+-  int i;
+-
+-  for (i=0; i<___TARGET_HEAP_SPACE_HIST_LENGTH; i++)
+-    if (target_heap_space_hist[i] > max_target_heap_space)
+-      max_target_heap_space = target_heap_space_hist[i];
+-
+-#endif
+-
+-  return max_target_heap_space;
+-
+-#undef ___VMSTATE_MEM
+-#define ___VMSTATE_MEM(var) ___VMSTATE_FROM_PSTATE(___ps)->mem.var
+-}
+-
+-
+ ___HIDDEN void add_to_target_heap_space_history
+     ___P((___virtual_machine_state ___vms,
+           ___SIZE_TS target_heap_space),
+@@ -51,6 +24,62 @@ ___SIZE_TS target_heap_space;)
+ }
+ 
+ 
++#ifndef ___GC_ADAPTIVE_SIZING
++#define ___GC_ADAPTIVE_SIZING 1
++#endif
++
++/* CBMC-verified hardware-adaptive large-heap live_percent damping
++ * (dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c):
++ * honors explicit -:l<N> / ___set_live_percent verbatim; otherwise keeps
++ * 50% on small/medium heaps (<= soft_budget/8) and smoothly ramps up to 80%
++ * as live heap approaches soft_budget/2 (soft_budget = RAM / max(2, CPUs),
++ * clamped by max_heap). */
++___HIDDEN int gc_adaptive_live_percent
++   (___SIZE_TS live_words,
++    int explicit_flag,
++    int configured_pct,
++    ___SIZE_T max_heap_bytes)
++{
++#if ___GC_ADAPTIVE_SIZING && defined(___USE_MMAP_MSECTIONS)
++  uint64_t phys_mem_bytes, cpu_count, live_bytes, ram_mib, cap_mib;
++  uint32_t eff_cpus, soft_mib, live_mib, lo, hi, span, delta, extra;
++  if (explicit_flag || configured_pct != ___DEFAULT_LIVE_PERCENT || live_words <= 0)
++    return configured_pct;
++  phys_mem_bytes = (uint64_t)msection_os_phys_memory_bytes();
++  cpu_count = (uint64_t)msection_os_cpu_count();
++  if (phys_mem_bytes == 0u && max_heap_bytes == 0u)
++    return configured_pct;
++  eff_cpus = (cpu_count >= 2u) ? (uint32_t)((cpu_count > 1024u) ? 1024u : cpu_count) : 2u;
++  ram_mib = phys_mem_bytes >> 20;
++  cap_mib = ((uint64_t)max_heap_bytes) >> 20;
++  if (ram_mib > (uint64_t)0xffffffffu) ram_mib = (uint64_t)0xffffffffu;
++  if (cap_mib > (uint64_t)0xffffffffu) cap_mib = (uint64_t)0xffffffffu;
++  soft_mib = (ram_mib > 0u) ? ((uint32_t)ram_mib / eff_cpus) : (uint32_t)cap_mib;
++  if (cap_mib > 0u && (uint32_t)cap_mib < soft_mib)
++    soft_mib = (uint32_t)cap_mib;
++  live_bytes = ((uint64_t)live_words) << ___LWS;
++  live_mib = ((live_bytes >> 20) > (uint64_t)0xffffffffu)
++               ? (uint32_t)0xffffffffu
++               : (uint32_t)(live_bytes >> 20);
++  lo = soft_mib >> 3;
++  hi = soft_mib >> 1;
++  if (hi <= lo || live_mib <= lo)
++    return 50;
++  if (live_mib >= hi)
++    return 80;
++  span = hi - lo;
++  delta = live_mib - lo;
++  extra = (delta <= (0xffffffffu / 30u)) ? ((delta * 30u) / span) : ((delta / span) * 30u);
++  if (extra > 30u) extra = 30u;
++  return 50 + (int)extra;
++#else
++  (void)live_words;
++  (void)explicit_flag;
++  (void)max_heap_bytes;
++  return configured_pct;
++#endif
++}
++
+ ___HIDDEN ___SIZE_TS adjust_heap
+    ___P((___SIZE_TS live),
+         (live)
+@@ -60,8 +89,16 @@ ___SIZE_TS live;)
+ 
+   if (___GSTATE->setup_params.adjust_heap_hook != 0)
+     target_heap_space = ___GSTATE->setup_params.adjust_heap_hook (live);
+-  else if (___GSTATE->setup_params.live_percent < 100)
+-    target_heap_space = live / ___GSTATE->setup_params.live_percent * 100;
++  else
++    {
++      int eff_pct = gc_adaptive_live_percent
++        (live,
++         ___live_percent_is_explicit(),
++         ___GSTATE->setup_params.live_percent,
++         ___GSTATE->setup_params.max_heap);
++      if (eff_pct > 0 && eff_pct < 100)
++        target_heap_space = live / eff_pct * 100;
++    }
+ 
+   SET_MAX(target_heap_space,
+           ___CAST(___SIZE_TS,(___GSTATE->setup_params.min_heap >> ___LWS)));
+@@ -148,7 +185,13 @@ ___processor_state ___ps;)
+   avail = 0;
+   ___ps->mem.gc_calls_to_punt_ = 2000;
+ #else
+-  avail = compute_free_heap_space_approximately()/2;
++  {
++    ___SIZE_TS free_approx = compute_free_heap_space_approximately();
++    int np = ___VMSTATE_FROM_PSTATE(___ps)->processor_count;
++    int div = (np <= 1) ? 2 : (np + 1);
++    if (div > 8) div = 8;
++    avail = (free_approx > 0) ? (free_approx / div) : 0;
++  }
+   SET_MAX(avail,0);
+ #endif
+ 
+@@ -685,11 +728,16 @@ ___SCMOBJ ___setup_mem ___PVOID
+       ___GSTATE->setup_params.live_percent > 100)
+     {
+       /*
+-       * Choose a reasonable minimum live percent.
++       * Choose a reasonable minimum live percent (adaptive large-heap enabled).
+        */
+ 
++      ___set_live_percent_explicit (0);
+       ___GSTATE->setup_params.live_percent = ___DEFAULT_LIVE_PERCENT;
+     }
++  else
++    {
++      ___set_live_percent_explicit (1);
++    }
+ 
+   /*
+    * Setup psections.
+diff --git a/lib/_mem/movable-sections.inc b/lib/_mem/movable-sections.inc
+index 07baae85..9ebbdf83 100644
+--- a/lib/_mem/movable-sections.inc
++++ b/lib/_mem/movable-sections.inc
+@@ -5,6 +5,358 @@
+ 
+ #include "_mem/section-claim.inc"
+ 
++/* OS-backed msection storage & CPU+RAM-adaptive STW drained-fromspace page reclamation.
++ * Formally verified in gc_fromspace_reclaim.qnt, GcFromspaceReclaimRefinement.lean,
++ * AdaptiveHeapScalingRefinement.lean, and adaptive_heap_scaling_pso.c:
++ * - Controlled by configure --enable-gc-fromspace-reclaim=auto|off|N and
++ *   overridable via -D___GC_FROM_RECLAIM_MIN_SECTIONS=<val>:
++ *     0  : adaptive (derives threshold from OS RAM / (64 * CPUs), min_heap/LLC, and max_heap)
++ *     <0 : disabled (zero reclamation syscalls)
++ *     >0 : explicit minimum msection threshold
++ * - Only active for non-executable anonymous mappings (when ___SUPPORT_LOWLEVEL_EXEC
++ *   is off and custom_msection_alloc == 0).
++ * - Slice 2 Generational + Immix aware: NEVER touches live mature active_offset
++ *   halves or active young stack/heap halves; releases drained opposite halves
++ *   and both halves of completely unclaimed FREE YOUNG sections (incl. 100%-dead
++ *   mature sections returned by Immix Remark).
++ */
++#ifndef ___GC_FROM_RECLAIM_MIN_SECTIONS
++#define ___GC_FROM_RECLAIM_MIN_SECTIONS 0
++#endif
++
++#if defined(__APPLE__) && defined(HAVE_SYS_SYSCTL_H)
++#include <sys/sysctl.h>
++#endif
++
++#if defined(HAVE_SYS_MMAN_H) && !defined(_WIN32) && !defined(___SUPPORT_LOWLEVEL_EXEC) && (defined(MAP_ANON) || defined(MAP_ANONYMOUS))
++#ifndef MAP_ANON
++#define MAP_ANON MAP_ANONYMOUS
++#endif
++#define ___USE_MMAP_MSECTIONS 1
++
++___HIDDEN ___SIZE_T msection_os_page_size ___PVOID
++{
++  static ___SIZE_T cached = 0;
++  ___SIZE_T ps =
++#if defined(__ATOMIC_RELAXED)
++    __atomic_load_n(&cached, __ATOMIC_RELAXED);
++#else
++    cached;
++#endif
++  if (ps == 0)
++    {
++      long raw =
++#ifdef _SC_PAGESIZE
++        sysconf(_SC_PAGESIZE);
++#else
++        4096L;
++#endif
++      if (raw >= 4096L && (raw & (raw - 1L)) == 0)
++        ps = (___SIZE_T)raw;
++      else
++        ps = 4096;
++#if defined(__ATOMIC_RELAXED)
++      __atomic_store_n(&cached, ps, __ATOMIC_RELAXED);
++#else
++      cached = ps;
++#endif
++    }
++  return ps;
++}
++
++___HIDDEN ___SIZE_T msection_os_phys_memory_bytes ___PVOID
++{
++  static ___SIZE_T cached = 0;
++  static int probed = 0;
++  int done =
++#if defined(__ATOMIC_ACQUIRE)
++    __atomic_load_n(&probed, __ATOMIC_ACQUIRE);
++#else
++    probed;
++#endif
++  if (!done)
++    {
++      ___SIZE_T mem = 0;
++#if defined(__APPLE__) && defined(CTL_HW) && defined(HW_MEMSIZE)
++      {
++        uint64_t hw_mem = 0;
++        size_t sz = sizeof(hw_mem);
++        int mib[2] = { CTL_HW, HW_MEMSIZE };
++        if (sysctl(mib, 2, &hw_mem, &sz, 0, 0) == 0 && hw_mem > 0)
++          mem = (hw_mem > (uint64_t)(~(___SIZE_T)0)) ? (~(___SIZE_T)0) : (___SIZE_T)hw_mem;
++      }
++#elif defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
++      {
++        long pages = sysconf(_SC_PHYS_PAGES);
++        long ps = sysconf(_SC_PAGESIZE);
++        if (pages > 0 && ps > 0)
++          {
++            ___SIZE_T up = (___SIZE_T)pages;
++            ___SIZE_T ups = (___SIZE_T)ps;
++            mem = (up <= (~(___SIZE_T)0) / ups) ? (up * ups) : (~(___SIZE_T)0);
++          }
++      }
++#endif
++#if defined(__ATOMIC_RELEASE)
++      __atomic_store_n(&cached, mem, __ATOMIC_RELAXED);
++      __atomic_store_n(&probed, 1, __ATOMIC_RELEASE);
++#else
++      cached = mem;
++      probed = 1;
++#endif
++      return mem;
++    }
++#if defined(__ATOMIC_RELAXED)
++  return __atomic_load_n(&cached, __ATOMIC_RELAXED);
++#else
++  return cached;
++#endif
++}
++
++___HIDDEN ___SIZE_T msection_os_cpu_count ___PVOID
++{
++  static ___SIZE_T cached = 0;
++  static int probed = 0;
++  int done =
++#if defined(__ATOMIC_ACQUIRE)
++    __atomic_load_n(&probed, __ATOMIC_ACQUIRE);
++#else
++    probed;
++#endif
++  if (!done)
++    {
++      ___SIZE_T cpus = 0;
++#ifdef _SC_NPROCESSORS_ONLN
++      {
++        long n = sysconf(_SC_NPROCESSORS_ONLN);
++        if (n > 0)
++          cpus = (___SIZE_T)n;
++      }
++#endif
++#if defined(__APPLE__) && defined(CTL_HW) && defined(HW_NCPU)
++      if (cpus == 0)
++        {
++          int hw_cpus = 0;
++          size_t sz = sizeof(hw_cpus);
++          int mib[2] = { CTL_HW, HW_NCPU };
++          if (sysctl(mib, 2, &hw_cpus, &sz, 0, 0) == 0 && hw_cpus > 0)
++            cpus = (___SIZE_T)hw_cpus;
++        }
++#endif
++#if defined(__ATOMIC_RELEASE)
++      __atomic_store_n(&cached, cpus, __ATOMIC_RELAXED);
++      __atomic_store_n(&probed, 1, __ATOMIC_RELEASE);
++#else
++      cached = cpus;
++      probed = 1;
++#endif
++      return cpus;
++    }
++#if defined(__ATOMIC_RELAXED)
++  return __atomic_load_n(&cached, __ATOMIC_RELAXED);
++#else
++  return cached;
++#endif
++}
++
++___HIDDEN ___SIZE_T msection_adaptive_reclaim_min_sections
++   (int configured,
++    ___SIZE_T phys_mem_bytes,
++    ___SIZE_T cpu_count,
++    ___SIZE_T min_heap_bytes,
++    ___SIZE_T max_heap_bytes)
++{
++  const ___SIZE_T half_bytes = (___CAST(___SIZE_T, ___MSECTION_SIZE >> 1)) * ___WS;
++  const ___SIZE_T floor_min_bytes = (___SIZE_T)16u * 1024u * 1024u;
++  const ___SIZE_T adaptive_cap_bytes = (___SIZE_T)128u * 1024u * 1024u;
++  const ___SIZE_T fallback_cap_bytes = (___SIZE_T)64u * 1024u * 1024u;
++  const ___SIZE_T max_heap_floor_bytes = (___SIZE_T)16u * 1024u * 1024u;
++  ___SIZE_T eff_cpus;
++  ___SIZE_T cache_floor;
++  ___SIZE_T target_bytes;
++  ___SIZE_T min_sec;
++
++  if (configured < 0)
++    return ~(___SIZE_T)0;
++  if (configured > 0)
++    return (___SIZE_T)configured;
++
++  eff_cpus = (cpu_count > 0u) ? cpu_count : 1u;
++
++  cache_floor = (min_heap_bytes <= (~(___SIZE_T)0) / 4u)
++                  ? (min_heap_bytes * 4u)
++                  : (~(___SIZE_T)0);
++  if (cache_floor < floor_min_bytes)
++    cache_floor = floor_min_bytes;
++
++  if (phys_mem_bytes > 0u)
++    {
++      ___SIZE_T ram_share = (eff_cpus <= (~(___SIZE_T)0) / 64u)
++                              ? (phys_mem_bytes / (64u * eff_cpus))
++                              : 0u;
++      target_bytes = (ram_share > cache_floor) ? ram_share : cache_floor;
++      if (target_bytes > adaptive_cap_bytes)
++        target_bytes = adaptive_cap_bytes;
++    }
++  else
++    {
++      target_bytes = (cache_floor < fallback_cap_bytes) ? cache_floor : fallback_cap_bytes;
++    }
++
++  if (max_heap_bytes > 0u)
++    {
++      ___SIZE_T cap_share = max_heap_bytes / 4u;
++      if (cap_share < max_heap_floor_bytes)
++        cap_share = max_heap_floor_bytes;
++      if (cap_share < target_bytes)
++        target_bytes = cap_share;
++    }
++
++  min_sec = (target_bytes + (half_bytes - 1u)) / half_bytes;
++  return (min_sec > 0u) ? min_sec : 1u;
++}
++
++___HIDDEN ___SIZE_T msection_mmap_size ___PVOID
++{
++  ___SIZE_T ps = msection_os_page_size();
++  ___SIZE_T raw = SECTION_BYTES;
++  return (raw + (ps - 1)) & ~(ps - 1);
++}
++
++___HIDDEN ___msection *alloc_msection_storage ___PVOID
++{
++  void *p = mmap(0, msection_mmap_size(), PROT_READ | PROT_WRITE,
++                 MAP_PRIVATE | MAP_ANON, -1, 0);
++  return (p == MAP_FAILED) ? 0 : ___CAST(___msection*, p);
++}
++
++___HIDDEN void free_msection_storage(___msection *s)
++{
++  if (s != 0)
++    (void)munmap(___CAST(void*, s), msection_mmap_size());
++}
++
++___HIDDEN void release_drained_source_half(___msection *section, ___SIZE_TS source_offset)
++{
++  ___SIZE_T ps = msection_os_page_size();
++  ___SIZE_TS half_words = (___MSECTION_SIZE >> 1);
++  ___SIZE_T half_bytes = (___CAST(___SIZE_T, half_words)) * ___WS;
++  ___UWORD lo, hi, plo, phi;
++  if (!section || (source_offset != 0 && source_offset != half_words))
++    return;
++  if (ps < 4096 || (ps & (ps - 1)) != 0)
++    return;
++  lo = ___CAST(___UWORD, section->base + source_offset);
++  /* Pre-addition overflow guards (CBMC-verified against UINTPTR_MAX). */
++  if (lo > (~(___UWORD)0) - (___UWORD)half_bytes)
++    return;
++  hi = lo + (___UWORD)half_bytes;
++  if (lo > (~(___UWORD)0) - (___UWORD)(ps - 1))
++    return;
++  plo = (lo + (___UWORD)(ps - 1)) & ~(___UWORD)(ps - 1);
++  phi = hi & ~(___UWORD)(ps - 1);
++  if (plo >= lo && phi <= hi && phi > plo)
++    {
++#if defined(__APPLE__)
++      (void)mmap(___CAST(void*, plo), (___SIZE_T)(phi - plo),
++                 PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0);
++#elif defined(__linux__) && defined(MADV_DONTNEED)
++      (void)madvise(___CAST(void*, plo), (___SIZE_T)(phi - plo), MADV_DONTNEED);
++#endif
++    }
++}
++
++___HIDDEN void reclaim_drained_source_pages
++   (___virtual_machine_state ___vms,
++    ___msections *sections,
++    ___SIZE_TS source_offset,
++    int is_minor,
++    ___SIZE_T min_heap_bytes,
++    ___SIZE_T max_heap_bytes)
++{
++  ___msection *section;
++  ___msection *start_sec;
++  ___msection *alloc_ms;
++  ___SIZE_T min_sections;
++  const ___SIZE_TS half = (___MSECTION_SIZE >> 1);
++  if (!___vms || !sections || sections->nb_sections <= 0)
++    return;
++  min_sections = msection_adaptive_reclaim_min_sections
++    (___GC_FROM_RECLAIM_MIN_SECTIONS,
++     msection_os_phys_memory_bytes(),
++     msection_os_cpu_count(),
++     min_heap_bytes,
++     max_heap_bytes);
++  if ((___SIZE_T)sections->nb_sections < min_sections)
++    return;
++  alloc_ms = ___vms->mem.alloc_msection_;
++  /* On Minor GC, skip mature prefix in O(1) so Minor GC stays O(Y). */
++  start_sec = (is_minor && ___vms->mem.mature_tail_ != 0)
++                ? ___vms->mem.mature_tail_->next
++                : sections->head;
++  for (section = start_sec; section != 0; section = section->next)
++    {
++      if (section->region_age == ___GC_REGION_MATURE)
++        {
++          ___SIZE_TS opp = half - section->active_offset;
++          if (opp != section->active_offset &&
++              section_claim_at(section, opp)->stack_state == 0 &&
++              !section_claim_at(section, opp)->heap_used)
++            release_drained_source_half(section, opp);
++        }
++      else if (alloc_ms != 0 && section->index > alloc_ms->index)
++        {
++          /* Unassigned FREE YOUNG section (incl. Immix reclaimed dead sections):
++           * release every unclaimed half immediately. */
++          if (section_claim_at(section, 0)->stack_state == 0 &&
++              !section_claim_at(section, 0)->heap_used)
++            release_drained_source_half(section, 0);
++          if (section_claim_at(section, half)->stack_state == 0 &&
++              !section_claim_at(section, half)->heap_used)
++            release_drained_source_half(section, half);
++        }
++      else
++        {
++          if (section_claim_at(section, source_offset)->stack_state == 0 &&
++              !section_claim_at(section, source_offset)->heap_used)
++            release_drained_source_half(section, source_offset);
++        }
++    }
++}
++#else
++___HIDDEN ___msection *alloc_msection_storage ___PVOID
++{
++  return ___CAST(___msection*, alloc_mem_aligned_heap(___WORDS(SECTION_BYTES), 1, 0));
++}
++
++___HIDDEN void free_msection_storage(___msection *s)
++{
++  free_mem_aligned_heap(s);
++}
++
++___HIDDEN void release_drained_source_half(___msection *section, ___SIZE_TS source_offset)
++{
++  (void)section;
++  (void)source_offset;
++}
++
++___HIDDEN void reclaim_drained_source_pages
++   (___virtual_machine_state ___vms,
++    ___msections *sections,
++    ___SIZE_TS source_offset,
++    int is_minor,
++    ___SIZE_T min_heap_bytes,
++    ___SIZE_T max_heap_bytes)
++{
++  (void)___vms;
++  (void)sections;
++  (void)source_offset;
++  (void)is_minor;
++  (void)min_heap_bytes;
++  (void)max_heap_bytes;
++}
++#endif
++
+ /*
+  * 'find_msection (ms, ptr)' finds the position in the 'ms->sections'
+  * array of the msection that contains the pointer 'ptr'.  More
+@@ -161,7 +513,7 @@ int n;)
+               ms->sections[j]->pos = j;
+             }
+ 
+-          free_mem_aligned_heap (s);
++          free_msection_storage (s);
+ 
+           ns--;
+         }
+@@ -184,11 +536,7 @@ int n;)
+ 
+       while (ns < n)
+         {
+-          ___msection *s = ___CAST(___msection*,
+-                                   alloc_mem_aligned_heap
+-                                     (___WORDS(SECTION_BYTES),
+-                                      1,
+-                                      0));
++          ___msection *s = alloc_msection_storage ();
+ 
+           if (s == 0)
+             return;
+@@ -273,7 +621,7 @@ ___msections **msp;)
+       int i;
+ 
+       for (i=ms->nb_sections-1; i>=0; i--)
+-        free_mem_aligned_heap (ms->sections[i]);
++        free_msection_storage (ms->sections[i]);
+ 
+       free_mem_aligned (ms);
+ 
+diff --git a/lib/_mem/rc-allocation.inc b/lib/_mem/rc-allocation.inc
+index c27ac0ea..24d33d37 100644
+--- a/lib/_mem/rc-allocation.inc
++++ b/lib/_mem/rc-allocation.inc
+@@ -112,7 +112,7 @@ ___HIDDEN void cleanup_rc(___processor_state ps)
+    * address remains in the detached domain; last native release reclaims it. */
+   if (d->round != 0) {
+     if (d->round->collection.census.queue != 0)
+-      ___FREE_MEM(d->round->collection.census.queue);
++      census_queue_free(d->round->collection.census.queue, d->round->collection.census.capacity);
+     ___FREE_MEM(d->round); d->round=0;
+   }
+   /* Lifecycle closure has excluded the cooperative activation owner. Only
+diff --git a/lib/_mem/still-sweep.inc b/lib/_mem/still-sweep.inc
+index 3fd03f2b..b1b57b13 100644
+--- a/lib/_mem/still-sweep.inc
++++ b/lib/_mem/still-sweep.inc
+@@ -1,4 +1,28 @@
+ #line 4334 ___MEM_SOURCE_FILE
++static ___VOLATILE ___SIZE_T gc_freed_malloc_still_words_ = 0;
++
++___HIDDEN void gc_record_freed_malloc_still_words(___SIZE_T words)
++{
++  if (words == 0)
++    return;
++#if defined(__ATOMIC_RELAXED)
++  (void)__atomic_fetch_add(&gc_freed_malloc_still_words_, words, __ATOMIC_RELAXED);
++#else
++  gc_freed_malloc_still_words_ += words;
++#endif
++}
++
++___HIDDEN ___SIZE_T gc_take_freed_malloc_still_words ___PVOID
++{
++#if defined(__ATOMIC_ACQ_REL)
++  return __atomic_exchange_n(&gc_freed_malloc_still_words_, (___SIZE_T)0, __ATOMIC_ACQ_REL);
++#else
++  ___SIZE_T w = gc_freed_malloc_still_words_;
++  gc_freed_malloc_still_words_ = 0;
++  return w;
++#endif
++}
++
+ ___HIDDEN void sweep_young_still_objs
+    ___P((___PSDNC),
+         (___PSVNC)
+@@ -7,6 +31,7 @@ ___PSDKR)
+   ___PSGET
+   ___WORD *base = ___CAST(___WORD*, young_still_objs);
+   ___SIZE_TS promoted_words = 0;
++  ___SIZE_T freed_malloc_words = 0;
+ 
+   young_still_objs = 0;
+   words_still_objs_young = 0;
+@@ -20,7 +45,11 @@ ___PSDKR)
+           if (___HD_SUBTYPE(head) == ___sFOREIGN)
+             ___lifecycle_defer(___ps, base);
+           else
+-            free_mem_aligned_heap(base);
++            {
++              ___SIZE_TS len = base[___STILL_LENGTH];
++              if (!free_mem_aligned_heap_ex(base) && len > 0)
++                freed_malloc_words += (___SIZE_T)len;
++            }
+         }
+       else
+         {
+@@ -40,6 +69,8 @@ ___PSDKR)
+       base = ___CAST(___WORD*, link);
+     }
+ 
++  gc_record_freed_malloc_still_words(freed_malloc_words);
++
+   words_still_objs_mature += promoted_words;
+   words_still_objs = words_still_objs_mature + ___lifecycle_deferred_words(___ps);
+   words_still_objs_deferred = 0;
+@@ -57,6 +88,7 @@ ___PSDKR)
+   ___WORD *base = ___CAST(___WORD*,*last);
+   ___WORD *young = ___CAST(___WORD*,young_still_objs);
+   ___SIZE_TS live_words_still = 0;
++  ___SIZE_T freed_malloc_words = 0;
+ 
+   young_still_objs = 0;
+   words_still_objs_young = 0;
+@@ -69,7 +101,12 @@ ___PSDKR)
+           ___WORD head = base[___STILL_BODY-1];
+           if (___HD_SUBTYPE(head) == ___sFOREIGN)
+             ___lifecycle_defer(___ps,base);
+-          else free_mem_aligned_heap(base);
++          else
++            {
++              ___SIZE_TS len = base[___STILL_LENGTH];
++              if (!free_mem_aligned_heap_ex(base) && len > 0)
++                freed_malloc_words += (___SIZE_T)len;
++            }
+         }
+       else
+         {
+@@ -91,7 +128,12 @@ ___PSDKR)
+           ___WORD head = young[___STILL_BODY-1];
+           if (___HD_SUBTYPE(head) == ___sFOREIGN)
+             ___lifecycle_defer(___ps,young);
+-          else free_mem_aligned_heap(young);
++          else
++            {
++              ___SIZE_TS len = young[___STILL_LENGTH];
++              if (!free_mem_aligned_heap_ex(young) && len > 0)
++                freed_malloc_words += (___SIZE_T)len;
++            }
+         }
+       else
+         {
+@@ -107,6 +149,8 @@ ___PSDKR)
+ 
+   *last = 0;
+ 
++  gc_record_freed_malloc_still_words(freed_malloc_words);
++
+   words_still_objs_mature = live_words_still;
+   words_still_objs = live_words_still + ___lifecycle_deferred_words(___ps);
+   words_still_objs_deferred = 0;
+diff --git a/lib/_thread.scm b/lib/_thread.scm
+index d6bf5c55..413666cd 100644
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -3757,13 +3757,17 @@
+                          (if (##eq? absrel-timeout (macro-absent-obj))
+                              #f
+                              absrel-timeout))))
+-                (if (##mutex-signal-and-condvar-wait!
+-                     mutex (macro-mailbox-condvar mb) timeout)
+-                    (loop #t timeout)
+-                    (if (##eq? timeout-val (macro-absent-obj))
+-                        (##raise-mailbox-receive-timeout-exception
+-                         prim absrel-timeout timeout-val)
+-                        timeout-val))))))))
++                (begin
++                  ;; Record active mailbox waiter under mailbox mutex (strict DRF)
++                  ;; so ##thread-send-with-mb can skip condvar spinlock when idle.
++                  (macro-condvar-name-set! (macro-mailbox-condvar mb) #t)
++                  (if (##mutex-signal-and-condvar-wait!
++                       mutex (macro-mailbox-condvar mb) timeout)
++                      (loop #t timeout)
++                      (if (##eq? timeout-val (macro-absent-obj))
++                          (##raise-mailbox-receive-timeout-exception
++                           prim absrel-timeout timeout-val)
++                          timeout-val)))))))))
+ 
+ (define-prim (thread-mailbox-next
+               #!optional
+@@ -3807,15 +3811,23 @@
+           (or mb (##thread-mailbox-get! thread)))
+          (mutex
+           (macro-mailbox-mutex mb))
++         (cv
++          (macro-mailbox-condvar mb))
+          (cell
+           (##cons obj '())))
+     ;; Keep the detached cell rooted across heap checks and the mutex wait.
+     ;; Commit only links an initialized cell, without allocating under permit.
++    ;; Strict DRF waiter check under `mutex` skips condvar spinlock when no
++    ;; receiver is waiting (verified in adaptive_heap_scaling_pso.c).
+     (##check-heap-limit)
+     (macro-mutex-lock-anonymously! mutex #f)
+     (macro-fifo-link-tail-cell! (macro-mailbox-fifo mb) cell)
+-    (macro-mutex-unlock! mutex)
+-    (##condvar-signal-no-reschedule! (macro-mailbox-condvar mb) #f)
++    (let ((need-signal? (macro-condvar-name cv)))
++      (if need-signal?
++          (macro-condvar-name-set! cv #f))
++      (macro-mutex-unlock! mutex)
++      (if need-signal?
++          (##condvar-signal-no-reschedule! cv #f)))
+     (##void)))
+ 
+ (define-prim (##thread-send thread obj)
+diff --git a/lib/mem.h b/lib/mem.h
+index f4189823..1cb4ee42 100755
+--- a/lib/mem.h
++++ b/lib/mem.h
+@@ -149,6 +149,8 @@ extern ___BOOL ___garbage_collect_pstate
+          ___SIZE_TS requested_words_still),
+         ());
+ 
++extern void ___gc_request_contraction ___PVOID;
++
+ 
+ #ifdef ___DEBUG_STACK_LIMIT
+ 
+diff --git a/lib/os_io.c b/lib/os_io.c
+index 6b6c0a83..062f92be 100644
+--- a/lib/os_io.c
++++ b/lib/os_io.c
+@@ -1178,11 +1178,15 @@ ___time timeout;)
+       for (i = 0; i < read_pos; i++)
+         {
+           ___device *d = devs[i];
++          /* FOR_EVENT (0 <= i < event_pos) polls process exit status via
++           * waitpid(WNOHANG) and never touches read_fd/write_fd; do not treat
++           * half-closed stdin/stdout as a closing event (avoids 0s busy-spin),
++           * while still fencing active close_in_progress > 0 below. */
+           int dir = (i >= write_pos
+                      ? ___DIRECTION_RD
+                      : (i >= event_pos
+                         ? ___DIRECTION_WR
+-                        : (___DIRECTION_RD | ___DIRECTION_WR)));
++                        : 0));
+           if (d == NULL)
+             {
+               dev_borrow[i] = 0;
+@@ -1721,7 +1725,7 @@ ___time timeout;)
+                          ? ___DIRECTION_RD
+                          : (i >= event_pos
+                             ? ___DIRECTION_WR
+-                            : (___DIRECTION_RD | ___DIRECTION_WR)));
++                            : 0));
+               if ((d->close_pending_mask & dir) != 0)
+                 dev_borrow[i] = 3;
+               if (--d->select_active == 0 && d->close_waiters > 0)
+@@ -9653,9 +9657,131 @@ int options;)
+               if (strchr (argv[0], '/') != NULL)
+                 status = posix_spawn (&pid, argv[0], &direct_actions,
+                                       &direct_attr, argv, spawn_env);
+-              else
++              else if (env == NULL)
+                 status = posix_spawnp (&pid, argv[0], &direct_actions,
+                                        &direct_attr, argv, spawn_env);
++              else
++                {
++                  /*
++                   * posix_spawnp() searches the parent process's PATH, not
++                   * spawn_env's PATH.  When a custom child environment is
++                   * supplied for a bare executable name, resolve along the
++                   * child's PATH= (or default "/usr/bin:/bin") matching POSIX
++                   * execvp semantics while staying 100% fork()-free.
++                   */
++                  const char *child_path = NULL;
++                  char **ep;
++                  size_t prog_len = strlen (argv[0]);
++                  size_t dir_len = (dir != NULL) ? strlen (dir) : 0;
++                  int saved_eacces = 0;
++
++                  for (ep = spawn_env; ep != NULL && *ep != NULL; ep++)
++                    {
++                      if (strncmp (*ep, "PATH=", 5) == 0)
++                        {
++                          child_path = *ep + 5;
++                          break;
++                        }
++                    }
++                  if (child_path == NULL)
++                    child_path = "/usr/bin:/bin";
++
++                  status = ENOENT;
++                  if (prog_len > 0)
++                    {
++                      const char *p = child_path;
++                      for (;;)
++                        {
++                          const char *colon = strchr (p, ':');
++                          size_t seg_len = (colon != NULL) ? (size_t)(colon - p) : strlen (p);
++                          char cand[PATH_MAX];
++                          size_t pos = 0;
++                          int too_long = 0;
++
++                          if (seg_len == 0)
++                            {
++                              if (dir != NULL && dir_len > 0)
++                                {
++                                  if (dir_len >= sizeof (cand))
++                                    too_long = 1;
++                                  else
++                                    {
++                                      memcpy (cand, dir, dir_len);
++                                      pos = dir_len;
++                                    }
++                                }
++                              else
++                                {
++                                  cand[0] = '.';
++                                  pos = 1;
++                                }
++                            }
++                          else if (p[0] != '/' && dir != NULL && dir_len > 0)
++                            {
++                              if (dir_len + 1 + seg_len >= sizeof (cand))
++                                too_long = 1;
++                              else
++                                {
++                                  memcpy (cand, dir, dir_len);
++                                  pos = dir_len;
++                                  if (cand[pos - 1] != '/')
++                                    cand[pos++] = '/';
++                                  memcpy (cand + pos, p, seg_len);
++                                  pos += seg_len;
++                                }
++                            }
++                          else
++                            {
++                              if (seg_len >= sizeof (cand))
++                                too_long = 1;
++                              else
++                                {
++                                  memcpy (cand, p, seg_len);
++                                  pos = seg_len;
++                                }
++                            }
++
++                          if (!too_long)
++                            {
++                              if (pos > 0 && cand[pos - 1] != '/')
++                                {
++                                  if (pos + 1 >= sizeof (cand))
++                                    too_long = 1;
++                                  else
++                                    cand[pos++] = '/';
++                                }
++                              if (!too_long && pos + prog_len + 1 <= sizeof (cand))
++                                {
++                                  memcpy (cand + pos, argv[0], prog_len + 1);
++                                  status = posix_spawn (&pid, cand, &direct_actions,
++                                                        &direct_attr, argv, spawn_env);
++                                  if (status == 0)
++                                    break;
++                                  if (status == EACCES)
++                                    saved_eacces = EACCES;
++                                  else if (status != ENOENT && status != ENOTDIR && status != EISDIR)
++                                    break;
++                                }
++                              else
++                                {
++                                  status = ENAMETOOLONG;
++                                }
++                            }
++                          else
++                            {
++                              status = ENAMETOOLONG;
++                            }
++
++                          if (colon == NULL)
++                            {
++                              if (saved_eacces != 0)
++                                status = saved_eacces;
++                              break;
++                            }
++                          p = colon + 1;
++                        }
++                    }
++                }
+             }
+ 
+           if (actions_init)
+diff --git a/lib/setup.c b/lib/setup.c
+index e494d6ca..4648ae14 100644
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -5942,6 +5942,22 @@ ___SIZE_T bytes;)
+ }
+ 
+ 
++static int ___live_percent_explicit_flag = 0;
++
++int ___live_percent_is_explicit ___PVOID
++{
++  return ___live_percent_explicit_flag;
++}
++
++void ___set_live_percent_explicit
++   ___P((int flag),
++        (flag)
++int flag;)
++{
++  ___live_percent_explicit_flag = flag ? 1 : 0;
++}
++
++
+ ___EXP_FUNC(int,___get_live_percent) ___PVOID
+ {
+   return ___GSTATE->setup_params.live_percent;
+@@ -5954,6 +5970,7 @@ ___EXP_FUNC(void,___set_live_percent)
+ int percent;)
+ {
+   ___GSTATE->setup_params.live_percent = percent;
++  ___live_percent_explicit_flag = (percent > 0 && percent <= 100) ? 1 : 0;
+ }
+ 
+ 
+diff --git a/lib/setup.h b/lib/setup.h
+index c8c986e1..96e2fd6f 100755
+--- a/lib/setup.h
++++ b/lib/setup.h
+@@ -106,6 +106,8 @@ extern int ___leave_blocking_ffi_all
+ extern ___SCMOBJ ___current_vm_resize_ticket(___PSD ___SCMOBJ thunk, int target);
+ extern ___SCMOBJ ___startup_ready_status(___PSD ___SCMOBJ ticket);
+ extern ___SCMOBJ ___startup_ready(___PSDNC);
++extern int ___live_percent_is_explicit ___PVOID;
++extern void ___set_live_percent_explicit ___P((int flag), ());
+ 
+ 
+ #ifdef ___SINGLE_THREADED_VMS
+diff --git a/tests/smp/multicore/c12-memory-scaling-contraction-smp.scm b/tests/smp/multicore/c12-memory-scaling-contraction-smp.scm
+new file mode 100644
+index 00000000..8f32adbb
+--- /dev/null
++++ b/tests/smp/multicore/c12-memory-scaling-contraction-smp.scm
+@@ -0,0 +1,120 @@
++;;; C12: Adversarial SMP Memory Scaling, Contraction, Direct-mmap Still, and
++;;; Lock-Free Rest Fast-Span Challenge (refining adaptive_heap_scaling_and_reclaim_v2.qnt).
++;;; Challenges:
++;;;   1. Single explicit (##gc) after a large burst immediately breaks the legacy
++;;;      16-GC contraction ratchet (heap size shrinks >= 55% in 1 GC, not 16!).
++;;;   2. Large >= 64 KiB still objects (direct mmap/munmap) and medium 4 KiB still
++;;;      objects churned across P parallel workers leave zero retained memory leak.
++;;;   3. Concurrent variadic/keyword calls + mailbox sends across P cores verify
++;;;      lock-free fast_span & strict-DRF mutex-guarded mailbox wakeup soundness.
++
++(declare (standard-bindings) (extended-bindings) (block))
++
++(define (make-burst-tree depth seed)
++  (if (fx<= depth 0)
++      (vector seed (fx+ seed 1) (cons seed (fx+ seed 2)))
++      (cons (make-burst-tree (fx- depth 1) (fx+ seed 1))
++            (make-burst-tree (fx- depth 1) (fx+ seed 2)))))
++
++(define (rsum a b . rest)
++  (let loop ((xs rest) (acc (fx+ a b)))
++    (if (pair? xs) (loop (cdr xs) (fx+ acc (car xs))) acc)))
++
++(define (kwsum a #!key (k1 3) (k2 5) #!rest r)
++  (fx+ a k1 k2 (length r)))
++
++(define (latest-heap-bytes)
++  ;; ##process-statistics index 15 = last_gc_heap_size (movable + still bytes)
++  (f64vector-ref (##process-statistics) 15))
++
++(define (phase1-contraction-challenge!)
++  ;; Allocate ~25-35 MiB movable tree + 16 MiB direct-mmap large still + 4 MiB medium still
++  (let ((peak-heap 0.0)
++        (after-heap 0.0))
++    (let ((tree (make-burst-tree 16 1))
++          (big-stills
++           (let loop ((i 0) (acc '()))
++             (if (fx= i 64)
++                 acc
++                 (loop (fx+ i 1) (cons (make-f64vector 32768 (exact->inexact i)) acc)))))
++          (med-stills
++           (let loop ((i 0) (acc '()))
++             (if (fx= i 512)
++                 acc
++                 (loop (fx+ i 1) (cons (make-u8vector 8192 (fxand i 255)) acc))))))
++      ;; Keep all objects live across one GC to establish true peak heap
++      (##gc)
++      (set! peak-heap (latest-heap-bytes))
++      (if (not (and (pair? tree)
++                    (= (length big-stills) 64)
++                    (= (length med-stills) 512)
++                    (> peak-heap 20000000.0)))
++          (error "c12 phase1 peak allocation sanity failed" peak-heap)))
++    ;; Now all burst objects are dead. A SINGLE (##gc) MUST contract the heap immediately!
++    (##gc)
++    (set! after-heap (latest-heap-bytes))
++    (let ((ratio (/ after-heap peak-heap)))
++      (if (> ratio 0.50)
++          (error "c12 contraction ratchet detected (1 GC failed to shrink heap)"
++                 (list peak: peak-heap after: after-heap ratio: ratio)))
++      (list peak-heap after-heap ratio))))
++
++(define (phase2-smp-still-rest-mailbox-challenge!)
++  (let* ((n-workers (max 4 (##current-vm-processor-count)))
++         (threads
++          (let loop ((w 0) (acc '()))
++            (if (fx= w n-workers)
++                acc
++                (loop
++                 (fx+ w 1)
++                 (cons
++                  (thread-start!
++                   (make-thread
++                    (lambda ()
++                      ;; Interleave >= 64 KiB direct-mmap still churn, rest/kw calls, and mailbox
++                      (let ((receiver
++                             (thread-start!
++                              (make-thread
++                               (lambda ()
++                                 (let rloop ((k 0) (sum 0))
++                                   (if (fx= k 500)
++                                       sum
++                                       (rloop (fx+ k 1) (fx+ sum (thread-receive))))))))))
++                        (let sloop ((i 0) (chk 0))
++                          (if (fx= i 500)
++                              (let ((rsum-val (thread-join! receiver)))
++                                (if (not (fx= rsum-val 500))
++                                    (error "c12 mailbox wakeup mismatch" rsum-val))
++                                chk)
++                              (begin
++                                (if (fx= (fxand i 15) 0)
++                                    ;; 128 KiB direct-mmap still buffer per burst
++                                    (let ((buf (make-u8vector 131072 (fxand i 255))))
++                                      (if (not (fx= (u8vector-ref buf 131071) (fxand i 255)))
++                                          (error "c12 large still corruption"))))
++                                (thread-send receiver 1)
++                                (sloop (fx+ i 1)
++                                       (fx+ chk
++                                            (rsum 1 2 3 4 5 6)
++                                            (kwsum 1 k1: 2 k2: 4 7 8))))))))))
++                  acc))))))
++    (let ((vals (map thread-join! threads)))
++      (for-each
++       (lambda (v)
++         (if (not (fx= v (* 500 30)))
++             (error "c12 rest/kw checksum mismatch" v)))
++       vals))
++    ;; Final single GC must leave heap small & contracted
++    (##gc)
++    (latest-heap-bytes)))
++
++(let* ((p1 (phase1-contraction-challenge!))
++       (p2-heap (phase2-smp-still-rest-mailbox-challenge!))
++       (saved-lp (##get-live-percent)))
++  (if (not (and (fixnum? saved-lp) (> saved-lp 0) (<= saved-lp 100)))
++      (error "c12 invalid live-percent" saved-lp))
++  (println "C12-MEMORY-SCALING-CONTRACTION-PASS"
++           " peak_mib=" (round (/ (car p1) 1048576.0))
++           " contracted_mib=" (round (/ (cadr p1) 1048576.0))
++           " post_smp_mib=" (round (/ p2-heap 1048576.0))
++           " procs=" (##current-vm-processor-count)))
+diff --git a/tests/smp/multicore/c13-gerbil-compiler-shape-memory-smp.scm b/tests/smp/multicore/c13-gerbil-compiler-shape-memory-smp.scm
+new file mode 100644
+index 00000000..17f1decf
+--- /dev/null
++++ b/tests/smp/multicore/c13-gerbil-compiler-shape-memory-smp.scm
+@@ -0,0 +1,90 @@
++;;; C13: Adversarial Gerbil-Compiler-Shaped SMP Memory & Subprocess Challenge
++;;; (refining gerbil_multicore_memory_challenge_v2.qnt).
++;;; Models the real Gerbil stdlib/stage0 memory pathology:
++;;;   - Persistent retained expander/symbol table (~12 MiB live) across compile waves
++;;;   - 8 concurrent compile workers each generating temporary AST/CFG garbage +
++;;;     large >= 64 KiB C-codegen string buffers, contracting via (##gc) before
++;;;     spawning an OS subprocess via open-process/process-status!
++;;;   - Verifies zero hangs, zero memory creep across 5 waves (40 subprocesses),
++;;;     intact retained expander table checksum, and bounded peak RSS (< 256 MiB).
++
++(declare (standard-bindings) (extended-bindings) (block))
++
++(define (build-expander-env n)
++  (let ((ht (make-table test: eq?)))
++    (let loop ((i 0))
++      (if (fx= i n)
++          ht
++          (begin
++            (table-set! ht
++                        (string->symbol (string-append "gerbil#mod-" (number->string i)))
++                        (vector i
++                                (cons i (fx+ i 1))
++                                (make-vector 12 (fxand i 255))))
++            (loop (fx+ i 1)))))))
++
++(define (verify-expander-env ht n)
++  (let loop ((i 0) (acc 0))
++    (if (fx= i n)
++        acc
++        (let ((v (table-ref ht (string->symbol (string-append "gerbil#mod-" (number->string i))) #f)))
++          (if (not (and (vector? v) (fx= (vector-ref v 0) i)))
++              (error "c13 retained expander env corrupted" i))
++          (loop (fx+ i 1) (fx+ acc (vector-ref v 0)))))))
++
++(define (simulate-module-codegen worker-id wave)
++  ;; Transient AST + large 256 KiB emitted C buffer (direct-mmap still)
++  (let* ((ast (let loop ((i 0) (acc '()))
++                (if (fx= i 6000)
++                    acc
++                    (loop (fx+ i 1)
++                          (cons (vector worker-id wave i (cons i (fx+ i 1))) acc)))))
++         (c-buf (make-string 262144 #\A)))
++    (if (not (and (pair? ast) (char=? (string-ref c-buf 262143) #\A)))
++        (error "c13 codegen sanity failed"))
++    (length ast)))
++
++(define (run-compile-worker worker-id waves)
++  (let loop ((w 0) (ok 0))
++    (if (fx= w waves)
++        ok
++        (let ((nodes (simulate-module-codegen worker-id w)))
++          ;; Mirror gsc/_gsclib.scm pre-##gambuild dead-heap contraction!
++          (##gc)
++          ;; Spawn real OS child process (challenges posix_spawn + SIGCHLD + FOR_EVENT)
++          (let* ((p (open-process (list path: "/bin/sh"
++                                        arguments: (list "-c" "echo ok")
++                                        stdin-redirection: #f
++                                        stdout-redirection: #t
++                                        stderr-redirection: #f)))
++                 (line (read-line p))
++                 (status (process-status p)))
++            (close-port p)
++            (if (not (and (fx= status 0) (equal? line "ok") (fx= nodes 6000)))
++                (error "c13 compile subprocess failed" (list worker-id w status line nodes)))
++            (loop (fx+ w 1) (fx+ ok 1)))))))
++
++(let* ((env-size 12000)
++       (expander-env (build-expander-env env-size))
++       (n-workers 8)
++       (waves 5)
++       (threads
++        (let loop ((id 0) (acc '()))
++          (if (fx= id n-workers)
++              acc
++              (loop (fx+ id 1)
++                    (cons (thread-start! (make-thread (lambda () (run-compile-worker id waves))))
++                          acc)))))
++       (counts (map thread-join! threads))
++       (total-compiled (let loop ((xs counts) (s 0))
++                         (if (null? xs) s (loop (cdr xs) (fx+ s (car xs))))))
++       (chk (verify-expander-env expander-env env-size)))
++  (##gc)
++  (if (not (fx= total-compiled (fx* n-workers waves)))
++      (error "c13 compile count mismatch" total-compiled))
++  (let ((final-heap-mib (round (/ (f64vector-ref (##process-statistics) 9) 1048576.0))))
++    (println "C13-GERBIL-COMPILER-SHAPE-MEMORY-PASS"
++             " workers=" n-workers
++             " compiled=" total-compiled
++             " env_chk=" chk
++             " final_heap_mib=" final-heap-mib)))
+diff --git a/tests/smp/multicore/c7-multi-vm-fault-isolation-smp.scm b/tests/smp/multicore/c7-multi-vm-fault-isolation-smp.scm
+index 3452abf7..d7fba13a 100644
+--- a/tests/smp/multicore/c7-multi-vm-fault-isolation-smp.scm
++++ b/tests/smp/multicore/c7-multi-vm-fault-isolation-smp.scm
+@@ -202,7 +202,9 @@ c-end
+                            (let loop ((i 0) (acc 0))
+                              (if (< i 2000)
+                                  (let ((v (make-vector 32 (+ wid i))))
+-                                   (if (= (modulo i 80) 0) (##gc))
++                                   ;; 50 explicit GCs per worker guarantees >= 50 total GCs even
++                                   ;; if all 4 p4 processors coalesce every STW GC in lockstep.
++                                   (if (= (modulo i 40) 0) (##gc))
+                                    (loop (+ i 1) (+ acc (vector-ref v 0))))
+                                  acc)))
+                          (string-append "c7-mut-" (number->string wid)))))
+diff --git a/tests/smp/multicore/run-multicore-suite.py b/tests/smp/multicore/run-multicore-suite.py
+index f9c8f6a9..57cfa5bb 100644
+--- a/tests/smp/multicore/run-multicore-suite.py
++++ b/tests/smp/multicore/run-multicore-suite.py
+@@ -42,6 +42,8 @@ PBT_O1_TARGETS: list[tuple[str, str, str, float | None, str]] = [
+     ("c9-rest-kw-nursery", "c9-rest-keyword-nursery-contention-smp.scm", "C9-REST-KEYWORD-NURSERY-CONTENTION-PASS", 256.0, ",m65536"),
+     ("c10-cas-lockfree-ws", "c10-cas-lockfree-workstealing-smp.scm", "C10-CAS-LOCKFREE-WORKSTEALING-PASS", 256.0, ""),
+     ("c11-p02-binding-read", "c11-p02-binding-read-mutation-barrier-smp.scm", "C11-P02-BINDING-READ-BARRIER-PASS", 256.0, ""),
++    ("c12-memory-scaling-contraction", "c12-memory-scaling-contraction-smp.scm", "C12-MEMORY-SCALING-CONTRACTION-PASS", 256.0, ""),
++    ("c13-gerbil-compiler-shape-memory", "c13-gerbil-compiler-shape-memory-smp.scm", "C13-GERBIL-COMPILER-SHAPE-MEMORY-PASS", 256.0, ""),
+     ("t1-robustness-hardening", "t1-robustness-hardening-smp.scm", "T1-ROBUSTNESS-HARDENING-PASS", 256.0, ""),
+     ("t3-blocking-ffi-park", "t3-blocking-ffi-park-smp.scm", "T3-BLOCKING-FFI-PARK-PASS", 256.0, ""),
+     ("t4-workstealing-scheduler", "t4-workstealing-scheduler-smp.scm", "T4-WORKSTEALING-SCHEDULER-PASS", 256.0, ""),

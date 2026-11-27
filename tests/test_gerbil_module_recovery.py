@@ -51,7 +51,7 @@ class GerbilPendingModuleRecoveryTests(unittest.TestCase):
         def overlapping(context,name,argv,cwd,cap,**options):
             if name.startswith('gerbil-stage0-module-'):rendezvous.wait(timeout=15)
             return run(context,name,argv,cwd,cap,**options)
-        with patch('gambit_smp.gerbil_build.consumer_tests.available_processors',return_value=5), \
+        with patch('gambit_smp.gerbil_build.policy.available_processors',return_value=5), \
              patch.object(ExecutionContext,'run',overlapping):
             result,commands=self.build()
         source=adapters.Path(result['observation']['workspace'])
