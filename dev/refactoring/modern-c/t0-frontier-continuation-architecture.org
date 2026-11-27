@@ -95,3 +95,16 @@ Layer 1 (Formal Verification & 12-Core Evidence Chain)
 3. *Phase C3 (12-Core Frontier Benchmark Evidence Chain)*:
    - Paired 1:1 Rust Tokio vs Gambit Effect/Fiber benchmarks (=ht_effect_pingpong=,
      =ht_generator_stream=, =ht_fiber_fanout_100k=) with =ops/s=, =P50/P95/P99/P99.9=, GC%, RSS.
+
+* 5. Verified Empirical Progression (Phase C1 -> C2 -> C3, Apple M2 Pro 12 Cores)
+
+| Benchmark (=p12=, 12 workers) | Phase C1 | Phase C2 | Phase C3 | C1 -> C3 Gain |
+|-------------------------------+----------+----------+----------+---------------|
+| =effect_tail_resumptive=      | 2.30M/s (P99 56.9ms) | 33.46M/s (P99 3.12ms) | 40.36M/s (P50 134us, P99 3.73ms) | 17.5x / P99 -15.3x |
+| =effect_oneshot_suspend=      | 74.0K/s (P99 116.2ms) | 399.8K/s (P99 46.1ms) | 4.40M/s (P50 83us, P99 2.39ms) | 59.4x / P99 -48.7x |
+| =effect_generator_yield=      | 75.4K/s (P99 138.6ms) | 1.12M/s (P99 13.1ms) | 3.00M/s (P50 118us, P99 3.49ms) | 39.8x / P99 -39.7x |
+| =effect_multishot_cow=        | 48.2K/s (P99 65.1ms) | 158.2K/s (P99 15.2ms) | 545.3K/s (P50 99us, P99 5.75ms) | 11.3x / P99 -11.3x |
+
+- One-shot in-place stack rewind hit rate (=##gc-oneshot-continuation-rewinds=, =p12=, 12 x 10,000 performs): =119,985 / 120,000= (99.99%).
+- ZGC stack watermark return barrier verified live under =p12= concurrent SATB major GC (=##gc-stack-watermark-shaded-frames= > 0, 12/12 threads intact).
+- Conformance & linearizability: =(srfi 226)= 476/476 PASS, =(gambit effect)= 356/356 PASS across =p1/p4/p8/p12=.
