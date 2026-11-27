@@ -499,12 +499,12 @@ package GambitLongTermUnifiedArchitecture {
     }
     part slice3ADynamicDomains : ArchitectureSlice {
         attribute :>> sliceId = "Slice3A";
-        attribute :>> title = "OCaml-5 / Chez-10 Dynamic Per-Domain VM Tables (Eliminate Static [___MAX_PROCESSORS] Arrays + Live-Proportional Major GC Worker Count)";
-        attribute :>> status = "NEXT_PHASE_DESIGN_READY";
-        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/per_domain_rest_slab_and_io_check_v2.qnt (extend with dynamic vm_domains table)";
-        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
-        attribute :>> cbmcTarget = "Dynamic lifecycle/root/collector array resize + ABI-safe vm_state indirection PSO harness";
-        attribute :>> exitGate = "Zero compile-time core-count ceiling in lifecycle.h/root.h/collector.h/vm_state.h.in; idle Major GC mature sections bounded by O(live) not O(P); 15/15 CI green";
+        attribute :>> title = "OCaml-5 / Erlang-OTP-28 Dynamic Per-Domain VM Tables (Eliminate Static [___MAX_PROCESSORS] Internal Arrays + O(live) Adaptive GC Copy Workers)";
+        attribute :>> status = "IN_PROGRESS_PHASE_3A1";
+        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/slice3a_dynamic_vm_domains_v2.qnt";
+        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/Slice3ADynamicDomainsRefinement.lean";
+        attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice3a_dynamic_domains_pso.c";
+        attribute :>> exitGate = "Zero static [___MAX_PROCESSORS] arrays in lifecycle.h/root.h/collector.h and stack scratch paths; idle GC mature sections bounded by O(live) not O(P); 0 TSan races; 15/15 CI green";
     }
     part slice3BIoAndStdlib : ArchitectureSlice {
         attribute :>> sliceId = "Slice3B";
@@ -559,7 +559,7 @@ package GambitLongTermUnifiedArchitecture {
             attribute :>> label = "Slice 2.5 (CLOSED): OCaml-5 Per-Domain Rest Slab + os_io Check Fence + Zero-Magic Auto min_heap";
         }
         part slice3ADynamicDomains : SliceNode {
-            attribute :>> label = "Slice 3A (NEXT): Dynamic Per-Domain VM Tables (Eliminate Static MAX_PROCESSORS) + O(live) Major Workers";
+            attribute :>> label = "Slice 3A (3A-1 VERIFIED): Dynamic Per-Domain VM Tables (Zero Static lib/ MAX_PROCESSORS) + O(live) Adaptive GC Workers";
         }
         part slice3BIoAndStdlib : SliceNode {
             attribute :>> label = "Slice 3B (NEXT): kqueue/epoll Reactor + SRFI-230 & Work-Stealing Parallel Stdlib";
