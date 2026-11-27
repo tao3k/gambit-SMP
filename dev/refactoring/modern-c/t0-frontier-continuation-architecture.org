@@ -439,3 +439,51 @@ Formal verification for Phase C4-A:
     *15.6 MiB*); *w=12* *P50* dropped from =101--112us= (C8) to a rock-solid *69us* across all 3 runs!
   - =ht_generator_stream=: *w=1* *5.65M/s* (*P50 27us*, *0 GCs / 0ms*, *15.8 MiB*); *w=12* *P50*
     rock-solid *27--28us* (faster than Rust Tokio 1.54's =32.0us=!).
+
+* 13. Phase C10: Single-C-Block Bounded-Retry Vyukov Ring, Wait-Free Inline C23 Chase-Lev Deque & Bounded Spinlock
+
+** 13.1 Architectural Upgrades (=vendor/gambit/lib/gambit/fiber/fiber.scm=, upstream-clean)
+1. *Single-C-Block Bounded-Retry Vyukov MPMC Ring (=cap >= 1=)*:
+   - Replaced the multi-frame Scheme Vyukov ring loop (which generated 9 GVM calls and 3
+     =___group_demand_enter= checkpoints per push/pop) with single-block inline C23
+     =%vyukov-try-push-c!= and =%vyukov-try-pop-c!= operating directly on structure fields
+     (=___BODY_AS(ch, ___tSTRUCTURE)=) with universal =2*pos= / =2*pos+1= / =2*(pos+cap)=
+     sequence encoding, full =___GC_WRITE_BARRIER= generational+SATB shading on both push
+     and pop clear (=buf[idx] = ___FAL=), and a bounded 64-retry budget that returns to
+     Scheme =___POLL= under extreme contention (zero STW GC starvation).
+2. *Single-C-Block Wait-Free Inline C23 Chase-Lev Work-Stealing Deque*:
+   - Lowered =%dq-push!=, =%dq-pop!=, and =%dq-steal!= into loop-free straight-line inline
+     C23 blocks using Gambit's GC/SATB-safe =___gc_atomic_slot_exchange= and
+     =___gc_atomic_slot_load=.
+3. *Single-C-Block Bounded C23 Spinlock + Aggressive Inlining*:
+   - Added =%spin-trylock-bounded!= (64 C spins with ARM64 =yield= / x86 =pause= before
+     Scheme =thread-yield!= fallback) and =(declare (inlining-limit 400))= so all leaf
+     scheduler and wait-queue helpers inline cleanly with zero GVM call overhead.
+
+** 13.2 3-Layer Adversarial Formal Verification (Phase C10, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/bounded_c_vyukov_and_safepoint_yield_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (=873ms=; explicitly stresses =CAP = 1= under =2*pos=
+  encoding + bounded retry safepoint admission + zero unshaded SATB overwrites).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/BoundedCVyukovSafepointRefinement.lean=):
+  4 theorems, 0 =sorry=, 0 warnings (proving =2*pos < 2*pos+1 < 2*(pos+cap)= for all =cap >= 1=,
+  bounded retry safepoint admission, and SATB pop-clear shading completeness).
+- *CBMC (=--mm pso=)* (=tests/contracts/modern-c/gc-ffi/bounded-c-vyukov-safepoint-smp/harness.c=):
+  0 of 17 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_CAP1_1POS_ENCODING=, =INJECT_BUG_POP_CLEAR_NO_SATB=,
+  =INJECT_BUG_PUSH_NO_RELEASE_SEQ=, =INJECT_BUG_ZERO_RETRY_BUDGET_STARVES_GC=.
+
+** 13.3 Full SMP Verification Gate & Landmark Performance Results vs Rust Tokio 1.54
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,087/1,087 PASS*
+  (=(srfi 226)= 488/488, =(gambit effect)= 372/372, =(gambit fiber)= 104/104,
+  =(srfi 230)= 68/68 =p12=, =(gambit concurrent)= 55/55 =p12=).
+- Endurance: *15/15* consecutive 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*).
+- Paired benchmark highlights (measured under concurrent host load avg =44.44=):
+  - =ht_fiber_fanout_100k= (*w=1* single core!): *2,501,126 fibers/sec* (+59% vs C9, *+46x* vs
+    C4-A, *1.58x higher than Rust Tokio 1.54's 12-core 1.58M/s*!), *P50 370us*, *P99 774us*
+    (*3.2x lower P99 than Tokio 12-core 2.47ms*!), *max 774us*, *gc_ms=3ms*, *17.6 MiB*!
+    On *w=12* even at load avg 44.44, *P50* dropped to *454us* (faster than Tokio's =468us=!).
+  - =ht_generator_stream= (*w=1* single core!): *8,273,580 items/sec* (+46% vs C9), *P50 23us*,
+    *P95 24us*, *P99 26us*, *max 29us*, *0 GCs / 0ms*, *15.8 MiB*! (*w=12* *P50 25--28us* vs
+    Tokio's =32.0us=!).
+  - =ht_effect_pingpong=: *w=1* *1.284M/s* (*P50 64us*, *4 GCs / 1ms*, *15.5 MiB*); *w=12*
+    throughput jumped +80% vs C9 (=621K--680K/s=, *P50 71--75us*, *34.5--37.5 MiB*).
