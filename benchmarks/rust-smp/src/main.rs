@@ -1,9 +1,9 @@
 use rayon::prelude::*;
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hint::black_box;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, RwLock};
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
@@ -44,6 +44,20 @@ struct RunSample {
     cpu_utilization_pct: f64,
     rss_mib: f64,
     checksum: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ops: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ops_per_sec: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p50_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p95_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p99_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p999_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_us: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -53,11 +67,24 @@ struct TopoSummary {
     workers: usize,
     work_real: f64,
     p95_real: f64,
+    p99_real: f64,
     cpu: f64,
     cpu_utilization_pct: f64,
     speedup: f64,
     efficiency: f64,
     rss_mib: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ops_per_sec: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p50_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p95_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p99_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    p999_us: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_us: Option<f64>,
     samples: Vec<RunSample>,
 }
 
@@ -85,13 +112,21 @@ fn median(vals: &mut [f64]) -> f64 {
     }
 }
 
-fn p95(vals: &mut [f64]) -> f64 {
+fn percentile(vals: &mut [f64], q: f64) -> f64 {
     vals.sort_by(|a, b| a.total_cmp(b));
     if vals.is_empty() {
         return 0.0;
     }
-    let idx = ((vals.len() as f64) * 0.95).ceil() as usize;
+    let idx = ((vals.len() as f64) * q).ceil() as usize;
     vals[idx.saturating_sub(1).min(vals.len() - 1)]
+}
+
+fn p95(vals: &mut [f64]) -> f64 {
+    percentile(vals, 0.95)
+}
+
+fn p99(vals: &mut [f64]) -> f64 {
+    percentile(vals, 0.99)
 }
 
 fn round4(v: f64) -> f64 {
@@ -116,6 +151,44 @@ fn measure<F: FnMut() -> u64>(mut f: F) -> RunSample {
         cpu_utilization_pct: round2(util.max(0.0)),
         rss_mib: round2((r1.max_rss_bytes as f64) / (1024.0 * 1024.0)),
         checksum,
+        ops: None,
+        ops_per_sec: None,
+        p50_us: None,
+        p95_us: None,
+        p99_us: None,
+        p999_us: None,
+        max_us: None,
+    }
+}
+
+fn measure_with_lats<F: FnMut() -> (u64, u64, Vec<f64>)>(mut f: F) -> RunSample {
+    let r0 = rusage_now();
+    let t0 = Instant::now();
+    let (checksum, ops, mut lats_us) = f();
+    let checksum = black_box(checksum);
+    let wall = t0.elapsed().as_secs_f64();
+    let r1 = rusage_now();
+    let cpu = (r1.user_s - r0.user_s) + (r1.sys_s - r0.sys_s);
+    let util = if wall > 0.0 { (cpu / wall) * 100.0 } else { 0.0 };
+    let ops_per_sec = if wall > 0.0 { round2((ops as f64) / wall) } else { 0.0 };
+    let p50_v = round2(percentile(&mut lats_us, 0.50));
+    let p95_v = round2(percentile(&mut lats_us, 0.95));
+    let p99_v = round2(percentile(&mut lats_us, 0.99));
+    let p999_v = round2(percentile(&mut lats_us, 0.999));
+    let max_v = round2(lats_us.last().copied().unwrap_or(0.0));
+    RunSample {
+        work_real: round4(wall),
+        cpu_seconds: round4(cpu.max(0.0)),
+        cpu_utilization_pct: round2(util.max(0.0)),
+        rss_mib: round2((r1.max_rss_bytes as f64) / (1024.0 * 1024.0)),
+        checksum,
+        ops: Some(ops),
+        ops_per_sec: Some(ops_per_sec),
+        p50_us: Some(p50_v),
+        p95_us: Some(p95_v),
+        p99_us: Some(p99_v),
+        p999_us: Some(p999_v),
+        max_us: Some(max_v),
     }
 }
 
@@ -492,6 +565,279 @@ fn bench_full_load_hybrid(
 }
 
 // ---------------------------------------------------------------------------
+// 7. ht_concurrent_kv_ycsb — 80% Read / 20% Write Sharded Concurrent KV
+//    1:1 match with Gambit (gambit concurrent) concurrent-table
+// ---------------------------------------------------------------------------
+
+fn measure_ht_kv_ycsb(pool: &rayon::ThreadPool, workers: usize) -> RunSample {
+    const KEYSPACE: u64 = 8192;
+    const SHARDS: usize = 64;
+    const BATCHES_PER_WORKER: usize = 160;
+    const BATCH_OPS: usize = 256;
+
+    let shards: Vec<RwLock<HashMap<u64, Arc<(u64, u64, Vec<u64>)>>>> = (0..SHARDS)
+        .map(|_| RwLock::new(HashMap::new()))
+        .collect();
+    for k in 0..KEYSPACE {
+        let s = (k as usize) & (SHARDS - 1);
+        shards[s]
+            .write()
+            .unwrap()
+            .insert(k, Arc::new((k, 0, vec![k; 8])));
+    }
+
+    measure_with_lats(|| {
+        pool.install(|| {
+            let results: Vec<(u64, Vec<f64>)> = (0..workers)
+                .into_par_iter()
+                .map(|w| {
+                    let mut wlat = Vec::with_capacity(BATCHES_PER_WORKER);
+                    let mut seed = ((w as u64).wrapping_mul(1_103_515_245).wrapping_add(12345)) & 0x7fff_ffff;
+                    let mut cs = 0u64;
+                    for b in 0..BATCHES_PER_WORKER {
+                        let bt0 = Instant::now();
+                        for o in 0..BATCH_OPS {
+                            seed = (seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223)) & 0x7fff_ffff;
+                            let key = seed & (KEYSPACE - 1);
+                            let s = (key as usize) & (SHARDS - 1);
+                            if ((seed >> 16) % 5) == 0 {
+                                let val = Arc::new((key, (b + o) as u64, vec![key; 8]));
+                                shards[s].write().unwrap().insert(key, val);
+                            } else {
+                                let guard = shards[s].read().unwrap();
+                                if let Some(v) = guard.get(&key) {
+                                    cs = cs.wrapping_add(v.0);
+                                }
+                            }
+                        }
+                        wlat.push(bt0.elapsed().as_secs_f64() * 1_000_000.0);
+                    }
+                    (cs, wlat)
+                })
+                .collect();
+            let mut total_cs = 0u64;
+            let mut all_lats = Vec::with_capacity(workers * BATCHES_PER_WORKER);
+            for (c, mut l) in results {
+                total_cs = total_cs.wrapping_add(c);
+                all_lats.append(&mut l);
+            }
+            (total_cs, (workers * BATCHES_PER_WORKER * BATCH_OPS) as u64, all_lats)
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 8. ht_mpmc_pipeline — Multi-Stage High-Throughput MPMC Pipeline
+//    1:1 match with Gambit (gambit concurrent) lf-queue pipeline
+// ---------------------------------------------------------------------------
+
+fn measure_ht_mpmc_pipeline(rt: &tokio::runtime::Runtime, workers: usize) -> RunSample {
+    let half = (workers / 2).max(1);
+    const BATCHES_PER_PROD: usize = 250;
+    const BATCH_MSGS: usize = 64;
+    let msgs_per_prod = BATCHES_PER_PROD * BATCH_MSGS;
+    let total_msgs = (half * msgs_per_prod) as u64;
+
+    measure_with_lats(|| {
+        rt.block_on(async move {
+            let epoch = Instant::now();
+            // Stage 1 -> Stage 2 -> Stage 3 via tokio unbounded channels (sharded per stage lane)
+            let mut q1_txs = Vec::with_capacity(half);
+            let mut q1_rxs = Vec::with_capacity(half);
+            let mut q2_txs = Vec::with_capacity(half);
+            let mut q2_rxs = Vec::with_capacity(half);
+            for _ in 0..half {
+                let (t1, r1) = tokio::sync::mpsc::unbounded_channel::<(u64, f64)>();
+                let (t2, r2) = tokio::sync::mpsc::unbounded_channel::<(u64, f64, Vec<u64>)>();
+                q1_txs.push(t1);
+                q1_rxs.push(r1);
+                q2_txs.push(t2);
+                q2_rxs.push(r2);
+            }
+
+            let mut transformers = Vec::with_capacity(half);
+            for (mut rx, tx) in q1_rxs.into_iter().zip(q2_txs.into_iter()) {
+                transformers.push(tokio::spawn(async move {
+                    for _ in 0..msgs_per_prod {
+                        let (id, ts) = rx.recv().await.expect("q1 closed");
+                        let _ = tx.send((id + 1, ts, vec![id; 4]));
+                    }
+                }));
+            }
+
+            let mut consumers = Vec::with_capacity(half);
+            for mut rx in q2_rxs.into_iter() {
+                consumers.push(tokio::spawn(async move {
+                    let mut wlat = Vec::with_capacity(BATCHES_PER_PROD);
+                    let mut cs = 0u64;
+                    let mut in_batch = 0usize;
+                    let mut batch_max = 0.0f64;
+                    for _ in 0..msgs_per_prod {
+                        let (id, ts, _v) = rx.recv().await.expect("q2 closed");
+                        let dt = epoch.elapsed().as_secs_f64() * 1_000_000.0 - ts;
+                        if dt > batch_max {
+                            batch_max = dt;
+                        }
+                        cs = cs.wrapping_add(id);
+                        in_batch += 1;
+                        if in_batch == BATCH_MSGS {
+                            wlat.push(batch_max);
+                            in_batch = 0;
+                            batch_max = 0.0;
+                        }
+                    }
+                    (cs, wlat)
+                }));
+            }
+
+            let mut producers = Vec::with_capacity(half);
+            for (i, tx) in q1_txs.into_iter().enumerate() {
+                producers.push(tokio::spawn(async move {
+                    for b in 0..BATCHES_PER_PROD {
+                        let ts = epoch.elapsed().as_secs_f64() * 1_000_000.0;
+                        for m in 0..BATCH_MSGS {
+                            let id = (i * msgs_per_prod + b * BATCH_MSGS + m) as u64;
+                            let _ = tx.send((id, ts));
+                        }
+                    }
+                }));
+            }
+
+            for h in producers {
+                h.await.unwrap();
+            }
+            for h in transformers {
+                h.await.unwrap();
+            }
+            let mut total_cs = 0u64;
+            let mut all_lats = Vec::with_capacity(half * BATCHES_PER_PROD);
+            for h in consumers {
+                let (c, mut l) = h.await.unwrap();
+                total_cs = total_cs.wrapping_add(c);
+                all_lats.append(&mut l);
+            }
+            (total_cs, total_msgs, all_lats)
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 9. ht_graph_bfs_churn — Large Live Old-Gen Graph Traversal + Dynamic Churn
+//    1:1 match with Gambit 32,768-node x 8-edge persistent graph
+// ---------------------------------------------------------------------------
+
+struct GraphNode {
+    id: u64,
+    edges: [usize; 8],
+    _payload: Vec<u64>,
+}
+
+fn make_graph_node(id: u64, n_nodes: usize) -> Arc<GraphNode> {
+    let mut edges = [0usize; 8];
+    for e in 0..8 {
+        edges[e] = ((id.wrapping_mul(31).wrapping_add((e as u64) * 997).wrapping_add(17)) as usize)
+            & (n_nodes - 1);
+    }
+    Arc::new(GraphNode {
+        id,
+        edges,
+        _payload: vec![id; 8],
+    })
+}
+
+fn measure_ht_graph_bfs_churn(pool: &rayon::ThreadPool, workers: usize) -> RunSample {
+    const N_NODES: usize = 32_768;
+    const WAVES_PER_WORKER: usize = 128;
+    const NODES_PER_WAVE: usize = 256;
+
+    let graph: Vec<RwLock<Arc<GraphNode>>> = (0..N_NODES)
+        .map(|i| RwLock::new(make_graph_node(i as u64, N_NODES)))
+        .collect();
+
+    measure_with_lats(|| {
+        pool.install(|| {
+            let results: Vec<(u64, Vec<f64>)> = (0..workers)
+                .into_par_iter()
+                .map(|w| {
+                    let mut wlat = Vec::with_capacity(WAVES_PER_WORKER);
+                    let base = w * (N_NODES / workers.max(1));
+                    let mut acc = 0u64;
+                    for wv in 0..WAVES_PER_WORKER {
+                        let wt0 = Instant::now();
+                        for k in 0..NODES_PER_WAVE {
+                            let idx = (base + wv * 64 + k) & (N_NODES - 1);
+                            let edges = {
+                                let g = graph[idx].read().unwrap();
+                                g.edges
+                            };
+                            for &nbr_idx in &edges {
+                                let nbr = graph[nbr_idx].read().unwrap();
+                                acc = acc.wrapping_add(nbr.id);
+                            }
+                            if (k & 7) == 0 {
+                                let new_node = make_graph_node((idx + wv) as u64, N_NODES);
+                                *graph[idx].write().unwrap() = new_node;
+                            }
+                        }
+                        wlat.push(wt0.elapsed().as_secs_f64() * 1_000_000.0);
+                    }
+                    (acc, wlat)
+                })
+                .collect();
+            let mut total_cs = 0u64;
+            let mut all_lats = Vec::with_capacity(workers * WAVES_PER_WORKER);
+            for (c, mut l) in results {
+                total_cs = total_cs.wrapping_add(c);
+                all_lats.append(&mut l);
+            }
+            (
+                total_cs,
+                (workers * WAVES_PER_WORKER * NODES_PER_WAVE * 8) as u64,
+                all_lats,
+            )
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 10. ht_workstealing_dag — Irregular Skewed Task DAG Work-Stealing
+//     1:1 match with Gambit Chase-Lev ws-deque bursty wave work-stealing
+// ---------------------------------------------------------------------------
+
+#[inline(never)]
+fn dag_task_work(id: u64) -> u64 {
+    let n = 8 + ((id & 31) as usize);
+    let v = black_box(vec![id; n]);
+    let mut acc = 0u64;
+    for &x in &v {
+        acc = acc.wrapping_add(x);
+    }
+    acc
+}
+
+fn measure_ht_workstealing_dag(pool: &rayon::ThreadPool, _workers: usize) -> RunSample {
+    const WAVES: usize = 128;
+    const TASKS_PER_WAVE: usize = 512;
+
+    measure_with_lats(|| {
+        pool.install(|| {
+            let mut wlat = Vec::with_capacity(WAVES);
+            let mut total_cs = 0u64;
+            for wv in 0..WAVES {
+                let wt0 = Instant::now();
+                let wave_sum: u64 = (0..TASKS_PER_WAVE)
+                    .into_par_iter()
+                    .map(|k| dag_task_work((wv * TASKS_PER_WAVE + k) as u64))
+                    .reduce(|| 0u64, |a, b| a.wrapping_add(b));
+                total_cs = total_cs.wrapping_add(wave_sum);
+                wlat.push(wt0.elapsed().as_secs_f64() * 1_000_000.0);
+            }
+            (total_cs, (WAVES * TASKS_PER_WAVE) as u64, wlat)
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
 // CLI & Runner
 // ---------------------------------------------------------------------------
 
@@ -595,6 +941,10 @@ fn main() {
         "par_gc_pause_live_heap",
         "par_oldgen_churn_live",
         "par_sync_mailbox_cas",
+        "ht_concurrent_kv_ycsb",
+        "ht_mpmc_pipeline",
+        "ht_graph_bfs_churn",
+        "ht_workstealing_dag",
     ];
     if args.full_load {
         workloads.push("full_load_hybrid_tokio_rayon");
@@ -639,6 +989,18 @@ fn main() {
                 "par_sync_mailbox_cas" => {
                     bench_par_sync_mailbox_cas(&rt, args.workers, 500, 200);
                 }
+                "ht_concurrent_kv_ycsb" => {
+                    let _ = measure_ht_kv_ycsb(&pool, args.workers.min(2));
+                }
+                "ht_mpmc_pipeline" => {
+                    let _ = measure_ht_mpmc_pipeline(&rt, args.workers.min(2));
+                }
+                "ht_graph_bfs_churn" => {
+                    let _ = measure_ht_graph_bfs_churn(&pool, args.workers.min(2));
+                }
+                "ht_workstealing_dag" => {
+                    let _ = measure_ht_workstealing_dag(&pool, args.workers);
+                }
                 "full_load_hybrid_tokio_rayon" => {
                     bench_full_load_hybrid(&rt, &pool, ncpu, 26, 200);
                 }
@@ -656,6 +1018,10 @@ fn main() {
                     "par_sync_mailbox_cas" => {
                         measure(|| bench_par_sync_mailbox_cas(&rt, args.workers, 15_000, 4_000))
                     }
+                    "ht_concurrent_kv_ycsb" => measure_ht_kv_ycsb(&pool, args.workers),
+                    "ht_mpmc_pipeline" => measure_ht_mpmc_pipeline(&rt, args.workers),
+                    "ht_graph_bfs_churn" => measure_ht_graph_bfs_churn(&pool, args.workers),
+                    "ht_workstealing_dag" => measure_ht_workstealing_dag(&pool, args.workers),
                     "full_load_hybrid_tokio_rayon" => {
                         // Heavy full-machine load: 2 * ncpu tasks (24 tasks on 12-core M2 Pro)
                         measure(|| bench_full_load_hybrid(&rt, &pool, ncpu * 2, 37, 10_000))
@@ -670,12 +1036,28 @@ fn main() {
             let mut utils: Vec<f64> = samples.iter().map(|s| s.cpu_utilization_pct).collect();
             let med_wall = round4(median(&mut walls));
             let p95_wall = round4(p95(&mut walls));
+            let p99_wall = round4(p99(&mut walls));
             let med_cpu = round4(median(&mut cpus));
             let med_util = round2(median(&mut utils));
             let max_rss = samples
                 .iter()
                 .map(|s| s.rss_mib)
                 .fold(0.0_f64, f64::max);
+
+            let opt_med = |f: fn(&RunSample) -> Option<f64>| -> Option<f64> {
+                let mut vs: Vec<f64> = samples.iter().filter_map(f).collect();
+                if vs.is_empty() {
+                    None
+                } else {
+                    Some(round2(median(&mut vs)))
+                }
+            };
+            let med_ops_s = opt_med(|s| s.ops_per_sec);
+            let med_p50_us = opt_med(|s| s.p50_us);
+            let med_p95_us = opt_med(|s| s.p95_us);
+            let med_p99_us = opt_med(|s| s.p99_us);
+            let med_p999_us = opt_med(|s| s.p999_us);
+            let med_max_us = opt_med(|s| s.max_us);
 
             if t == 1 && med_wall > 0.0 {
                 p1_med = Some(med_wall);
@@ -692,9 +1074,17 @@ fn main() {
                 args.workers
             };
 
-            println!(
-                "[RUST] {wname:28} {topo_key:3}: work={med_wall:.4}s p95={p95_wall:.4}s cpu={med_cpu:.3}s ({med_util:6.1}%) S={speedup:5.2}x E={efficiency:.2} rss={max_rss:.1}MiB"
-            );
+            if let (Some(ops_s), Some(p50u), Some(p99u), Some(p999u)) =
+                (med_ops_s, med_p50_us, med_p99_us, med_p999_us)
+            {
+                println!(
+                    "[RUST] {wname:28} {topo_key:3}: work={med_wall:.4}s ops/s={ops_s:10.0} p50={p50u:7.1}us p99={p99u:7.1}us p99.9={p999u:7.1}us S={speedup:5.2}x rss={max_rss:.1}MiB"
+                );
+            } else {
+                println!(
+                    "[RUST] {wname:28} {topo_key:3}: work={med_wall:.4}s p95={p95_wall:.4}s p99={p99_wall:.4}s cpu={med_cpu:.3}s ({med_util:6.1}%) S={speedup:5.2}x E={efficiency:.2} rss={max_rss:.1}MiB"
+                );
+            }
 
             by_topo.insert(
                 topo_key,
@@ -703,11 +1093,18 @@ fn main() {
                     workers: effective_workers,
                     work_real: med_wall,
                     p95_real: p95_wall,
+                    p99_real: p99_wall,
                     cpu: med_cpu,
                     cpu_utilization_pct: med_util,
                     speedup,
                     efficiency,
                     rss_mib: max_rss,
+                    ops_per_sec: med_ops_s,
+                    p50_us: med_p50_us,
+                    p95_us: med_p95_us,
+                    p99_us: med_p99_us,
+                    p999_us: med_p999_us,
+                    max_us: med_max_us,
                     samples,
                 },
             );

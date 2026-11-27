@@ -11,10 +11,24 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+HT_RESULT_RE = re.compile(
+    r"HT_RESULT\s+name=(\S+)\s+workers=(\d+)\s+ops=(\d+)\s+samples=(\d+)\s+"
+    r"work_real=([0-9.eE+-]+)\s+ops_per_sec=([0-9.eE+-]+)\s+"
+    r"p50_us=([0-9.eE+-]+)\s+p95_us=([0-9.eE+-]+)\s+p99_us=([0-9.eE+-]+)\s+"
+    r"p999_us=([0-9.eE+-]+)\s+max_us=([0-9.eE+-]+)\s+gcs=(\d+)\s+gc_real=([0-9.eE+-]+)"
+)
+HT_WORKLOADS = [
+    "ht_concurrent_kv_ycsb",
+    "ht_mpmc_pipeline",
+    "ht_graph_bfs_churn",
+    "ht_workstealing_dag",
+]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BENCH_DIR = Path(__file__).resolve().parent
@@ -111,6 +125,74 @@ def run_gambit_scaling(
                     flush=True,
                 )
             summary[sname] = by_topo
+
+        # High-throughput + P50/P95/P99/P99.9 workloads (gambit_ht_bench.scm)
+        ht_src = BENCH_DIR / "gambit_ht_bench.scm"
+        if ht_src.is_file():
+            ht_o1 = mc.compile_o1(gsc, runtime_dir, ht_src, work / "gambit_ht_bench.o1", work, env)
+            for ht_name in HT_WORKLOADS:
+                by_topo = {}
+                p1_wall = None
+                for topo in topologies:
+                    runs = []
+                    for _ in range(repeats):
+                        ht_env = dict(env)
+                        ht_env["HT_TARGET"] = ht_name
+                        ht_env["HT_WORKERS"] = str(workers)
+                        r = mc.run_timed(
+                            [str(gsi), f"-:={runtime_dir},{topo}", str(ht_o1)],
+                            work,
+                            ht_env,
+                            timeout=180,
+                            max_footprint_bytes=4 * 1024 * 1024 * 1024,
+                        )
+                        m = HT_RESULT_RE.search(r["stdout"])
+                        if r["exit"] != 0 or not m:
+                            raise RuntimeError(f"Gambit {ht_name}[{topo}] failed: {r}")
+                        work_s = float(m.group(5))
+                        ops_s = float(m.group(6))
+                        p50_us = float(m.group(7))
+                        p95_us = float(m.group(8))
+                        p99_us = float(m.group(9))
+                        p999_us = float(m.group(10))
+                        max_us = float(m.group(11))
+                        gcs = int(m.group(12))
+                        gc_s = float(m.group(13))
+                        runs.append((work_s, r["cpuSeconds"], gc_s, gcs, r["peakRssMiB"],
+                                     ops_s, p50_us, p95_us, p99_us, p999_us, max_us))
+                    runs.sort(key=lambda x: x[0])
+                    work_s, cpu_s, gc_s, gcs, rss_mib, ops_s, p50_u, p95_u, p99_u, p999_u, max_u = runs[len(runs) // 2]
+                    if topo == "p1" and work_s > 0:
+                        p1_wall = work_s
+                    p_num = int(topo[1:])
+                    speedup = round(p1_wall / work_s, 2) if (p1_wall and work_s > 0) else 1.0
+                    eff = round(speedup / p_num, 2)
+                    gc_pct = round(100.0 * gc_s / work_s, 1) if work_s > 0 else 0.0
+                    by_topo[topo] = {
+                        "threads": p_num,
+                        "workers": workers,
+                        "workReal": round(work_s, 4),
+                        "cpu": round(cpu_s, 4),
+                        "speedup": speedup,
+                        "efficiency": eff,
+                        "gcCount": gcs,
+                        "gcReal": round(gc_s, 4),
+                        "gcPausePct": gc_pct,
+                        "rssMiB": round(rss_mib, 2),
+                        "opsPerSec": round(ops_s, 2),
+                        "p50Us": round(p50_u, 2),
+                        "p95Us": round(p95_u, 2),
+                        "p99Us": round(p99_u, 2),
+                        "p999Us": round(p999_u, 2),
+                        "maxUs": round(max_u, 2),
+                    }
+                    print(
+                        f"[GAMBIT] {ht_name:26s} {topo:3s}: work={work_s:.4f}s ops/s={ops_s:10.0f} "
+                        f"p50={p50_u:7.1f}us p99={p99_u:7.1f}us p99.9={p999_u:7.1f}us "
+                        f"S={speedup:5.2f}x gc={gc_pct:4.1f}% rss={rss_mib:.1f}MiB",
+                        flush=True,
+                    )
+                summary[ht_name] = by_topo
     return summary
 
 

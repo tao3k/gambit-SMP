@@ -1,0 +1,97 @@
+#+TITLE: T0 Frontier Continuation Architecture for Multicore Gambit SMP
+#+AUTHOR: Gambit SMP Architecture Research
+#+OPTIONS: toc:3 num:t
+
+* 1. Executive Summary & Why Chez Alone Is Not Enough
+
+First-class continuations are a T0 core capability of Scheme. Auditing =vendor/chez/c/schsig.c=,
+=vendor/ocaml/runtime/fiber.c=, and =vendor/gambit/lib/_mem/continuation-roots.inc= alongside
+2020--2025 PLDI/OOPSLA/ICFP literature shows that while *Chez Scheme 10* (PLDI '90 / PLDI '96 /
+ICFP '20) represents the pinnacle of single-core/traditional-threaded Scheme continuations, it
+cannot serve as the sole blueprint for a *12+ core SMP runtime with concurrent SATB GC, Immix,
+LXR deferred-RC, and million-fiber concurrency*.
+
+This document synthesizes *6 orthogonal frontier research lines* (12 landmark papers and
+production runtimes) into a unified *T0 Frontier Continuation Architecture* for Gambit SMP.
+
+* 2. Frontier Literature Taxonomy (6 Orthogonal Dimensions)
+
+** Dimension A: Stack Representation, One-Shot Fast Path & Lazy Multi-Shot Promotion
+| System / Paper | Venue | Core Mechanism | Strengths | Limitations on 12+ Core SMP | Gambit SMP Adoption |
+|----------------+-------+----------------+-----------+-----------------------------+---------------------|
+| *Hieb, Dybvig, Bruggeman* — Representing Control in the Presence of First-Class Continuations | PLDI 1990 | Segmented stacks with bounded =underflow_limit= chunk splitting (=split()= in =vendor/chez/c/schsig.c:58-141=) | Amortizes cross-segment return over kilobytes instead of per-frame C calls | Multi-shot always copies segments | *Adopt*: Replace Gambit's per-frame =___restore_stack_break_frame= with bounded multi-frame chunk restore |
+| *Bruggeman, Waddell, Dybvig* — Representing Control in the Presence of One-Shot Continuations | PLDI 1996 | =call/1cc= transfers stack ownership with zero copy; =S_promote_to_multishot()= upgrades lazily (=schsig.c:49-54=) | Zero-copy 1-shot control; seamless coexistence with =call/cc= | =scaled_shot_1_shot_flag= is *non-atomic*; unsafe under cross-core work-stealing | *Adopt + Upgrade*: C23 =atomic_exchange= state machine (=LIVE -> CONSUMED -> MULTISHOT_COW=) |
+| *Sivaramakrishnan et al.* — Retrofitting Effect Handlers onto OCaml (OCaml 5) | PLDI 2021 | Heap-allocated =struct stack_info= fibers + per-core 5-bucket size-classed =stack_cache= (=vendor/ocaml/runtime/fiber.c:95-224=) | ~5ns lock-free fiber alloc/free; 1% baseline overhead; small initial stack | One-shot only (no multi-shot =call/cc=); single-domain affinity | *Adopt*: Per-processor size-classed Fiber Chunk Cache (4 KiB..64 KiB) to stop pinning 512 KiB =msection= halves |
+| *Leijen & Sivaramakrishnan* — =libmprompt= / =gstack= | MSR 2021--2023 | Virtual-memory growable stacks (=mmap= large VA, commit 4 KiB on demand) | In-place growth with address stability; zero relocation | VA/TLB pressure at 100k+ fibers on 48-bit VA; OS page-fault latency | *Selective*: Use for deep C-FFI/hybrid stacks; use pooled heap chunks for 100k+ Scheme fibers |
+
+** Dimension B: Handler Dispatch, Tail-Resumptive Optimization & Lexical Capabilities
+| System / Paper | Venue | Core Mechanism | Strengths | Limitations | Gambit SMP Adoption |
+|----------------+-------+----------------+-----------+-------------+---------------------|
+| *Xie & Leijen* — Generalized Evidence Passing for Effect Handlers (Koka) | ICFP 2021 | Pass runtime evidence vector to locate handlers in O(1)/O(log d); *tail-resumptive* handlers compile to direct calls with zero capture | Eliminates stack switch & continuation allocation for 90%+ effect ops (state, reader, logging, scoped config) | Dynamic prompt fallback still needed for general multi-shot Scheme | *Adopt*: Fast-path tail-resumptive handlers in =(gambit effect)= (direct call without =##continuation-capture=) |
+| *Brachthäuser, Schuster, Ostermann* — Effects as Capabilities (Effekt) | OOPSLA 2020 / 2022 / 2023 | Lexical effect capabilities + region-based handler lifetime tracking | Zero dynamic handler search; stack-allocated handler regions | Requires lexical capability discipline | *Adopt*: Capability-carrying handler handles in =(gambit effect)= |
+| *Ma, Ge, Lee, Zhang* — Lexical Effect Handlers, Directly (Lexa) | OOPSLA 2024 | Compile lexical handler directly to stack address pointer -> O(1) direct jump on perform | Eliminates O(depth) dynamic prompt walk and quadratic nested-handler overhead | Assumes lexical scoping | *Adopt*: Direct prompt-frame pointer caching in SRFI-226 prompt records |
+
+** Dimension C: Concurrent GC Cooperation & Zero-STW Stack Processing
+| System / Paper | Venue | Core Mechanism | Strengths | Limitations | Gambit SMP Adoption |
+|----------------+-------+----------------+-----------+-------------+---------------------|
+| *Erik Österlund* — ZGC Concurrent Thread-Stack Processing (JEP 376) + Project Loom =StackChunk= | OpenJDK 2020--2024 | *Stack Watermarks & Return Barriers* unified across native stacks and frozen heap =StackChunk= continuations | Eliminates STW stack-root scanning pauses even with 100k+ suspended fibers; directly attacks P99/P99.9 GC tail spikes | Requires return-barrier check on watermark crossing | *Adopt (Phase C2)*: Fold watermark check into Gambit's existing =___handler_break= / =stack_trip= so SATB Major GC scans suspended continuations concurrently without STW! |
+| *Chez Scheme =gc.c:1790=* | Chez 10 | STW serial promotion of =conts_to_promote= | Simple | Serial STW bottleneck at 12+ cores | *Avoid*: Replace with parallel SATB-cooperative promotion |
+
+** Dimension D: Typed / Linearizable Multicore Continuation Primitives
+| System / Paper | Venue | Core Mechanism | Strengths | Limitations | Gambit SMP Adoption |
+|----------------+-------+----------------+-----------+-------------+---------------------|
+| *Hillerström, Lindley, Rossberg, Sivaramakrishnan* — Continuing WebAssembly with Effect Handlers (WasmFX) | OOPSLA 2023 | Minimal first-class stack-switching ISA (=cont.new=, =cont.bind=, =suspend=, =resume=) with linear one-shot consumption | Clean, orthogonal, formally sound operational semantics | One-shot only | *Adopt*: Clean 4-op internal continuation ABI + Quint/Lean/CBMC formal model of =LIVE -> CONSUMED -> MULTISHOT_COW= |
+
+** Dimension E: Standard Scheme Delimited Control & Continuation Marks
+| System / Paper | Venue | Core Mechanism | Strengths | Limitations | Gambit SMP Adoption |
+|----------------+-------+----------------+-----------+-------------+---------------------|
+| *Flatt & Dybvig* — Compiler and Runtime Support for Continuation Marks (Racket CS) | ICFP 2020 | Frame-attached continuation marks preserving tail-call optimization (=with-continuation-mark=) | O(1) mark lookup, zero stack growth in tail position; unifies parameters, exceptions, prompts, profiling | Needs frame-attachment slot or metacontinuation mark table | *Adopt*: =(srfi 226 control marks)= backed by prompt/denv mark frames (Phase C1) -> native frame attachment (Phase C2) |
+| *Marc Nieper-Wißkirchen* — SRFI 226: Control Features | SRFI 2022--2023 | Modern Scheme standard unifying Prompts, Delimited/Composable Continuations, Marks, =call/1cc=, =shift/reset=, Threads & Parameters | Complete, interoperable Scheme standard | Large surface area | *Adopt*: Modular =(srfi 226 ...)= sub-libraries in =vendor/gambit/lib/srfi/226/= |
+
+* 3. Architectural Synthesis: Frontier Gambit SMP T0 Continuation Stack
+
+Combining all 6 dimensions yields a 4-layer architecture that surpasses both Chez Scheme and
+OCaml 5 individually:
+
+#+begin_example
+Layer 4 (Direct-Style Concurrency & Effects)
+  (gambit effect)  — Tail-resumptive O(1) direct call (Koka ICFP '21)
+                   + Direct capability handler jump (Lexa OOPSLA '24)
+                   + Multi-shot & one-shot delimited resume on (gambit concurrent)
+
+Layer 3 (Modern Scheme Control Standard — SRFI-226)
+  (srfi 226 control prompts)        — Multi-prompt tags, prompt barriers, abort
+  (srfi 226 control continuations)  — Composable/non-composable delimited k, atomic call/1cc
+  (srfi 226 control marks)          — Tail-preserving continuation marks (Racket CS ICFP '20)
+  (srfi 226 control shift-reset)    — shift / reset
+
+Layer 2 (C23 Atomic Ownership & Bounded Segment Runtime — Phase C2)
+  - Atomic 3-state continuation header: ONE_SHOT_LIVE -> ONE_SHOT_CONSUMED | MULTISHOT_COW
+    (C23 atomic_exchange via SRFI-230 protocol; eliminates cross-core double-resume)
+  - Bounded multi-frame chunk restore (Chez underflow_limit) replacing per-frame copy_gate
+  - Per-processor 5-bucket Fiber Chunk Cache (OCaml 5 fiber.c, 4 KiB..64 KiB)
+  - Stack Watermark Return Barrier (ZGC JEP 376) for concurrent SATB scanning of suspended fibers
+
+Layer 1 (Formal Verification & 12-Core Evidence Chain)
+  - Quint + Lean 4 + CBMC (--mm pso) models for atomic 1-shot claim, prompt delimitation,
+    and SATB watermark soundness
+  - 12-core Rust Tokio async/await vs Gambit Effect/Fiber throughput + P50/P95/P99/P99.9 benchmarks
+#+end_example
+
+* 4. Phased Execution Plan (Zero Conflict With Sibling Amp-1 Work)
+
+1. *Phase C1 (Immediate, Zero C-Runtime Conflict)*:
+   - Formalize the *Atomic One-Shot / Multi-Shot Continuation & Prompt Delimitation* contract in
+     Quint + Lean 4 + CBMC =--mm pso= (catching double-resume, stale-prompt abort, and
+     SATB-unshaded handoff mutants).
+   - Implement modular =(srfi 226)= core libraries (=prompts=, =continuations= with atomic
+     =call/1cc=, =marks=, =shift-reset=) + =(gambit effect)= (with Koka tail-resumptive fast path
+     & Lexa direct handler dispatch) on top of Gambit's =(srfi 230)= + =##continuation-*=.
+   - Verify with full multi-topology (=p1/p4/p8/p12=) SMP conformance & linearizability tests.
+2. *Phase C2 (Runtime C23 Fast Path — Coordinated After Amp-1 Stabilizes)*:
+   - Native C23 atomic one-shot stack ownership transfer, Chez =underflow_limit= batch chunk
+     restore in =continuation-roots.inc=, OCaml 5 per-core Fiber Chunk Cache, and ZGC JEP 376
+     Stack Watermark Return Barrier for concurrent SATB scanning.
+3. *Phase C3 (12-Core Frontier Benchmark Evidence Chain)*:
+   - Paired 1:1 Rust Tokio vs Gambit Effect/Fiber benchmarks (=ht_effect_pingpong=,
+     =ht_generator_stream=, =ht_fiber_fanout_100k=) with =ops/s=, =P50/P95/P99/P99.9=, GC%, RSS.
