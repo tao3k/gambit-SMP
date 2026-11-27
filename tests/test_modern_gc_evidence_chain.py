@@ -15,9 +15,15 @@ RECEIPT_PATH = ROOT / "evidence/modern-gc-amplification-verification-receipt.jso
 MANIFEST_PATH = ROOT / "evidence/papers-modern-gc-architecture.json"
 LOCK_PATH = ROOT / "evidence/papers-modern-gc-architecture.lock.json"
 SYSML_PATH = ROOT / "dev/refactoring/modern-c/models/sysml/modern-gc-amplification.sysml"
+SYSML_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/sysml/amp-algorithms-and-adversarial-contracts.sysml"
 QUINT_PATH = ROOT / "dev/refactoring/modern-c/models/quint/v2/modern_gc_amplification_v2.qnt"
+QUINT_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/quint/v2/amp_deep_protocols_v2.qnt"
 LEAN_PATH = ROOT / "dev/refactoring/modern-c/models/lean/ModernGcAmplificationRefinement.lean"
+LEAN_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/lean/AmpDeepAlgorithmsRefinement.lean"
 CBMC_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/modern_gc_amplification_pso.c"
+CBMC_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp_chase_lev_and_radix_pso.c"
+MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
+ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
 
 
 def sha256_file(path: Path) -> str:
@@ -133,6 +139,83 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
                 item["status"],
                 ("metadata_only_paywalled", "metadata_only_tls_unreachable", "external_html_spec"),
             )
+
+    def test_round2_deep_adversarial_models_and_matrix_symbols_exist(self):
+        sysml_deep = SYSML_DEEP_PATH.read_text()
+        quint_deep = QUINT_DEEP_PATH.read_text()
+        lean_deep = LEAN_DEEP_PATH.read_text()
+        cbmc_deep = CBMC_DEEP_PATH.read_text()
+        matrix_org = MATRIX_ORG_PATH.read_text()
+        algo_tests = ALGO_TEST_PATH.read_text()
+
+        # Zero sorry in upgraded Lean 4 N-heap & deep proofs file
+        self.assertIsNone(re.search(r"\bsorry\b", lean_deep))
+
+        # Round-2 SysML v2 package & all 6 deep requirement defs
+        self.assertIn("package GambitAmpAlgorithmsAndAdversarial", sysml_deep)
+        for req in (
+            "LocalEscapeBlackAllocAndEqIdentityLaw",
+            "RadixDirectoryPublishAndQuiescentRetireLaw",
+            "PrefetchRingAddrmapTerminationLaw",
+            "ChaseLevWeakMemoryFenceLaw",
+            "StaticGenDirtyBarrierAndOverflowImmixLaw",
+            "MemBalancerAdversarialBurstSafetyLaw",
+        ):
+            self.assertRegex(sysml_deep, rf"\brequirement\s+def\s+{re.escape(req)}\b")
+            self.assertIn(req, matrix_org)
+
+        # Round-2 Quint V2 deep protocol runs (1 happy path + 8 mutation-killers)
+        for qrun in (
+            "happyPathDeepProtocolsTest",
+            "mutant1LocalPromoteUnmarkedDuringSatbTest",
+            "mutant2DuplicateLocalRootBreaksEqTest",
+            "mutant3EscapeBudgetExhaustedWithoutFallbackTest",
+            "mutant4RadixPublishWithoutInitTest",
+            "mutant5RetireMsectionWhileReaderActiveTest",
+            "mutant6MarkTerminatesWithNonEmptyAddrmapOrRingTest",
+            "mutant7StaticMutationWithoutDirtyBarrierTest",
+            "mutant8OverflowOverwritesLiveOrPinnedLineTest",
+        ):
+            self.assertRegex(quint_deep, rf"\brun\s+{re.escape(qrun)}\b")
+
+        # Round-2 Lean 4 unbounded N-heap + deep protocol theorems
+        for thm in (
+            "membalancer_n_heap_cauchy_schwarz_optimality",
+            "mark_work_conservation_stack_to_ring",
+            "mark_work_conservation_stack_to_addrmap",
+            "mark_termination_requires_all_three_empty",
+            "local_promote_preserves_satb_black",
+            "forwarding_preserves_scheme_eq_identity",
+            "radix_two_level_index_bijection",
+            "static_dirty_barrier_preserves_nonstatic_child",
+            "immix_overflow_disjoint_from_recycled_live",
+        ):
+            self.assertRegex(lean_deep, rf"\btheorem\s+{re.escape(thm)}\b")
+
+        # Round-2 CBMC PSO 5 weak-memory mutants
+        for macro in (
+            "MUTANT_CHASE_LEV_DROP_PUSH_RELEASE",
+            "MUTANT_CHASE_LEV_DROP_TAKE_FENCE",
+            "MUTANT_CHASE_LEV_DROP_STEAL_FENCE",
+            "MUTANT_RADIX_DROP_PUBLISH_FENCE",
+            "MUTANT_LOCAL_PROMOTE_UNMARKED_SATB",
+        ):
+            self.assertIn(macro, cbmc_deep)
+            self.assertIn(macro, matrix_org)
+
+        # All 8 executable algorithm verifiers/fuzzers referenced in the matrix exist
+        for fn in (
+            "test_membalancer_8proc_adversarial_pareto",
+            "test_ocaml5_prefetch_ring_and_addrmap_completeness",
+            "test_immix_multihole_and_overflow_allocator",
+            "test_lxr_satb_and_line_epoch_adversarial_fuzzer",
+            "test_stack_watermark_with_multishot_callcc_fuzzer",
+            "test_escape_forwarding_preserves_eq_identity",
+            "test_radix_two_level_bijection_and_retire",
+            "test_static_gen_dirty_barrier_fuzzer",
+        ):
+            self.assertRegex(algo_tests, rf"\bdef\s+{re.escape(fn)}\b")
+            self.assertIn(fn, matrix_org)
 
 
 if __name__ == "__main__":

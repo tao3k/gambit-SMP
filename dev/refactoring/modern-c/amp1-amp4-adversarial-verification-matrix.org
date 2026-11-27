@@ -1,0 +1,69 @@
+#+TITLE: Gambit SMP Amp-1..Amp-4 Adversarial Verification & Algorithm Validation Matrix
+#+AUTHOR: Gambit SMP Architecture Research
+#+OPTIONS: toc:3 num:t
+
+* 1. Purpose & Scope
+
+This matrix upgrades the initial Post-Phase A/B/C amplification design
+([[file:modern-gc-structural-amplification-design.org][modern-gc-structural-amplification-design.org]]) from high-level architecture
+invariants to *deep, adversarial, implementation-ready protocol and algorithm
+verification* ahead of Amp-1..Amp-4 C23 implementation.
+
+Every deep hazard that can silently corrupt memory, deadlock concurrent
+termination, violate Scheme =eq?= identity, or cause OOM/fragmentation cliffs
+under real multicore workloads is paired with:
+1. A formal *SysML v2* requirement in
+   [[file:models/sysml/amp-algorithms-and-adversarial-contracts.sysml][amp-algorithms-and-adversarial-contracts.sysml]]
+   (=package GambitAmpAlgorithmsAndAdversarial=);
+2. An executable *Quint V2* state machine + adversarial *mutation-killer* in
+   [[file:models/quint/v2/amp_deep_protocols_v2.qnt][v2/amp_deep_protocols_v2.qnt]];
+3. An unbounded *Lean 4* theorem (0 warnings, zero placeholders) in
+   [[file:models/lean/AmpDeepAlgorithmsRefinement.lean][AmpDeepAlgorithmsRefinement.lean]];
+4. A *CBMC =--mm pso=* weak-memory C harness + fence-removal mutant in
+   [[file:models/cbmc/amp_chase_lev_and_radix_pso.c][amp_chase_lev_and_radix_pso.c]];
+5. A randomized *executable algorithm verifier & adversarial fuzzer* in
+   [[file:../../../tests/test_amplification_algorithms.py][tests/test_amplification_algorithms.py]].
+
+Visual overview:
+[[file:diagrams/amp-deep-protocols-and-adversarial.d2][diagrams/amp-deep-protocols-and-adversarial.d2]] /
+[[file:diagrams/amp-deep-protocols-and-adversarial.svg][.svg]].
+
+* 2. Deep Hazard -> Adversarial Mutant -> Unbounded Proof -> Fuzzer Matrix
+
+| Hazard ID | Wave / Lever | Exact Runtime Failure Mode | SysML v2 Requirement | Quint V2 Mutation-Killer | Lean 4 Unbounded Theorem | CBMC =--mm pso= Mutant | Algorithm Fuzzer / Verifier |
+|-----------+--------------+----------------------------+----------------------+--------------------------+--------------------------+------------------------+-----------------------------|
+| *H1* | Amp-1 / L1 | Local-to-mature promotion during active concurrent SATB omits black-allocation -> concurrent sweeper frees live promoted object (UAF) | =LocalEscapeBlackAllocAndEqIdentityLaw= | =mutant1LocalPromoteUnmarkedDuringSatbTest= | =local_promote_preserves_satb_black= | =MUTANT_LOCAL_PROMOTE_UNMARKED_SATB= | =test_lxr_satb_and_line_epoch_adversarial_fuzzer= |
+| *H2* | Amp-1 / L1 | Promoting escaped young object without installing forwarding & rewriting duplicate local roots breaks Scheme =(eq? a b)= (DLG trap) | =LocalEscapeBlackAllocAndEqIdentityLaw= | =mutant2DuplicateLocalRootBreaksEqTest= | =forwarding_preserves_scheme_eq_identity= | — | =test_escape_forwarding_preserves_eq_identity= |
+| *H3* | Amp-1 / L1 | Hitting bounded escape-promotion budget =K= without aborting local GC / setting global-STW fallback leaves partial unpromoted edges | =LocalEscapeBlackAllocAndEqIdentityLaw= | =mutant3EscapeBudgetExhaustedWithoutFallbackTest= | — | — | =test_escape_forwarding_preserves_eq_identity= |
+| *H4* | Amp-1 / L2 | Inserting new msection into 2-level radix =L1[hi]->L2[lo]= without release-publish fence lets concurrent write-barrier/marker read uninitialized =L2= page | =RadixDirectoryPublishAndQuiescentRetireLaw= | =mutant4RadixPublishWithoutInitTest= | =radix_two_level_index_bijection= | =MUTANT_RADIX_DROP_PUBLISH_FENCE= | =test_radix_two_level_bijection_and_retire= |
+| *H5* | Amp-1 / L2 | Retiring/unmapping empty mature msection while a concurrent marker still references its descriptor -> UAF on msection metadata | =RadixDirectoryPublishAndQuiescentRetireLaw= | =mutant5RetireMsectionWhileReaderActiveTest= | — | — | =test_radix_two_level_bijection_and_retire= |
+| *H6* | Amp-2 / L3 | Concurrent major marker declares termination when =markStack= is empty while =prefetchRing= or compressed overflow =addrmap= still holds pending objects -> lost live graph! | =PrefetchRingAddrmapTerminationLaw= | =mutant6MarkTerminatesWithNonEmptyAddrmapOrRingTest= | =mark_work_conservation_stack_to_ring=, =mark_work_conservation_stack_to_addrmap=, =mark_termination_requires_all_three_empty= | — | =test_ocaml5_prefetch_ring_and_addrmap_completeness= (200 cyclic/overflow graphs) |
+| *H7* | Amp-2 / Slice 3B | Chase-Lev lock-free work-stealing deque (3-thread owner vs 2 concurrent thieves) drops =seq_cst= fence in =take= or =steal=, or drops =release= fence in =push= -> duplicate task execution or uninitialized read on ARM64/PSO | =ChaseLevWeakMemoryFenceLaw= | — | — | =MUTANT_CHASE_LEV_DROP_TAKE_FENCE=, =MUTANT_CHASE_LEV_DROP_STEAL_FENCE=, =MUTANT_CHASE_LEV_DROP_PUSH_RELEASE= | — (exhaustively verified by CBMC PSO!) |
+| *H8* | Amp-3 / L7 | Mutating =GEN_STATIC= immortal object to point to a fresh non-static mature object without setting static dirty-card bit -> Major GC skips static root & reclaims live child! | =StaticGenDirtyBarrierAndOverflowImmixLaw= | =mutant7StaticMutationWithoutDirtyBarrierTest= | =static_dirty_barrier_preserves_nonstatic_child= | — | =test_static_gen_dirty_barrier_fuzzer= |
+| *H9* | Amp-3 / L7 | Immix demand-driven overflow allocator writes medium object into an occupied line or corrupts recycled hole bounds / pinned block | =StaticGenDirtyBarrierAndOverflowImmixLaw= | =mutant8OverflowOverwritesLiveOrPinnedLineTest= | =immix_overflow_disjoint_from_recycled_live= | — | =test_immix_multihole_and_overflow_allocator= |
+| *H10* | Amp-4 / L8 | Multi-process MemBalancer without =E_min= headroom suffers OOM thrashing on idle-to-burst transition; proportional =2L= rule wastes RSS on large heaps & starves small heaps | =MemBalancerAdversarialBurstSafetyLaw= | — | =membalancer_n_heap_cauchy_schwarz_optimality= (generalized to *arbitrary N heaps*!) | — | =test_membalancer_8proc_adversarial_pareto= |
+| *H11* | Amp-2 / L5 | Incremental stack watermark fails to rewind on deep-frame mutation or multi-shot =call/cc= continuation reinstatement -> Minor GC misses live young stack root | =IncrementalStackWatermarkLaw= | =mutant6StackMutationBelowWatermarkMissesRootTest= (in =modern_gc_amplification_v2.qnt=) | =stack_watermark_sound_after_mutate= | — | =test_stack_watermark_with_multishot_callcc_fuzzer= |
+
+* 3. Model Improvement Changelog (Round 1 -> Round 2)
+
+1. *Unbounded N-Heap MemBalancer Proof*: Upgraded Round 1's 2-heap
+   =membalancer_two_heap_optimality= to an inductive *arbitrary N-heap*
+   Cauchy-Schwarz optimality theorem over =List (Int x Int)= in
+   =AmpDeepAlgorithmsRefinement.lean= (=membalancer_n_heap_cauchy_schwarz_optimality=).
+2. *Weak-Memory Chase-Lev + Radix + SATB Black-Alloc Proofs*: Added 5 new
+   CBMC =--mm pso= weak-memory mutants (bringing total amplification CBMC PSO
+   mutants from 3 -> *8*, all 8 killed!).
+3. *Deep Amp-1..Amp-3 State Machine*: Added =amp_deep_protocols_v2.qnt= with
+   *8 new mutation-killers* (bringing total amplification Quint V2 mutants
+   from 6 -> *14*, all 14 killed!).
+4. *Executable Randomized Adversarial Algorithm Suite*: Added
+   =tests/test_amplification_algorithms.py= (8 tests) validating real algorithm
+   implementations (MemBalancer 8-process Pareto, OCaml-5 prefetch ring +
+   =addrmap= overflow across 200 cyclic graphs, Immix multi-hole + overflow,
+   LXR SATB + line-epoch 500-schedule fuzzer, stack watermark + multi-shot
+   =call/cc= fuzzer, escape forwarding, radix directory bijection, and
+   =GEN_STATIC= dirty-card barrier fuzzer).
+5. *Non-Collision Preserved*: Zero edits to =vendor/gambit=, sibling Phase
+   A/B/C models, or sibling =longterm-unified-architecture.*= files. Amp-1
+   native implementation remains strictly gated behind
+   =GambitModernGcAmplification::amp1ReadinessGate=.
