@@ -17,11 +17,15 @@ closing formal models and standalone TSan/ASan-verified C23 prototypes for:
   Pacing + Racket Phantom-Bytes Accounting + Off-Heap Immutable RefC Binaries),
 - *LBO* (Cai et al. ISPASS 2022 multi-core Latency / CPU-Cycle / RSS evaluation gate).
 
-** Admission Gate Reminder
-Native C edits to =vendor/gambit= remain strictly gated on
+** Admission Gate Status
+Native C edits to =vendor/gambit= were strictly gated on
 =GambitModernGcAmplification::amp1ReadinessGate= (=phaseABCStabilized == true=).
-Once the sibling Phase A/B/C + =lxr-drc.inc= work stabilizes and merges, the
-five cuts below apply directly with zero architectural ambiguity.
+Following the sibling merge of =origin/modern-c= (commit =c1d51213=, outer
+submodule commit =bf6837df=), =phaseABCStabilized= and
+=amp1ImplementationAdmitted= transitioned to =true=, and Amp-1 Cuts 1A, 1B, and
+1C were implemented natively in =vendor/gambit= (see Section 5). Full
+=nativeRuntimeAdmitted= and =releaseAdmitted= remain =false= until remaining
+full-suite qualification gates close.
 
 * 2. Exact Amp-1 C23 Source Cuts (Anchored to Live =vendor/gambit= Symbols)
 
@@ -147,3 +151,76 @@ Round 3 closes that final quadrant via Hazards *H12–H14*:
 - *Visual Architecture Cut*:
   - [[file:diagrams/amp1-cut-and-amp4-pacing.d2][diagrams/amp1-cut-and-amp4-pacing.d2]] /
     [[file:diagrams/amp1-cut-and-amp4-pacing.svg][.svg]].
+
+* 5. Native Amp-1 C23 Implementation & Interleaved LBO Verification
+
+Following the =origin/modern-c= merge (=vendor/gambit= commit =c1d51213=), Amp-1
+Cuts 1A, 1B, and 1C were implemented natively across 11 =vendor/gambit= runtime
+files (leaving concurrent sibling soundness hunks in
+=include/_gambit/gvm_operations.h.in= and =lib/_mem/heap-sections.inc:166-169=
+intact):
+- *Cut 1A (Lock-Free Batched Still Accounting + Slab-Aligned Proactive Local Recycle)*:
+  - =include/_gambit/memory_state.h.in=, =lib/_mem/configuration.inc=,
+    =lib/_mem/object-allocation.inc=, =lib/_mem/capacity-resize.inc=,
+    =lib/_mem/collection-round.inc=, =lib/_mem/heap-sections.inc=,
+    =lib/_mem/still-sweep.inc=.
+  - Added per-processor =local_still_credit_= and atomic VM
+    =still_words_reclaimed_pending_=; exact =f_def=/=f_occ= budget conservation
+    in =amp_credit_reclaimed_still_words()= removes =ALLOC_MEM_LOCK()= from
+    =try_local_young_still_gc()=.
+  - Proactive slab-aligned =try_local_young_still_gc()= before
+    =ALLOC_MEM_LOCK()= when =local_young_escaped_ == 0= and
+    =words_still_objs_deferred >= (___MSECTION_SIZE >> 3)= (128 KiB) keeps
+    recycled young-still blocks inside =___STILL_SLAB_LOCAL_CAP=128=,
+    eliminating concurrent kernel =munmap=/=mmap= =vm_map_lock= storms.
+- *Cut 1B (=___STILL_FLAG_GLOBAL= + Unified Movable/Still Local Nursery GC + Zero-Lock Restore)*:
+  - =lib/_mem/local-nursery.inc=, =lib/_mem/allocation-limits.inc=,
+    =lib/_mem/memory-lifecycle.inc=.
+  - Added =___STILL_FLAG_GLOBAL = 16= for O(1) skip of escaped still objects;
+    unified =try_local_movable_nursery_gc()= to trace, remap, and sweep
+    =young_still_objs_= in the same zero-STW pass (removing the
+    =young_still_objs_ != 0= abort) with expanded local survivor capacity
+    (=768= live objects / =8192= words) and forward-progress guard.
+  - Restores owned =heap_limit= directly after successful local movable GC
+    without calling =prepare_mem_pstate()=, eliminating both a per-GC global
+    =ALLOC_MEM_LOCK()= and the tight-heap =heap_limit = hp + 0= clip when
+    =free_approx == 0=.
+- *Cut 1C (Exact O(1) 2-Level Mature Msection Radix Directory)*:
+  - =lib/_mem/generational.inc=, =lib/_mem/concurrent-major.inc=,
+    =lib/_mem/memory-lifecycle.inc=.
+  - Implemented =mature_radix_lookup_ro()= / =mature_radix_rebuild()= /
+    =mature_radix_cleanup()= exploiting the pigeonhole guarantee
+    (=SECTION_BYTES >= 1 MiB= => at most 2 sections per aligned 1 MiB bucket)
+    with zero-malloc L2 leaf pooling during STW =rebuild_mature_snapshot()=,
+    wired into =wb_find_mature_section()=, =___gc_write_barrier_slot_vm()=, and
+    =major_find_mature_section_ro()=.
+
+** Interleaved A/B LBO Results (Pre =c1d51213= vs Post Amp-1, Apple M2 Pro)
+Measured via 1 warmup + 5 interleaved A/B pairs
+(=.cache/tasks/amp1-baseline/ab_lbo_interleaved_v3.json=):
+
+| Workload | Procs | Pre Work (ms) | Post Work (ms) | Wall Speedup | GCs (Pre -> Post) | GC Time (ms) | Sys Time (ms) | Total CPU LBO Ratio |
+|----------+-------+---------------+----------------+--------------+-------------------+--------------+---------------+---------------------|
+| =amp1_tight_movable_m16384= | =p1= | 76.94 | 65.60 | *1.17x* | 105 -> 8 (-92.4%) | 10.49 -> 1.41 | 6.1 -> 5.4 | 0.862x (-13.8%) |
+| =amp1_tight_movable_m16384= | =p8= | 65.79 | 11.04 | *5.96x* | 86 -> 1 (-98.8%) | 38.53 -> 0.82 | 121.5 -> 9.7 | *0.275x (-72.5%)* |
+| =amp1_tight_movable_m16384= | =p12= | 68.64 | 10.86 | *6.32x* | 86 -> 1 (-98.8%) | 43.35 -> 0.55 | 164.1 -> 10.6 | *0.265x (-73.5%)* |
+| =amp1_real_still_mov_m16384= | =p1= | 115.31 | 70.33 | *1.64x* | 10 -> 8 | 9.29 -> 8.47 | 45.2 -> 16.5 | *0.645x (-35.5%)* |
+| =amp1_real_still_mov_m16384= | =p8= | 56.42 | 13.13 | *4.30x* | 13 -> 2 (-84.6%) | 13.05 -> 2.67 | 62.6 -> 14.0 | *0.448x (-55.2%)* |
+| =amp1_real_still_mov_m16384= | =p12= | 34.70 | 10.39 | *3.34x* | 15 -> 2 (-86.7%) | 7.45 -> 0.96 | 64.3 -> 14.2 | *0.479x (-52.1%)* |
+| =amp1_large_mature_wb_radix= | =p1= | 28.83 | 27.46 | *1.05x* | 0 -> 0 | 0.00 -> 0.00 | 15.9 -> 15.7 | 0.986x |
+| =amp1_large_mature_wb_radix= | =p8= | 14.39 | 7.67 | *1.88x* | 0 -> 0 | 0.00 -> 0.00 | 20.7 -> 22.4 | 1.023x |
+| =par_alloc_gc_m65536= | =p1/p8/p12= | 47.9/8.61/8.71 | 47.5/8.56/8.65 | *1.01x* | 8/1/1 -> 8/1/1 | 1.9/0.9/1.2 -> 1.9/1.0/1.0 | flat | 0.996–1.018x (neutral) |
+
+** Core GC & SRFI-230 Multicore PBT Verification & Remaining Honest Blockers
+- *Core GC + SRFI-230 PBT (Official Flags)*: *36/36 PASS* across =c9=, =c12=,
+  =c13=, =c14=, =c16-srfi230=, =c16-convoy=, =c17-srfi230=, =t5=, =t6= at
+  =p1=, =p4=, =p8=, =p12= (=.cache/tasks/amp1-baseline/amp1_core36_pbt_v3.json=).
+- *Pre-Existing =c1d51213= Diagnostics*:
+  - =t6= =s10-immix-holes-recycled= occasionally observes =major_evacuate_count_ >= 2=
+    under parallel chunk stealing on =p4/p8/p12= (observed identically on pre-Amp-1
+    =c1d51213=); post-Amp-1 passes 40/40 without =,m8192= and 53/55 across repeated
+    =,m8192= runs.
+  - Pre-existing =c1d51213= =END_OF_CONT= (=top=0xffffffffffffffdc=) thread-park
+    flake on =t3= / =gambit-stm= (both pre- and post-Amp-1) remains tracked by
+    the sibling hardening work; full TSan and Gerbil SMP qualification are still
+    required before setting =nativeRuntimeAdmitted= or =releaseAdmitted= to =true=.

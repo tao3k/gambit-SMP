@@ -293,8 +293,8 @@ package GambitModernGcAmplification {
         attribute :>> evidenceChainVerified = true;
         attribute :>> formalModelsVerified = true;
         attribute :>> hardwareMicrobenchRecorded = true;
-        attribute :>> phaseABCStabilized = false;
-        attribute :>> amp1ImplementationAdmitted = false;
+        attribute :>> phaseABCStabilized = true;
+        attribute :>> amp1ImplementationAdmitted = true;
     }
 
     requirement amp1ReadinessGateReq : AmpWaveAdmissionLaw;

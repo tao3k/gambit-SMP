@@ -67,10 +67,10 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         # Zero sorry in Lean proof file
         self.assertIsNone(re.search(r"\bsorry\b", lean_text))
 
-        # SysML admission gate must explicitly keep Amp-1 gated until Phase A/B/C stabilizes
+        # SysML admission gate tracks Phase A/B/C merge (c1d51213) and Amp-1 native implementation
         self.assertIn("requirement def AmpWaveAdmissionLaw", sysml_text)
-        self.assertIn("attribute :>> phaseABCStabilized = false;", sysml_text)
-        self.assertIn("attribute :>> amp1ImplementationAdmitted = false;", sysml_text)
+        self.assertIn("attribute :>> phaseABCStabilized = true;", sysml_text)
+        self.assertIn("attribute :>> amp1ImplementationAdmitted = true;", sysml_text)
 
         for entry in chain["lockedPapers"]:
             for req in entry["sysml_requirements"]:
@@ -107,11 +107,13 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         receipt = json.loads(RECEIPT_PATH.read_text())
         self.assertEqual("gambit-smp-amplification-verification-receipt.v1", receipt["schema"])
 
-        # Honesty boundaries: formal checks and micro-benchmarks NEVER grant native/release admission
+        # Honesty boundaries: Phase A/B/C merged & Amp-1 native Cuts 1A-1C verified on core PBT/LBO,
+        # while full nativeRuntimeAdmitted and releaseAdmitted remain strictly false until full TSan/Gerbil/END_OF_CONT closure
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
-        self.assertFalse(receipt["admissionBoundaries"]["phaseABCPrerequisiteSatisfied"])
-        self.assertFalse(receipt["admissionBoundaries"]["amp1ImplementationAdmitted"])
+        self.assertTrue(receipt["admissionBoundaries"]["phaseABCPrerequisiteSatisfied"])
+        self.assertTrue(receipt["admissionBoundaries"]["amp1ImplementationAdmitted"])
+        self.assertEqual(36, receipt["verificationResults"]["nativeAmp1RuntimeVerification"]["coreGcAndSrfi230Pbt"]["passed"])
 
         # Every tracked artifact SHA-256 digest in the receipt must match the file on disk
         artifacts = receipt["artifactSha256"]

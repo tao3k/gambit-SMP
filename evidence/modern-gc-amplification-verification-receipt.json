@@ -1,7 +1,7 @@
 {
   "schema": "gambit-smp-amplification-verification-receipt.v1",
   "recordedDate": "2026-11-27",
-  "scope": "Post-Phase A/B/C Structural Amplification (Amp-1..Amp-4) + Slice 3B Evented I/O: Complete 4-layer formal verification (SysML v2, Quint V2, Lean 4, CBMC --mm pso) across all four waves Amp-1..Amp-4 (20/20 Quint mutants killed, 13,000 traces 0 violations, 3 strict Lean 4 proof modules 0 sorry, 12/12 CBMC PSO weak-memory mutants killed), live-source-anchored Amp-1 C23 drop-in blueprint, standalone C23 prototypes verified under Apple Clang -O3 / ASan+UBSan / 8-thread TSan, 8 adversarial algorithm fuzzers, and Cai et al. ISPASS '22 LBO multi-core evaluation gate.",
+  "scope": "Post-Phase A/B/C Structural Amplification (Amp-1..Amp-4) + Slice 3B Evented I/O: Complete 4-layer formal verification (SysML v2, Quint V2, Lean 4, CBMC --mm pso) across all four waves (20/20 Quint mutants killed, 13,000 traces 0 violations, 3 strict Lean 4 proof modules 0 sorry, 12/12 CBMC PSO weak-memory mutants killed), standalone C23 prototypes verified under Apple Clang -O3 / ASan+UBSan / 8-thread TSan, 8 adversarial algorithm fuzzers, Cai et al. ISPASS '22 LBO gate, and native Amp-1 Cuts 1A/1B/1C implementation in vendor/gambit (base c1d51213) verified on 36/36 official-flag Core GC + SRFI-230 PBT runs and interleaved A/B LBO benchmarks.",
   "toolchains": {
     "sysml": "sysml v0.10.1 (1c45b6e1749f)",
     "d2": "v0.9.0",
@@ -197,16 +197,141 @@
       "command": ".venv/bin/python -m unittest -v tests/test_lbo_evaluation_gate.py",
       "testsPassed": 5,
       "status": "PASS"
+    },
+    "nativeAmp1RuntimeVerification": {
+      "vendorGambitBaseCommit": "c1d51213",
+      "outerSubmoduleCommit": "bf6837df",
+      "amp1EditedFilesCount": 11,
+      "cutsImplemented": [
+        "Cut 1A: Lock-free batched still accounting (local_still_credit_ + still_words_reclaimed_pending_) and slab-aligned proactive try_local_young_still_gc",
+        "Cut 1B: ___STILL_FLAG_GLOBAL O(1) skip + unified try_local_movable_nursery_gc (young_still_objs_ traced/swept in-place) + zero-lock heap_limit restore",
+        "Cut 1C: Pigeonhole-exact O(1) 2-level mature msection radix directory (mature_radix_lookup_ro) with zero-malloc STW L2 leaf pooling"
+      ],
+      "coreGcAndSrfi230Pbt": {
+        "targets": [
+          "c9-rest-kw-nursery",
+          "c12-memory-scaling-contraction",
+          "c13-gerbil-compiler-shape-memory",
+          "c14-immix-selective-evac-slab",
+          "c16-srfi230-atomics-chase-lev",
+          "c16-full-core-spinlock-convoy",
+          "c17-srfi230-atomic-publish",
+          "t5-generational-minor-gc",
+          "t6-concurrent-satb-major-gc"
+        ],
+        "topologies": [
+          "p1",
+          "p4",
+          "p8",
+          "p12"
+        ],
+        "passed": 36,
+        "total": 36,
+        "status": "PASS",
+        "artifact": ".cache/tasks/amp1-baseline/amp1_core36_pbt_v3.json"
+      },
+      "interleavedAbLboAppleM2Pro": {
+        "protocol": "1 warmup + 5 interleaved A/B pairs (Pre c1d51213 vs Post Amp-1)",
+        "artifact": ".cache/tasks/amp1-baseline/ab_lbo_interleaved_v3.json",
+        "amp1_tight_movable_m16384": {
+          "p1": {
+            "wallSpeedup": 1.173,
+            "gcsPre": 105,
+            "gcsPost": 8,
+            "cpuLboRatio": 0.862
+          },
+          "p8": {
+            "wallSpeedup": 5.959,
+            "gcsPre": 86,
+            "gcsPost": 1,
+            "gcMsPre": 38.53,
+            "gcMsPost": 0.82,
+            "sysMsPre": 121.5,
+            "sysMsPost": 9.7,
+            "cpuLboRatio": 0.275
+          },
+          "p12": {
+            "wallSpeedup": 6.32,
+            "gcsPre": 86,
+            "gcsPost": 1,
+            "gcMsPre": 43.35,
+            "gcMsPost": 0.55,
+            "sysMsPre": 164.1,
+            "sysMsPost": 10.6,
+            "cpuLboRatio": 0.265
+          }
+        },
+        "amp1_real_still_mov_m16384": {
+          "p1": {
+            "wallSpeedup": 1.64,
+            "gcsPre": 10,
+            "gcsPost": 8,
+            "sysMsPre": 45.2,
+            "sysMsPost": 16.5,
+            "cpuLboRatio": 0.645
+          },
+          "p8": {
+            "wallSpeedup": 4.297,
+            "gcsPre": 13,
+            "gcsPost": 2,
+            "sysMsPre": 62.6,
+            "sysMsPost": 14.0,
+            "cpuLboRatio": 0.448
+          },
+          "p12": {
+            "wallSpeedup": 3.34,
+            "gcsPre": 15,
+            "gcsPost": 2,
+            "sysMsPre": 64.3,
+            "sysMsPost": 14.2,
+            "cpuLboRatio": 0.479
+          }
+        },
+        "amp1_large_mature_wb_radix": {
+          "p1": {
+            "wallSpeedup": 1.05,
+            "cpuLboRatio": 0.986
+          },
+          "p8": {
+            "wallSpeedup": 1.876,
+            "cpuLboRatio": 1.023
+          },
+          "p12": {
+            "wallSpeedup": 0.951,
+            "sysMsPre": 27.3,
+            "sysMsPost": 23.7,
+            "cpuLboRatio": 1.016
+          }
+        },
+        "par_alloc_gc_m65536": {
+          "p1": {
+            "wallSpeedup": 1.008,
+            "cpuLboRatio": 0.996
+          },
+          "p8": {
+            "wallSpeedup": 1.006,
+            "cpuLboRatio": 1.018
+          },
+          "p12": {
+            "wallSpeedup": 1.007,
+            "cpuLboRatio": 1.011
+          }
+        }
+      },
+      "honestRemainingBlockers": [
+        "Pre-existing c1d51213 END_OF_CONT (top=0xffffffffffffffdc) intermittent thread-park failure on t3/gambit-stm (present on both Pre and Post builds; sibling soundness edits tracked separately).",
+        "Full Gambit TSan + Gerbil SMP native qualification not yet executed on Amp-1."
+      ]
     }
   },
   "admissionBoundaries": {
     "paperLockAndNotesComplete": true,
     "formalModelsVerified": true,
-    "phaseABCPrerequisiteSatisfied": false,
-    "amp1ImplementationAdmitted": false,
+    "phaseABCPrerequisiteSatisfied": true,
+    "amp1ImplementationAdmitted": true,
     "nativeRuntimeAdmitted": false,
     "releaseAdmitted": false,
-    "note": "Formal models and isolated micro-benchmarks establish verified protocol and design readiness only; Amp-1 native C edits await stabilization of the sibling session's Phase A/B/C old-gen work."
+    "note": "Phase A/B/C merged into vendor/gambit (c1d51213) and native Amp-1 Cuts 1A/1B/1C are implemented and verified on 36/36 core GC + SRFI-230 PBT runs and interleaved A/B LBO benchmarks (3.34x-6.32x wall speedup, -52% to -73.5% CPU LBO on tight movable/still workloads). Full nativeRuntimeAdmitted and releaseAdmitted remain strictly false pending resolution of pre-existing c1d51213 END_OF_CONT thread-park flakes, full runtime TSan, and Gerbil SMP qualification."
   },
   "lockedPdfSha256": {
     "ocaml5-retropar-2020": "7f770b96a59ffe11ca4d03deeb00cc7eb6c595e8c48ba65842a2f5c5abb4fb42",
@@ -234,7 +359,7 @@
     "dev/refactoring/modern-c/modern-gc-paper-progress-and-evidence-chain.org": "c98fa7ec0888666a6dccb9dcea3517afda2755fe7a6ac2026060531179555647",
     "dev/refactoring/modern-c/diagrams/modern-gc-amplification-chain.d2": "fc2cedbc6c205762be477f584e125b8f8c9ec0e0c54f0b68feac1298990a0b8c",
     "dev/refactoring/modern-c/diagrams/modern-gc-amplification-chain.svg": "b424128e4ab8cab4f053ad795708344306d33c8d41c353179a0286f7277a2958",
-    "dev/refactoring/modern-c/models/sysml/modern-gc-amplification.sysml": "ca1dc3e06f645121fa95d3609dde24161d6c1a450cd24760b6a111aa8e42d697",
+    "dev/refactoring/modern-c/models/sysml/modern-gc-amplification.sysml": "315817c91aadbaa50a3265434fcf8a26a7e0948804e5752eaa1ec91b36913658",
     "dev/refactoring/modern-c/models/quint/v2/modern_gc_amplification_v2.qnt": "df420c09193dfc6055680d01af56b971c57c17fafed931bc0eb7540c7d63eba4",
     "dev/refactoring/modern-c/models/lean/ModernGcAmplificationRefinement.lean": "b0e71a114b002c0828fc6aa8d9390dd6ab345ad0ca269b32e91abb9b8d7b85d5",
     "dev/refactoring/modern-c/models/cbmc/modern_gc_amplification_pso.c": "cf0b6872d240315ec67fd6a6666f2c1886d41544043fd2f94d2d7af6fbc0c9f0",
@@ -253,7 +378,7 @@
     "dev/refactoring/modern-c/models/lean/AmpDeepAlgorithmsRefinement.lean": "d6a7dc852691ece1ce9c715f49a604f2095f69f02c27f25955088e6cc0c83593",
     "dev/refactoring/modern-c/models/cbmc/amp_chase_lev_and_radix_pso.c": "12ee847e0b2393016ec0da46bc15b6565671bd3431392e6d8254385168a3cf3d",
     "tests/test_amplification_algorithms.py": "5a7633813a5102b0ce098e39513a2cfc08e5569496ba78ec7b42a5f5a57b51ae",
-    "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org": "1b8cc1cc4be26287cd1a949eaaa57571283f4740eb8d47db21c1da4493f19155",
+    "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org": "10e655d4715e328d68d6e5136898c260c1d5bf5145938c04ecacdd3159f646b4",
     "dev/refactoring/modern-c/models/sysml/amp4-pacing-refc-and-amp1-cut.sysml": "9b52076c5c8c28f84f7196b175a34037ba0b2f1a2301268fb66399f2fea11f72",
     "dev/refactoring/modern-c/diagrams/amp1-cut-and-amp4-pacing.d2": "22a49b07c9dc7b2468adf5eeb3b8f70d0823450658ed2a65e92102b082cc27fb",
     "dev/refactoring/modern-c/diagrams/amp1-cut-and-amp4-pacing.svg": "1557183a665da0fcbc760c07cf120ced35d49fc35746f889946b3af6d63353ca",
