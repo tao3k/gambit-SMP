@@ -21,6 +21,8 @@ static int edge[N_OBJS];   /* -1 = null, 0..N_OBJS-1 = target obj */
 static int root[2];        /* per-processor root */
 static int atomic_box;     /* SRFI-230 shared atomic box */
 static int acquired[2];    /* last acquired object */
+static bool major_req_start; /* vm->mem.major_request_start_ != 0 */
+static bool local_escaped[2]; /* per-processor local_young_escaped_ */
 
 static unsigned int nursery_of(unsigned int p) {
   return (p == 0u) ? LOC_N0 : LOC_N1;
@@ -81,9 +83,12 @@ int main(void) {
   atomic_box = -1;
   acquired[0] = -1;
   acquired[1] = -1;
+  major_req_start = false;
+  local_escaped[0] = false;
+  local_escaped[1] = false;
 
   for (unsigned int step = 0u; step < 6u; step++) {
-    unsigned int op = nondet_uint() % 5u;
+    unsigned int op = nondet_uint() % 7u;
     unsigned int p = nondet_uint() & 1u;
     unsigned int idx = nondet_uint() % N_OBJS;
 
@@ -99,6 +104,7 @@ int main(void) {
       if (root[p] >= 0) {
         promote_closure_from(p, root[p]);
         atomic_box = root[p];
+        local_escaped[p] = true;
       }
     } else if (op == 2u) {
       /* SRFI-230 atomic-box-ref acquire load */
@@ -107,17 +113,28 @@ int main(void) {
         root[p] = atomic_box;
       }
     } else if (op == 3u) {
-      /* Independent local minor GC on processor p (sibling untouched) */
-      unsigned int nloc = nursery_of(p);
-      if (root[p] >= 0) {
-        promote_closure_from(p, root[p]);
-      }
-      for (int i = 0; i < N_OBJS; i++) {
-        if (loc[i] == nloc) {
-          loc[i] = LOC_UNALLOC;
-          edge[i] = -1;
+      /* Independent local minor GC on processor p:
+       * MUST yield if major_req_start is active or local_escaped[p] is set! */
+      if (!major_req_start && !local_escaped[p]) {
+        unsigned int nloc = nursery_of(p);
+        if (root[p] >= 0) {
+          promote_closure_from(p, root[p]);
+        }
+        for (int i = 0; i < N_OBJS; i++) {
+          if (loc[i] == nloc) {
+            loc[i] = LOC_UNALLOC;
+            edge[i] = -1;
+          }
         }
       }
+    } else if (op == 4u) {
+      /* Request concurrent major cycle start */
+      major_req_start = true;
+    } else if (op == 5u) {
+      /* Global GC round unconditionally resets local_escaped[] and services major_req_start */
+      major_req_start = false;
+      local_escaped[0] = false;
+      local_escaped[1] = false;
     } else {
       /* Drop local root to generate nursery garbage */
       root[p] = -1;
