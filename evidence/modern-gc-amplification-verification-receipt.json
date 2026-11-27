@@ -1,7 +1,7 @@
 {
   "schema": "gambit-smp-amplification-verification-receipt.v1",
   "recordedDate": "2026-11-27",
-  "scope": "Post-Phase A/B/C Structural Amplification (Amp-1..Amp-4) + Slice 3B Evented I/O: Round-1 primary paper locks, reviewed notes, formal models & isolated M2 Pro micro-benchmarks, plus Round-2 deep adversarial hazard matrix (H1-H11), SysML v2 & D2 models, Quint V2 deep protocols (14 total mutants killed), Lean 4 unbounded arbitrary-N-heap proofs, CBMC --mm pso 3-thread Chase-Lev & radix/SATB harnesses (8 total weak-memory mutants killed), and 8 executable algorithm fuzzers.",
+  "scope": "Post-Phase A/B/C Structural Amplification (Amp-1..Amp-4) + Slice 3B Evented I/O: Complete 4-layer formal verification (SysML v2, Quint V2, Lean 4, CBMC --mm pso) across all four waves Amp-1..Amp-4 (20/20 Quint mutants killed, 13,000 traces 0 violations, 3 strict Lean 4 proof modules 0 sorry, 12/12 CBMC PSO weak-memory mutants killed), live-source-anchored Amp-1 C23 drop-in blueprint, standalone C23 prototypes verified under Apple Clang -O3 / ASan+UBSan / 8-thread TSan, 8 adversarial algorithm fuzzers, and Cai et al. ISPASS '22 LBO multi-core evaluation gate.",
   "toolchains": {
     "sysml": "sysml v0.10.1 (1c45b6e1749f)",
     "d2": "v0.9.0",
@@ -9,7 +9,8 @@
     "lean": "Lean 4.36.0 (arm64-apple-darwin24.6.0)",
     "cbmc": "6.11.0 (arm64 macos)",
     "clang": "clang 21.1.8",
-    "python": "Python 3.14.7"
+    "python": "Python 3.14.7",
+    "appleClang": "Apple clang version 21.0.0 (arm64-apple-darwin25.6.0, native ASan/UBSan/TSan)"
   },
   "literatureCoverage": {
     "legacyLockedPdfs": 7,
@@ -29,7 +30,8 @@
       "status": "PASS",
       "packages": [
         "GambitModernGcAmplification",
-        "GambitAmpAlgorithmsAndAdversarial"
+        "GambitAmpAlgorithmsAndAdversarial",
+        "GambitAmp4PacingRefcAndAmp1Cut"
       ]
     },
     "d2DiagramRender": {
@@ -37,7 +39,8 @@
       "status": "PASS",
       "diagrams": [
         "modern-gc-amplification-chain.d2 -> .svg",
-        "amp-deep-protocols-and-adversarial.d2 -> .svg"
+        "amp-deep-protocols-and-adversarial.d2 -> .svg",
+        "amp1-cut-and-amp4-pacing.d2 -> .svg"
       ]
     },
     "quintTests": {
@@ -139,6 +142,61 @@
       "testsPassed": 8,
       "negativeControlsVerified": true,
       "status": "PASS"
+    },
+    "quintAmp4PacingAndRefc": {
+      "command": "quint test dev/refactoring/modern-c/models/quint/v2/amp4_pacing_refc_and_lbo_v2.qnt",
+      "passed": 7,
+      "mutantsKilled": 6,
+      "invariantRun": {
+        "command": "quint run --invariant=safe --max-samples=5000 --max-steps=35 dev/refactoring/modern-c/models/quint/v2/amp4_pacing_refc_and_lbo_v2.qnt",
+        "samples": 5000,
+        "maxSteps": 35,
+        "violations": 0
+      },
+      "totalAllWavesTestsPassed": 23,
+      "totalAllWavesMutantsKilled": 20,
+      "totalAllWavesTracesChecked": 13000,
+      "status": "PASS"
+    },
+    "leanAmp4PacingAndRefcProofs": {
+      "command": "lean -DwarningAsError=true dev/refactoring/modern-c/models/lean/Amp4PacingAndRefcRefinement.lean",
+      "errors": 0,
+      "warnings": 0,
+      "sorryCount": 0,
+      "highlights": [
+        "refc_positive_blocks_free & refc_zero_implies_unique_last_drop & immutable_tag_required_for_offheap_share",
+        "pacing_step_preserves_invariant & pacing_rate_guarantees_mark_completion_before_limit",
+        "phantom_bytes_included_prevents_hidden_rss_overflow & ignoring_phantom_bytes_permits_arbitrary_rss_overflow",
+        "lbo_pareto_dominance_transitive & lbo_pareto_dominance_asymmetric"
+      ],
+      "status": "PASS"
+    },
+    "cbmcAmp4PsoSafe": {
+      "command": "cbmc --mm pso --bounds-check --signed-overflow-check --unwind 4 dev/refactoring/modern-c/models/cbmc/amp4_refc_and_pacing_pso.c",
+      "checksPassed": 7,
+      "checksFailed": 0,
+      "status": "PASS"
+    },
+    "cbmcAmp4PsoMutants": {
+      "MUTANT_REFC_DROP_WITHOUT_RELEASE": "KILLED",
+      "MUTANT_REFC_FREE_WITHOUT_ACQUIRE": "KILLED",
+      "MUTANT_REFC_MUTATE_SHARED_BINARY": "KILLED",
+      "MUTANT_PACING_NONATOMIC_WORK_PUBLISH": "KILLED",
+      "totalAllWavesMutantsKilled": 12
+    },
+    "c23PrototypesMultiSanitizer": {
+      "command": ".venv/bin/python -m unittest -v tests/test_c23_amp_prototypes.py",
+      "modes": [
+        "-std=c23 -O3 -Werror",
+        "-fsanitize=address,undefined -fno-sanitize-recover=all",
+        "-fsanitize=thread (8 threads)"
+      ],
+      "status": "PASS"
+    },
+    "lboMulticoreEvaluationGate": {
+      "command": ".venv/bin/python -m unittest -v tests/test_lbo_evaluation_gate.py",
+      "testsPassed": 5,
+      "status": "PASS"
     }
   },
   "admissionBoundaries": {
@@ -194,6 +252,17 @@
     "dev/refactoring/modern-c/models/quint/v2/amp_deep_protocols_v2.qnt": "1b54675d49d09b534091d8f2bc1ad27ba3332f262b478770fca439a2d68e1472",
     "dev/refactoring/modern-c/models/lean/AmpDeepAlgorithmsRefinement.lean": "d6a7dc852691ece1ce9c715f49a604f2095f69f02c27f25955088e6cc0c83593",
     "dev/refactoring/modern-c/models/cbmc/amp_chase_lev_and_radix_pso.c": "12ee847e0b2393016ec0da46bc15b6565671bd3431392e6d8254385168a3cf3d",
-    "tests/test_amplification_algorithms.py": "5a7633813a5102b0ce098e39513a2cfc08e5569496ba78ec7b42a5f5a57b51ae"
+    "tests/test_amplification_algorithms.py": "5a7633813a5102b0ce098e39513a2cfc08e5569496ba78ec7b42a5f5a57b51ae",
+    "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org": "1b8cc1cc4be26287cd1a949eaaa57571283f4740eb8d47db21c1da4493f19155",
+    "dev/refactoring/modern-c/models/sysml/amp4-pacing-refc-and-amp1-cut.sysml": "9b52076c5c8c28f84f7196b175a34037ba0b2f1a2301268fb66399f2fea11f72",
+    "dev/refactoring/modern-c/diagrams/amp1-cut-and-amp4-pacing.d2": "22a49b07c9dc7b2468adf5eeb3b8f70d0823450658ed2a65e92102b082cc27fb",
+    "dev/refactoring/modern-c/diagrams/amp1-cut-and-amp4-pacing.svg": "1557183a665da0fcbc760c07cf120ced35d49fc35746f889946b3af6d63353ca",
+    "dev/refactoring/modern-c/models/quint/v2/amp4_pacing_refc_and_lbo_v2.qnt": "3eaf85be44af61d8dfacd5f4fb5b48ba93b051933835bd794649706d84217637",
+    "dev/refactoring/modern-c/models/lean/Amp4PacingAndRefcRefinement.lean": "b23244187c953b1557032c088afd9a516c0d006afb1255cca03f1752f9d97289",
+    "dev/refactoring/modern-c/models/cbmc/amp4_refc_and_pacing_pso.c": "ade8cd8ff7ae8a323fd14f3e978372f7f7a13721711ed6b5dd9611253d065161",
+    "tests/c23_amp_prototypes/amp_primitives.h": "a42ed037354941f1c78e588b746cac308fa6945fd727163daccbc5959b106a42",
+    "tests/c23_amp_prototypes/test_amp_primitives.c": "95458d963746633702a7eb95129c43a2684f32b43f8361e3df3d70f370a130c7",
+    "tests/test_c23_amp_prototypes.py": "ee854694d47afa95deb0da51728723079f57ef515c5e4cce88690ab292693bef",
+    "tests/test_lbo_evaluation_gate.py": "7ebce16af5c0b272119e24cab86d1652e1e127f3b131897b9fcd2d99aaa51700"
   }
 }

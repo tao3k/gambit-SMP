@@ -16,13 +16,18 @@ MANIFEST_PATH = ROOT / "evidence/papers-modern-gc-architecture.json"
 LOCK_PATH = ROOT / "evidence/papers-modern-gc-architecture.lock.json"
 SYSML_PATH = ROOT / "dev/refactoring/modern-c/models/sysml/modern-gc-amplification.sysml"
 SYSML_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/sysml/amp-algorithms-and-adversarial-contracts.sysml"
+SYSML_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/sysml/amp4-pacing-refc-and-amp1-cut.sysml"
 QUINT_PATH = ROOT / "dev/refactoring/modern-c/models/quint/v2/modern_gc_amplification_v2.qnt"
 QUINT_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/quint/v2/amp_deep_protocols_v2.qnt"
+QUINT_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/quint/v2/amp4_pacing_refc_and_lbo_v2.qnt"
 LEAN_PATH = ROOT / "dev/refactoring/modern-c/models/lean/ModernGcAmplificationRefinement.lean"
 LEAN_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/lean/AmpDeepAlgorithmsRefinement.lean"
+LEAN_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/lean/Amp4PacingAndRefcRefinement.lean"
 CBMC_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/modern_gc_amplification_pso.c"
 CBMC_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp_chase_lev_and_radix_pso.c"
+CBMC_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp4_refc_and_pacing_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
+BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
 
 
@@ -216,6 +221,62 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         ):
             self.assertRegex(algo_tests, rf"\bdef\s+{re.escape(fn)}\b")
             self.assertIn(fn, matrix_org)
+
+    def test_round3_amp1_cut_amp4_formal_and_c23_symbols_exist(self):
+        sysml_amp4 = SYSML_AMP4_PATH.read_text()
+        quint_amp4 = QUINT_AMP4_PATH.read_text()
+        lean_amp4 = LEAN_AMP4_PATH.read_text()
+        cbmc_amp4 = CBMC_AMP4_PATH.read_text()
+        blueprint = BLUEPRINT_ORG_PATH.read_text()
+
+        # Zero sorry in Amp-4 Lean 4 proof module
+        self.assertIsNone(re.search(r"\bsorry\b", lean_amp4))
+
+        # Round-3 SysML v2 package & all 4 requirement defs
+        self.assertIn("package GambitAmp4PacingRefcAndAmp1Cut", sysml_amp4)
+        for req in (
+            "Amp1DropInC23CutLaw",
+            "OffHeapImmutableRefcBinaryLaw",
+            "GlobalMajorPacingAndPhantomBytesLaw",
+            "LboMulticoreAdmissionGateLaw",
+        ):
+            self.assertRegex(sysml_amp4, rf"\brequirement\s+def\s+{re.escape(req)}\b")
+
+        # Round-3 Quint V2 Amp-4 runs (1 happy path + 6 mutation-killers)
+        for qrun in (
+            "happyPathAmp4PacingAndRefcTest",
+            "mutant1RefcFreeWhileReaderAliveTest",
+            "mutant2MutableBinarySharedOffHeapTest",
+            "mutant3RefcDropWithoutReleaseFenceTest",
+            "mutant4AllocExceedsLimitWithoutWorkSliceTest",
+            "mutant5PhantomBytesIgnoredOomTest",
+            "mutant6PacingCounterNonAtomicDriftTest",
+        ):
+            self.assertRegex(quint_amp4, rf"\brun\s+{re.escape(qrun)}\b")
+
+        # Round-3 Lean 4 Amp-4 theorems
+        for thm in (
+            "refc_positive_blocks_free",
+            "refc_zero_implies_unique_last_drop",
+            "immutable_tag_required_for_offheap_share",
+            "pacing_step_preserves_invariant",
+            "pacing_rate_guarantees_mark_completion_before_limit",
+            "phantom_bytes_included_prevents_hidden_rss_overflow",
+            "ignoring_phantom_bytes_permits_arbitrary_rss_overflow",
+            "lbo_pareto_dominance_transitive",
+            "lbo_pareto_dominance_asymmetric",
+        ):
+            self.assertRegex(lean_amp4, rf"\btheorem\s+{re.escape(thm)}\b")
+
+        # Round-3 CBMC PSO 4 weak-memory mutants
+        for macro in (
+            "MUTANT_REFC_DROP_WITHOUT_RELEASE",
+            "MUTANT_REFC_FREE_WITHOUT_ACQUIRE",
+            "MUTANT_REFC_MUTATE_SHARED_BINARY",
+            "MUTANT_PACING_NONATOMIC_WORK_PUBLISH",
+        ):
+            self.assertIn(macro, cbmc_amp4)
+            self.assertIn(macro, blueprint)
 
 
 if __name__ == "__main__":

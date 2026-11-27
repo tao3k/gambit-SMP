@@ -1,0 +1,30 @@
+direction: right
+
+amp1_cut: "Amp-1 Live-Source C23 Cut (Gated on Phase A/B/C)" {
+  cut1a: "Cut 1A: local-nursery.inc:372\nDrop ALLOC_MEM_LOCK()\nBatched Atomic still_words_delta"
+  cut1b: "Cut 1B: local-nursery.inc:398-735\nSTILL_BLOCK_GLOBAL + Unified Pass\nDirect Owner-Immix Promo + Budget K"
+  cut1c: "Cut 1C: mem.c:50-85\nContiguous mmap Nursery (Is_young O(1))\n2-Level Radix L1->L2 Msection Dir"
+  cut1d: "Cut 1D: lxr-drc.inc:186-228\nlxr_drc_mark_promoted_span()\nSATB Idle + region_generation++"
+}
+
+amp4_formal: "Amp-4 4-Layer Formal Closure (H12-H14)" {
+  refc: "H12: Off-Heap Immutable RefC Binary\nIMMUTABLE_TAG + acq_rel Drop Fence\n3 CBMC PSO Mutants Killed"
+  pacing: "H13: Global alloc/work Counter Pacing\n+ Racket Phantom External Bytes\nZero Emergency STW / Zero OOM"
+  lbo: "H14: LBO Multi-Core Gate (ISPASS '22)\nWall + Total CPU Cycles + p99.9 + RSS\nRejects Hidden Cycle Bloat"
+}
+
+c23_proto: "Standalone C23 Verified Prototypes\ntests/c23_amp_prototypes/" {
+  o3: "clang -std=c23 -O3 -Werror\nThroughput & Exact Checksums"
+  asan: "clang -fsanitize=address,undefined\nZero UB / Zero OOB / Zero Leak"
+  tsan: "clang -fsanitize=thread (8 Threads)\nZero Data Races Across All Locks/Atomics"
+}
+
+receipt: "Cryptographic Evidence Chain\nmodern-gc-amplification-verification-receipt.json\nPhase A/B/C Gate Preserved"
+
+amp1_cut.cut1a -> c23_proto.tsan: "19.83x batched atomic flush"
+amp1_cut.cut1b -> amp1_cut.cut1d: "Promoted spans -> LXR RC_ONE"
+amp1_cut.cut1c -> c23_proto.asan: "O(1) mmap arena + radix L1->L2"
+amp4_formal.refc -> c23_proto.tsan: "Arc/ProcBin acq_rel barrier"
+amp4_formal.pacing -> c23_proto.o3: "MemBalancer + work pacing"
+amp4_formal.lbo -> receipt: "Day-1 native A/B gate"
+c23_proto -> receipt: "SHA-256 pinned receipt"
