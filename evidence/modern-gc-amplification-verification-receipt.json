@@ -1,6 +1,6 @@
 {
   "schema": "gambit-smp-amplification-verification-receipt.v1",
-  "recordedDate": "2026-11-27",
+  "recordedDate": "2026-11-28",
   "scope": "Post-Phase A/B/C Structural Amplification (Amp-1..Amp-4) + Slice 3B Evented I/O: Complete 4-layer formal verification (SysML v2, Quint V2, Lean 4, CBMC --mm pso) across all four waves (20/20 Quint mutants killed, 13,000 traces 0 violations, 3 strict Lean 4 proof modules 0 sorry, 12/12 CBMC PSO weak-memory mutants killed), standalone C23 prototypes verified under Apple Clang -O3 / ASan+UBSan / 8-thread TSan, 8 adversarial algorithm fuzzers, Cai et al. ISPASS '22 LBO gate, and native Amp-1 Cuts 1A/1B/1C implementation in vendor/gambit (base c1d51213) verified on 36/36 official-flag Core GC + SRFI-230 PBT runs and interleaved A/B LBO benchmarks.",
   "toolchains": {
     "sysml": "sysml v0.10.1 (1c45b6e1749f)",
@@ -925,6 +925,718 @@
           }
         }
       }
+    },
+    "nativeRuntimeHardeningAndSanitizerQualification": {
+      "vendorGambitBaseCommit": "7cfcae0e",
+      "wave5EditedFiles": [
+        "include/_gambit/gvm_operations.h.in",
+        "include/_gambit/stack_operations.h.in",
+        "lib/_c_intf/sfun-entry.inc",
+        "lib/_kernel.scm",
+        "lib/_kernel.c",
+        "lib/_mem/local-nursery.inc",
+        "lib/_mem/rc-allocation.inc",
+        "lib/_mem/concurrent-major.inc",
+        "lib/gambit/parallel/parallel.scm",
+        "lib/setup.c"
+      ],
+      "defectsEliminated": [
+        "local-nursery.inc: relaxed atomic STILL_DIRTY loads + relaxed processor_scmobj loads + removal of cross-core Pass-2 write race with _thread.c (12 -> 0 TSan warnings on t5)",
+        "gvm_operations.h.in: ___VECTORREF / ___VALUESREF upgraded to ___WORD_LOAD_RELAXED pairing with ___VECTORSET / ___VALUESSET (16 -> 0 TSan warnings on t6)",
+        "stack_operations.h.in & sfun-entry.inc: signed ___SSIZE_T cast for stack offsets eliminating C23 UBSan unsigned pointer-offset underflow on t3",
+        "rc-allocation.inc & _kernel.scm/_kernel.c: relaxed atomic rest-argument telemetry counters (2 -> 0 TSan warnings on c9)",
+        "lib/gambit/parallel/parallel.scm: Chase-Lev deque-push-bottom! direct release atomic-fxbox-set! replacing standalone release fence + relaxed store (4 -> 0 TSan warnings on c16)",
+        "lib/setup.c & lib/_mem/concurrent-major.inc: atomic CAS ___get/set_debug_settings (33 -> 0 TSan warnings on t3) + >75% headroom full catch-up slice pacing (10/10 amp4-adversarial incl. 5x p12)"
+      ],
+      "nativeClangTsan": {
+        "compiler": "Apple clang version 21.0.0 (-std=c23 -fsanitize=thread -fno-omit-frame-pointer -g)",
+        "artifact": ".cache/tasks/wave5-hardening/runtime_tsan_results.json",
+        "passed": 10,
+        "total": 10,
+        "totalWarnings": 0,
+        "status": "PASS",
+        "suites": [
+          {
+            "test": "amp4-adversarial",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 7.61
+          },
+          {
+            "test": "t5-generational-minor-gc",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 11.15
+          },
+          {
+            "test": "t6-concurrent-satb-major-gc",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 3.07
+          },
+          {
+            "test": "c14-immix-selective-evac-slab",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 5.39
+          },
+          {
+            "test": "c9-rest-kw-nursery",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 4.98
+          },
+          {
+            "test": "c12-memory-scaling-contraction",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 2.36
+          },
+          {
+            "test": "c13-gerbil-compiler-shape-memory",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 13.01
+          },
+          {
+            "test": "c16-srfi230-atomics-chase-lev",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 57.4
+          },
+          {
+            "test": "c17-srfi230-atomic-publish",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 10.64
+          },
+          {
+            "test": "t3-blocking-ffi-park",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "tsan_warnings": 0,
+            "sec": 30.54
+          }
+        ]
+      },
+      "nativeClangAsanUbsan": {
+        "compiler": "Apple clang version 21.0.0 (-std=c23 -fsanitize=address,undefined -fno-omit-frame-pointer -g)",
+        "artifact": ".cache/tasks/wave5-hardening/runtime_asan_ubsan_results.json",
+        "passed": 10,
+        "total": 10,
+        "totalAsanErrors": 0,
+        "totalUbsanErrors": 0,
+        "status": "PASS",
+        "suites": [
+          {
+            "test": "amp4-adversarial",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 1.13
+          },
+          {
+            "test": "t5-generational-minor-gc",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 2.27
+          },
+          {
+            "test": "t6-concurrent-satb-major-gc",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 1.65
+          },
+          {
+            "test": "c14-immix-selective-evac-slab",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 2.87
+          },
+          {
+            "test": "c9-rest-kw-nursery",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 2.77
+          },
+          {
+            "test": "c12-memory-scaling-contraction",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 0.96
+          },
+          {
+            "test": "c13-gerbil-compiler-shape-memory",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 2.34
+          },
+          {
+            "test": "c16-srfi230-atomics-chase-lev",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 8.55
+          },
+          {
+            "test": "c17-srfi230-atomic-publish",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 6.97
+          },
+          {
+            "test": "t3-blocking-ffi-park",
+            "procs": "p4",
+            "passed_marker": true,
+            "rc": 0,
+            "asan_errors": 0,
+            "ubsan_errors": 0,
+            "sec": 15.38
+          }
+        ]
+      },
+      "unifiedMulticoreMatrix": {
+        "officialRunMulticoreSuite": {
+          "artifact": ".cache/tasks/wave5-hardening/unified_post_wave5_96_pbt.json",
+          "targets": 25,
+          "topologies": [
+            "p1",
+            "p4",
+            "p8",
+            "p12"
+          ],
+          "passed": 100,
+          "total": 100
+        },
+        "gcHammer": {
+          "topologies": [
+            "p1",
+            "p4",
+            "p8",
+            "p12"
+          ],
+          "passed": 4,
+          "total": 4
+        },
+        "totalPassed": 104,
+        "totalCases": 104,
+        "multicoreFilesCovered": 26,
+        "amp4AdversarialPostWave5": {
+          "passed": 10,
+          "total": 10,
+          "includesP12Repeats": 5
+        },
+        "c14P8Stress": {
+          "passed": 20,
+          "total": 20
+        },
+        "t3P8Stress": {
+          "passed": 15,
+          "total": 15
+        },
+        "endOfContTargetedStress": {
+          "t3P8": "35/35",
+          "gambitStmP8": "35/35",
+          "c5MultishotCcP8": "25/25",
+          "failures": 0
+        },
+        "stdlibModules": {
+          "srfi/226": "3/3 (p1,p4,p8)",
+          "gambit/effect": "3/3 (p1,p4,p8)",
+          "srfi/230": "3/3 (p1,p4,p8)",
+          "gambit/parallel": "3/3 (p1,p4,p8)"
+        },
+        "status": "PASS"
+      },
+      "cumulativePreC1d51213VsUnifiedAmp1To4Wave5Lbo": {
+        "protocol": "1 warmup + 5 interleaved A/B pairs (Pre c1d51213 vs Unified Amp-1..4 + Wave 5) on Apple M2 Pro with /usr/bin/time -l peak RSS",
+        "artifact": ".cache/tasks/wave5-hardening/ab_cumulative_c1d51213_vs_amp1to4.json",
+        "results": {
+          "cum_amp1_still_storm": {
+            "p1": {
+              "pre_work_ms": 27.692,
+              "post_work_ms": 27.545,
+              "wall_speedup": 1.005,
+              "pre_gc_ms": 0.224,
+              "post_gc_ms": 0.197,
+              "gc_speedup": 1.137,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 27.604,
+              "post_cpu_ms": 27.347,
+              "cpu_lbo_ratio": 0.991,
+              "pre_peak_rss_mb": 9.391,
+              "post_peak_rss_mb": 11.656,
+              "rss_ratio": 1.241
+            },
+            "p4": {
+              "pre_work_ms": 7.9,
+              "post_work_ms": 8.044,
+              "wall_speedup": 0.982,
+              "pre_gc_ms": 0.575,
+              "post_gc_ms": 0.472,
+              "gc_speedup": 1.218,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 28.65,
+              "post_cpu_ms": 28.835,
+              "cpu_lbo_ratio": 1.006,
+              "pre_peak_rss_mb": 11.422,
+              "post_peak_rss_mb": 14.141,
+              "rss_ratio": 1.238
+            },
+            "p8": {
+              "pre_work_ms": 7.067,
+              "post_work_ms": 6.143,
+              "wall_speedup": 1.15,
+              "pre_gc_ms": 1.25,
+              "post_gc_ms": 1.103,
+              "gc_speedup": 1.133,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 32.914,
+              "post_cpu_ms": 35.786,
+              "cpu_lbo_ratio": 1.087,
+              "pre_peak_rss_mb": 18.281,
+              "post_peak_rss_mb": 22.031,
+              "rss_ratio": 1.205
+            },
+            "p12": {
+              "pre_work_ms": 8.564,
+              "post_work_ms": 7.269,
+              "wall_speedup": 1.178,
+              "pre_gc_ms": 2.069,
+              "post_gc_ms": 1.752,
+              "gc_speedup": 1.181,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 44.809,
+              "post_cpu_ms": 41.051,
+              "cpu_lbo_ratio": 0.916,
+              "pre_peak_rss_mb": 25.297,
+              "post_peak_rss_mb": 26.016,
+              "rss_ratio": 1.028
+            }
+          },
+          "cum_amp1_tight_movable": {
+            "p1": {
+              "pre_work_ms": 27.346,
+              "post_work_ms": 28.212,
+              "wall_speedup": 0.969,
+              "pre_gc_ms": 0.278,
+              "post_gc_ms": 0.297,
+              "gc_speedup": 0.936,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 27.268,
+              "post_cpu_ms": 28.141,
+              "cpu_lbo_ratio": 1.032,
+              "pre_peak_rss_mb": 15.859,
+              "post_peak_rss_mb": 18.047,
+              "rss_ratio": 1.138
+            },
+            "p4": {
+              "pre_work_ms": 8.427,
+              "post_work_ms": 10.093,
+              "wall_speedup": 0.835,
+              "pre_gc_ms": 0.81,
+              "post_gc_ms": 0.782,
+              "gc_speedup": 1.036,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 29.879,
+              "post_cpu_ms": 30.197,
+              "cpu_lbo_ratio": 1.011,
+              "pre_peak_rss_mb": 15.156,
+              "post_peak_rss_mb": 17.797,
+              "rss_ratio": 1.174
+            },
+            "p8": {
+              "pre_work_ms": 5.729,
+              "post_work_ms": 5.794,
+              "wall_speedup": 0.989,
+              "pre_gc_ms": 0.747,
+              "post_gc_ms": 0.784,
+              "gc_speedup": 0.953,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 34.38,
+              "post_cpu_ms": 34.431,
+              "cpu_lbo_ratio": 1.001,
+              "pre_peak_rss_mb": 15.938,
+              "post_peak_rss_mb": 18.531,
+              "rss_ratio": 1.163
+            },
+            "p12": {
+              "pre_work_ms": 7.932,
+              "post_work_ms": 8.413,
+              "wall_speedup": 0.943,
+              "pre_gc_ms": 1.513,
+              "post_gc_ms": 1.693,
+              "gc_speedup": 0.894,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 43.813,
+              "post_cpu_ms": 41.443,
+              "cpu_lbo_ratio": 0.946,
+              "pre_peak_rss_mb": 23.766,
+              "post_peak_rss_mb": 26.281,
+              "rss_ratio": 1.106
+            }
+          },
+          "cum_amp3_immix_swiss_256w": {
+            "p1": {
+              "pre_work_ms": 6.343,
+              "post_work_ms": 5.116,
+              "wall_speedup": 1.24,
+              "pre_gc_ms": 3.178,
+              "post_gc_ms": 2.059,
+              "gc_speedup": 1.543,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 6.312,
+              "post_cpu_ms": 5.087,
+              "cpu_lbo_ratio": 0.806,
+              "pre_peak_rss_mb": 56.188,
+              "post_peak_rss_mb": 59.469,
+              "rss_ratio": 1.058
+            },
+            "p4": {
+              "pre_work_ms": 5.092,
+              "post_work_ms": 5.569,
+              "wall_speedup": 0.914,
+              "pre_gc_ms": 2.435,
+              "post_gc_ms": 2.753,
+              "gc_speedup": 0.884,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 7.612,
+              "post_cpu_ms": 6.751,
+              "cpu_lbo_ratio": 0.887,
+              "pre_peak_rss_mb": 52.219,
+              "post_peak_rss_mb": 67.328,
+              "rss_ratio": 1.289
+            },
+            "p8": {
+              "pre_work_ms": 5.647,
+              "post_work_ms": 5.454,
+              "wall_speedup": 1.035,
+              "pre_gc_ms": 2.221,
+              "post_gc_ms": 2.377,
+              "gc_speedup": 0.934,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 9.296,
+              "post_cpu_ms": 7.669,
+              "cpu_lbo_ratio": 0.825,
+              "pre_peak_rss_mb": 54.656,
+              "post_peak_rss_mb": 67.266,
+              "rss_ratio": 1.231
+            },
+            "p12": {
+              "pre_work_ms": 5.44,
+              "post_work_ms": 6.035,
+              "wall_speedup": 0.901,
+              "pre_gc_ms": 2.401,
+              "post_gc_ms": 3.084,
+              "gc_speedup": 0.779,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 8.234,
+              "post_cpu_ms": 8.689,
+              "cpu_lbo_ratio": 1.055,
+              "pre_peak_rss_mb": 54.969,
+              "post_peak_rss_mb": 52.828,
+              "rss_ratio": 0.961
+            }
+          },
+          "cum_amp4_pacing_burst_major": {
+            "p1": {
+              "pre_work_ms": 298.649,
+              "post_work_ms": 305.643,
+              "wall_speedup": 0.977,
+              "pre_gc_ms": 174.368,
+              "post_gc_ms": 177.708,
+              "gc_speedup": 0.981,
+              "pre_rem_ms": 16.724,
+              "post_rem_ms": 14.174,
+              "pre_cpu_ms": 294.854,
+              "post_cpu_ms": 303.383,
+              "cpu_lbo_ratio": 1.029,
+              "pre_peak_rss_mb": 186.672,
+              "post_peak_rss_mb": 216.844,
+              "rss_ratio": 1.162
+            },
+            "p4": {
+              "pre_work_ms": 213.923,
+              "post_work_ms": 170.247,
+              "wall_speedup": 1.257,
+              "pre_gc_ms": 139.593,
+              "post_gc_ms": 119.196,
+              "gc_speedup": 1.171,
+              "pre_rem_ms": 6.928,
+              "post_rem_ms": 3.855,
+              "pre_cpu_ms": 405.671,
+              "post_cpu_ms": 389.693,
+              "cpu_lbo_ratio": 0.961,
+              "pre_peak_rss_mb": 185.828,
+              "post_peak_rss_mb": 219.328,
+              "rss_ratio": 1.18
+            },
+            "p8": {
+              "pre_work_ms": 160.119,
+              "post_work_ms": 135.603,
+              "wall_speedup": 1.181,
+              "pre_gc_ms": 116.29,
+              "post_gc_ms": 86.206,
+              "gc_speedup": 1.349,
+              "pre_rem_ms": 8.554,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 584.529,
+              "post_cpu_ms": 479.491,
+              "cpu_lbo_ratio": 0.82,
+              "pre_peak_rss_mb": 188.906,
+              "post_peak_rss_mb": 220.594,
+              "rss_ratio": 1.168
+            },
+            "p12": {
+              "pre_work_ms": 224.927,
+              "post_work_ms": 169.261,
+              "wall_speedup": 1.329,
+              "pre_gc_ms": 145.736,
+              "post_gc_ms": 97.717,
+              "gc_speedup": 1.491,
+              "pre_rem_ms": 8.006,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 614.527,
+              "post_cpu_ms": 513.949,
+              "cpu_lbo_ratio": 0.836,
+              "pre_peak_rss_mb": 185.656,
+              "post_peak_rss_mb": 196.969,
+              "rss_ratio": 1.061
+            }
+          },
+          "cum_amp4_phantom_rss_bound": {
+            "p1": {
+              "pre_work_ms": 17.986,
+              "post_work_ms": 5.839,
+              "wall_speedup": 3.08,
+              "pre_gc_ms": 0.0,
+              "post_gc_ms": 1.205,
+              "gc_speedup": 0.0,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 17.087,
+              "post_cpu_ms": 5.834,
+              "cpu_lbo_ratio": 0.341,
+              "pre_peak_rss_mb": 248.969,
+              "post_peak_rss_mb": 32.328,
+              "rss_ratio": 0.13
+            },
+            "p4": {
+              "pre_work_ms": 19.48,
+              "post_work_ms": 5.865,
+              "wall_speedup": 3.321,
+              "pre_gc_ms": 0.0,
+              "post_gc_ms": 1.312,
+              "gc_speedup": 0.0,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 17.969,
+              "post_cpu_ms": 5.867,
+              "cpu_lbo_ratio": 0.327,
+              "pre_peak_rss_mb": 249.578,
+              "post_peak_rss_mb": 33.125,
+              "rss_ratio": 0.133
+            },
+            "p8": {
+              "pre_work_ms": 19.268,
+              "post_work_ms": 7.807,
+              "wall_speedup": 2.468,
+              "pre_gc_ms": 0.0,
+              "post_gc_ms": 2.43,
+              "gc_speedup": 0.0,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 17.881,
+              "post_cpu_ms": 6.766,
+              "cpu_lbo_ratio": 0.378,
+              "pre_peak_rss_mb": 250.328,
+              "post_peak_rss_mb": 34.094,
+              "rss_ratio": 0.136
+            }
+          },
+          "cum_amp4_refc_immutable_share": {
+            "p1": {
+              "pre_work_ms": 12.136,
+              "post_work_ms": 0.421,
+              "wall_speedup": 28.827,
+              "pre_gc_ms": 0.223,
+              "post_gc_ms": 0.0,
+              "gc_speedup": 0.0,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 12.108,
+              "post_cpu_ms": 0.421,
+              "cpu_lbo_ratio": 0.035,
+              "pre_peak_rss_mb": 25.969,
+              "post_peak_rss_mb": 18.562,
+              "rss_ratio": 0.715
+            },
+            "p4": {
+              "pre_work_ms": 37.395,
+              "post_work_ms": 0.588,
+              "wall_speedup": 63.597,
+              "pre_gc_ms": 13.013,
+              "post_gc_ms": 0.0,
+              "gc_speedup": 0.0,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 106.003,
+              "post_cpu_ms": 1.977,
+              "cpu_lbo_ratio": 0.019,
+              "pre_peak_rss_mb": 24.812,
+              "post_peak_rss_mb": 19.422,
+              "rss_ratio": 0.783
+            },
+            "p8": {
+              "pre_work_ms": 218.467,
+              "post_work_ms": 0.952,
+              "wall_speedup": 229.482,
+              "pre_gc_ms": 113.815,
+              "post_gc_ms": 0.0,
+              "gc_speedup": 0.0,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 1070.089,
+              "post_cpu_ms": 4.391,
+              "cpu_lbo_ratio": 0.004,
+              "pre_peak_rss_mb": 25.797,
+              "post_peak_rss_mb": 20.312,
+              "rss_ratio": 0.787
+            },
+            "p12": {
+              "pre_work_ms": 465.546,
+              "post_work_ms": 0.788,
+              "wall_speedup": 590.794,
+              "pre_gc_ms": 225.96,
+              "post_gc_ms": 0.0,
+              "gc_speedup": 0.0,
+              "pre_rem_ms": 0.0,
+              "post_rem_ms": 0.0,
+              "pre_cpu_ms": 2988.757,
+              "post_cpu_ms": 5.738,
+              "cpu_lbo_ratio": 0.002,
+              "pre_peak_rss_mb": 33.781,
+              "post_peak_rss_mb": 21.234,
+              "rss_ratio": 0.629
+            }
+          },
+          "cum_amp1_heavy_still_mixed_nursery": {
+            "p1": {
+              "pre_work_ms": 50.09,
+              "post_work_ms": 10.556,
+              "wall_speedup": 4.745,
+              "pre_gc_ms": 10.146,
+              "post_gc_ms": 1.504,
+              "gc_speedup": 6.746,
+              "pre_cpu_ms": 47.969,
+              "post_cpu_ms": 10.286,
+              "cpu_lbo_ratio": 0.214,
+              "pre_peak_rss_mb": 37.984,
+              "post_peak_rss_mb": 35.453,
+              "rss_ratio": 0.933
+            },
+            "p4": {
+              "pre_work_ms": 283.648,
+              "post_work_ms": 27.321,
+              "wall_speedup": 10.382,
+              "pre_gc_ms": 153.921,
+              "post_gc_ms": 9.799,
+              "gc_speedup": 15.708,
+              "pre_cpu_ms": 237.735,
+              "post_cpu_ms": 37.84,
+              "cpu_lbo_ratio": 0.159,
+              "pre_peak_rss_mb": 37.688,
+              "post_peak_rss_mb": 26.047,
+              "rss_ratio": 0.691
+            },
+            "p8": {
+              "pre_work_ms": 575.89,
+              "post_work_ms": 57.464,
+              "wall_speedup": 10.022,
+              "pre_gc_ms": 291.558,
+              "post_gc_ms": 23.497,
+              "gc_speedup": 12.408,
+              "pre_cpu_ms": 475.536,
+              "post_cpu_ms": 82.778,
+              "cpu_lbo_ratio": 0.174,
+              "pre_peak_rss_mb": 45.875,
+              "post_peak_rss_mb": 25.469,
+              "rss_ratio": 0.555
+            },
+            "p12": {
+              "pre_work_ms": 923.121,
+              "post_work_ms": 73.902,
+              "wall_speedup": 12.491,
+              "pre_gc_ms": 317.512,
+              "post_gc_ms": 16.787,
+              "gc_speedup": 18.914,
+              "pre_cpu_ms": 729.93,
+              "post_cpu_ms": 111.875,
+              "cpu_lbo_ratio": 0.153,
+              "pre_peak_rss_mb": 64.375,
+              "post_peak_rss_mb": 29.281,
+              "rss_ratio": 0.455
+            }
+          }
+        }
+      },
+      "vendorGambitWave5Commit": "fc05571b"
     }
   },
   "admissionBoundaries": {
@@ -934,7 +1646,7 @@
     "amp1ImplementationAdmitted": true,
     "nativeRuntimeAdmitted": false,
     "releaseAdmitted": false,
-    "note": "Phase A/B/C merged (c1d51213) and native Amp-1 (131b3979), Amp-2 (c28091f9), Amp-3 (3e54e5d4), and Amp-4 (MemBalancer pacing, global atomic work pacing, Racket phantom bytes, and off-heap immutable RefC binaries) are all implemented and verified on 36/36 core GC + SRFI-230 PBT runs, 20/20 c14[p8] zero-crash stress, 6/6 Amp-4 adversarial checks, and interleaved A/B LBO benchmarks on Apple M2 Pro. Full nativeRuntimeAdmitted and releaseAdmitted remain strictly false pending resolution of pre-existing c1d51213 END_OF_CONT thread-park flakes, full runtime TSan, and Gerbil SMP qualification."
+    "note": "Phase A/B/C merged (c1d51213), native Amp-1 (131b3979), Amp-2 (c28091f9), Amp-3 (3e54e5d4), Amp-4 (1d72c8cb), and Wave 5 C23 runtime hardening are all verified on Apple Silicon M2 Pro: 10/10 PASS (0 warnings) native Apple Clang 21 ThreadSanitizer, 10/10 PASS (0 ASan, 0 UBSan) native Apple Clang 21 ASan+UBSan, 104/104 PASS unified multicore matrix across all 26 files (zero END_OF_CONT across 110+ targeted stress runs), 10/10 Amp-4 adversarial (incl. 5x p12), and cumulative c1d51213->Amp-1..4+Wave5 interleaved LBO gains up to 12.49x wall / 18.91x GC / -84.7% CPU / -54.5% RSS on mixed still+movable nursery storms, -87% RSS on phantom off-heap buffers, and 590.8x wall on immutable RefC fan-out. Full nativeRuntimeAdmitted and releaseAdmitted remain strictly false pending downstream Gerbil SMP native qualification."
   },
   "lockedPdfSha256": {
     "ocaml5-retropar-2020": "7f770b96a59ffe11ca4d03deeb00cc7eb6c595e8c48ba65842a2f5c5abb4fb42",
@@ -981,7 +1693,7 @@
     "dev/refactoring/modern-c/models/lean/AmpDeepAlgorithmsRefinement.lean": "d6a7dc852691ece1ce9c715f49a604f2095f69f02c27f25955088e6cc0c83593",
     "dev/refactoring/modern-c/models/cbmc/amp_chase_lev_and_radix_pso.c": "12ee847e0b2393016ec0da46bc15b6565671bd3431392e6d8254385168a3cf3d",
     "tests/test_amplification_algorithms.py": "5a7633813a5102b0ce098e39513a2cfc08e5569496ba78ec7b42a5f5a57b51ae",
-    "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org": "0c712735ce07e64484bcbcc589b29b888d71b15f15ecee3809fa0b4be0e2c41e",
+    "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org": "1b7cffddb505ce59f228a845e51a38dcda64609f00f0095ba36e1797ccafcb0f",
     "dev/refactoring/modern-c/models/sysml/amp4-pacing-refc-and-amp1-cut.sysml": "9b52076c5c8c28f84f7196b175a34037ba0b2f1a2301268fb66399f2fea11f72",
     "dev/refactoring/modern-c/diagrams/amp1-cut-and-amp4-pacing.d2": "22a49b07c9dc7b2468adf5eeb3b8f70d0823450658ed2a65e92102b082cc27fb",
     "dev/refactoring/modern-c/diagrams/amp1-cut-and-amp4-pacing.svg": "1557183a665da0fcbc760c07cf120ced35d49fc35746f889946b3af6d63353ca",

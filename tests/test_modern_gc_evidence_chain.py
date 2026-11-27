@@ -122,6 +122,16 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(20, receipt["verificationResults"]["nativeAmp4RuntimeVerification"]["c14P8ZeroCrashStress"]["passed"])
         self.assertEqual(6, receipt["verificationResults"]["nativeAmp4RuntimeVerification"]["adversarialVerify"]["passed"])
 
+        # Wave 5 native runtime hardening, TSan/ASan+UBSan qualification, and 104/104 unified matrix
+        w5 = receipt["verificationResults"]["nativeRuntimeHardeningAndSanitizerQualification"]
+        self.assertEqual(10, w5["nativeClangTsan"]["passed"])
+        self.assertEqual(0, w5["nativeClangTsan"]["totalWarnings"])
+        self.assertEqual(10, w5["nativeClangAsanUbsan"]["passed"])
+        self.assertEqual(0, w5["nativeClangAsanUbsan"]["totalAsanErrors"])
+        self.assertEqual(0, w5["nativeClangAsanUbsan"]["totalUbsanErrors"])
+        self.assertEqual(104, w5["unifiedMulticoreMatrix"]["totalPassed"])
+        self.assertEqual(104, w5["unifiedMulticoreMatrix"]["totalCases"])
+
         # Every tracked artifact SHA-256 digest in the receipt must match the file on disk
         artifacts = receipt["artifactSha256"]
         self.assertGreaterEqual(len(artifacts), 15)
@@ -307,6 +317,18 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
             "___gc_pacing_stats",
         ):
             self.assertIn(sym, cm_src)
+
+        # Wave 5 native C23 TSan/UBSan hardening anchors exist in vendor/gambit
+        stk_ops = (ROOT / "vendor/gambit/include/_gambit/stack_operations.h.in").read_text()
+        self.assertIn("fp[-___CAST(___SSIZE_T,(fpo))]", stk_ops)
+        gvm_ops = (ROOT / "vendor/gambit/include/_gambit/gvm_operations.h.in").read_text()
+        self.assertIn("#define ___VECTORREF(v,i)___WORD_LOAD_RELAXED(", gvm_ops)
+        setup_src = (ROOT / "vendor/gambit/lib/setup.c").read_text()
+        self.assertIn("__atomic_compare_exchange_n (&___GSTATE->setup_params.debug_settings", setup_src)
+        rc_alloc = (ROOT / "vendor/gambit/lib/_mem/rc-allocation.inc").read_text()
+        self.assertIn("___WORD_STORE_RELAXED(&___rest_before_collect_pops", rc_alloc)
+        parallel_src = (ROOT / "vendor/gambit/lib/gambit/parallel/parallel.scm").read_text()
+        self.assertIn("(atomic-fxbox-set! (macro-work-stealing-deque-bottom q) (##fx+ b 1) 'release)", parallel_src)
 
 
 if __name__ == "__main__":

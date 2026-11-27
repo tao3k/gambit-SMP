@@ -277,8 +277,8 @@ Measured via 1 warmup + 5 interleaved A/B pairs
 - *Core GC + SRFI-230 Multicore PBT (Official Flags)*: *36/36 PASS* across
   =c9..t6= × =p1/p4/p8/p12= (=.cache/tasks/amp2-baseline/amp2_core36_pbt_v3.json=).
 - *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
-  =false= pending resolution of pre-existing =c1d51213= =END_OF_CONT=
-  thread-park flakes, full runtime TSan, and Gerbil SMP qualification.
+  =false= pending Gerbil SMP native qualification (see Section 9 for Wave 5
+  native runtime TSan/ASan/UBSan and =END_OF_CONT= closure).
 
 * 7. Native Amp-3 C23 Immix Multi-Hole, Overflow Preservation & Per-Section LXR
 
@@ -362,8 +362,8 @@ Measured via 5 interleaved A/B pairs (=.cache/tasks/amp3-baseline/ab_amp3_swiss_
   plus *50/50 + 20/20 PASS* on =c14[p8]= zero-crash stress and *10/10 PASS* on
   =c12[p4]=.
 - *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
-  =false= pending resolution of pre-existing =c1d51213= =END_OF_CONT=
-  thread-park flakes, full runtime TSan, and Gerbil SMP qualification.
+  =false= pending Gerbil SMP native qualification (see Section 9 for Wave 5
+  native runtime TSan/ASan/UBSan and =END_OF_CONT= closure).
 
 * 8. Native Amp-4 C23 MemBalancer Pacing, Phantom Bytes & Off-Heap Immutable RefC Binaries
 
@@ -444,5 +444,100 @@ peak RSS (=.cache/tasks/amp4-baseline/ab_amp4_lbo_interleaved.json=):
   plus *20/20 PASS* on =c14[p8]= zero-crash stress
   (=.cache/tasks/amp4-baseline/amp4_c14_stress20.json=).
 - *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
-  =false= pending resolution of pre-existing =c1d51213= =END_OF_CONT=
-  thread-park flakes, full runtime TSan, and Gerbil SMP qualification.
+  =false= pending Gerbil SMP native qualification (see Section 9 for Wave 5
+  native runtime TSan/ASan/UBSan and =END_OF_CONT= closure).
+
+* 9. Wave 5: Native Runtime Hardening, Full 10/10 TSan & ASan+UBSan Qualification, and Cumulative LBO
+
+Following Amp-4 (=1d72c8cb=), a full native runtime hardening and sanitizer
+qualification wave was executed on Apple Silicon M2 Pro (=arm64-apple-darwin=)
+against the unified runtime combining Amp-1..Amp-4 with the concurrent
+continuation/effect/fiber merges (=0f382e55..7cfcae0e=):
+
+** Genuine C23 Runtime Races, UB, and Pacing Issues Eliminated
+Native Apple Clang 21 ThreadSanitizer (=-fsanitize=thread=) and
+AddressSanitizer + UndefinedBehaviorSanitizer
+(=-fsanitize=address,undefined=) uncovered six concrete C23 runtime issues, all
+of which were root-caused and fixed cleanly in =vendor/gambit=:
+
+1. *Cross-core =STILL_DIRTY= & =processor_scmobj= races (=lib/_mem/local-nursery.inc=)*:
+   Replaced plain reads of =base[___STILL_DIRTY]= in =local_tracer_mark_obj= /
+   =local_mov_mark= with =___WORD_LOAD_RELAXED= (pairing with
+   =___WORD_FETCH_OR_RELEASE= in =generational.inc=); replaced non-atomic reads
+   of cross-core-visible =ctx->processor_scmobj[]= with relaxed loads,
+   conservatively aborted local movable GC if any processor root points into
+   the local nursery, and removed the hazardous unconditional Pass-2 non-atomic
+   write-back loop that raced with =_thread.c= peer work-stealing atomics
+   (eliminating 12/12 TSan warnings on =t5-generational-minor-gc=).
+2. *Concurrent Scheme vector/values reads paired with write-barrier stores (=include/_gambit/gvm_operations.h.in=, landed in =7cfcae0e=)*:
+   Upgraded =___VECTORREF= and =___VALUESREF= to =___WORD_LOAD_RELAXED= to pair
+   with the existing =___WORD_STORE_RELAXED= in =___VECTORSET= /
+   =___VALUESSET= with zero extra instructions on ARM64/x86-64 (eliminating
+   16/16 TSan warnings on =t6-concurrent-satb-major-gc=).
+3. *Unsigned stack-index negation UB (=include/_gambit/stack_operations.h.in=, =lib/_c_intf/sfun-entry.inc=)*:
+   Cast stack offsets to signed =___SSIZE_T= inside =___FP_STK=,
+   =___FP_SET_STK=, =___FP_ADJFP=, and =___call_sfun= argument copying,
+   eliminating C23 UBSan unsigned pointer-offset overflow on
+   =t3-blocking-ffi-park=.
+4. *Global rest-argument observation counters (=lib/_mem/rc-allocation.inc=, =lib/_kernel.scm=, =lib/_kernel.c=)*:
+   Converted =___rest_before_collect_pops=, =___rest_before_collect_writes=,
+   =___rest_fallback_pops=, =___rest_fallback_pair_writes=,
+   =___rest_user_restores=, and =___rest_internal_entries= to relaxed atomic
+   loads/stores/fetch-adds (eliminating 2/2 TSan warnings on
+   =c9-rest-kw-nursery=).
+5. *Chase-Lev =deque-push-bottom!= direct release publication (=lib/gambit/parallel/parallel.scm=)*:
+   Replaced =(atomic-fence 'release)= + ='relaxed= bottom store with a direct
+   ='release= =atomic-fxbox-set!= (single =STLR= on ARM64, establishing a
+   direct C23 Release-Acquire synchronizes-with edge with thief
+   =atomic-fxbox-ref ... 'acquire=; eliminating 4/4 TSan warnings on
+   =c16-srfi230-atomics-chase-lev=).
+6. *Atomic =debug_settings= RMW (=lib/setup.c=) & 12-core >75% catch-up pacing (=lib/_mem/concurrent-major.inc=)*:
+   Converted =___get_debug_settings= / =___set_debug_settings= to relaxed
+   atomic load + CAS loop with zero-dirty no-op fast path (eliminating 33/33
+   TSan warnings on =t3-blocking-ffi-park=), and added full catch-up slice
+   draining past 75% of remaining pacing headroom (bringing =amp4-adversarial=
+   to 10/10 PASS including 5× consecutive =p12=).
+
+** Native Runtime Sanitizer & Unified Multicore Matrix Qualification
+- *Apple Clang 21 Native Runtime TSan (=.cache/tasks/wave5-hardening/runtime_tsan_results.json=)*:
+  *10/10 PASS, 0 TSan warnings* across =amp4-adversarial=,
+  =t5-generational-minor-gc=, =t6-concurrent-satb-major-gc=,
+  =c14-immix-selective-evac-slab=, =c9-rest-kw-nursery=,
+  =c12-memory-scaling-contraction=, =c13-gerbil-compiler-shape-memory=,
+  =c16-srfi230-atomics-chase-lev=, =c17-srfi230-atomic-publish= (with
+  TSan-instrumented =srfi/230= native module), and =t3-blocking-ffi-park=.
+- *Apple Clang 21 Native Runtime ASan + UBSan (=.cache/tasks/wave5-hardening/runtime_asan_ubsan_results.json=)*:
+  *10/10 PASS, 0 ASan errors, 0 UBSan errors* across the same 10-suite SMP
+  matrix.
+- *Unified Full Multicore Matrix (=.cache/tasks/wave5-hardening/unified_post_wave5_96_pbt.json=)*:
+  - Official =run-multicore-suite.py= (all 25 targets including
+    =c7-multi-vm-fault-isolation= × =p1/p4/p8/p12=): *100/100 PASS*.
+  - =gc-hammer= (=p1/p4/p8/p12=): *4/4 PASS* -> *104/104 PASS across all 26
+    files in =vendor/gambit/tests/smp/multicore/=*.
+  - Targeted stress & stdlib: =amp4-adversarial= *10/10 PASS* (incl. 5× =p12=),
+    =c14[p8]= *20/20 PASS*, =t3[p8]= *15/15 PASS* (+ pre-Wave-5 35/35 =t3[p8]=,
+    35/35 =gambit-stm[p8]=, 25/25 =c5[p8]= with zero =END_OF_CONT=), stdlib
+    modules (=srfi/226=, =gambit/effect=, =srfi/230=, =gambit/parallel= ×
+    =p1/p4/p8=) *12/12 PASS*.
+
+** Cumulative Pre-Amp (=c1d51213=) vs Post-Amp-1..4+Wave5 Interleaved LBO
+Measured via 1 warmup + 5 interleaved A/B pairs with macOS =/usr/bin/time -l=
+peak RSS (=.cache/tasks/wave5-hardening/ab_cumulative_c1d51213_vs_amp1to4.json=):
+
+| Workload (=c1d51213= -> Unified Amp-1..4 + Wave 5) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | Peak RSS (Pre -> Post MiB) | Total CPU LBO Ratio |
+|----------------------------------------------------+-------+-----------------------+--------------+---------------------+----------------------------+---------------------|
+| =cum_amp1_heavy_still_mixed_nursery= (=m16384=) | =p1= | 50.09 -> 10.56 | *4.75x* | *10.15 -> 1.50 (6.75x)* | 38.0 -> 35.5 (0.93x) | *0.214x (-78.6%)* |
+| =cum_amp1_heavy_still_mixed_nursery= (=m16384=) | =p4= | 283.65 -> 27.32 | *10.38x* | *153.92 -> 9.80 (15.71x)* | *37.7 -> 26.0 (-31.0%)* | *0.159x (-84.1%)* |
+| =cum_amp1_heavy_still_mixed_nursery= (=m16384=) | =p8= | 575.89 -> 57.46 | *10.02x* | *291.56 -> 23.50 (12.41x)* | *45.9 -> 25.5 (-44.4%)* | *0.174x (-82.6%)* |
+| =cum_amp1_heavy_still_mixed_nursery= (=m16384=) | =p12= | 923.12 -> 73.90 | *12.49x* | *317.51 -> 16.79 (18.91x)* | *64.4 -> 29.3 (-54.5%)* | *0.153x (-84.7%)* |
+| =cum_amp4_pacing_burst_major= (48 MiB + burst) | =p4= | 213.92 -> 170.25 | *1.26x* | *139.59 -> 119.20 (1.17x)* | 185.8 -> 219.3 (1.18x) | *0.961x (-3.9%)* |
+| =cum_amp4_pacing_burst_major= (48 MiB + burst) | =p8= | 160.12 -> 135.60 | *1.18x* | *116.29 -> 86.21 (1.35x)* | 188.9 -> 220.6 (1.17x) | *0.820x (-18.0%)* |
+| =cum_amp4_pacing_burst_major= (48 MiB + burst) | =p12= | 224.93 -> 169.26 | *1.33x* | *145.74 -> 97.72 (1.49x)* | 185.7 -> 197.0 (1.06x) | *0.836x (-16.4%)* |
+| =cum_amp4_phantom_rss_bound= (240 MiB off-heap) | =p1/p4/p8= | 18.0–19.5 -> 5.8–7.8 | *2.47x–3.32x* | 0.0 -> 1.2–2.4 | *249–250 -> 32.3–34.1 (-86.7%)* | *0.327x–0.378x* |
+| =cum_amp4_refc_immutable_share= (256 KiB fan-out) | =p1/p4/p8/p12= | 12.1–465.6 -> 0.42–0.95 | *28.8x–590.8x* | *226.0 -> 0.00* | *33.8 -> 21.2 (-37.1% @ p12)* | *0.002x–0.035x* |
+
+- *Honest Admission Boundary*: Native Gambit SMP TSan (10/10, 0 warnings),
+  native ASan+UBSan (10/10, 0 errors), and =END_OF_CONT= closure on unified
+  104/104 multicore suites are complete on Apple Silicon. Both
+  =nativeRuntimeAdmitted= and =releaseAdmitted= remain strictly =false= until
+  downstream Gerbil SMP native qualification is executed and passed.
