@@ -847,6 +847,7 @@ struct Args {
     repeats: usize,
     scale_workers_to_threads: bool,
     full_load: bool,
+    filter: Option<String>,
     json_out: Option<String>,
 }
 
@@ -865,6 +866,7 @@ fn parse_args() -> Args {
     let mut repeats = 3usize;
     let mut scale_workers_to_threads = false;
     let mut full_load = true;
+    let mut filter = None;
     let mut json_out = None;
 
     let mut it = std::env::args().skip(1);
@@ -889,6 +891,9 @@ fn parse_args() -> Args {
             }
             "--no-full-load" => {
                 full_load = false;
+            }
+            "--filter" => {
+                filter = Some(it.next().expect("--filter requires value"));
             }
             "--json-out" => {
                 json_out = Some(it.next().expect("--json-out requires value"));
@@ -916,8 +921,146 @@ fn parse_args() -> Args {
         repeats,
         scale_workers_to_threads,
         full_load,
+        filter,
         json_out,
     }
+}
+
+// ---------------------------------------------------------------------------
+// 11. ht_effect_pingpong — 1:1 Tokio bounded-channel ping-pong vs (gambit fiber)
+// ---------------------------------------------------------------------------
+
+fn measure_ht_effect_pingpong(rt: &tokio::runtime::Runtime, workers: usize) -> RunSample {
+    const BATCHES_PER_PAIR: usize = 150;
+    const ROUNDS_PER_BATCH: usize = 100;
+    let pairs = workers.max(1);
+
+    measure_with_lats(|| {
+        rt.block_on(async move {
+            let mut handles = Vec::with_capacity(pairs);
+            for p in 0..pairs {
+                handles.push(tokio::spawn(async move {
+                    let (tx1, mut rx1) = tokio::sync::mpsc::channel::<u64>(16);
+                    let (tx2, mut rx2) = tokio::sync::mpsc::channel::<u64>(16);
+                    let total_rounds = BATCHES_PER_PAIR * ROUNDS_PER_BATCH;
+                    let responder = tokio::spawn(async move {
+                        for _ in 0..total_rounds {
+                            if let Some(v) = rx1.recv().await {
+                                let _ = tx2.send(v.wrapping_add(1)).await;
+                            }
+                        }
+                    });
+                    let mut lats = Vec::with_capacity(BATCHES_PER_PAIR);
+                    let mut acc = 0u64;
+                    for b in 0..BATCHES_PER_PAIR {
+                        let bt0 = Instant::now();
+                        for r in 0..ROUNDS_PER_BATCH {
+                            let val = (p as u64) + (b as u64) * 1000 + (r as u64);
+                            let _ = tx1.send(val).await;
+                            if let Some(reply) = rx2.recv().await {
+                                acc = acc.wrapping_add(reply);
+                            }
+                        }
+                        lats.push(bt0.elapsed().as_secs_f64() * 1_000_000.0);
+                    }
+                    let _ = responder.await;
+                    (acc, lats)
+                }));
+            }
+            let mut total_acc = 0u64;
+            let mut all_lats = Vec::with_capacity(pairs * BATCHES_PER_PAIR);
+            for h in handles {
+                let (a, mut l) = h.await.expect("pingpong join failed");
+                total_acc = total_acc.wrapping_add(a);
+                all_lats.append(&mut l);
+            }
+            let total_ops = (pairs * BATCHES_PER_PAIR * ROUNDS_PER_BATCH) as u64;
+            (total_acc, total_ops, all_lats)
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 12. ht_generator_stream — 1:1 Tokio async producer/consumer stream vs (gambit fiber)
+// ---------------------------------------------------------------------------
+
+fn measure_ht_generator_stream(rt: &tokio::runtime::Runtime, workers: usize) -> RunSample {
+    const BATCHES_PER_LANE: usize = 150;
+    const ITEMS_PER_BATCH: usize = 200;
+    let lanes = workers.max(1);
+
+    measure_with_lats(|| {
+        rt.block_on(async move {
+            let mut handles = Vec::with_capacity(lanes);
+            for lane in 0..lanes {
+                handles.push(tokio::spawn(async move {
+                    let (tx, mut rx) = tokio::sync::mpsc::channel::<u64>(32);
+                    let total_items = BATCHES_PER_LANE * ITEMS_PER_BATCH;
+                    let prod = tokio::spawn(async move {
+                        for i in 0..total_items {
+                            let _ = tx.send((lane as u64).wrapping_add(i as u64)).await;
+                        }
+                    });
+                    let mut lats = Vec::with_capacity(BATCHES_PER_LANE);
+                    let mut acc = 0u64;
+                    for _ in 0..BATCHES_PER_LANE {
+                        let bt0 = Instant::now();
+                        for _ in 0..ITEMS_PER_BATCH {
+                            if let Some(v) = rx.recv().await {
+                                acc = acc.wrapping_add(v);
+                            }
+                        }
+                        lats.push(bt0.elapsed().as_secs_f64() * 1_000_000.0);
+                    }
+                    let _ = prod.await;
+                    (acc, lats)
+                }));
+            }
+            let mut total_acc = 0u64;
+            let mut all_lats = Vec::with_capacity(lanes * BATCHES_PER_LANE);
+            for h in handles {
+                let (a, mut l) = h.await.expect("stream join failed");
+                total_acc = total_acc.wrapping_add(a);
+                all_lats.append(&mut l);
+            }
+            let total_ops = (lanes * BATCHES_PER_LANE * ITEMS_PER_BATCH) as u64;
+            (total_acc, total_ops, all_lats)
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 13. ht_fiber_fanout_100k — 100,000 structured tasks (100 nurseries x 1000)
+// ---------------------------------------------------------------------------
+
+fn measure_ht_fiber_fanout_100k(rt: &tokio::runtime::Runtime) -> RunSample {
+    const NURSERIES: usize = 100;
+    const PER_NURSERY: usize = 1000;
+
+    measure_with_lats(|| {
+        rt.block_on(async move {
+            let completed = Arc::new(AtomicU64::new(0));
+            let mut lats = Vec::with_capacity(NURSERIES);
+            for _ in 0..NURSERIES {
+                let bt0 = Instant::now();
+                let mut hs = Vec::with_capacity(PER_NURSERY);
+                for _ in 0..PER_NURSERY {
+                    let c = Arc::clone(&completed);
+                    hs.push(tokio::spawn(async move {
+                        tokio::task::yield_now().await;
+                        c.fetch_add(1, Ordering::Relaxed);
+                    }));
+                }
+                for h in hs {
+                    h.await.expect("fanout join failed");
+                }
+                lats.push(bt0.elapsed().as_secs_f64() * 1_000_000.0);
+            }
+            let tot = completed.load(Ordering::Acquire);
+            assert_eq!(tot, (NURSERIES * PER_NURSERY) as u64);
+            (tot, tot, lats)
+        })
+    })
 }
 
 fn main() {
@@ -945,9 +1088,15 @@ fn main() {
         "ht_mpmc_pipeline",
         "ht_graph_bfs_churn",
         "ht_workstealing_dag",
+        "ht_effect_pingpong",
+        "ht_generator_stream",
+        "ht_fiber_fanout_100k",
     ];
     if args.full_load {
         workloads.push("full_load_hybrid_tokio_rayon");
+    }
+    if let Some(ref f) = args.filter {
+        workloads.retain(|w| w.contains(f.as_str()));
     }
 
     let mut scaling_summary: BTreeMap<String, BTreeMap<String, TopoSummary>> = BTreeMap::new();
@@ -1001,6 +1150,15 @@ fn main() {
                 "ht_workstealing_dag" => {
                     let _ = measure_ht_workstealing_dag(&pool, args.workers);
                 }
+                "ht_effect_pingpong" => {
+                    let _ = measure_ht_effect_pingpong(&rt, args.workers.min(2));
+                }
+                "ht_generator_stream" => {
+                    let _ = measure_ht_generator_stream(&rt, args.workers.min(2));
+                }
+                "ht_fiber_fanout_100k" => {
+                    let _ = measure_ht_fiber_fanout_100k(&rt);
+                }
                 "full_load_hybrid_tokio_rayon" => {
                     bench_full_load_hybrid(&rt, &pool, ncpu, 26, 200);
                 }
@@ -1022,6 +1180,9 @@ fn main() {
                     "ht_mpmc_pipeline" => measure_ht_mpmc_pipeline(&rt, args.workers),
                     "ht_graph_bfs_churn" => measure_ht_graph_bfs_churn(&pool, args.workers),
                     "ht_workstealing_dag" => measure_ht_workstealing_dag(&pool, args.workers),
+                    "ht_effect_pingpong" => measure_ht_effect_pingpong(&rt, args.workers),
+                    "ht_generator_stream" => measure_ht_generator_stream(&rt, args.workers),
+                    "ht_fiber_fanout_100k" => measure_ht_fiber_fanout_100k(&rt),
                     "full_load_hybrid_tokio_rayon" => {
                         // Heavy full-machine load: 2 * ncpu tasks (24 tasks on 12-core M2 Pro)
                         measure(|| bench_full_load_hybrid(&rt, &pool, ncpu * 2, 37, 10_000))
