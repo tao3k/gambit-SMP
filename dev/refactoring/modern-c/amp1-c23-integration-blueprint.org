@@ -224,3 +224,58 @@ Measured via 1 warmup + 5 interleaved A/B pairs
     flake on =t3= / =gambit-stm= (both pre- and post-Amp-1) remains tracked by
     the sibling hardening work; full TSan and Gerbil SMP qualification are still
     required before setting =nativeRuntimeAdmitted= or =releaseAdmitted= to =true=.
+
+* 6. Native Amp-2 C23 Implementation & Interleaved LBO Verification
+
+Building directly on the committed Amp-1 baseline (=vendor/gambit= commit
+=131b3979=), Amp-2 Cuts 2A and 2B were implemented across 5 =vendor/gambit=
+files (=include/_gambit/memory_state.h.in=, =lib/mem.h=,
+=lib/_mem/memory-lifecycle.inc=, =lib/_mem/concurrent-major.inc=,
+=lib/setup.c=):
+
+- *Cut 2A (L2 Bitmap-First Filter + 64-Entry Software Prefetch Ring + Lock-Free Telemetry + Bounded Queue)*:
+  - Added L2-hot bitmap-first duplicate rejection (=~8 KiB/section= mark
+    bitmap) in =major_shade_obj_q()= *before* dereferencing cold DRAM object
+    headers or enqueuing into the prefetch ring, eliminating 67–90% of
+    duplicate DRAM header loads.
+  - Wired an OCaml-5-style L1-resident 64-entry deferred-shade software
+    prefetch ring (=___GC_MAJOR_PREFETCH_CAP=64=, =MIN=24=, read-only
+    =__builtin_prefetch(hdr, 0, 1)= without write-intent =PSTL1KEEP= RFO
+    storms) into =___gc_major_mark_slice()=, =major_remark_phase_a_parallel()=,
+    and =major_drain_mark_stack_stw()=, draining the ring completely on exit
+    and before Remark quiescence (=mark_termination_requires_all_three_empty=).
+  - Replaced global =major_mark_lock_= stats acquisition on every mark/idle/spin
+    slice with owner-written release-stored =___pstate_mem= counters
+    (=major_*_local_=, folded at STW Remark/abort), added 32-spin =trylock=
+    retry + fast work publication when =major_mark_stack_count_ == 0= (curing
+    multi-core premature slice aborts), and capped =major_mark_stack_cap_= at
+    =4,194,304= entries (32 MiB) with =satb_overflow_= fallback.
+- *Cut 2B (Opportunistic STW Entry Spin-Wait Concurrent Marking)*:
+  - Added =___gc_major_mark_stw_spin_slice()= (strictly bounded =1024= words,
+    1-load fast exit when =satb_active_ == 0=) and =SYNC_GET_MSG_SPIN_MARK=
+    (max 4 slices per wait) in =lib/setup.c= =barrier_sync_op_ex()=, invoked
+    *exclusively* on upward child waits during =first_iter != 0= (STW
+    =ENTERING=, strictly before upward =SYNC_SEND_MSG= release publication;
+    satisfies =OpportunisticStwSpinLaw= and =MUTANT_MISSING_SPIN_FENCE=).
+
+** Interleaved A/B LBO Results (Pre =131b3979= vs Post Amp-2 v3, Apple M2 Pro)
+Measured via 1 warmup + 5 interleaved A/B pairs
+(=.cache/tasks/amp2-baseline/ab_amp2_quiet_split.json=,
+=.cache/tasks/amp2-baseline/ab_amp2_lbo_interleaved_v3.json=):
+
+| Workload | Procs | Mark+Remark (Pre -> Post ms) | Total / Per-Word Speedup | Concurrent Mark Completion (Pre -> Post) | Total CPU LBO Ratio |
+|----------+-------+------------------------------+--------------------------+------------------------------------------+---------------------|
+| =cold_dag_500k= (500K cold random DAG) | =p1= | 447.27 -> 341.94 | *1.31x* (mark *1.41x*) | 100.0% -> 100.0% | *0.946x (-5.4%)* |
+| =cold_dag_500k= (500K cold random DAG) | =p8= | 54.01 -> 45.94 | *1.18x* (mark *1.44x*, rem *1.14x*) | *86.3% -> 99.8%* | *0.969x (-3.1%)* |
+| =cold_dag_500k= (500K cold random DAG) | =p12= | 44.06 -> 38.69 | *1.14x* | *83.8% -> 100.0%* | *0.974x (-2.6%)* |
+| =pure_mark_600k= (600K graph + huge root) | =p1= | 524.18 -> 246.89 | *2.12x* (mark *2.16x*, rem *1.30x*) | 100.0% -> 100.0% | *0.933x (-6.7%)* |
+| =pure_mark_600k= (600K graph + huge root) | =p8= | 66.20 -> 85.31 (100% vs 51.6%) | *1.48x* per-word concurrent rate | *51.6% -> 100.0%* (zero early abort!) | 1.043x |
+| =pure_mark_600k= (600K graph + huge root) | =p12= | 91.55 -> 124.59 (100% vs 68.2%) | *1.16x* per-word concurrent rate | *68.2% -> 100.0%* (zero early abort!) | 1.025x |
+| =amp2_stw_skew_spin_mark= (Cut 2B skew) | =p8= | 254.55 -> 165.20 (v2 quiet) | *1.54x* (rem *1.32x*) | =spin_slices = 12..38= (p8), =34..104= (p12) | *0.920x (-8.0%)* |
+| =amp1_tight_movable_guard= | =p8/p12= | 29.6/39.8 -> 14.4/35.0 | *2.06x / 1.14x* | zero regression on Amp-1 | *0.955x / 0.970x* |
+
+- *Core GC + SRFI-230 Multicore PBT (Official Flags)*: *36/36 PASS* across
+  =c9..t6= × =p1/p4/p8/p12= (=.cache/tasks/amp2-baseline/amp2_core36_pbt_v3.json=).
+- *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
+  =false= pending resolution of pre-existing =c1d51213= =END_OF_CONT=
+  thread-park flakes, full runtime TSan, and Gerbil SMP qualification.
