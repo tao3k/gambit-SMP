@@ -64,13 +64,18 @@ module slice3a_dynamic_vm_domains_v2 {
     orphanRootTaskBug: bool,
     unsafeLoanDemotionBug: bool,
     idleLinearBloatBug: bool,
-    boundNonMonotoneBug: bool
+    boundNonMonotoneBug: bool,
+    compileWall64ClampBug: bool
   }
 
   var s: State
 
   pure def max2(a: int, b: int): int = if (a >= b) a else b
   pure def min2(a: int, b: int): int = if (a <= b) a else b
+
+  // Slice 3A-2 dynamic processor capacity sizing (zero hardcoded 64-core ceiling)
+  pure def vmComputeCapacity(hwCpus: int, reqP: int, envCap: int): int =
+    min2(65536, max2(max2(max2(64, 2 * hwCpus), reqP), envCap))
 
   // Compute safe O(live) adaptive worker count matching plan_copy_round
   pure def computeAdaptiveWorkers(
@@ -124,7 +129,8 @@ module slice3a_dynamic_vm_domains_v2 {
       orphanRootTaskBug: false,
       unsafeLoanDemotionBug: false,
       idleLinearBloatBug: false,
-      boundNonMonotoneBug: false
+      boundNonMonotoneBug: false,
+      compileWall64ClampBug: false
     }
   }
 
@@ -369,6 +375,20 @@ module slice3a_dynamic_vm_domains_v2 {
     }
   }
 
+  // Mutant 9: Legacy compile-time 64-core wall clamps -:p128 or 128-core host down to 64
+  action bugClampToCompileTime64(reqP: int): bool = all {
+    s.vmState == "UNINIT" or s.vmState == "DISPOSED",
+    reqP > 64,
+    s' = {
+      ...s,
+      vmState: "LIVE",
+      slotCapacity: 64,
+      participants: 64,
+      liveAllocs: 2,
+      compileWall64ClampBug: true
+    }
+  }
+
   // --- Safe Nondeterministic Step ---
   action step = any {
     nondet cap = oneOf(Set(1, 4, 12, 64, 128))
@@ -432,7 +452,8 @@ module slice3a_dynamic_vm_domains_v2 {
     not(s.orphanRootTaskBug),
     not(s.unsafeLoanDemotionBug),
     not(s.idleLinearBloatBug),
-    not(s.boundNonMonotoneBug)
+    not(s.boundNonMonotoneBug),
+    not(s.compileWall64ClampBug)
   }
 
   // --- Positive & Mutation-Killing Tests ---
@@ -505,5 +526,23 @@ module slice3a_dynamic_vm_domains_v2 {
   run testMutant8IdleLinearBloatKilled = {
     init.then(vmCreateSuccess(12, 12))
       .then(bugIdleLinearWorkers).then(all { assert(not(safe)), s' = s })
+  }
+
+  run testSlice3A2Exceed64CoreCompileWall = {
+    val capMac128 = vmComputeCapacity(12, 128, 0)
+    val capEpyc256 = vmComputeCapacity(128, 0, 0)
+    init
+      .then(vmCreateSuccess(capMac128, 128))
+      .then(all { assert(safe), assert(capMac128 == 128), assert(capEpyc256 == 256), s' = s })
+      .then(vmDispose)
+      .then(vmCreateSuccess(capEpyc256, 256))
+      .then(planAdaptiveCopyRound(256, 0, 20000, 0, 0, true))
+      .then(all { assert(safe), assert(s.workerCount == 1), s' = s })
+      .then(vmDispose)
+      .then(all { assert(safe), assert(s.liveAllocs == 0), s' = s })
+  }
+
+  run testMutant9CompileWall64ClampKilled = {
+    init.then(bugClampToCompileTime64(128)).then(all { assert(not(safe)), s' = s })
   }
 }

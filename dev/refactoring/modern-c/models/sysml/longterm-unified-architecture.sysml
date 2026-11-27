@@ -491,7 +491,7 @@ package GambitLongTermUnifiedArchitecture {
     part slice25DynamicHardening : ArchitectureSlice {
         attribute :>> sliceId = "Slice2_5";
         attribute :>> title = "OCaml-5 Per-Domain Dynamic Rest Slab + os_io Two-Stage Post-Poll Check Fence + Zero-Magic-Cap Per-Core Auto min_heap + Full-Core CI";
-        attribute :>> status = "STAGE8_CLOSED_VERIFYING_CI";
+        attribute :>> status = "STAGE8_CLOSED_COMMITTED";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/per_domain_rest_slab_and_io_check_v2.qnt + adaptive_heap_scaling_and_reclaim_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean#Part7 + AdaptiveHeapScalingRefinement.lean#Part6";
         attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/per_domain_rest_slab_and_io_check_pso.c + adaptive_heap_scaling_pso.c";
@@ -499,12 +499,12 @@ package GambitLongTermUnifiedArchitecture {
     }
     part slice3ADynamicDomains : ArchitectureSlice {
         attribute :>> sliceId = "Slice3A";
-        attribute :>> title = "OCaml-5 / Erlang-OTP-28 Dynamic Per-Domain VM Tables (Eliminate Static [___MAX_PROCESSORS] Internal Arrays + O(live) Adaptive GC Copy Workers)";
-        attribute :>> status = "IN_PROGRESS_PHASE_3A1";
+        attribute :>> title = "OCaml-5 / Erlang-OTP-28 Dynamic Per-Domain VM Tables (Zero Compile-Time [___MAX_PROCESSORS] Arrays in include/ & lib/, Dynamic >64-Core Capacity, O(live) Adaptive GC Workers)";
+        attribute :>> status = "STAGE8_CLOSED_VERIFYING_CI";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/slice3a_dynamic_vm_domains_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/Slice3ADynamicDomainsRefinement.lean";
         attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice3a_dynamic_domains_pso.c";
-        attribute :>> exitGate = "Zero static [___MAX_PROCESSORS] arrays in lifecycle.h/root.h/collector.h and stack scratch paths; idle GC mature sections bounded by O(live) not O(P); 0 TSan races; 15/15 CI green";
+        attribute :>> exitGate = "Zero static [___MAX_PROCESSORS] arrays in include/ & lib/; runtime -:p96/-:p128 & live resize 4->80->4; idle GC mature sections bounded by O(live) not O(P); 0 TSan races; 15/15 CI green";
     }
     part slice3BIoAndStdlib : ArchitectureSlice {
         attribute :>> sliceId = "Slice3B";
@@ -559,7 +559,7 @@ package GambitLongTermUnifiedArchitecture {
             attribute :>> label = "Slice 2.5 (CLOSED): OCaml-5 Per-Domain Rest Slab + os_io Check Fence + Zero-Magic Auto min_heap";
         }
         part slice3ADynamicDomains : SliceNode {
-            attribute :>> label = "Slice 3A (3A-1 VERIFIED): Dynamic Per-Domain VM Tables (Zero Static lib/ MAX_PROCESSORS) + O(live) Adaptive GC Workers";
+            attribute :>> label = "Slice 3A (CLOSED): Dynamic Per-Domain VM Tables (Zero [MAX_PROCESSORS], >64 Cores) + O(live) GC Workers";
         }
         part slice3BIoAndStdlib : SliceNode {
             attribute :>> label = "Slice 3B (NEXT): kqueue/epoll Reactor + SRFI-230 & Work-Stealing Parallel Stdlib";

@@ -47,6 +47,32 @@ static size_t vm_lifecycle_storage_bytes(size_t cap) {
   return off;
 }
 
+/* --- Part 1B (Slice 3A-2): Dynamic vm_state Processor Storage & Capacity --- */
+static int vm_compute_processor_capacity(int hw_cpus, int req_p, int env_cap,
+                                         int min_floor, int hard_max) {
+  int cap = (min_floor > 1) ? min_floor : 1;
+  if (hw_cpus > 0) {
+    int hw2 = (hw_cpus > hard_max / 2) ? hard_max : (hw_cpus * 2);
+    if (hw2 > cap) cap = hw2;
+  }
+  if (req_p > cap) cap = req_p;
+  if (env_cap > cap) cap = env_cap;
+  if (cap > hard_max) cap = hard_max;
+  if (cap < 1) cap = 1;
+  return cap;
+}
+
+static size_t vm_processor_storage_bytes(size_t cap) {
+  size_t off = 64u; /* headroom for 64-byte cacheline base alignment */
+  if (cap < 1u) return 0;
+  /* aligned_pstate[cap] (2560B each) + execution_contexts[cap] (384B each) */
+  if (!add_aligned16_slice(&off, cap, 2560u)) return 0;
+  if (off > SIZE_MAX - 63u) return 0;
+  off = (off + 63u) & ~(size_t)63u;
+  if (!add_aligned16_slice(&off, cap, 384u)) return 0;
+  return off;
+}
+
 /* --- Part 2: Exact C O(live) Adaptive Worker Selection --- */
 static int gc_select_adaptive_workers(
     int active_n,
@@ -164,6 +190,16 @@ int main(void) {
   assert(vm_lifecycle_storage_bytes(128) > vm_lifecycle_storage_bytes(64));
   /* Overflow boundary must safely refuse (return 0) without unsigned wrap */
   assert(vm_lifecycle_storage_bytes(SIZE_MAX / 64u) == 0);
+
+  /* 1B. Slice 3A-2 dynamic processor_capacity & cacheline-aligned storage */
+  assert(vm_compute_processor_capacity(4, 4, 0, 64, 65536) == 64);
+  assert(vm_compute_processor_capacity(12, 128, 0, 64, 65536) == 128);
+  assert(vm_compute_processor_capacity(128, 0, 0, 64, 65536) == 256);
+  assert(vm_compute_processor_capacity(12, 4, 192, 64, 65536) == 192);
+  assert(vm_compute_processor_capacity(100000, 0, 0, 64, 65536) == 65536);
+  assert(vm_processor_storage_bytes(0) == 0);
+  assert(vm_processor_storage_bytes(128) > vm_processor_storage_bytes(64));
+  assert(vm_processor_storage_bytes(SIZE_MAX / 1024u) == 0);
 
   /* 2. Adaptive worker sizing contracts */
   /* Idle 12-core and 128-core VMs -> strictly 1 copy worker */

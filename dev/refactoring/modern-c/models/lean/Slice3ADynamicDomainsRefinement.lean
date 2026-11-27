@@ -180,4 +180,57 @@ theorem rebind_executor_valid (i newW : Nat) (hW : newW ≥ 1) :
     i % newW < newW ∧ 0 < newW := by
   exact ⟨Nat.mod_lt i (by omega), by omega⟩
 
+/- ==========================================================================
+   Part 4 (Slice 3A-2): Dynamic vm_state Processor Capacity & Bijection Laws
+   ========================================================================== -/
+
+/-- Exact model of `vm_compute_processor_capacity` in `lib/_setup/vm-registry.inc`.
+    Eliminates the compile-time 64-core wall (`___MAX_PROCESSORS`) by sizing each
+    VM dynamically from `max(minFloor, 2*hwCpus, reqP, envCap)` bounded by `hardMax`. -/
+def computeProcessorCapacity (hwCpus reqP envCap minFloor hardMax : Nat) : Nat :=
+  let c0 := minFloor
+  let c1 := max c0 (2 * hwCpus)
+  let c2 := max c1 reqP
+  let c3 := max c2 envCap
+  if c3 > hardMax then hardMax else c3
+
+theorem processor_capacity_bounds (hwCpus reqP envCap minFloor hardMax : Nat)
+    (hFloor : minFloor ≤ hardMax) :
+    minFloor ≤ computeProcessorCapacity hwCpus reqP envCap minFloor hardMax ∧
+    computeProcessorCapacity hwCpus reqP envCap minFloor hardMax ≤ hardMax := by
+  unfold computeProcessorCapacity
+  dsimp
+  split <;> omega
+
+theorem processor_capacity_covers_explicit_request
+    (hwCpus reqP envCap minFloor hardMax : Nat)
+    (hReq : reqP ≤ hardMax) :
+    reqP ≤ computeProcessorCapacity hwCpus reqP envCap minFloor hardMax := by
+  unfold computeProcessorCapacity
+  dsimp
+  split <;> omega
+
+theorem processor_capacity_covers_2x_hardware
+    (hwCpus reqP envCap minFloor hardMax : Nat)
+    (hHw : 2 * hwCpus ≤ hardMax) :
+    2 * hwCpus ≤ computeProcessorCapacity hwCpus reqP envCap minFloor hardMax := by
+  unfold computeProcessorCapacity
+  dsimp
+  split <;> omega
+
+/-- Pointer-index bijection for dynamically allocated `aligned_pstate[cap]`:
+    for any stride > 0 and slot index `id`, `(base + id * stride - base) / stride = id`. -/
+theorem processor_id_pointer_bijection (base stride id : Nat) (hStride : stride > 0) :
+    ((base + id * stride) - base) / stride = id := by
+  have hSub : (base + id * stride) - base = id * stride := Nat.add_sub_cancel_left base (id * stride)
+  rw [hSub]
+  exact Nat.mul_div_cancel id hStride
+
+/-- 64-byte cacheline alignment helper preserves monotonicity and 64-byte divisibility. -/
+def align64 (n : Nat) : Nat := ((n + 63) / 64) * 64
+
+theorem align64_ge_and_mod (n : Nat) : n ≤ align64 n ∧ align64 n % 64 = 0 := by
+  unfold align64
+  omega
+
 end GambitSlice3ADynamicDomains
