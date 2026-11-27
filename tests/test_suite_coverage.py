@@ -508,3 +508,20 @@ class SuiteCoverageTests(unittest.TestCase):
             else: group["compilerPhases"][2]["exit"]=1
             with self.subTest(fault=fault),self.assertRaises(ValueError):
                 project_suite_files(mutated)
+
+    def test_projected_additional_fixture_requires_exact_projected_sha(self):
+        receipt = self.receipt()
+        step = receipt["steps"][0]
+        target = "06-thread/thread_interrupt_ended.scm"
+        projected = "b" * 64
+        step["arguments"]["additionalFixtures"] = {
+            **step["arguments"]["additionalFixtures"],
+            target: {**step["arguments"]["additionalFixtures"][target],
+                     "projection": "thread_request_fixture",
+                     "projectedSha256": projected},
+        }
+        with self.assertRaisesRegex(ValueError, "suite fixture hash"):
+            project_suite_files(receipt)
+        step["artifacts"]["native-gsc/runtime/tests/unit-tests/" + target] = projected
+        facts = project_suite_files(receipt)
+        self.assertIn(["native-gsc", target, projected], facts["observed_suite_file"])

@@ -88,7 +88,8 @@ class CompiledSuitePhaseTests(unittest.TestCase):
                  "tests/recipes/ci/bazel-profile-numeric.recipe.json",
                  "tests/recipes/ci/gc-ffi-numeric.recipe.json",
                  "tests/recipes/ci/three-flag-numeric-inventory.recipe.json",
-                 "tests/recipes/ci/bazel-profile-gc-ffi-inventory.recipe.json"]
+                 "tests/recipes/ci/bazel-profile-gc-ffi-inventory.recipe.json",
+                 "tests/recipes/ci/threads.recipe.json"]
         for name in names:
             recipe, steps = recipes.load(ROOT, ROOT / name)
             selected = [step for step in steps if "numericGrouping" in step["arguments"]]

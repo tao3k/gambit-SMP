@@ -65,7 +65,8 @@ def project_suite_files(receipt):
         for file in passed:
             sha = artifacts.get(name + "/runtime/tests/unit-tests/" + file)
             additional = args.get("additionalFixtures", {}).get(file)
-            if not _sha(sha) or additional is not None and sha != additional["sha256"]:
+            expected = additional.get("projectedSha256", additional["sha256"]) if additional is not None else None
+            if not _sha(sha) or expected is not None and sha != expected:
                 raise ValueError("suite fixture hash is missing or differs from its declared source")
             result["observed_suite_file"].append([name, file, sha])
         whole = args["selection"] == ["."] and args["regime"] in {"whole-parallel", "whole-sequential"}

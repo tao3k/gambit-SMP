@@ -673,6 +673,38 @@ class NativeRecipeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "drift"):
             native.additional_fixtures(args, ctx, unit)
 
+    def test_additional_fixture_projection_binds_exact_producer_header(self):
+        from gambit_smp.framework import ROOT
+        from gambit_smp.suite_primitives import thread_request_fixture
+        import hashlib
+        original = (ROOT / "models/gambit/native/pr1047/thread_interrupt_ended.scm").read_bytes()
+        header = (ROOT / "vendor/gambit/lib/_thread#.scm").read_bytes()
+        projected = thread_request_fixture(original, header)
+        projected_sha = hashlib.sha256(projected).hexdigest()
+        runtime = self.root / "runtime"
+        (runtime / "lib").mkdir(parents=True)
+        (runtime / "lib/_thread#.scm").write_bytes(header)
+        (self.root / "pr1047.scm").write_bytes(original)
+        unit = self.root / "projected-unit"
+        unit.mkdir()
+        item = {
+            "source": "pr1047.scm",
+            "sha256": hashlib.sha256(original).hexdigest(),
+            "projection": "thread_request_fixture",
+            "projectedSha256": projected_sha,
+        }
+        args = {"additionalFixtures": {"06-thread/thread_interrupt_ended.scm": item}}
+        from types import SimpleNamespace
+        bound = []
+        ctx = SimpleNamespace(root=self.root, bind=lambda paths: bound.extend(paths))
+        native.additional_fixtures(args, ctx, unit, origin_runtime=runtime)
+        self.assertEqual(projected, (unit / "06-thread/thread_interrupt_ended.scm").read_bytes())
+        self.assertEqual([(self.root / "pr1047.scm").resolve()], bound)
+        bad_args = {"additionalFixtures": {"06-thread/thread_interrupt_ended.scm": {
+            **item, "projectedSha256": "0" * 64}}}
+        with self.assertRaisesRegex(ValueError, "projected additional fixture"):
+            native.additional_fixtures(bad_args, ctx, self.root / "bad-unit", origin_runtime=runtime)
+
     def test_real_grid_restores_exact_original_375_file_inventory(self):
         spawn = self.root / "spawn.scm"
         spawn.write_text("(test-equal 0 0)\n")

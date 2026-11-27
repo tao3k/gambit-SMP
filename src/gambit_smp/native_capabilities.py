@@ -338,7 +338,7 @@ def validate_suite(args, inputs):
         raise ValueError("exactly one explicit or source-bound suite inventory required")
     if source_bound:
         reference(args["expectedSource"])
-        if any(key in args for key in ("observationFiles", "compilerPhaseFiles")):
+        if "observationFiles" in args:
             raise ValueError("per-file controls require an explicit declared inventory")
     if "observationFiles" in args:
         from gambit_smp.suite_observations import validate
@@ -410,11 +410,16 @@ def validate_suite(args, inputs):
     if not isinstance(fixtures, dict) or (not source_bound and not set(fixtures) <= set(args["expectedFiles"])):
         raise ValueError("additional fixtures must belong to the exact selected inventory")
     for name, item in fixtures.items():
-        fields(item, ("source", "sha256"))
+        fields(item, ("source", "sha256"), ("projection", "projectedSha256"))
         if (not name.endswith(".scm") or item["source"] not in inputs
                 or not item["source"].endswith(".scm") or not isinstance(item["sha256"], str)
                 or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])):
             raise ValueError("declared hash-bound Scheme test fixture required")
+        if "projection" in item or "projectedSha256" in item:
+            if (item.get("projection") != "thread_request_fixture"
+                    or not isinstance(item.get("projectedSha256"), str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", item["projectedSha256"])):
+                raise ValueError("declared hash-bound fixture projection required")
 
 
 def validate_compiler_observation(args, inputs):
@@ -1733,6 +1738,8 @@ def expected_suite_inventory(args, ctx):
         raise ValueError("group budget escaped the source-bound suite inventory")
     if not set(args.get("fileBudgetSeconds", {})) <= selected:
         raise ValueError("file budget escaped the source-bound suite inventory")
+    if not set(args.get("compilerPhaseFiles", ())) <= selected:
+        raise ValueError("compiler phase file escaped the source-bound suite inventory")
     return files
 
 
@@ -1865,7 +1872,9 @@ def bind_review(args, ctx):
 
 
 def additional_fixtures(args, ctx, unit, *, origin_runtime=None):
+    import hashlib
     from gambit_smp.recipes import source_path, read_json
+    from gambit_smp.suite_primitives import thread_request_fixture
     from gambit_smp.workspace import checkpoint_build_source
     runtime = origin_runtime or unit.parent.parent
     state_path = runtime.parent / "source-state.json"
@@ -1878,25 +1887,43 @@ def additional_fixtures(args, ctx, unit, *, origin_runtime=None):
         key = "tests/unit-tests/" + name
         if digest(source) != item["sha256"] or key in state.get("inputs", {}):
             raise ValueError("additional fixture cannot replace upstream bytes or drift")
+        projection = item.get("projection")
+        if projection == "thread_request_fixture":
+            header = relative(runtime, "lib/_thread#.scm")
+            if header.is_symlink() or not header.is_file():
+                raise ValueError("fixture projection requires exact producer header")
+            payload = thread_request_fixture(source.read_bytes(), header.read_bytes())
+            expected = item["projectedSha256"]
+            if hashlib.sha256(payload).hexdigest() != expected:
+                raise ValueError("projected additional fixture differs from declared sha256")
+        else:
+            payload = None
+            expected = item["sha256"]
         if target.exists() or target.is_symlink():
-            if (target.is_symlink() or not managed or owned.get(key) != item["sha256"]
-                    or digest(target) != item["sha256"]):
+            if (target.is_symlink() or not managed or owned.get(key) != expected
+                    or digest(target) != expected):
                 raise ValueError("additional fixture cannot replace upstream bytes or drift")
         else:
-            if key in owned and owned[key] != item["sha256"]:
+            if key in owned and owned[key] != expected:
                 raise ValueError("additional fixture differs from retained transfer")
             if managed and unit.parent.parent == runtime:
-                owned[key] = item["sha256"]
+                owned[key] = expected
                 checkpoint_build_source(runtime, additionalFixtures=owned)
             target.parent.mkdir(parents=True, exist_ok=True)
             temporary = target.with_name(target.name + ".pending")
             if temporary.exists() or temporary.is_symlink():
                 raise ValueError("additional fixture has an unresolved pending transfer")
-            with source.open("rb") as origin, temporary.open("xb") as destination:
-                shutil.copyfileobj(origin, destination)
-                destination.flush()
-                os.fsync(destination.fileno())
-            if digest(temporary) != item["sha256"]:
+            if payload is not None:
+                with temporary.open("xb") as destination:
+                    destination.write(payload)
+                    destination.flush()
+                    os.fsync(destination.fileno())
+            else:
+                with source.open("rb") as origin, temporary.open("xb") as destination:
+                    shutil.copyfileobj(origin, destination)
+                    destination.flush()
+                    os.fsync(destination.fileno())
+            if digest(temporary) != expected:
                 raise ValueError("additional fixture changed during transport")
             temporary.replace(target)
         ctx.bind([source])
@@ -1927,7 +1954,7 @@ def suite(args, ctx):
         # read upstream bytes directly and execute only in the fixed slots.
         copied = runtime_view(runtime, ctx.directory / "runtime")
         storage = transfer_tree(runtime / "tests", copied, dirs_exist_ok=True)
-        additional_fixtures(args, ctx, copied / "unit-tests")
+        additional_fixtures(args, ctx, copied / "unit-tests", origin_runtime=runtime)
     else:
         copied = runtime / 'tests'
         storage = dict(method='read-only-upstream-inputs', filesCopied=0)

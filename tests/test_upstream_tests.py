@@ -404,8 +404,11 @@ class UpstreamTestContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "extend the selected inventory"):
                 native_capabilities.expected_suite_inventory(
                     {**tiny_args, "additionalFixtures": {"06-thread/thread_start.scm": {}}}, ctx)
+            with self.assertRaisesRegex(ValueError, "compiler phase file escaped"):
+                native_capabilities.expected_suite_inventory(
+                    {**tiny_args, "compilerPhaseFiles": ["06-thread/missing.scm"]}, ctx)
         with self.assertRaisesRegex(ValueError, "per-file controls"):
-            native_capabilities.validate_suite({**args, "compilerPhaseFiles": []}, recipe["inputs"])
+            native_capabilities.validate_suite({**args, "observationFiles": {}}, recipe["inputs"])
 
     def test_source_bound_inventory_accepts_exact_completed_or_imported_producer(self):
         source_ref = {"step": "candidate", "output": "source"}
