@@ -279,3 +279,88 @@ Measured via 1 warmup + 5 interleaved A/B pairs
 - *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
   =false= pending resolution of pre-existing =c1d51213= =END_OF_CONT=
   thread-park flakes, full runtime TSan, and Gerbil SMP qualification.
+
+* 7. Native Amp-3 C23 Immix Multi-Hole, Overflow Preservation & Per-Section LXR
+
+Building directly on the committed Amp-2 baseline (=vendor/gambit= commit
+=c28091f9=), native Immix multi-hole/overflow recycling, per-section 2-bit LXR
+deferred-RC side-tables, and two legacy Immix/card-table soundness hardening
+fixes were implemented across 10 =vendor/gambit= files
+(=include/_gambit/memory_state.h.in=, =lib/collector.h=, =lib/mem.c=,
+=lib/_mem/section-claim.inc=, =lib/_mem/movable-sections.inc=,
+=lib/_mem/memory-lifecycle.inc=, =lib/_mem/concurrent-major.inc=,
+=lib/_mem/lxr-drc.inc=, =lib/_mem/heap-sections.inc=,
+=lib/_mem/generational.inc=):
+
+- *In-Section Multi-Hole Immix Refill, Best-Fit/Largest-Fit Claim & Overflow Preservation*:
+  - Lowered minimum recyclable Immix hole span from =512= words (4 lines) to
+    =256= words (2 lines) in =concurrent-major.inc= and =generational.inc=.
+  - Upgraded =refill_worker_arena()= (=heap-sections.inc=) to preserve
+    untouched trailing lines (=[rem_lo .. hole_hi) >= 256= words) with a valid
+    leaf =___sU8VECTOR= filler header before chaining directly to the next
+    fitting hole in the same mature section via
+    =section_claim_immix_hole_fitting()= (best-fit for => 256= words,
+    largest-fit otherwise), deferring =[hole_lo .. cur_off)= closure into
+    worker-private =closed_holes_[]= until strictly after =BARRIER()= drains
+    all parallel chunk stealers (=close_recycled_immix_hole_stw()=).
+  - Upgraded =section_best_promo_span()= and =prepare_generational_round()= to
+    rank Immix promotion candidates by cumulative recyclable free-line capacity
+    (=section_total_free_hole_words()= via =popcount(major_line_live[])=),
+    ensuring fine-grained =256w–384w=-hole-rich sections take priority over
+    small tail fragments.
+- *Per-Section Inline LXR 2-Bit Deferred-RC Side-Table & SATB-Safe Reclamation*:
+  - Moved the 128-byte 2-bit LXR side-table (=___LXR_RC_FREE=0, RC_ONE=1,
+    RC_TWO=2, RC_STUCK=3=) inline into each =___msection='s trailing metadata
+    (=section_lxr_drc_bits(sec)= in =SECTION_BYTES=, initialized to =0x55= =
+    =4x RC_ONE= on allocation and every section reset), physically eliminating
+    =sec->pos= aliasing across =adjust_msections()= address re-sorting and
+    dynamic table reallocations.
+  - Added SATB-gated =lxr_drc_reclaim_free_lines_idle()= (strictly gated on
+    =major_phase_ == ___GC_MAJOR_IDLE= and =sec->major_mark_epoch != 0=,
+    counting deferred lines when SATB is active), promoted-span =RC_ONE=
+    marking across =gc_is_dest == 1/2/3= (including full closing-filler spans),
+    and semantic VM telemetry (=immix_multihole_refills_=,
+    =immix_overflow_preserved_=, =lxr_lines_reclaimed_=,
+    =lxr_lines_deferred_satb_=, =lxr_stuck_resets_=).
+- *Legacy Immix & Card-Boundary Soundness Bugs Eliminated*:
+  - Fixed a pre-existing =c14= multi-core race (observed ~10% on =amp2-build=:
+    =36/40=) where boundary-card / post-snapshot =NULL_CHUNK_LINK= (=___FORW=)
+    headers left =starts[hi_card] = 1=, causing parallel
+    =scan_mature_card_list_with_state()= dirty-card walks to backtrack across
+    =hole_hi= into an actively written Immix promotion hole; tightened
+    =record_mature_obj_start()= to =in_card < starts[card]=, replaced card-head
+    =___FORW= headers with 1-word leaf fillers across fresh/tail/Remark-sweep
+    boundaries, and enforced =starts[hi_card] == 0= inside
+    =section_claim_immix_hole_fitting()=.
+  - Cleared =sec->major_line_live[]= and reset =section_lxr_drc_bits(sec)= to
+    =0x55= across all 7 section-reset transitions (selective evacuation, fresh
+    promotion, full STW Major GC, non-segregated fallback, and 100%-dead
+    unlink), and separated =cur_off >= hole_hi= (exact-full hole) from
+    =cur_off <= hole_lo + 1= (empty hole) in =close_recycled_immix_hole_stw()=.
+  - Result on =c14-immix-selective-evac-slab[p8]=: improved from =36/40=
+    (pre-Amp-3 baseline) to *50/50 PASS* (v5) + *20/20 PASS* (v6 final),
+    zero crashes, zero hangs.
+
+** Interleaved A/B LBO Results (Pre =c28091f9= vs Post Amp-3 v6, Apple M2 Pro)
+Measured via 5 interleaved A/B pairs (=.cache/tasks/amp3-baseline/ab_amp3_swiss_lbo.json=,
+=.cache/tasks/amp3-baseline/ab_amp3_lbo_interleaved.json=):
+
+| Workload | Procs | Work (Pre -> Post ms) | Wall Speedup | GC Speedup | Holes Recycled (Pre -> Post) | Multi-Hole Refills / Overflow Preserved | Total CPU LBO Ratio |
+|----------+-------+-----------------------+--------------+------------+------------------------------+-----------------------------------------+---------------------|
+| =amp3_fine_256w_holes= (58% live, 256w–384w holes) | =p1= | 5.89 -> 5.33 | *1.11x* | 0.98x | *0 -> 51* | =mh=50, ov=0= | *0.987x* |
+| =amp3_fine_256w_holes= (58% live, 256w–384w holes) | =p4= | 8.96 -> 7.22 | *1.24x* | *1.44x* | *0 -> 51* | =mh=50, ov=0= | *0.906x (-9.4%)* |
+| =amp3_fine_256w_holes= (58% live, 256w–384w holes) | =p8= | 16.05 -> 10.18 | *1.58x* | *1.71x* | *0 -> 82* | =mh=80, ov=0= | *0.670x (-33.0%)* |
+| =amp3_fine_256w_holes= (58% live, 256w–384w holes) | =p12= | 7.79 -> 7.36 | *1.06x* | *1.13x* | *0 -> 51* | =mh=50, ov=0= | *0.959x (-4.1%)* |
+| =amp3_multihole_swiss= (58% live, ~1Kw bands + 340w med) | =p1= | 6.64 -> 6.63 | 1.00x | *1.10x* | *0 -> 27* | =mh=26, ov=3= | 1.061x |
+| =amp3_multihole_swiss= (58% live, ~1Kw bands + 340w med) | =p4= | 7.39 -> 7.23 | *1.02x* | *1.11x* | *0 -> 26* | =mh=25, ov=3= | *0.997x* |
+| =amp3_multihole_swiss= (58% live, ~1Kw bands + 340w med) | =p8= | 10.42 -> 7.70 | *1.35x* | *1.52x* | *1 -> 26* | =mh=25, ov=3= | *0.831x (-16.9%)* |
+| =amp3_multihole_swiss= (58% live, ~1Kw bands + 340w med) | =p12= | 7.37 -> 7.38 | 1.00x | 0.98x | *4 -> 84 (21x)* | =mh=80, ov=9= | *0.798x (-20.2%)* |
+| =amp1_tight_movable_guard= (non-regression) | =p1/p8= | 15.7/41.8 -> 15.8/16.2 | *0.99x / 2.58x* | *1.06x / 1.13x* | zero regression | — | *1.02x / 0.87x* |
+
+- *Core GC + SRFI-230 Multicore PBT (Official Flags)*: *36/36 PASS* across
+  =c9..t6= × =p1/p4/p8/p12= (=.cache/tasks/amp3-baseline/amp3_core36_pbt.json=),
+  plus *50/50 + 20/20 PASS* on =c14[p8]= zero-crash stress and *10/10 PASS* on
+  =c12[p4]=.
+- *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
+  =false= pending resolution of pre-existing =c1d51213= =END_OF_CONT=
+  thread-park flakes, full runtime TSan, and Gerbil SMP qualification.

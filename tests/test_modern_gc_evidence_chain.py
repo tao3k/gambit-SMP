@@ -115,6 +115,9 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertTrue(receipt["admissionBoundaries"]["amp1ImplementationAdmitted"])
         self.assertEqual(36, receipt["verificationResults"]["nativeAmp1RuntimeVerification"]["coreGcAndSrfi230Pbt"]["passed"])
         self.assertEqual(36, receipt["verificationResults"]["nativeAmp2RuntimeVerification"]["coreGcAndSrfi230Pbt"]["passed"])
+        self.assertEqual(36, receipt["verificationResults"]["nativeAmp3RuntimeVerification"]["coreGcAndSrfi230Pbt"]["passed"])
+        self.assertEqual(50, receipt["verificationResults"]["nativeAmp3RuntimeVerification"]["c14P8ZeroCrashStress"]["v5Passed"])
+        self.assertEqual(20, receipt["verificationResults"]["nativeAmp3RuntimeVerification"]["c14P8ZeroCrashStress"]["v6FinalPassed"])
 
         # Every tracked artifact SHA-256 digest in the receipt must match the file on disk
         artifacts = receipt["artifactSha256"]
