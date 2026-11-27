@@ -391,3 +391,51 @@ Formal verification for Phase C4-A:
     to *616--716us* (approaching Rust Tokio's =468us=!), *6 GCs* (down from 100+ in C4-A).
   - =ht_effect_pingpong=: *w=1* hit *1.004M/s* with *P99 302us* (down from 741--853us in C7, *-2.5x*),
     *max 428us*, *4 GCs / 1ms*, *15.5 MiB*; *w=12* RSS dropped to *32.7--32.9 MiB* (lowest yet).
+
+* 12. Phase C9: Inline 4096-Slot Chase-Lev Deque, Zero-Cross-Module Thread Access, Lazy =#f= Control-State Barrier Skip & Sticky Victim Stealing
+
+** 12.1 Architectural Upgrades (=vendor/gambit/lib/gambit/fiber/fiber.scm=, upstream-clean)
+1. *Inline Block-Local 4096-Slot 128B-Padded Chase-Lev Work-Stealing Deque*:
+   - Eliminated the 512-slot deque overflow bottleneck (which spilled 488 of every 1,000 nursery
+     fibers into the contended global =lf-queue= and allocated 48,800 heap queue nodes per 100k
+     fanout) and all 400,000+ cross-module calls into =gambit/concurrent= by inlining a 4,096-slot
+     128B-padded Chase-Lev deque directly inside =fiber.scm= under =(declare (block))=.
+   - Added a 128B-padded =global-pending= counter (=global-pending >= global-q length=) so workers
+     skip polling =global-q= in 1 load when no external wakeup or overflow is pending.
+2. *Zero-Cross-Module Inline Thread-Local Carrier & Lazy =#f= Control-State Access*:
+   - Included =~~lib/_thread#.scm= so =%current-wctx=, =%get-tc=, and =%set-tc!= compile to
+     single-instruction =macro-thread-specific= / =macro-thread-control-state= field accesses
+     instead of cross-module global calls with type checks.
+   - Enforced the scheduler boundary invariant =thread.control-state == #f= on suspend/exit so
+     resuming any fiber with =tc == #f= skips =%set-tc!= completely (eliminating >1,000,000
+     redundant GC write barriers on the carrier thread struct).
+3. *Sticky Victim-Locality Work-Stealing Cursor*:
+   - Each worker caches its last productive steal victim in =steal-cursor= and rotates across all
+     =W - 1= peers (never self-stealing), reducing wasted steal probes on bursty nursery fanouts.
+
+** 12.2 3-Layer Adversarial Formal Verification (Phase C9, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/inline_dq_global_hint_and_lazy_tc_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (=1,388ms=; task conservation across inline deque +
+  global overflow, =globalPending == 0 => globalLen == 0=, lazy =#f= control-state isolation,
+  valid peer steal cursor).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/InlineDqLazyTcRefinement.lean=):
+  4 theorems, 0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso=)* (=tests/contracts/modern-c/gc-ffi/inline-dq-lazy-tc-smp/harness.c=):
+  0 of 11 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_GLOBAL_HINT_DEC_BEFORE_POP=, =INJECT_BUG_GLOBAL_HINT_NO_FENCE=,
+  =INJECT_BUG_SKIP_CLEAR_NONZERO_TC=, =INJECT_BUG_DQ_MISSING_SEQ_FENCE=.
+
+** 12.3 Full SMP Verification Gate & Historic Single-Core Breakthrough vs Rust Tokio 1.54
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,087/1,087 PASS*
+  (=(srfi 226)= 488/488, =(gambit effect)= 372/372, =(gambit fiber)= 104/104 incl. Test #12
+  5,000-fiber deque-overflow + sticky-steal + mixed non-=#f=/=#f= control-state leak check,
+  =(srfi 230)= 68/68 =p12=, =(gambit concurrent)= 55/55 =p12=).
+- Endurance: *15/15* consecutive 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*).
+- Paired benchmark highlights (measured under concurrent host load avg =54.14=):
+  - =ht_fiber_fanout_100k= (*w=1* single core!): exploded *+5.5x* vs C8 to *1,574,952 fibers/sec*,
+    *P50 444us* (faster than Rust Tokio 1.54 12-core =468us=!), *P99 1.62ms* (1.5x lower than Rust
+    Tokio 12-core =2.47ms=!), *gc_ms=5ms*, *17.6 MiB* RSS! (*w=12* P50 also dropped to *520us*!).
+  - =ht_effect_pingpong=: *w=1* jumped *+39%* to *1.395M/s* (*P50 64us*, *P99 211us*, *4 GCs / 1ms*,
+    *15.6 MiB*); *w=12* *P50* dropped from =101--112us= (C8) to a rock-solid *69us* across all 3 runs!
+  - =ht_generator_stream=: *w=1* *5.65M/s* (*P50 27us*, *0 GCs / 0ms*, *15.8 MiB*); *w=12* *P50*
+    rock-solid *27--28us* (faster than Rust Tokio 1.54's =32.0us=!).
