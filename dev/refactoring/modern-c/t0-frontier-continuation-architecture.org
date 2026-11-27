@@ -181,3 +181,51 @@ Formal verification for Phase C4-A:
 | =lexa_cap_tail=              | (direct call)         | 24.20M/s (P99 901us, 0 GCs)            | 71.2M--125.2M/s (P50 57us, P99 251--449us, 0 GCs)          | *+2.9x--5.2x* |
 | =effect_oneshot_suspend=     | --                    | 4.40M/s (C3, P99 2.39ms)               | 4.34M--7.01M/s (P50 79us, P99 1.28--1.93ms)                | up to *+59%* over C3 |
 | =effect_multishot_cow=       | --                    | 545K/s (C3, P99 5.75ms)                | 569K--1.04M/s (P50 93us, P99 1.17--1.35ms)                 | up to *+90%* over C3 |
+
+* 8. Phase C5: WasmFX / OCaml-5 Direct-Switch Fiber Runtime, Tokio LIFO Slot & Intrusive Channels
+
+** 8.1 Architectural Breakthroughs (=vendor/gambit/lib/gambit/fiber/fiber.scm=)
+1. *Single Reusable Per-Carrier Trampoline & Zero-Capture Resume*:
+   - Each carrier worker thread captures ONE =sched-k= trampoline continuation at startup.
+   - Resuming any parked/yielded =%fiber-k= executes ONE direct =(##continuation-return raw-k val)=
+     with *zero* =##continuation-capture= on resume, *zero* =pframe=/=handler-frame= allocation,
+     and *zero* =atomic-fxbox= allocation.
+   - Dynamic =(%current-wctx)= lookup on fiber exit/suspend ensures migrated fibers always return
+     to the *currently executing* carrier's =sched-k=.
+2. *Per-Fiber Isolated =##thread-control-state= Swap Across Steals*:
+   - Suspending saves the fiber's =(##thread-control-state)= into =%fiber-k= and resets the carrier
+     slot to =#f=; resuming restores it atomically so user =(gambit effect)= handlers and =(srfi 226)=
+     prompts/marks travel cleanly across all 12 cores with zero cross-fiber leakage.
+3. *Tokio / Go =runnext= Private LIFO Slot + Direct Symmetric Coroutine Handoff*:
+   - Owner-only 1-slot =lifo= (0 atomics, 0 =seq_cst= fences) with eviction to Chase-Lev =ws-deque=
+     and anti-starvation bound =MAX_LIFO_STREAK = 8= + periodic 32-tick =global-q= poll.
+   - =%sched-switch-next!= jumps straight from a parking fiber into a ready =%fiber-k= in =lifo=
+     without bouncing through the worker trampoline.
+4. *Intrusive Zero-Cons Channel Wait Queues*:
+   - =%fiber-k= embeds intrusive =val= and =next= slots, eliminating all per-park/per-wake cons-cell
+     allocations for both buffered and unbuffered =(make-fiber-channel)= handoffs.
+
+** 8.2 3-Layer Adversarial Formal Verification (Phase C5)
+- *Quint* (=dev/refactoring/modern-c/models/quint/fiber_direct_switch_lifo_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (exact task conservation across LIFO/deque/globalQ/waitQ,
+  per-fiber =%tc-state= isolation, bounded LIFO streak, zero stale =sched-k=).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/FiberDirectSwitchLifoRefinement.lean=):
+  6 theorems, 0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso=)* (=tests/contracts/modern-c/gc-ffi/fiber-direct-switch-lifo/harness.c=):
+  0 of 13 failed (=VERIFICATION SUCCESSFUL=) + *5/5 negative mutants caught*:
+  =INJECT_BUG_STALE_SCHED_K=, =INJECT_BUG_LIFO_OVERWRITE_LOSS=, =INJECT_BUG_LIFO_STARVATION=,
+  =INJECT_BUG_TC_STATE_LEAK=, =INJECT_BUG_VAL_PUBLISH_REORDER=.
+
+** 8.3 Full SMP Verification Gate & C4-A -> C4-B -> C5 Empirical Progression (=p12=, 12 Cores)
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,047/1,047 PASS*
+  (=(srfi 226)= 488/488, =(gambit effect)= 372/372, =(gambit fiber)= 64/64 incl. concurrent-SATB
+  GC stress, cross-core effect+mark isolation, and LIFO anti-starvation, =(srfi 230)= 68/68 =p12=,
+  =(gambit concurrent)= 55/55 =p12=).
+- Endurance: *15/15* consecutive 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, 0 warnings).
+
+| Workload (=p12=, 12 workers) | Rust Tokio 1.54 | Gambit C4-A | Gambit C4-B | Gambit C5 (Direct-Switch + LIFO) | C4-A -> C5 Total Gain |
+|------------------------------+-----------------+-------------+-------------+----------------------------------+-----------------------|
+| =ht_effect_pingpong=         | 10.38M/s (P99 1.04ms) | 65.7K--164.9K/s (P99 52.9ms, GC 620ms, 78.8 MiB) | 340K--558K/s (P99 12.6ms, GC 114ms, 82.6 MiB) | *1.31M--1.98M/s* (P50 194us, P99 3.24ms, GC 10ms, *40.1 MiB*) | *+12x--30x* / P99 *-16.3x* / GC *-62x* / RSS *-2.0x* |
+| =ht_generator_stream=        | 45.35M/s (P99 165us)  | 1.29M--1.69M/s (P99 5.59ms, GC 80ms, 80.5 MiB)   | 3.02M--4.25M/s (P99 3.33ms, GC 18ms, 82.6 MiB) | *5.98M--11.75M/s* (P50 83us, P99 1.05ms, GC 3ms, *41.0 MiB*) | *+7.0x--9.1x* / P99 *-5.3x* / GC *-26x* / RSS *-2.0x* |
+| =ht_fiber_fanout_100k=       | 1.58M/s (P99 2.47ms)  | 54.2K--85.0K/s (P99 109.7ms, GC 1002ms, 74.5 MiB)| 182K--446K/s (P99 8.06ms, GC 78ms, 82.6 MiB)   | *284K--485K/s* (w=1: *544K/s*, P50 1.49ms, GC 53ms, *48.9 MiB*) | *+5.7x--8.9x* / GC *-18.9x* / RSS *-1.7x* |
+| =lexa_cap_tail=              | (direct call)         | 24.20M/s (P99 901us, 0 GCs)                      | 71.2M--125.2M/s (P99 251us, 0 GCs)             | *71.2M--108.8M/s* (P50 52us, P99 191us, 0 GCs)               | *+4.5x* |
