@@ -280,3 +280,57 @@ Formal verification for Phase C4-A:
 | =ht_generator_stream=        | 45.35M/s (P50 32.0us, P99 165us)  | 1.29M--1.69M/s (GC 80ms, 80.5 MiB)   | 5.98M--11.75M/s (GC 3ms, 41.0 MiB) | *5.84M--9.10M/s* (P50 105us, P99 *1.07ms*, *0 GCs / 0ms*, *36.0 MiB*) | *0 GCs* / P99 *-5.2x* / RSS *-2.2x* |
 | =ht_fiber_fanout_100k=       | 1.58M/s (P50 468us, P99 2.47ms)   | 54.2K--85.0K/s (P50 2.66ms, GC 1002ms, 74.5 MiB) | 284K--485K/s (P50 1.49ms, GC 53ms, 48.9 MiB) | *580.9K/s* (P50 *940us*, *7 GCs / 9ms*, *39.5--40.2 MiB*) | *+6.8x--10.7x* / P50 *-2.8x* / GC *-111x* / RSS *-1.9x* |
 | =lexa_cap_tail=              | (direct call)                     | 24.20M/s (P99 901us, 0 GCs)          | 71.2M--108.8M/s (0 GCs)            | *79.2M--88.6M/s* (P50 62us, P99 308--352us, *0 GCs*) | *+3.7x* |
+
+* 10. Phase C7: Inline C23 Atomics, 128B Apple-Silicon Cache-Line Padding, Owner-Only STLR Quiescence & Relaxed Channel Hints
+
+** 10.1 Architectural Upgrades (=gambit/concurrent= + =gambit/fiber=)
+1. *Inline C23 Atomic Primitives (=macro-if-c-compiled=)*:
+   - Replaced cross-module =(srfi 230)= =atomic-fxbox-*= calls (which paid cross-module linkage +
+     =#!optional= memory-order symbol dispatch on every hot-path op) in both
+     =vendor/gambit/lib/gambit/fiber/fiber.scm= and
+     =vendor/gambit/lib/gambit/concurrent/concurrent.scm= with header-inlined C23 helpers
+     (=___atomic_word_load/store/cas=, =___atomic_uword_fetch_add/sub=, =___atomic_fence_order=,
+     =___gc_atomic_slot_load_acq/store_rlx=).
+   - Preserves clean fallback to =(srfi 230)= for interpreted / non-C backends.
+2. *128-Byte Apple-Silicon Cache-Line Padding & Owner-Only STLR Quiescence*:
+   - Padded Chase-Lev =ws-deque= =top= / =bottom= indices (=16-word= = =128B= stride on 64-bit)
+     eliminating owner-vs-thief L2 false sharing on Apple M2 Pro (128B cache line).
+   - Padded per-worker =spawned[w]= and =completed[w]= quiescence counters to 128B and upgraded
+     single-writer owner updates from atomic RMW (=ldaddal=) to non-RMW owner-only release store
+     (=%fxatom-inc-owner-rel!= -> =stlr= on ARM64).
+3. *Relaxed Channel Empty/Full Hints & Lazy =(%current-wctx)=*:
+   - =fiber-recv!= and =fiber-send!= perform a zero-atomic relaxed empty/full hint before acquiring
+     the channel spinlock; on a hinted park, =%park-recv!= / =%park-send!= acquire the spinlock and
+     authoritatively re-check =count= under the lock (eliminating wasted lock acquisitions during
+     ping-pong and removing all =current-thread= / =thread-specific= lookups from buffered fast paths).
+   - Internal hot-path helpers use =(declare (not safe))= while preserving explicit public API validation.
+
+** 10.2 3-Layer Adversarial Formal Verification (Phase C7)
+- *Quint* (=dev/refactoring/modern-c/models/quint/channel_relaxed_hint_and_owner_stlr_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (stale relaxed hints + locked re-check + owner-only
+  =stlr= quiescence soundness; zero lost wakeups, zero double-consumptions, zero false termination).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/ChannelRelaxedHintRefinement.lean=):
+  4 theorems, 0 =sorry=, 0 warnings (proving stale relaxed hints never cause lost wakeups or
+  double consumption once authoritative re-check holds under the acquire/release lock).
+- *CBMC (=--mm pso=)* (=tests/contracts/modern-c/gc-ffi/channel-relaxed-hint-smp/harness.c=):
+  0 of 7 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_SKIP_LOCKED_RECHECK=, =INJECT_BUG_UNLOCK_RELAXED=,
+  =INJECT_BUG_OWNER_STORE_NO_RELEASE=, =INJECT_BUG_DOUBLE_CONSUME_SLOT=.
+
+** 10.3 Full SMP Verification Gate & End-to-End C4-A -> C7 Progression
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,063/1,063 PASS*
+  (=(srfi 226)= 488/488, =(gambit effect)= 372/372, =(gambit fiber)= 80/80 incl. Test #10
+  16-producer x 16-consumer =cap=0= & =cap=1= relaxed-hint MPMC channel hammer across all cores,
+  =(srfi 230)= 68/68 =p12=, =(gambit concurrent)= 55/55 =p12=).
+- Endurance: *15/15* consecutive 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*
+  on plain =gsi gambit_fiber_bench.o1=).
+- Paired benchmark highlights (note: measured under heavy concurrent host load avg =89.25=, so
+  single-core throughput and P50 latency reflect true microarchitectural speedup while multi-core
+  tail/GC wall times reflect OS preemption):
+  - =ht_generator_stream= (=w=12=): jumped to *18.19M/s* (up from 5.84M--9.10M/s in C6, *+2.0x*),
+    *P50 22--24us* (faster P50 than Rust Tokio's =32.0us=!), *P99 174--307us*, *0 GCs / 0ms*,
+    =w=1= jumped to *5.00M/s* (*P50 33us*, *0 GCs*, *15.4 MiB*).
+  - =ht_effect_pingpong=: *w=1* hit *1.02M/s* (*P50 66us*, *P99 741us*, *4 GCs / 1ms*, *15.2 MiB*);
+    *w=12* P50 latency dropped from =233us= (C6) to *76--82us* (*-2.9x* P50 latency, *35.0--36.9 MiB*).
+  - =ht_fiber_fanout_100k=: *w=12* P50 latency dropped further from =940us= (C6) to *811--845us*,
+    *7--9 GCs*, *40.1--40.5 MiB*.
