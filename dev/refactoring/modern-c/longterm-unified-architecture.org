@@ -244,7 +244,7 @@ Eliminated **100%** of compile-time =[___MAX_PROCESSORS]= static arrays across t
 :CUSTOM_ID: slice-3b1-evented-io
 :STATUS: STAGE8_CLOSED_COMMITTED
 :QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt
-:LEAN_PROOF: dev/refactoring/modern-c/models/lean/SmpIoSelectCloseRefinement.lean
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/Slice3B1EventedIoReactorRefinement.lean
 :CBMC_HARNESS: dev/refactoring/modern-c/models/cbmc/slice3b1_evented_io_reactor_pso.c
 :END:
 
@@ -255,17 +255,21 @@ Eliminated **100%** of compile-time =[___MAX_PROCESSORS]= static arrays across t
   - *GC-Safe Tier 3.3 Reactor Parking*: =___os_condvar_select= extracts pure C =___device*= pointers and drops =devices= lock (=primlock_depth -> 0=), holding zero moving =___SCMOBJ= across =device_select_impl= while parking the blocking =kevent=/=epoll_wait= inside =___enter_blocking_ffi=/=___leave_blocking_ffi= and matching ready events via an =O(1)= hash set after re-locking; =on_all_processors= wakes all =life->sync_parked[k]= via async-signal-safe =___device_select_abort= when =requires_full= (=OP_VM_RESIZE=/=___cleanup=).
   - *Fork-Safe & Regular-File Ready Cache*: =owner_pid != getpid()= resets inherited kernel descriptors after =fork()=; per-=(fd, dev_gen)= =always_ready= cache handles regular files (=fstat S_ISREG= on =kqueue=, =EPERM= on =epoll=).
 
-** Slice 3B-2 — =SRFI-230= Barriered Atomics & Chase-Lev Work-Stealing Parallel Stdlib (Next Phase)
+** Slice 3B-2 — =SRFI-230= Barriered Atomics & Chase-Lev Work-Stealing Parallel Stdlib (CLOSED)
 :PROPERTIES:
 :CUSTOM_ID: slice-3-io-stdlib
-:STATUS: NEXT_PHASE_DESIGN_READY
-:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt
-:LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+:STATUS: STAGE8_CLOSED_COMMITTED
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/slice3b2_srfi230_and_chase_lev_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/Slice3B2AtomicsChaseLevRefinement.lean
+:CBMC_HARNESS: dev/refactoring/modern-c/models/cbmc/slice3b2_chase_lev_and_srfi230_pso.c
 :END:
 
-- *Standard Parallel & Atomic Library*:
-  - =SRFI-230= (=atomic-box=, =atomic-fxbox=, =atomic-flag=, =atomic-pair=, explicit memory-order fences) lowered directly to =___ORDERED_WORD_NATIVE= + =gsc/_prims.scm= with mandatory generational card + SATB write barriers on pointer stores.
-  - Weak-memory-verified Chase-Lev work-stealing deque (Le et al. PPoPP 2013) + structured fork-join (=parallel-map=, =future=/=force=, bounded lock-free channels, concurrent sharded hash tables) running on Tier 3.2 work-stealing + Tier 3.1 generational GC.
+- *C23 Hardware Atomics + GC-Barriered Slot Layer (=include/_gambit/activity_log.h.in=, =include/_gambit/runtime_protocols.h.in=)*:
+  - Parameterized C23/Win32/sequential memory-order primitives (=___atomic_fence_order=, =___atomic_word_{load,store,exchange,cas}=, =___atomic_uword_fetch_{add,sub,and,ior,xor}=) preserving Gambit =00= fixnum tag bits with zero signed-overflow UB.
+  - GC-barriered pointer slot helpers (=___gc_atomic_slot_load=, =___gc_atomic_slot_exchange=, =___gc_atomic_slot_cas=): mark generational card before atomic store/CAS and use =atomic_exchange= (matching =vendor/ocaml/runtime/memory.c=) so every concurrent writer receives and SATB-shades the exact overwritten mature pointer.
+- *Standard Libraries (=lib/srfi/230/=, =lib/gambit/parallel/=)*:
+  - Full =(srfi 230)= Final (=memory-order=, =atomic-flag=, =atomic-box=, =atomic-fxbox=, lock-free zero-tear immutable-cons =atomic-pair=, =atomic-fence=): compiles to native C23 =.o1= via =macro-if-c-compiled= and cleanly supports pure-interpreted =gsi= and JS targets via =##vector-cas!=/=##vector-inc!= fallback (54/54 unit tests PASS).
+  - =(gambit parallel)=: Weak-memory-verified Chase-Lev work-stealing deque (Le et al. PPoPP 2013, relaxed atomic GC-traced Scheme ring vector slots, =seq_cst= Dekker fences, collision-free power-of-2 ring doubling) + dynamically-sized work-stealing pool + zero-deadlock work-stealing-helping =future=/=future-force= (with exception propagation) + =parallel-map=/=parallel-for-each=/=parallel-vector-map=/=parallel-reduce= (37/37 unit tests PASS; =c16= 100% PASS across =p1,p4,p8,p12= & Clang C23 TSan).
 
 ** Slice 4 — =tao3k/gerbil= SMP Parallel Compilation & Same-Source 12/12 Release Seal
 :PROPERTIES:
@@ -347,6 +351,9 @@ Every formal model in this package was deliberately engineered to *attack* tempt
 | 26 | Slice 3B-1 (=requires_full= Full-Sync vs Parked I/O Reactors) | Wait for =sync_parked_count == 0= in =on_all_processors= (=OP_VM_RESIZE=, =___cleanup=, =OP_FDSET_RESIZE=) without waking parked I/O reactors | Deadlock when an idle core is parked in =kevent=/=epoll_wait= with infinite timeout while another core requests live VM resize or shutdown | Set =sync_block_new_parks++= and call async-signal-safe =___device_select_abort= on every =life->sync_parked[k]= under =sync_part_mut= (=mutant8FullSyncWaitWithoutWakeupKilledTest=, =slice3b1_evented_io_reactor_pso.c= kills =-DUSE_FULL_SYNC_ABORT=0=) |
 | 27 | Slice 3B-1 (=OP_FDSET_RESIZE= UAF & High-Core FD Exhaustion) | Run =OP_FDSET_RESIZE= with parked reactors still reading =fdset=, OR allocate a 2-FD self-pipe per processor under macOS =ulimit -n 256= | Use-after-free on =fdset.readfds= under fallback =select=/=poll=, OR =EMFILE= failure at =-:p128= | Add =OP_FDSET_RESIZE= to =requires_full= for fallback backends, bypass =OP_FDSET_RESIZE= completely on =kqueue=/=epoll=, and use =EVFILT_USER= (1 FD/core, 0 pipes) on macOS/BSD + =eventfd= on Linux while saving/restoring =errno= in =___device_select_abort= |
 | 28 | Slice 3B-1 (Post-=___cleanup_vmstate= Freed-=pstate= UAF — *Caught Live on Linux CI =c7 exit=139=!*) | Dereference a saved =___processor_state= pointer after =___cleanup_vmstate(extra)= freed =extra->processor_storage= | Linux glibc immediately =munmap()=s the ~200 KiB =calloc= slab -> deterministic =SIGSEGV= in =c7=, latent UAF in =root-task.scm= & =vm-lifecycle.scm= | Capture pre-cleanup diagnostics before =___cleanup_vmstate=, preserve =vm->aligned_pstate0.pstate.vmstate = vm= in =vm_free_processor_storage= so =___PSTATE_FROM_PROCESSOR_ID(0, extra)= safely exercises rejected re-entry without UAF |
+| 29 | Slice 3B-2 (=SRFI-230= =atomic-box-set!= Concurrent SATB Loss) | Implement =atomic-box-set!= as separate =load(slot); satb_shade(old); store(slot, new);= | Concurrent writers race between =load= and =store=, overwriting an intermediate mature pointer without SATB shading -> swept while live (UAF!) | Implement =atomic-box-set!= via =___gc_atomic_slot_exchange= (matching =vendor/ocaml/runtime/memory.c=): card-mark before store, =atomic_exchange= returns exact overwritten word to the overwriting thread for SATB shading (=mutant1NonExchangeSetSkipsSatbKilledTest=, =slice3b2_chase_lev_and_srfi230_pso.c= kills =-DUSE_ATOMIC_EXCHANGE_SATB=0=) |
+| 30 | Slice 3B-2 (Chase-Lev 2-Element Weak-Memory Duplicate Execution — Le et al. PPoPP 2013) | Omit the =seq_cst= Store-Load Dekker fence in =deque-pop-bottom!= or =deque-steal!= | On ARM64/PSO, owner reads stale =t < b= (skipping CAS) while a second thief reads stale =b > t= (winning CAS on =top=), executing the same task twice! | Enforce =atomic-fence 'sequentially-consistent= in both =deque-pop-bottom!= and =deque-steal!=, verified under CBMC =--mm pso= (=slice3b2_chase_lev_and_srfi230_pso.c= 56/56 SUCCESS, kills =-DUSE_CHASE_LEV_SEQ_CST=0=) |
+| 31 | Slice 3B-2 (Chase-Lev Ring Buffer Speculative Stealer C23 DRF-0 Race) | Access Chase-Lev circular array slots with plain non-atomic =vector-ref=/=vector-set!= | Slow thief whose CAS will later fail speculatively loads =a[t & mask]= concurrently with wrapped-around owner =push-bottom!= -> C23 UB & TSan data race | Access Chase-Lev ring slots exclusively via relaxed GC-barriered =vector-atomic-ref=/=vector-atomic-set!= (=___gc_atomic_slot_load=/=exchange=), verified 0 TSan races across =c16 p4/p8= |
 
 * ALIGNED Reproducible Formal Verification Commands
 :PROPERTIES:
@@ -373,7 +380,8 @@ for spec in \
   dev/refactoring/modern-c/models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt \
   dev/refactoring/modern-c/models/quint/v2/per_domain_rest_slab_and_io_check_v2.qnt \
   dev/refactoring/modern-c/models/quint/v2/slice2_v3_immix_evac_and_slab_v2.qnt \
-  dev/refactoring/modern-c/models/quint/v2/slice3a_dynamic_vm_domains_v2.qnt; do
+  dev/refactoring/modern-c/models/quint/v2/slice3a_dynamic_vm_domains_v2.qnt \
+  dev/refactoring/modern-c/models/quint/v2/slice3b2_srfi230_and_chase_lev_v2.qnt; do
   quint test "$spec"
   quint run --invariant=safe --max-samples=2000 --max-steps=30 "$spec"
 done
@@ -384,11 +392,20 @@ for lf in \
   dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean \
   dev/refactoring/modern-c/models/lean/SmpIoSelectCloseRefinement.lean \
   dev/refactoring/modern-c/models/lean/Slice2V3MemoryEndgameRefinement.lean \
-  dev/refactoring/modern-c/models/lean/Slice3ADynamicDomainsRefinement.lean; do
+  dev/refactoring/modern-c/models/lean/Slice3ADynamicDomainsRefinement.lean \
+  dev/refactoring/modern-c/models/lean/Slice3B1EventedIoReactorRefinement.lean \
+  dev/refactoring/modern-c/models/lean/Slice3B2AtomicsChaseLevRefinement.lean; do
   lean -DwarningAsError=true "$lf"
 done
 
 # 5. CBMC weak-memory PSO & arithmetic contract checks (safe PASS + mutants FAIL)
+cbmc --mm pso -DUSE_CHASE_LEV_SEQ_CST=1 -DUSE_ATOMIC_EXCHANGE_SATB=1 -DUSE_CARD_BARRIER=1 --bounds-check --signed-overflow-check \
+  dev/refactoring/modern-c/models/cbmc/slice3b2_chase_lev_and_srfi230_pso.c
+for flag in "-DUSE_CHASE_LEV_SEQ_CST=0 -DUSE_ATOMIC_EXCHANGE_SATB=1 -DUSE_CARD_BARRIER=1" \
+            "-DUSE_CHASE_LEV_SEQ_CST=1 -DUSE_ATOMIC_EXCHANGE_SATB=0 -DUSE_CARD_BARRIER=1" \
+            "-DUSE_CHASE_LEV_SEQ_CST=1 -DUSE_ATOMIC_EXCHANGE_SATB=1 -DUSE_CARD_BARRIER=0"; do
+  ! cbmc --mm pso $flag dev/refactoring/modern-c/models/cbmc/slice3b2_chase_lev_and_srfi230_pso.c
+done
 cbmc --mm pso -DUSE_FD_GEN_CHECK=1 -DUSE_FULL_SYNC_ABORT=1 --bounds-check --signed-overflow-check --unsigned-overflow-check --unwind 20 \
   dev/refactoring/modern-c/models/cbmc/slice3b1_evented_io_reactor_pso.c
 ! cbmc --mm pso -DUSE_FD_GEN_CHECK=0 -DUSE_FULL_SYNC_ABORT=1 --unwind 20 \

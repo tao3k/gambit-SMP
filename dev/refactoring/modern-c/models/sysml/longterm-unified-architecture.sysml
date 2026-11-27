@@ -195,6 +195,30 @@ package GambitLongTermUnifiedArchitecture {
         }
     }
 
+    part def Srfi230AndChaseLevState {
+        attribute atomicBoxUsesExchangeSatb : Boolean;
+        attribute atomicBoxMarksCardOnYoung : Boolean;
+        attribute fxboxPreservesTagBits : Boolean;
+        attribute atomicPairImmutableZeroTear : Boolean;
+        attribute chaseLevSeqCstDekkerFenced : Boolean;
+        attribute chaseLevRingRelaxedAtomic : Boolean;
+        attribute chaseLevResizeInjective : Boolean;
+        attribute futureForceWorkStealingHelps : Boolean;
+    }
+    requirement def Srfi230AndChaseLevLaw {
+        subject cl : Srfi230AndChaseLevState;
+        require constraint {
+            cl.atomicBoxUsesExchangeSatb and
+            cl.atomicBoxMarksCardOnYoung and
+            cl.fxboxPreservesTagBits and
+            cl.atomicPairImmutableZeroTear and
+            cl.chaseLevSeqCstDekkerFenced and
+            cl.chaseLevRingRelaxedAtomic and
+            cl.chaseLevResizeInjective and
+            cl.futureForceWorkStealingHelps
+        }
+    }
+
     part def AdaptiveHeapScalingState {
         attribute censusOversizedReleased : Boolean;
         attribute contractionHistoryDecays : Boolean;
@@ -521,18 +545,18 @@ package GambitLongTermUnifiedArchitecture {
         attribute :>> title = "kqueue/epoll Persistent Evented SMP I/O Reactor (Zero FD_SETSIZE/MAX_CONDVARS Caps, EVFILT_USER/eventfd Wakeup, Tier 3.3 GC-Safe Park, FD-Gen ABA Custody)";
         attribute :>> status = "STAGE8_CLOSED_COMMITTED";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt";
-        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/SmpIoSelectCloseRefinement.lean";
+        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/Slice3B1EventedIoReactorRefinement.lean";
         attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice3b1_evented_io_reactor_pso.c";
         attribute :>> exitGate = ">1024 real OS sockets (c15 1120 FDs p1..p12) without FD_SETSIZE/MAX_CONDVARS caps; 0 STW GC stall & full-sync resize wakeup on parked reactors; fork-safe & regular-file cache; 0 TSan races; 15/15 CI green";
     }
     part slice3BIoAndStdlib : ArchitectureSlice {
         attribute :>> sliceId = "Slice3B2";
-        attribute :>> title = "SRFI-230 Barriered Atomics & Weak-Memory-Verified Chase-Lev Work-Stealing Parallel Stdlib";
-        attribute :>> status = "NEXT_PHASE_DESIGN_READY";
-        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt";
-        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
-        attribute :>> cbmcTarget = "Chase-Lev C11/ARM64 PSO work-stealing deque + SRFI-230 generational/SATB barrier harness";
-        attribute :>> exitGate = "SRFI-230 atomic-box/fxbox/flag/pair with card+SATB barriers + Chase-Lev parallel-map/future/force linearizability + PBT + TSan + 15/15 CI green";
+        attribute :>> title = "SRFI-230 GC-Barriered Atomics & Weak-Memory-Verified Chase-Lev Work-Stealing Parallel Stdlib ((srfi 230) & (gambit parallel))";
+        attribute :>> status = "STAGE8_CLOSED_COMMITTED";
+        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/slice3b2_srfi230_and_chase_lev_v2.qnt";
+        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/Slice3B2AtomicsChaseLevRefinement.lean";
+        attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice3b2_chase_lev_and_srfi230_pso.c";
+        attribute :>> exitGate = "SRFI-230 54/54 + (gambit parallel) 37/37 interpreted & compiled C23 .o1; c16 p1..p12 exact-once Chase-Lev & GC barriers; 0 TSan races; 15/15 CI green";
     }
     part slice4GerbilRelease : ArchitectureSlice {
         attribute :>> sliceId = "Slice4";
@@ -584,10 +608,10 @@ package GambitLongTermUnifiedArchitecture {
             attribute :>> label = "Slice 3B-1 (CLOSED): kqueue/epoll Evented SMP I/O Reactor (Zero FD_SETSIZE/MAX_CONDVARS Caps, Tier 3.3 Park)";
         }
         part slice3BIoAndStdlib : SliceNode {
-            attribute :>> label = "Slice 3B-2 (NEXT): SRFI-230 Barriered Atomics & Chase-Lev Work-Stealing Parallel Stdlib";
+            attribute :>> label = "Slice 3B-2 (CLOSED): SRFI-230 Barriered Atomics & Chase-Lev Work-Stealing Parallel Stdlib";
         }
         part slice4GerbilSeal : SliceNode {
-            attribute :>> label = "Slice 4 (FINAL): Gerbil SMP Parallel Compiler + Full TSan + Same-Source 12/12 Release Seal";
+            attribute :>> label = "Slice 4 (NEXT / FINAL): Gerbil SMP Parallel Compiler + Full TSan + Same-Source 12/12 Release Seal";
         }
 
         connection base_to_waveA connect baseline824f5dc6 to waveA;
