@@ -334,3 +334,60 @@ Formal verification for Phase C4-A:
     *w=12* P50 latency dropped from =233us= (C6) to *76--82us* (*-2.9x* P50 latency, *35.0--36.9 MiB*).
   - =ht_fiber_fanout_100k=: *w=12* P50 latency dropped further from =940us= (C6) to *811--845us*,
     *7--9 GCs*, *40.1--40.5 MiB*.
+
+* 11. Phase C8: Lock-Free Vyukov Bounded MPMC Channels, Zero-Closure Capture, Per-Carrier =%fiber-k= Pool & Zero-Capture Nursery Children
+
+** 11.1 Architectural Upgrades (=vendor/gambit/lib/gambit/fiber/fiber.scm=, upstream-clean)
+1. *Lock-Free Vyukov Bounded MPMC Channel Ring + Linearizable Direct Handoff (=cap >= 1=)*:
+   - Replaced the single-spinlock buffered channel ring with a 128B Apple-Silicon cache-line-padded
+     Vyukov lock-free bounded MPMC ring (=tail=, =head=, =rx-waiters=, =tx-waiters= on disjoint
+     128B cache lines; =2*pos= / =2*pos+1= / =2*(pos+cap)= sequence-number encoding supporting every
+     capacity =cap >= 1=, with fast bitmasking for powers of two and exact =fxmodulo= otherwise).
+   - Streaming buffered sends/receives execute *zero spinlocks* and *zero* =%current-wctx= calls.
+   - Ping-pong direct handoff fires under =wait-lock= ONLY when =rx-waiters > 0= AND
+     =load_acq(tail) == load_acq(head)=, formally proven to preserve strict linearizable FIFO.
+2. *Zero-Closure Multi-Arg =##continuation-capture= + Per-Carrier =%fiber-k= Freelist Pool*:
+   - Replaced all closure-allocating =(##continuation-capture (lambda (k) ...))= sites in
+     =%park-send-*=, =%park-recv-*=, =fiber-yield=, and =%park-nursery!= with top-level multi-arg
+     receivers (eliminating 360,000+ closures per ping-pong run and 100,000 closures per 100k fanout).
+   - Added a bounded (64-node) per-carrier private intrusive =%fiber-k= freelist (=fk-pool=,
+     zero atomics, zero retained GC roots), eliminating 99.99% of =%fiber-k= heap allocations.
+3. *Zero-Capture Nursery Children + No-Winding Fiber Suspension*:
+   - Replaced per-child =with-exception-catcher= (which secretly performed =##continuation-capture=
+     + 2 closures on all 100,000 child startups) with =##with-exception-handler= paired with a
+     single pre-allocated per-nursery abort handler using winding =##continuation-graft= to run
+     all =dynamic-wind= =after= hooks BEFORE decrementing =nursery.active=.
+   - Upgraded fiber yield/channel suspension switches to =##continuation-graft-no-winding= /
+     =##continuation-return-no-winding=, eliminating spurious =dynamic-wind= before/after thrashing
+     on yield while preserving exact unwinding on exception aborts.
+4. *Upstream-Clean Source Hygiene*:
+   - Removed all internal =gambit-SMP= formal-model paths and internal phase labels from
+     =vendor/gambit= source comments (=fiber.scm=, =effect.scm=, =226.scm=, and test files).
+
+** 11.2 3-Layer Adversarial Formal Verification (Phase C8, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/vyukov_mpmc_channel_and_fk_pool_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (ring bounds/conservation, strict FIFO linearizability,
+  Dekker zero-lost-wakeup, clean =%fiber-k= pool recycling, =dynamic-wind= =after=-before-done).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/VyukovMpmcChannelRefinement.lean=):
+  4 theorems, 0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso=)* (=tests/contracts/modern-c/gc-ffi/vyukov-mpmc-channel-smp/harness.c=):
+  0 of 11 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_DEKKER_NO_FENCE=, =INJECT_BUG_SKIP_PARK_RECHECK=,
+  =INJECT_BUG_DIRECT_HANDOFF_BYPASS_RING=, =INJECT_BUG_FK_RECYCLE_WITHOUT_CLEAR=.
+
+** 11.3 Full SMP Verification Gate & Performance Highlights
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,079/1,079 PASS*
+  (=(srfi 226)= 488/488, =(gambit effect)= 372/372, =(gambit fiber)= 96/96 incl. Test #11
+  non-power-of-two =cap=3= MPMC hammer, =cap=5= strict FIFO check, and zero-capture nursery
+  =dynamic-wind= =after= exactly-once abort verification, =(srfi 230)= 68/68 =p12=,
+  =(gambit concurrent)= 55/55 =p12=).
+- Endurance: *15/15* consecutive 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*
+  on plain =gsi gambit_fiber_bench.o1=).
+- Paired benchmark highlights (measured under concurrent host load avg =85.82=):
+  - =ht_generator_stream= (=w=1=): jumped from =4.37M--5.00M/s= (C7) to *6.35M/s* (+27%--45%),
+    *P50 31us*, *P99 36us* (down from 94--174us), *max 39us*, *0 GCs / 0ms*, *15.8 MiB*.
+  - =ht_fiber_fanout_100k=: *w=1* jumped from =192K/s= (C7) to *285.2K/s* (+49%), *P50 1099us*
+    (down from 1758us), *19 GCs*, *24.3 MiB*; *w=12* *P50* plunged from =940us= (C6) / =811us= (C7)
+    to *616--716us* (approaching Rust Tokio's =468us=!), *6 GCs* (down from 100+ in C4-A).
+  - =ht_effect_pingpong=: *w=1* hit *1.004M/s* with *P99 302us* (down from 741--853us in C7, *-2.5x*),
+    *max 428us*, *4 GCs / 1ms*, *15.5 MiB*; *w=12* RSS dropped to *32.7--32.9 MiB* (lowest yet).
