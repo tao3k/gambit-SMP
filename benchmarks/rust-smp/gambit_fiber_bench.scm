@@ -9,6 +9,9 @@
 ;;;   4. lexa_cap_tail_12c     : 12 workers x 200 batches x 1000 O(1) Lexa perform-cap ops
 ;;;============================================================================
 
+(##demand-module gambit/fiber)
+(##demand-module gambit/effect)
+(##demand-module srfi/230)
 (import (gambit fiber))
 (import (gambit effect))
 (import (srfi 230))
@@ -244,9 +247,12 @@
           (s1 (##process-statistics)))
       (report-result "lexa_cap_tail" w (* w batches batch-size) elapsed samples s0 s1))))
 
-;; Run all 4 paired benchmarks
+;; Run all 4 paired benchmarks (GC between isolated workloads, matching Rust Runtime drop)
 (bench-ht-effect-pingpong workers)
+(##gc)
 (bench-ht-generator-stream workers)
+(##gc)
 (bench-ht-fiber-fanout-100k workers)
+(##gc)
 (bench-lexa-cap-tail workers)
 (exit 0)

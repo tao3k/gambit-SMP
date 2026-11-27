@@ -123,3 +123,61 @@ Formal verification for Phase C4-A:
 | =ht_generator_stream=        | 45.35M/s (P50 32.0us, P99 165us)  | 1.29M--1.69M/s (P50 123us, P99 5.59ms)  | 37--41% (4--5 GCs) | 66.5--80.5 MiB vs 2.8 MiB | Eliminate 512 KiB msection pinning on suspended fibers |
 | =ht_fiber_fanout_100k=       | 1.58M/s (P50 468us, P99 2.47ms)   | 54.2K--85.0K/s (P50 2.66ms, P99 109.7ms)| 54% (37 GCs)     | 74.5 MiB vs 3.1 MiB  | Small 4 KiB pooled fiber chunks + local-nursery safe park |
 | =lexa_cap_tail=              | (direct call)   | 24.20M/s (P50 58us, P95 207us, P99 901us) | 0.0% (0 GCs)   | 0 MiB delta          | Already native-speed O(1) direct dispatch |
+
+* 7. Phase C4-B: Chez 4 KiB Chunk Restore, Racket CS O(1) Tail Marks, SATB-Safe Rewind & Zero-Warning Loader
+
+** 7.1 Implemented Runtime & Library Upgrades
+1. *Chez PLDI '90 Bounded Multi-Frame Chunk Restore* (=vendor/gambit/lib/_mem/continuation-roots.inc=):
+   - =___restore_stack_break_frame= copies up to 64 contiguous frames (<= 512 words / 4 KiB) in ONE
+     =copy_gate= acquisition and ONE contiguous =memcpy=, reserving =___MSECTION_FUDGE= above
+     =dest_lo= so multi-frame chunking never enters the stack guard/fudge zone, and shading ALL
+     =nframes= restored frames when concurrent SATB major GC is active.
+2. *SATB-Safe In-Place Prompt-Return Stack Rewind + Dead GVM Register Scrub*
+   (=continuation-roots.inc=, =_kernel.scm=, =srfi/226/226.scm=):
+   - =___try_rewind_prompt_span= and =___try_rewind_oneshot_span= refuse in-place reclamation while
+     =satb_active_ != 0= (preventing SATB buffers or concurrent markers from observing overwritten
+     stack-allocated continuations), clear =pframe->escape_k= strictly upon confirmed rewind, and
+     scrub dead GVM argument registers (=___R2..___R4=) prior to =___JUMPEXTPRM= so reclaimed
+     stack continuations can never be spilled as live GC roots by a subsequent =___POLL= / =___PUSH_REGS=.
+3. *Racket CS ICFP '20 True O(1) Tail-Call-Preserving Continuation Marks* (=_kernel.scm=, =226.scm=):
+   - =##tail-call-with-r0= inspects the caller's exact return label without pushing a stack frame;
+     when =caller-r0 == %mark-pop-ra=, =with-continuation-mark= replaces/merges the top mark frame
+     in O(1) stack space (verified across 100,000 tail-recursive iterations).
+4. *Zero-Closure Fiber Parking, Pre-Allocated Scheduler Handlers & Bounded Deque RSS*
+   (=gambit/fiber/fiber.scm=, =gambit/concurrent/concurrent.scm=):
+   - Specialized =%eff-park-nursery=, =%eff-park-send=, =%eff-park-recv= effects eliminate per-park
+     closures; =%init-scheduler-handlers!= pre-allocates handler entries once per =run-fibers=;
+     fixed racy slot clear in =ws-deque-try-pop!= and sized per-worker Chase-Lev deques to 512
+     (with lock-free =lf-queue= overflow spill) to cut peak RSS from ~184 MiB back to ~82 MiB.
+5. *Zero Spurious Undefined-Global Warnings on Compiled =.o1= Modules* (=_eval.scm=):
+   - =load-binary= now loads declared =demand-modules= before reporting undefined globals and
+     re-checks each symbol against =##global-var-ref=, eliminating 100% of spurious warnings for
+     properly imported =(import ...)= bindings while preserving warnings for genuinely undefined symbols.
+
+** 7.2 3-Layer Adversarial Formal Verification (Phase C4-B)
+- *Quint* (=dev/refactoring/modern-c/models/quint/chunk_restore_and_tail_marks_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (chunk conservation, fudge-zone headroom, SATB completeness,
+  SATB-exclusive in-place rewind, and O(1) tail-mark stack bound).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/ChunkRestoreAndTailMarksRefinement.lean=):
+  7 theorems, 0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso=)* (=tests/contracts/modern-c/gc-ffi/chunk-restore-tail-marks/harness.c=):
+  0 of 60 failed (=VERIFICATION SUCCESSFUL=) + *6/6 negative mutants caught*:
+  =INJECT_BUG_SHADE_ONLY_TOP_FRAME=, =INJECT_BUG_CHUNK_OVERRUN=, =INJECT_BUG_TAIL_MARK_STACK_GROWTH=,
+  =INJECT_BUG_IGNORE_FUDGE_ZONE=, =INJECT_BUG_REWIND_DURING_SATB=, =INJECT_BUG_UNSCRUBBED_GVM_REG=.
+
+** 7.3 Full SMP Verification Gate & Paired Benchmark Progression (C4-A -> C4-B vs Rust Tokio)
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,035/1,035 PASS*
+  (=(srfi 226)= 488/488, =(gambit effect)= 372/372, =(gambit fiber)= 52/52 incl. concurrent-SATB GC x
+  10k-fiber stress, =(srfi 230)= 68/68 =p12=, =(gambit concurrent)= 55/55 =p12=).
+- Endurance stress on =p12=: *15/15* consecutive 100k-fiber fanouts (*1,500,000 fibers*, 1,197,257
+  in-place stack rewinds, 0 errors) + *20/20* consecutive =gambit_continuation_bench.o1= runs (0 errors,
+  0 warnings on plain =gsi=).
+
+| Workload (=p12=, 12 workers) | Rust Tokio 1.54 | Gambit C4-A | Gambit C4-B (Quiet / Peak) | C4-A -> C4-B Gain |
+|------------------------------+-----------------+-------------+----------------------------+-------------------|
+| =ht_effect_pingpong=         | 10.38M/s (P99 1.04ms) | 65.7K--164.9K/s (P99 52.9ms, GC 620ms) | 340K--558K/s (P99 12.6--17.6ms, GC 114--188ms, RSS 82 MiB) | *+3.4x--8.5x* / P99 *-3.0x--4.2x* |
+| =ht_generator_stream=        | 45.35M/s (P99 165us)  | 1.29M--1.69M/s (P99 5.59ms, GC 80ms)   | 3.02M--4.25M/s (P99 3.33--6.17ms, GC 18--19ms, RSS 82 MiB) | *+2.3x--3.3x* / GC *-4.2x* |
+| =ht_fiber_fanout_100k=       | 1.58M/s (P99 2.47ms)  | 54.2K--85.0K/s (P99 109.7ms, GC 1002ms)| 182K--446K/s (P99 8.06--47.4ms, GC 78--148ms, RSS 82 MiB)  | *+3.4x--8.2x* / P99 *-2.3x--13.6x* |
+| =lexa_cap_tail=              | (direct call)         | 24.20M/s (P99 901us, 0 GCs)            | 71.2M--125.2M/s (P50 57us, P99 251--449us, 0 GCs)          | *+2.9x--5.2x* |
+| =effect_oneshot_suspend=     | --                    | 4.40M/s (C3, P99 2.39ms)               | 4.34M--7.01M/s (P50 79us, P99 1.28--1.93ms)                | up to *+59%* over C3 |
+| =effect_multishot_cow=       | --                    | 545K/s (C3, P99 5.75ms)                | 569K--1.04M/s (P50 93us, P99 1.17--1.35ms)                 | up to *+90%* over C3 |

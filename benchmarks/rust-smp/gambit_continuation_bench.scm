@@ -7,6 +7,9 @@
 ;;;   4. Multi-Shot `resume-multishot` (lazy ONE_SHOT_LIVE -> MULTISHOT_COW)
 ;;;============================================================================
 
+(##demand-module gambit/effect)
+(##demand-module srfi/226)
+(##demand-module srfi/230)
 (import (gambit effect))
 (import (srfi 226))
 (import (srfi 230))
