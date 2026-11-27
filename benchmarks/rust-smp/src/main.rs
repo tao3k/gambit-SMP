@@ -102,7 +102,7 @@ fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
-fn measure<F: Fn() -> u64>(f: F) -> RunSample {
+fn measure<F: FnMut() -> u64>(mut f: F) -> RunSample {
     let r0 = rusage_now();
     let t0 = Instant::now();
     let checksum = black_box(f());
@@ -335,6 +335,68 @@ fn measure_par_live_heap(pool: &rayon::ThreadPool, workers: usize, mutator_iters
 }
 
 // ---------------------------------------------------------------------------
+// 4b. par_oldgen_churn_live (Rayon) — 1:1 match with Gambit large old-gen churn
+// ---------------------------------------------------------------------------
+
+struct OldNode {
+    _id: i64,
+    seq: i64,
+    _pair: Box<(i64, i64)>,
+    payload: Vec<i64>,
+}
+
+fn make_old_node(id: i64, seq: i64) -> Box<OldNode> {
+    Box::new(OldNode {
+        _id: id,
+        seq,
+        _pair: Box::new((seq, seq + 1)),
+        payload: vec![seq; 16],
+    })
+}
+
+fn measure_par_oldgen_churn(pool: &rayon::ThreadPool, workers: usize, iters: usize) -> RunSample {
+    const RING_LEN: usize = 4096;
+    let mut rings: Vec<Vec<Box<OldNode>>> = pool.install(|| {
+        (0..workers)
+            .into_par_iter()
+            .map(|w| {
+                (0..RING_LEN)
+                    .map(|i| make_old_node(w as i64, i as i64))
+                    .collect()
+            })
+            .collect()
+    });
+    let sample = measure(|| {
+        pool.install(|| {
+            let vals: Vec<i64> = rings
+                .par_iter_mut()
+                .enumerate()
+                .map(|(w, ring)| {
+                    let mut s = 0_i64;
+                    for i in 0..iters {
+                        let slot = i & (RING_LEN - 1);
+                        let probe = (i + 17) & (RING_LEN - 1);
+                        let node = make_old_node(w as i64, (i + RING_LEN) as i64);
+                        ring[slot] = black_box(node);
+                        let p = &ring[probe];
+                        s = s.wrapping_add(p.seq).wrapping_add(p.payload[0]);
+                    }
+                    s
+                })
+                .collect();
+            let mut total = 0u64;
+            for v in vals {
+                assert!(v != 0, "oldgen churn mismatch");
+                total = total.wrapping_add(v as u64);
+            }
+            total
+        })
+    });
+    drop(rings);
+    sample
+}
+
+// ---------------------------------------------------------------------------
 // 5. par_sync_mailbox_cas (Tokio + AtomicU64) — 1:1 match with Gambit mailbox/CAS
 // ---------------------------------------------------------------------------
 
@@ -531,6 +593,7 @@ fn main() {
         "par_alloc_gc_m65536",
         "par_rest_alloc_m65536",
         "par_gc_pause_live_heap",
+        "par_oldgen_churn_live",
         "par_sync_mailbox_cas",
     ];
     if args.full_load {
@@ -570,6 +633,9 @@ fn main() {
                 "par_gc_pause_live_heap" => {
                     let _ = measure_par_live_heap(&pool, 2, 1000);
                 }
+                "par_oldgen_churn_live" => {
+                    let _ = measure_par_oldgen_churn(&pool, 2, 500);
+                }
                 "par_sync_mailbox_cas" => {
                     bench_par_sync_mailbox_cas(&rt, args.workers, 500, 200);
                 }
@@ -586,6 +652,7 @@ fn main() {
                     "par_alloc_gc_m65536" => measure(|| bench_par_alloc_churn(&pool, args.workers, 25_000)),
                     "par_rest_alloc_m65536" => measure(|| bench_par_rest_alloc(&pool, args.workers, 120_000)),
                     "par_gc_pause_live_heap" => measure_par_live_heap(&pool, args.workers, 150_000),
+                    "par_oldgen_churn_live" => measure_par_oldgen_churn(&pool, args.workers, 40_000),
                     "par_sync_mailbox_cas" => {
                         measure(|| bench_par_sync_mailbox_cas(&rt, args.workers, 15_000, 4_000))
                     }
