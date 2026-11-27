@@ -364,3 +364,85 @@ Measured via 5 interleaved A/B pairs (=.cache/tasks/amp3-baseline/ab_amp3_swiss_
 - *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
   =false= pending resolution of pre-existing =c1d51213= =END_OF_CONT=
   thread-park flakes, full runtime TSan, and Gerbil SMP qualification.
+
+* 8. Native Amp-4 C23 MemBalancer Pacing, Phantom Bytes & Off-Heap Immutable RefC Binaries
+
+Building directly on the committed Amp-3 baseline (=vendor/gambit= commit
+=3e54e5d4=), native MemBalancer $\sqrt{L \cdot M_{\text{scale}} \cdot g / (c \cdot s)}$
+adaptive Major GC pacing, OCaml-5 global atomic work pacing, Racket-on-Chez
+external phantom-byte pressure accounting, and Erlang ProcBin / Rust Arc style
+off-heap immutable RefC binaries were implemented across 14 =vendor/gambit=
+files (=include/_gambit/memory_state.h.in=, =include/_gambit/global_state.h.in=,
+=include/_gambit/runtime_protocols.h.in=, =lib/setup.c=, =lib/mem.c=,
+=lib/_mem/refc-binary.inc=, =lib/_mem/memory-lifecycle.inc=,
+=lib/_mem/concurrent-major.inc=, =lib/_mem/generational.inc=,
+=lib/_mem/allocation-limits.inc=, =lib/_mem/object-allocation.inc=,
+=lib/_mem/collection-round.inc=, =lib/_mem/still-sweep.inc=,
+=lib/_mem/local-nursery.inc=):
+
+- *MemBalancer Adaptive Major GC Pacing (=concurrent-major.inc=, =generational.inc=, =collection-round.inc=)*:
+  - Tracks VM-wide mutator allocation rate $g$ (EMA $\alpha_g = 0.95$, sampled
+    at STW cuts with zero IDLE mutator overhead) and GC scan/reclaim throughput
+    $s$ (EMA $\alpha_s = 0.5$) to compute dimensionally exact headroom
+    $E^* = \sqrt{L \cdot M_{\text{scale}} \cdot g / (c_{\text{eff}} \cdot s)}$
+    ($M_{\text{scale}} = 64\text{ MiB}$, $c_{\text{eff}} = (\text{eff\_pct}/50)^2$),
+    honoring explicit =-:l<N>= and =max_heap= verbatim while enforcing the
+    $E_{\min}$ burst-OOM floor (8 movable sections / 2 still sections).
+  - Isolates read-mostly pacing/phantom triggers from mutator-written atomic
+    counters via 64-byte cache-line padding in =___vmstate_mem= to eliminate
+    8–12 core false sharing.
+- *OCaml-5 Global Atomic Work Pacing & Racket Phantom Bytes (=concurrent-major.inc=, =allocation-limits.inc=, =object-allocation.inc=, =refc-binary.inc=)*:
+  - Publishes completed concurrent mark work via release-ordered
+    =___WORD_FETCH_ADD_RELEASE(&vm->mem.major_work_done_words_, scanned)= in
+    =___gc_major_mark_slice()=, and paces mutators proportionally per core via
+    =gc_major_pace_alloc_words()= (=max(fair_slice, deficit / np)= capped at
+    =131072= words) across heap refills, local nursery recycles, still chunks,
+    and phantom-byte registrations—bounding headroom by both 2× section/still
+    limits and the 6-Minor-GC window so concurrent marking completes in time.
+  - Exposes lock-free non-moving =___gc_register_phantom_bytes()= and
+    =___gc_pacing_stats()= (12 counters), arming single-winner CAS
+    =phantom_gc_needed_= when live external native bytes cross
+    =major_trigger_phantom_bytes_= and tightening the trigger downward after
+    reclamation to prevent ratcheting.
+- *Off-Heap Immutable RefC Binaries / ProcBin (=refc-binary.inc=, =still-sweep.inc=, =local-nursery.inc=)*:
+  - Implements =___refc_bin= with public C/FFI APIs (=___gc_refc_bin_create=,
+    =___gc_refc_bin_share=, =___gc_refc_bin_freeze=, =___gc_refc_bin_release=,
+    =___gc_refc_bin_wrap=, =___gc_refc_bin_unwrap=, data/length/immutability/rc
+    accessors): strictly rejects cross-core sharing unless
+    =___REFC_BIN_FLAG_IMMUTABLE= is set (H12), uses release-order refcount
+    decrement plus an acquire fence prior to final =___FREE_MEM()= when the
+    observed previous count equals 1, charges/releases VM phantom bytes
+    automatically, and reclaims dead built-in =___refc_bin= foreign wrappers
+    in-place during STW and local-nursery sweeps so parked cores never pin dead
+    off-heap buffers.
+
+** Interleaved A/B LBO Results (Pre =3e54e5d4= vs Post Amp-4, Apple M2 Pro)
+Measured via 1 warmup + 5 interleaved A/B pairs with macOS =/usr/bin/time -l=
+peak RSS (=.cache/tasks/amp4-baseline/ab_amp4_lbo_interleaved.json=):
+
+| Workload | Procs | Work (Pre -> Post ms) | Wall Speedup | GC / Remark (Pre -> Post ms) | Peak RSS (Pre -> Post MiB) | Total CPU LBO Ratio |
+|----------+-------+-----------------------+--------------+------------------------------+----------------------------+---------------------|
+| =amp4_pacing_burst_major= (48 MiB live + 12-wave burst) | =p1= | 268.3 -> 276.7 | 0.97x | 155.4->163.1 / *14.6->11.6 (-20.5%)* | 186.9 -> 213.9 (1.14x) | 1.040x |
+| =amp4_pacing_burst_major= (48 MiB live + 12-wave burst) | =p4= | 163.5 -> 159.4 | *1.03x* | *113.4->109.9* / *6.65->3.95 (-40.6%)* | 188.2 -> 214.9 (1.14x) | *0.991x* |
+| =amp4_pacing_burst_major= (48 MiB live + 12-wave burst) | =p8= | 164.2 -> 150.5 | *1.09x* | *120.4->94.5 (1.27x)* / 1.22->0.0 | 189.6 -> 218.1 (1.15x) | *0.845x (-15.5%)* |
+| =amp4_pacing_burst_major= (48 MiB live + 12-wave burst) | =p12= | 136.0 -> 111.4 | *1.22x* | *97.8->71.4 (1.37x)* / 1.56->0.0 | 190.8 -> 206.9 (1.08x) | *0.899x (-10.1%)* |
+| =amp4_phantom_rss_bound= (240 MiB off-heap churn) | =p1= | 14.93 -> 4.78 | *3.13x* | 0.0 -> 0.81 | *249.0 -> 30.7 (0.123x, -87.7%)* | *0.322x (-67.8%)* |
+| =amp4_phantom_rss_bound= (240 MiB off-heap churn) | =p4= | 14.74 -> 5.32 | *2.77x* | 0.0 -> 1.13 | *249.7 -> 31.4 (0.126x, -87.4%)* | *0.359x (-64.1%)* |
+| =amp4_phantom_rss_bound= (240 MiB off-heap churn) | =p8= | 14.51 -> 4.86 | *2.99x* | 0.0 -> 0.92 | *250.5 -> 32.3 (0.129x, -87.1%)* | *0.334x (-66.6%)* |
+| =amp4_refc_immutable_share= (256 KiB SMP fan-out) | =p1= | 10.38 -> 0.33 | *31.2x* | 0.15 -> 0.0 | *26.0 -> 16.9 (-35.2%)* | *0.032x (-96.8%)* |
+| =amp4_refc_immutable_share= (256 KiB SMP fan-out) | =p4= | 35.62 -> 0.44 | *80.2x* | *11.4 -> 0.0* | *24.7 -> 17.7 (-28.2%)* | *0.017x (-98.3%)* |
+| =amp4_refc_immutable_share= (256 KiB SMP fan-out) | =p8= | 180.36 -> 0.66 | *272.9x* | *99.2 -> 0.0* | *26.2 -> 18.6 (-28.7%)* | *0.004x (-99.6%)* |
+| =amp4_refc_immutable_share= (256 KiB SMP fan-out) | =p12= | 439.33 -> 0.80 | *547.8x* | *214.7 -> 0.0* | *32.5 -> 19.6 (-39.6%)* | *0.002x (-99.8%)* |
+| =amp1_tight_movable_guard= (non-regression) | =p1/p8= | 11.77/4.18 -> 11.77/3.38 | *1.00x / 1.24x* | zero regression | *1.004x / 0.998x* | *0.991x / 1.153x* |
+
+- *Amp-4 Adversarial Suite (=p1, p4, p8 x3, p12=)*: *6/6 PASS*
+  (H12 immutability rejection + multi-core 24,012 zero-copy shares + exact
+  zero-leak reclamation; H13 phantom peak bounded at =18 MiB= out of =160 MiB=;
+  H13 concurrent Major pacing =5/5 in-time, 0 emergency remarks=).
+- *Core GC + SRFI-230 Multicore PBT (Official Flags)*: *36/36 PASS* across
+  =c9..t6= × =p1/p4/p8/p12= (=.cache/tasks/amp4-baseline/amp4_core36_pbt.json=),
+  plus *20/20 PASS* on =c14[p8]= zero-crash stress
+  (=.cache/tasks/amp4-baseline/amp4_c14_stress20.json=).
+- *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
+  =false= pending resolution of pre-existing =c1d51213= =END_OF_CONT=
+  thread-park flakes, full runtime TSan, and Gerbil SMP qualification.

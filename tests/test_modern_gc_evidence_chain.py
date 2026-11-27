@@ -118,6 +118,9 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(36, receipt["verificationResults"]["nativeAmp3RuntimeVerification"]["coreGcAndSrfi230Pbt"]["passed"])
         self.assertEqual(50, receipt["verificationResults"]["nativeAmp3RuntimeVerification"]["c14P8ZeroCrashStress"]["v5Passed"])
         self.assertEqual(20, receipt["verificationResults"]["nativeAmp3RuntimeVerification"]["c14P8ZeroCrashStress"]["v6FinalPassed"])
+        self.assertEqual(36, receipt["verificationResults"]["nativeAmp4RuntimeVerification"]["coreGcAndSrfi230Pbt"]["passed"])
+        self.assertEqual(20, receipt["verificationResults"]["nativeAmp4RuntimeVerification"]["c14P8ZeroCrashStress"]["passed"])
+        self.assertEqual(6, receipt["verificationResults"]["nativeAmp4RuntimeVerification"]["adversarialVerify"]["passed"])
 
         # Every tracked artifact SHA-256 digest in the receipt must match the file on disk
         artifacts = receipt["artifactSha256"]
@@ -283,6 +286,27 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         ):
             self.assertIn(macro, cbmc_amp4)
             self.assertIn(macro, blueprint)
+
+        # Native Amp-4 runtime C23 anchors exist in vendor/gambit
+        refc_src = (ROOT / "vendor/gambit/lib/_mem/refc-binary.inc").read_text()
+        cm_src = (ROOT / "vendor/gambit/lib/_mem/concurrent-major.inc").read_text()
+        for sym in (
+            "___gc_register_phantom_bytes",
+            "___gc_refc_bin_create",
+            "___gc_refc_bin_share",
+            "___gc_refc_bin_freeze",
+            "___gc_refc_bin_release",
+            "___gc_refc_bin_wrap",
+            "___REFC_BIN_FLAG_IMMUTABLE",
+        ):
+            self.assertIn(sym, refc_src)
+        for sym in (
+            "gc_major_pace_alloc_words",
+            "gc_pacing_sample_mutator",
+            "gc_pacing_on_major_gc",
+            "___gc_pacing_stats",
+        ):
+            self.assertIn(sym, cm_src)
 
 
 if __name__ == "__main__":
