@@ -174,4 +174,59 @@ theorem mailbox_skip_signal_requires_mutex (cvEmpty : Bool) :
     safeSkipMailboxSignal false cvEmpty = false := by
   simp [safeSkipMailboxSignal]
 
+/- ==========================================================================
+   6. Principled Zero-Magic-Cap Hardware-Topology Auto min_heap (Slice 2.5)
+   ========================================================================== -/
+
+/-- Principled automatic `min_heap` (in MiB, floored at 2 MiB = 2 msections):
+    uses per-core private L2 cache (`l2Mb / 2`), bounded by one core's
+    physical RAM share (`physMemMb / max(2, cpus) / 256`) and `maxHeapMb / 8`
+    when bounded, NEVER socket-wide shared L3 (512+ MiB on EPYC/Xeon).
+    Explicit `-:m<N>` (`explicit = true`) is honored verbatim. -/
+def principledAutoMinHeapMb
+    (explicit : Bool) (configuredMb l2Mb physMemMb cpus : Nat) : Nat :=
+  if explicit then configuredMb
+  else
+    let effCpus := Nat.max 2 cpus
+    let l2Half := l2Mb / 2
+    let ramIdleBound := (physMemMb / effCpus) / 256
+    let bounded :=
+      if physMemMb > 0 then Nat.min l2Half ramIdleBound else l2Half
+    Nat.max 2 bounded
+
+theorem explicit_min_heap_honored_verbatim
+    (configuredMb l2Mb physMemMb cpus : Nat) :
+    principledAutoMinHeapMb true configuredMb l2Mb physMemMb cpus = configuredMb := by
+  simp [principledAutoMinHeapMb]
+
+theorem auto_min_heap_at_least_two_msections
+    (configuredMb l2Mb physMemMb cpus : Nat) :
+    principledAutoMinHeapMb false configuredMb l2Mb physMemMb cpus ≥ 2 := by
+  unfold principledAutoMinHeapMb
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  exact Nat.le_max_left 2 _
+
+theorem auto_min_heap_respects_per_core_ram_idle_bound
+    (configuredMb l2Mb physMemMb cpus : Nat)
+    (hMem : physMemMb > 0) :
+    principledAutoMinHeapMb false configuredMb l2Mb physMemMb cpus ≤
+      Nat.max 2 ((physMemMb / Nat.max 2 cpus) / 256) := by
+  unfold principledAutoMinHeapMb
+  simp only [Bool.false_eq_true, ↓reduceIte, hMem]
+  have hMin : Nat.min (l2Mb / 2) ((physMemMb / Nat.max 2 cpus) / 256) ≤
+      (physMemMb / Nat.max 2 cpus) / 256 := Nat.min_le_right _ _
+  exact Nat.max_le.mpr ⟨Nat.le_max_left 2 _, Nat.le_trans hMin (Nat.le_max_right 2 _)⟩
+
+theorem auto_min_heap_epyc_512mib_l3_stays_2mib :
+    principledAutoMinHeapMb false 0 1 16384 4 = 2 := by
+  native_decide
+
+/-- Core-count-invariant burst-delta contraction (`c12`): if `after <= base`
+    on any topology `P`, the retained burst delta above empty-VM baseline `base`
+    is strictly zero regardless of `P`. -/
+theorem c12_burst_delta_contraction_core_invariant
+    (base peak after : Nat) (hPeak : peak > base) (hShrink : after ≤ base) :
+    after - base = 0 ∧ peak - base > 0 := by
+  omega
+
 end GambitAdaptiveHeapScaling

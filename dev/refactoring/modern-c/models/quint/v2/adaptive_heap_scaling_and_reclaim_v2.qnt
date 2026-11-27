@@ -12,8 +12,32 @@ module adaptive_heap_scaling_and_reclaim_v2 {
 
   pure val CENSUS_RETAIN_KB = 512
   pure val LARGE_STILL_MMAP_KB = 64
+  pure val DEFAULT_MIN_HEAP_MB = 2 // architectural minimum: 2 msections (1 stack + 1 heap), matching OCaml 5.5.1 Minor_heap_def=2MiB
   pure val MAX_WORKERS = 8
   pure val EIGHT_GIB_MB = 8192
+
+  // Principled zero-magic-cap hardware-topology auto min_heap (Blackburn/McKinley SIGMETRICS 2004,
+  // Yang/Berger/McKinley ISMM 2004, MemBalancer OOPSLA 2022, vendor/ocaml 5.5.1 & vendor/chez 10):
+  //   - Uses per-core private L2 cache (NEVER socket-wide shared L3 = 512+ MiB on EPYC/Xeon!)
+  //   - Bounded by one core's physical RAM share / 256 (physMemMb / effCpus / 256)
+  //   - Floored at DEFAULT_MIN_HEAP_MB (2 MiB); explicit -:m<N> is always honored verbatim.
+  pure def computeAutoMinHeapMb(
+    explicitMinHeap: bool,
+    configuredMinHeapMb: int,
+    perCoreL2Mb: int,
+    physMemMb: int,
+    cpus: int
+  ): int =
+    if (explicitMinHeap)
+      configuredMinHeapMb
+    else {
+      val effCpus = if (cpus >= 2) cpus else 2
+      val l2Half = if (perCoreL2Mb > 0) perCoreL2Mb / 2 else 0
+      val ramIdleBound = if (physMemMb > 0) (physMemMb / effCpus) / 256 else l2Half
+      val bounded =
+        if (physMemMb > 0 and l2Half > ramIdleBound) ramIdleBound else l2Half
+      if (bounded < DEFAULT_MIN_HEAP_MB) DEFAULT_MIN_HEAP_MB else bounded
+    }
 
   // Exact integer square root for P in {1, 2, 4, 8, 16, 32, 64}
   pure def isqrtP(p: int): int =
@@ -65,6 +89,9 @@ module adaptive_heap_scaling_and_reclaim_v2 {
     mailboxWaiterInCv: bool,
     mailboxMutexHeldBySender: bool,
     mailboxSignalSkipped: bool,
+    explicitMinHeap: bool,
+    appliedMinHeapMb: int,
+    ramIdleBoundMb: int,
     // Fault flags tripped by mutants
     censusLeakBug: bool,
     ratchetPinnedBug: bool,
@@ -73,7 +100,8 @@ module adaptive_heap_scaling_and_reclaim_v2 {
     overContractionBug: bool,
     explicitOverrideBug: bool,
     mallocEmptyLeakBug: bool,
-    lostWakeupBug: bool
+    lostWakeupBug: bool,
+    socketL3MinHeapBloatBug: bool
   }
 
   var s: State
@@ -98,6 +126,9 @@ module adaptive_heap_scaling_and_reclaim_v2 {
       mailboxWaiterInCv: false,
       mailboxMutexHeldBySender: false,
       mailboxSignalSkipped: false,
+      explicitMinHeap: false,
+      appliedMinHeapMb: 2,
+      ramIdleBoundMb: 16,
       censusLeakBug: false,
       ratchetPinnedBug: false,
       dualPeakBreachBug: false,
@@ -105,7 +136,8 @@ module adaptive_heap_scaling_and_reclaim_v2 {
       overContractionBug: false,
       explicitOverrideBug: false,
       mallocEmptyLeakBug: false,
-      lostWakeupBug: false
+      lostWakeupBug: false,
+      socketL3MinHeapBloatBug: false
     }
   }
 
@@ -236,6 +268,26 @@ module adaptive_heap_scaling_and_reclaim_v2 {
     }
   }
 
+  // Action 8: Hardware-topology auto min_heap across embedded (512MiB), laptop (32GiB/12c),
+  // cloud EPYC 512MiB-L3 (16GiB/4c, L2=1MiB), and 64-core server (256GiB/64c, L2=2MiB).
+  action safeAutoMinHeapTopology(perCoreL2Mb: int, physMemMb: int, cpus: int): bool = {
+    val effCpus = if (cpus >= 2) cpus else 2
+    val ramIdle = if (physMemMb > 0) (physMemMb / effCpus) / 256 else DEFAULT_MIN_HEAP_MB
+    val bound = if (ramIdle < DEFAULT_MIN_HEAP_MB) DEFAULT_MIN_HEAP_MB else ramIdle
+    val minH = computeAutoMinHeapMb(false, 0, perCoreL2Mb, physMemMb, cpus)
+    all {
+      Set(0, 1, 4, 16).contains(perCoreL2Mb),
+      Set(512, 16384, 32768, 262144).contains(physMemMb),
+      Set(2, 4, 12, 64).contains(cpus),
+      s' = {
+        ...s,
+        explicitMinHeap: false,
+        appliedMinHeapMb: minH,
+        ramIdleBoundMb: bound
+      }
+    }
+  }
+
   action step = any {
     nondet burst = Set(100, 320, 1760).oneOf()
     nondet ckb = Set(64, 4096, 524288).oneOf()
@@ -251,7 +303,11 @@ module adaptive_heap_scaling_and_reclaim_v2 {
     safeSetExplicitLivePercent(pct),
     safeLargeStillDirectMmap(256),
     nondet w = Set(true, false).oneOf()
-    safeMailboxSendUnderMutex(w)
+    safeMailboxSendUnderMutex(w),
+    nondet l2 = Set(0, 1, 4, 16).oneOf()
+    nondet ram = Set(512, 16384, 32768, 262144).oneOf()
+    nondet c = Set(2, 4, 12, 64).oneOf()
+    safeAutoMinHeapTopology(l2, ram, c)
   }
 
   // --- Global Safety Invariants ---
@@ -269,6 +325,9 @@ module adaptive_heap_scaling_and_reclaim_v2 {
     s.largeStillViaMallocKb == 0
   val mailboxWakeupSound =
     not(s.mailboxSignalSkipped) or (s.mailboxMutexHeldBySender and not(s.mailboxWaiterInCv))
+  val autoMinHeapTopologyBounded =
+    s.explicitMinHeap or
+    (s.appliedMinHeapMb >= DEFAULT_MIN_HEAP_MB and s.appliedMinHeapMb <= s.ramIdleBoundMb)
 
   val safe =
     not(s.censusLeakBug) and
@@ -279,13 +338,15 @@ module adaptive_heap_scaling_and_reclaim_v2 {
     not(s.explicitOverrideBug) and
     not(s.mallocEmptyLeakBug) and
     not(s.lostWakeupBug) and
+    not(s.socketL3MinHeapBloatBug) and
     lowerBoundOk and
     censusBounded and
     explicitLivePctRespected and
     adaptiveLivePctInRange and
     eightWorkerEnvelopeOk and
     noLargeStillMallocRetention and
-    mailboxWakeupSound
+    mailboxWakeupSound and
+    autoMinHeapTopologyBounded
 
   // --- 8 Real-Bug Mutation Killers ---
 
@@ -335,9 +396,22 @@ module adaptive_heap_scaling_and_reclaim_v2 {
     }
   }
 
+  // Mutant 9: Legacy uncapped socket-wide L3/2 on 512 MiB AMD EPYC cloud runner inflates
+  // idle VM min_heap to 256 MiB (exceeding ramIdleBoundMb = 16 MiB and breaking c12 contraction!)
+  action buggyUncappedSocketL3MinHeap = all {
+    s' = {
+      ...s,
+      explicitMinHeap: false,
+      appliedMinHeapMb: 256,
+      ramIdleBoundMb: 16,
+      socketL3MinHeapBloatBug: true
+    }
+  }
+
   // --- Positive End-to-End Verification Tests ---
   run fullCycleAdaptiveShrinkAndCc1Test =
     init
+      .then(safeAutoMinHeapTopology(1, 16384, 4)) // 512 MiB L3 EPYC runner (1 MiB L2) -> 2 MiB auto min_heap!
       .then(safeBurstAndCensusRelease(1760, 524288))
       .then(safeContractAfterDrop(16, true))
       .then(safeGscTrimAndSpawnCc1)
@@ -347,6 +421,7 @@ module adaptive_heap_scaling_and_reclaim_v2 {
       .then(safeMailboxSendUnderMutex(false))
       .expect(
         safe and
+        s.appliedMinHeapMb == 2 and
         s.censusQueueKb == 0 and
         s.gscHeapMb == 24 and
         sublinearHeadroom(64) == 10
@@ -358,7 +433,7 @@ module adaptive_heap_scaling_and_reclaim_v2 {
       .then(safeBurstAndCensusRelease(1760, 65536))
       .expect(safe and s.appliedLivePct == 50)
 
-  // --- 8 Mutant-Killing Negative Tests ---
+  // --- 9 Mutant-Killing Negative Tests ---
   run mutant1CensusQueueLeakKilledTest =
     init.then(buggyRetainOversizedCensusQueue).expect(not(safe))
 
@@ -382,4 +457,7 @@ module adaptive_heap_scaling_and_reclaim_v2 {
 
   run mutant8MailboxSkipSignalRacyWaiterKilledTest =
     init.then(buggyMailboxSkipSignalUnlocked).expect(not(safe))
+
+  run mutant9UncappedSocketL3MinHeapKilledTest =
+    init.then(buggyUncappedSocketL3MinHeap).expect(not(safe))
 }

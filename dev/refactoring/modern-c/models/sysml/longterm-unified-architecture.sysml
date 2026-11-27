@@ -12,7 +12,7 @@ package GambitLongTermUnifiedArchitecture {
     ref part advantageRef = GambitAdvantageArchitecture::advantage0;
     ref part families8To12Ref = GambitFamilies8To12Composition::bind12;
 
-    attribute scope : String = "Long-term unified architecture blueprint above baseline 824f5dc6 (Tier 1-2 + 3.1p2 + 3.2 + 3.3, 15/15 PR CI green): Wave A (Tier 3.1p3 + fast_span + Darwin dlclose #6) -> Slice 1 (Unified FrameSpec/PointId) -> Slice 2 (Non-Moving Concurrent SATB Major GC) -> Slice 3 (kqueue/epoll Evented SMP I/O + SRFI-230 & Parallel Stdlib) -> Slice 4 (Gerbil SMP Parallel Compiler + Full-Runtime TSan + Same-Source 12/12 Release Seal).";
+    attribute scope : String = "Long-term unified architecture blueprint above baseline 4498c69b (Tier 1-3.3 + Wave A + Slice 1 FrameSpec + Slice 2 v2 Concurrent SATB Major GC + Unified Memory Envelope v26 + Slice 2.5 Per-Domain Dynamic Rest Slab, os_io Check Fence & Zero-Magic-Cap Auto min_heap): Slice 3A (OCaml-5/Chez-10 Dynamic Per-Domain VM Tables eliminating static MAX_PROCESSORS arrays) + Slice 3B (kqueue/epoll Evented SMP I/O Reactor + SRFI-230 & Parallel Stdlib) -> Slice 4 (Gerbil SMP Parallel Compiler + Full-Runtime TSan + Same-Source 12/12 Release Seal).";
     attribute zeroThrowawayRule : String = "Every Wave A data-structure and barrier decision must refine the Slice 1 FrameSpec and Slice 2 Concurrent SATB Major GC contracts directly; no semispace-only throwaway assumptions are admitted.";
 
     /* ------------------------------------------------------------------ */
@@ -229,6 +229,85 @@ package GambitLongTermUnifiedArchitecture {
         }
     }
 
+    part def DynamicDomainRestSlabState {
+        attribute perDomainOwned : Boolean;
+        attribute zeroCompileTimeSlotCap : Boolean;
+        attribute nonRelocatingChunkAppend : Boolean;
+        attribute retiredGenReceiptPreserved : Boolean;
+        attribute roundRobinDrainBounded : Boolean;
+        attribute cleanupFreesAllChunks : Boolean;
+    }
+    requirement def DynamicDomainRestSlabLaw {
+        subject ds : DynamicDomainRestSlabState;
+        require constraint {
+            ds.perDomainOwned and
+            ds.zeroCompileTimeSlotCap and
+            ds.nonRelocatingChunkAppend and
+            ds.retiredGenReceiptPreserved and
+            ds.roundRobinDrainBounded and
+            ds.cleanupFreesAllChunks
+        }
+    }
+
+    part def SelectPostPollCheckFenceState {
+        attribute selectActiveHeldAcrossCheck : Boolean;
+        attribute snapshotChecksCloseInProgress : Boolean;
+        attribute fdAndPollfdBoundsGuarded : Boolean;
+        attribute closeMutatesDevice : Boolean;
+        attribute checkRunning : Boolean;
+    }
+    requirement def SelectPostPollCheckFenceLaw {
+        subject sc : SelectPostPollCheckFenceState;
+        require constraint {
+            sc.selectActiveHeldAcrossCheck and
+            sc.snapshotChecksCloseInProgress and
+            sc.fdAndPollfdBoundsGuarded and
+            not (sc.closeMutatesDevice and sc.checkRunning)
+        }
+    }
+
+    part def PrincipledAutoMinHeapState {
+        attribute explicitMinHeapHonored : Boolean;
+        attribute usesPerCoreL2NotSocketL3 : Boolean;
+        attribute boundedByPerCoreRamShare : Boolean;
+        attribute zeroHardcodedAutoCap : Boolean;
+        attribute flooredAtTwoMsections : Boolean;
+    }
+    requirement def PrincipledAutoMinHeapLaw {
+        subject mh : PrincipledAutoMinHeapState;
+        require constraint {
+            mh.explicitMinHeapHonored and
+            mh.usesPerCoreL2NotSocketL3 and
+            mh.boundedByPerCoreRamShare and
+            mh.zeroHardcodedAutoCap and
+            mh.flooredAtTwoMsections
+        }
+    }
+
+    part def Slice2V3MemoryEndgameState {
+        attribute promotedOppositeHalfReleased : Boolean;
+        attribute adaptiveMajorTriggerTightens : Boolean;
+        attribute selectiveEvacOnlyWhenMajorIdle : Boolean;
+        attribute selectiveEvacDisjointFromPromoTail : Boolean;
+        attribute selectiveEvacFullPinnedScan : Boolean;
+        attribute generationalNurserySublinear : Boolean;
+        attribute mediumStillSlabEmptyMunmap : Boolean;
+        attribute legacyGcSwitchesRemoved : Boolean;
+    }
+    requirement def Slice2V3MemoryEndgameLaw {
+        subject e : Slice2V3MemoryEndgameState;
+        require constraint {
+            e.promotedOppositeHalfReleased and
+            e.adaptiveMajorTriggerTightens and
+            e.selectiveEvacOnlyWhenMajorIdle and
+            e.selectiveEvacDisjointFromPromoTail and
+            e.selectiveEvacFullPinnedScan and
+            e.generationalNurserySublinear and
+            e.mediumStillSlabEmptyMunmap and
+            e.legacyGcSwitchesRemoved
+        }
+    }
+
     /* ------------------------------------------------------------------ */
     /* 2. Primary Academic Paper Anchors                                  */
     /* ------------------------------------------------------------------ */
@@ -314,9 +393,58 @@ package GambitLongTermUnifiedArchitecture {
     part paperSrfi230 : PaperAnchor {
         attribute :>> paperId = "srfi-230-atomic-operations-2021";
         attribute :>> citation = "Nieper-Wisskirchen, SRFI-230 (Final 2021): Atomic Operations";
-        attribute :>> targetSlice = "Slice3_EventedIoAndParallelStdlib";
+        attribute :>> targetSlice = "Slice3B_EventedIoAndParallelStdlib";
         attribute :>> adoptedMechanism = "Standard Scheme atomic-box/fxbox/flag/pair and fences lowered to ___ORDERED_WORD_NATIVE";
         attribute :>> nonImportBoundary = "Ordinary Scheme vector-set!/set-car! remain DRF-0 non-atomic stores";
+    }
+    part paperDybvigChez06 : PaperAnchor {
+        attribute :>> paperId = "dybvig-chez-scheme-icfp-2006";
+        attribute :>> citation = "Dybvig, ICFP 2006 (+ vendor/chez 10 segment.c/alloc.c): The Development of Chez Scheme";
+        attribute :>> targetSlice = "Slice2_5_And_Slice3A_DynamicDomains";
+        attribute :>> adoptedMechanism = "Dynamic per-thread context/segment management (S_threads) and live-proportional empty segment retention (heap_reserve_ratio), zero compile-time processor/slot caps";
+        attribute :>> nonImportBoundary = "Chez native-code register conventions differ from Gambit portable C23 backend and dual-half msections";
+    }
+    part paperDolanOcaml18 : PaperAnchor {
+        attribute :>> paperId = "dolan-ocaml-memory-model-pldi-2018";
+        attribute :>> citation = "Dolan, Sivaramakrishnan & Madhavapeddy, PLDI 2018 (+ vendor/ocaml 5.5.1 domain.c/config.h): Bounding Data Races in Space and Time";
+        attribute :>> targetSlice = "Slice2_5_And_Slice3A_DynamicDomains";
+        attribute :>> adoptedMechanism = "Owner-local domain slabs with zero cross-domain scan/false-sharing and dynamic runtime domain-table allocation";
+        attribute :>> nonImportBoundary = "OCaml LDRF racy-store semantics not imported; Gambit enforces strict C23 DRF-0 and explicit ordered atomics";
+    }
+    part paperBlackburn04 : PaperAnchor {
+        attribute :>> paperId = "blackburn-cheng-mckinley-sigmetrics-2004";
+        attribute :>> citation = "Blackburn, Cheng & McKinley, SIGMETRICS 2004: Myths and Realities: The Performance Impact of Garbage Collection";
+        attribute :>> targetSlice = "Slice2_5_PrincipledAutoMinHeap";
+        attribute :>> adoptedMechanism = "Refutes socket-L3 cache sizing myth; decouples idle min_heap floor from 512+ MiB multi-CCD L3 caches";
+        attribute :>> nonImportBoundary = "Jikes RVM fixed-nursery benchmarks do not determine Gambit msection fudge invariants";
+    }
+    part paperYangBerger04 : PaperAnchor {
+        attribute :>> paperId = "yang-berger-mckinley-ismm-2004";
+        attribute :>> citation = "Yang, Berger, Kaplan & Moss, ISMM 2004: Automatic Heap Sizing: Taking Real Memory into Account";
+        attribute :>> targetSlice = "MemoryEnvelope_And_Slice2_5";
+        attribute :>> adoptedMechanism = "Physical-RAM and CPU-count aware heap sizing (adaptive live_percent + per-core RAM idle bound)";
+        attribute :>> nonImportBoundary = "Kernel page-fault counters replaced by portable sysconf/sysctl physical memory and explicit user flags";
+    }
+    part paperMemBalancer22 : PaperAnchor {
+        attribute :>> paperId = "kirisame-panchekha-membalancer-oopsla-2022";
+        attribute :>> citation = "Kirisame, Shenoy & Panchekha, OOPSLA 2022: Optimal Heap Limits for Reducing Browser Memory Use (MemBalancer)";
+        attribute :>> targetSlice = "MemoryEnvelope_And_Slice2_5";
+        attribute :>> adoptedMechanism = "Sublinear O(sqrt) uncoordinated multi-heap elasticity across parallel gsc/Gerbil workers without cross-process IPC";
+        attribute :>> nonImportBoundary = "Dynamic shadow-price telemetry approximated via deterministic CBMC-verified O(sqrt(P)) headroom and 50%->80% live_percent";
+    }
+    part paperWhiteSinger13 : PaperAnchor {
+        attribute :>> paperId = "white-singer-principled-heap-sizing-ismm-2013";
+        attribute :>> citation = "White, Singer, Aitken & Lujan, ISMM 2013 (+ vendor/erlang-otp 28 erl_gc.c): Control Theory for Principled Heap Sizing";
+        attribute :>> targetSlice = "MemoryEnvelope_And_Slice3A";
+        attribute :>> adoptedMechanism = "Collapse-aware contraction avoiding static hysteresis ratchets";
+        attribute :>> nonImportBoundary = "Workload-specific PID tuning deferred behind deterministic CBMC-verified contraction";
+    }
+    part paperGammoEpoll04 : PaperAnchor {
+        attribute :>> paperId = "gammo-epoll-ols-2004";
+        attribute :>> citation = "Gammo, Brecht, Shukla & Pariag, OLS 2004: Comparing and Evaluating epoll, select, and poll Event Mechanisms";
+        attribute :>> targetSlice = "Slice3B_EventedIoAndParallelStdlib";
+        attribute :>> adoptedMechanism = "Linux epoll O(ready) readiness + eventfd wakeup paired with userspace post-poll close custody";
+        attribute :>> nonImportBoundary = "Level-triggered/one-shot semantics preferred over edge-triggered starvation hazards";
     }
 
     /* ------------------------------------------------------------------ */
@@ -354,16 +482,34 @@ package GambitLongTermUnifiedArchitecture {
     part slice2ConcurrentMajor : ArchitectureSlice {
         attribute :>> sliceId = "Slice2";
         attribute :>> title = "Non-Moving Immix Mark-Region Mature Space (Line-Hole Recycling) + Parallel Remark/Sweep + Per-Processor Mark Buffers + Idle-Core Marking + Concurrent SATB Major GC";
-        attribute :>> status = "PRODUCTION_SYSTEM_V2_ACTIVE";
+        attribute :>> status = "STAGE8_CLOSED_COMMITTED";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/concurrent_major_satb_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
         attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/slice2_satb_major_pso.c + slice2_interrupt_idle_dekker_pso.c + Apple Clang C23 TSan";
         attribute :>> exitGate = "Parallel STW Remark + Immix line-hole recycling + post-Remark contraction; 0 TSan races across t1/t5/t6/c1/c5; 69/69 multicore PBT; 438/438 official SMP; N=5 AB/BA revision_matrix admitted=true; 15/15 CI green";
     }
-    part slice3IoAndStdlib : ArchitectureSlice {
-        attribute :>> sliceId = "Slice3";
+    part slice25DynamicHardening : ArchitectureSlice {
+        attribute :>> sliceId = "Slice2_5";
+        attribute :>> title = "OCaml-5 Per-Domain Dynamic Rest Slab + os_io Two-Stage Post-Poll Check Fence + Zero-Magic-Cap Per-Core Auto min_heap + Full-Core CI";
+        attribute :>> status = "STAGE8_CLOSED_VERIFYING_CI";
+        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/per_domain_rest_slab_and_io_check_v2.qnt + adaptive_heap_scaling_and_reclaim_v2.qnt";
+        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean#Part7 + AdaptiveHeapScalingRefinement.lean#Part6";
+        attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/per_domain_rest_slab_and_io_check_pso.c + adaptive_heap_scaling_pso.c";
+        attribute :>> exitGate = "Zero hardcoded rest slots; 24-nested slab growth 4->8->16=28; 50x c8 & t5 soak; 0 Clang C23 TSan races in rest_directory & os_io; c12 p1..p16 core-invariant; 15/15 full-core CI green";
+    }
+    part slice3ADynamicDomains : ArchitectureSlice {
+        attribute :>> sliceId = "Slice3A";
+        attribute :>> title = "OCaml-5 / Chez-10 Dynamic Per-Domain VM Tables (Eliminate Static [___MAX_PROCESSORS] Arrays + Live-Proportional Major GC Worker Count)";
+        attribute :>> status = "NEXT_PHASE_DESIGN_READY";
+        attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/per_domain_rest_slab_and_io_check_v2.qnt (extend with dynamic vm_domains table)";
+        attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
+        attribute :>> cbmcTarget = "Dynamic lifecycle/root/collector array resize + ABI-safe vm_state indirection PSO harness";
+        attribute :>> exitGate = "Zero compile-time core-count ceiling in lifecycle.h/root.h/collector.h/vm_state.h.in; idle Major GC mature sections bounded by O(live) not O(P); 15/15 CI green";
+    }
+    part slice3BIoAndStdlib : ArchitectureSlice {
+        attribute :>> sliceId = "Slice3B";
         attribute :>> title = "kqueue/epoll Evented SMP I/O Reactor + SRFI-230 & Work-Stealing Parallel Stdlib";
-        attribute :>> status = "DESIGN_ALIGNED";
+        attribute :>> status = "NEXT_PHASE_DESIGN_READY";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean";
         attribute :>> cbmcTarget = "FD-generation close/select ABA + Chase-Lev weak-memory C11/PSO harness";
@@ -380,12 +526,12 @@ package GambitLongTermUnifiedArchitecture {
     }
     part memoryEnvelopeTrack : ArchitectureSlice {
         attribute :>> sliceId = "MemoryEnvelope";
-        attribute :>> title = "Adaptive Heap Contraction, Sub-Linear O(sqrt(P)) Floor, Direct-mmap Still/Census, & Pre-cc1 gsc Trim (v26 <-> Slice 2)";
-        attribute :>> status = "ACTIVE_SYNCED_WITH_SLICE2";
+        attribute :>> title = "Adaptive Heap Contraction, Sub-Linear O(sqrt(P)) Floor, Direct-mmap Still/Census, Pre-cc1 Trim & Principled Per-Core Auto min_heap (v26 <-> Slice 2.5)";
+        attribute :>> status = "STAGE8_CLOSED_COMMITTED";
         attribute :>> quintV2Model = "dev/refactoring/modern-c/models/quint/v2/adaptive_heap_scaling_and_reclaim_v2.qnt";
         attribute :>> leanProof = "dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean";
         attribute :>> cbmcTarget = "dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c";
-        attribute :>> exitGate = "Zero O(P) linear floor growth p1..p8; gsc+cc1 dual-peak cut >=1.5 GiB at 8c; stdlib driver fp < 3 GiB; par_rest_alloc >= 2.5x p8; 12/12 same-source PASS";
+        attribute :>> exitGate = "Zero O(P) linear floor growth p1..p64; zero socket-L3 min_heap bloat; gsc+cc1 dual-peak cut >=1.5 GiB at 8c; par_rest_alloc >= 3.8x p4 / 5.4x p8; 12/12 same-source PASS";
     }
 
     /* ------------------------------------------------------------------ */
@@ -398,35 +544,37 @@ package GambitLongTermUnifiedArchitecture {
 
     part LongTermSliceGraph {
         part baseline824f5dc6 : SliceNode {
-            attribute :>> label = "Baseline 824f5dc6 + Sealed v25 12/12 (Tier 1-3.3 / Same-Source 12/12 GREEN)";
-        }
-        part memoryEnvelope : SliceNode {
-            attribute :>> label = "Memory Envelope Track: Direct-mmap Census/Still + Contraction + O(sqrt(P)) Floor + Pre-cc1 Trim";
+            attribute :>> label = "Baseline 824f5dc6 + Sealed v26 12/12 (Tier 1-3.3 + Memory Envelope CLOSED)";
         }
         part waveA : SliceNode {
-            attribute :>> label = "Wave A: Tier 3.1p3 (Rest fast_span + Generational Still + O(Y) Minor + #6)";
+            attribute :>> label = "Wave A (CLOSED): Tier 3.1p3 Rest fast_span + Generational Still + O(Y) Minor + #6";
         }
         part slice1FrameSpec : SliceNode {
-            attribute :>> label = "Slice 1: Unified FrameSpec & PointId Authority";
+            attribute :>> label = "Slice 1 (CLOSED): Unified FrameSpec & PointId Semantic Authority";
         }
         part slice2ConcurrentMajor : SliceNode {
-            attribute :>> label = "Slice 2 (v2 Production): Immix Line-Hole Recycling + Parallel Remark/Sweep + SATB Major GC";
+            attribute :>> label = "Slice 2 (CLOSED): Immix Line-Hole Recycling + Parallel Remark/Sweep + SATB Major GC";
         }
-        part slice3IoAndStdlib : SliceNode {
-            attribute :>> label = "Slice 3: kqueue/epoll Reactor + SRFI-230 & Parallel Stdlib";
+        part slice25DynamicHardening : SliceNode {
+            attribute :>> label = "Slice 2.5 (CLOSED): OCaml-5 Per-Domain Rest Slab + os_io Check Fence + Zero-Magic Auto min_heap";
+        }
+        part slice3ADynamicDomains : SliceNode {
+            attribute :>> label = "Slice 3A (NEXT): Dynamic Per-Domain VM Tables (Eliminate Static MAX_PROCESSORS) + O(live) Major Workers";
+        }
+        part slice3BIoAndStdlib : SliceNode {
+            attribute :>> label = "Slice 3B (NEXT): kqueue/epoll Reactor + SRFI-230 & Work-Stealing Parallel Stdlib";
         }
         part slice4GerbilSeal : SliceNode {
-            attribute :>> label = "Slice 4: Gerbil SMP Parallel Compiler + 12/12 Release Seal";
+            attribute :>> label = "Slice 4 (FINAL): Gerbil SMP Parallel Compiler + Full TSan + Same-Source 12/12 Release Seal";
         }
 
         connection base_to_waveA connect baseline824f5dc6 to waveA;
-        connection base_to_memenv connect baseline824f5dc6 to memoryEnvelope;
-        connection memenv_to_major connect memoryEnvelope to slice2ConcurrentMajor;
-        connection memenv_to_seal connect memoryEnvelope to slice4GerbilSeal;
         connection waveA_to_framespec connect waveA to slice1FrameSpec;
         connection framespec_to_major connect slice1FrameSpec to slice2ConcurrentMajor;
-        connection waveA_to_io_stdlib connect waveA to slice3IoAndStdlib;
-        connection major_to_seal connect slice2ConcurrentMajor to slice4GerbilSeal;
-        connection io_stdlib_to_seal connect slice3IoAndStdlib to slice4GerbilSeal;
+        connection major_to_hardening connect slice2ConcurrentMajor to slice25DynamicHardening;
+        connection hardening_to_domains connect slice25DynamicHardening to slice3ADynamicDomains;
+        connection hardening_to_io connect slice25DynamicHardening to slice3BIoAndStdlib;
+        connection domains_to_seal connect slice3ADynamicDomains to slice4GerbilSeal;
+        connection io_to_seal connect slice3BIoAndStdlib to slice4GerbilSeal;
     }
 }

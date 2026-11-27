@@ -667,11 +667,21 @@ def verify_v12_architectural_anchors(root: Path) -> dict:
         if "(macro-condvar-name-set! (macro-mailbox-condvar mb) #t)" not in thr:
             gaps.append("v26 missing strict-DRF mutex-guarded mailbox waiter flag in lib/_thread.scm")
     if cfgac_path.is_file():
-        if "gc-adaptive-sizing" not in cfgac or "gc-heap-contraction" not in cfgac:
-            gaps.append("v26 missing --enable-gc-adaptive-sizing / --enable-gc-heap-contraction in configure.ac")
+        if "gc-adaptive-sizing" in cfgac or "gc-heap-contraction" in cfgac:
+            gaps.append("P0 legacy transition switches --enable-gc-adaptive-sizing / --enable-gc-heap-contraction still present in configure.ac")
     if cfgh_path.is_file():
-        if "@CONF_GC_ADAPTIVE_SIZING@" not in cfgh or "@CONF_GC_HEAP_CONTRACTION_MODE@" not in cfgh:
-            gaps.append("v26 missing @CONF_GC_ADAPTIVE_SIZING@ / @CONF_GC_HEAP_CONTRACTION_MODE@ in configuration.h.in")
+        if "@CONF_GC_ADAPTIVE_SIZING@" in cfgh or "@CONF_GC_HEAP_CONTRACTION_MODE@" in cfgh:
+            gaps.append("P0 legacy macros @CONF_GC_ADAPTIVE_SIZING@ / @CONF_GC_HEAP_CONTRACTION_MODE@ still present in configuration.h.in")
+    cm_path = relative(root, "vendor/gambit/lib/_mem/concurrent-major.inc")
+    if cm_path.is_file():
+        cm = cm_path.read_text(encoding="utf-8", errors="replace")
+        if "gc_update_major_triggers" not in cm:
+            gaps.append("Slice 2 v3 missing hardware-adaptive gc_update_major_triggers in concurrent-major.inc")
+    aa_path = relative(root, "vendor/gambit/lib/_mem/aligned-allocation.inc")
+    if aa_path.is_file():
+        aa = aa_path.read_text(encoding="utf-8", errors="replace")
+        if "still_slab_alloc" not in aa or "still_slab_purge_empty" not in aa:
+            gaps.append("Slice 2 v3 missing medium ___STILL page-backed slab in aligned-allocation.inc")
 
     return dict(
         passed=(len(gaps) == 0),

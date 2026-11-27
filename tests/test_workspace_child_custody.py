@@ -21,38 +21,37 @@ from tests import test_workspace as fixtures
 class WorkspaceChildCustodyTests(unittest.TestCase):
     setUp = fixtures.WorkspaceTests.setUp
 
-    @unittest.skipUnless(sys.platform=='darwin','Darwin ledger admission')
-    def test_footprint_admission_does_not_kill_for_rss_only(self):
-        w.start(self.root,'darwin-test',adopt=True)
-        sample=dict(rssBytes=1<<40,footprintBytes=16*1024*1024,pgids=[],members=[])
-        with patch('gambit_smp.task_processes.memory_sample',return_value=sample) as observer:
-            self.assertEqual(0,w.execute(self.root,'darwin-test',
-                [sys.executable,'-c','import time;time.sleep(.1)'],wall_seconds=3,
-                footprint_limit_bytes=64*1024*1024))
-        self.assertTrue(observer.call_args.kwargs['footprint'])
-        owner=json.loads(w.paths(self.root,'darwin-test')[0].read_text())
-        receipt=json.loads((self.root/'.state/task-runs/darwin-test'/(owner['run']+'.json')).read_text())
-        self.assertFalse(receipt['rssAdmissionEnabled'])
-        self.assertEqual('sum-darwin-phys-footprint',receipt['resourceMetric'])
-        self.assertEqual(1<<40,receipt['peakRegisteredRssBytes'])
-        self.assertFalse(receipt.get('rssLimitExceeded',False))
+    if sys.platform == 'darwin':
+        def test_footprint_admission_does_not_kill_for_rss_only(self):
+            w.start(self.root,'darwin-test',adopt=True)
+            sample=dict(rssBytes=1<<40,footprintBytes=16*1024*1024,pgids=[],members=[])
+            with patch('gambit_smp.task_processes.memory_sample',return_value=sample) as observer:
+                self.assertEqual(0,w.execute(self.root,'darwin-test',
+                    [sys.executable,'-c','import time;time.sleep(.1)'],wall_seconds=3,
+                    footprint_limit_bytes=64*1024*1024))
+            self.assertTrue(observer.call_args.kwargs['footprint'])
+            owner=json.loads(w.paths(self.root,'darwin-test')[0].read_text())
+            receipt=json.loads((self.root/'.state/task-runs/darwin-test'/(owner['run']+'.json')).read_text())
+            self.assertFalse(receipt['rssAdmissionEnabled'])
+            self.assertEqual('sum-darwin-phys-footprint',receipt['resourceMetric'])
+            self.assertEqual(1<<40,receipt['peakRegisteredRssBytes'])
+            self.assertFalse(receipt.get('rssLimitExceeded',False))
 
-    @unittest.skipUnless(sys.platform=='darwin','Darwin ledger admission')
-    def test_footprint_budget_drains_nested_sessions(self):
-        w.start(self.root,'darwin-test',adopt=True)
-        child='import time; data=bytearray(32*1024*1024); time.sleep(10)'
-        code=('import sys,time;from gambit_smp.task_processes import spawn;'
-              'data=bytearray(32*1024*1024);'
-              'spawn([sys.executable,"-c",'+repr(child)+']);time.sleep(10)')
-        with self.assertRaisesRegex(MemoryError,'charged footprint'):
-            w.execute(self.root,'darwin-test',[sys.executable,'-c',code],wall_seconds=5,
-                      footprint_limit_bytes=64*1024*1024)
-        owner=json.loads(w.paths(self.root,'darwin-test')[0].read_text())
-        receipt=json.loads((self.root/'.state/task-runs/darwin-test'/(owner['run']+'.json')).read_text())
-        self.assertTrue(receipt['footprintLimitExceeded'])
-        self.assertFalse(receipt['rssAdmissionEnabled'])
-        self.assertGreaterEqual(len(receipt['resourceSample']['pgids']),2)
-        self.assertFalse(receipt['registeredGroupCleanup']['unresolved'])
+        def test_footprint_budget_drains_nested_sessions(self):
+            w.start(self.root,'darwin-test',adopt=True)
+            child='import time; data=bytearray(32*1024*1024); time.sleep(10)'
+            code=('import sys,time;from gambit_smp.task_processes import spawn;'
+                  'data=bytearray(32*1024*1024);'
+                  'spawn([sys.executable,"-c",'+repr(child)+']);time.sleep(10)')
+            with self.assertRaisesRegex(MemoryError,'charged footprint'):
+                w.execute(self.root,'darwin-test',[sys.executable,'-c',code],wall_seconds=5,
+                          footprint_limit_bytes=64*1024*1024)
+            owner=json.loads(w.paths(self.root,'darwin-test')[0].read_text())
+            receipt=json.loads((self.root/'.state/task-runs/darwin-test'/(owner['run']+'.json')).read_text())
+            self.assertTrue(receipt['footprintLimitExceeded'])
+            self.assertFalse(receipt['rssAdmissionEnabled'])
+            self.assertGreaterEqual(len(receipt['resourceSample']['pgids']),2)
+            self.assertFalse(receipt['registeredGroupCleanup']['unresolved'])
 
     def test_supervisor_timeout_drains_registered_nested_sessions(self):
         w.start(self.root,'darwin-test',adopt=True)

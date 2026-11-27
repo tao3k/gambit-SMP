@@ -354,7 +354,13 @@ def import_steps(ctx):
         if isinstance(value, dict):
             return value == reference or any(consumes(item) for item in value.values())
         return isinstance(value, (list, tuple)) and any(consumes(item) for item in value)
-    if imports and any(step['capability'] != 'gambit.runtime-import' and consumes(step['arguments']) for step in plan):
+    def is_mutable_consumer(step):
+        if step['capability'] == 'gambit.runtime-import':
+            return False
+        if step['capability'] == 'gambit.suite':
+            return consumes({k: v for k, v in step['arguments'].items() if k != 'expectedSource'})
+        return consumes(step['arguments'])
+    if imports and any(is_mutable_consumer(step) for step in plan):
         raise ValueError('import source projection cannot serve a mutable source consumer')
     return imports
 

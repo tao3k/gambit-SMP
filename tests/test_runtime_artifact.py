@@ -245,7 +245,9 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
         imported = dict(id='runtime', capability='gambit.runtime-import',
                         arguments={'source': {'step':'candidate','output':'source'}})
         reviewed = dict(id='review', capability='evidence.evaluate', dependsOn=['candidate'], arguments={})
-        ctx = SimpleNamespace(directory=Path('candidate'), receipt={'plannedSteps':[imported, reviewed]})
+        suite_ro = dict(id='gsi', capability='gambit.suite', dependsOn=['candidate', 'runtime'],
+                        arguments={'expectedSource': {'step':'candidate','output':'source'}})
+        ctx = SimpleNamespace(directory=Path('candidate'), receipt={'plannedSteps':[imported, reviewed, suite_ro]})
         self.assertEqual([imported], import_steps(ctx))
         reviewed.update(capability='source.project', arguments={'source': {'step':'candidate','output':'source'}})
         with self.assertRaisesRegex(ValueError, 'mutable source consumer'):

@@ -19,15 +19,17 @@
 :DEPENDS_ON: ROOT-HANDOFF; CONTROL-ORIGIN; GC-WORK-CLOSURE; FL-ENCODE; WB-H; GEN-H
 :END:
 
-Baseline =824f5dc6= on =tao3k/gambit= (=modern-c=) achieved **15/15 green PR CI** (=Gambit SMP= PR =45825872739= 9/9 + Non-SMP =Gambit= PR =45825872746= 6/6) across Linux GCC C23, macOS arm64, Windows MINGW32/MINGW64/MSVC, and Clang C23 TSan, landing Tier 1 robustness hardening, Tier 2 performance amplification, Families 8--12 convergence (resolving upstream =gambit/gambit#1067=), Option A removal of legacy emulated sync, Tier 3.3 blocking-FFI park/unpark, Tier 3.2 work-stealing & Dekker wakeup scheduling, and Tier 3.1 Phase 2 bounded generational Minor GC (**10.15x--24.96x** wall / **20.66x--182.49x** GC reduction on retained-heap workloads).
+Baseline =f6510651= / =4498c69b= (+ zero-magic-cap per-core L2/RAM auto =min_heap=) on =tao3k/gambit= (=modern-c=) extends =824f5dc6= through **Wave A** (=72468e63=), **Slice 1** (=edc97dd1=), **Slice 2 v2 Concurrent SATB Major GC** (=02b55ae4=), **Unified Memory Scaling Envelope v26** (=d5515c42=), **Full-Core Hardware CI** (=feeaea78=), and **Slice 2.5 Dynamic Domain & I/O Hardening** (=f6510651= + principled zero-magic-cap auto =min_heap=): OCaml-5-style per-domain geometrically-growing chunked =rest_directory= slab (zero compile-time slot ceiling, zero cross-core scan/false sharing), two-stage post-poll =___SELECT_PASS_CHECK= close custody fence in =lib/os_io.c= (closing Linux CI =c8 exit=139=), core-count-invariant =c12= burst-delta contraction (=p1..p16=), and principled zero-magic-cap hardware-topology auto =min_heap= derived from per-core private L2 + per-core physical RAM share (=phys_mem / max(2, cpus) / 256=, rejecting socket-wide 512+ MiB L3 bloat).
 
-Rather than executing ad-hoc local optimizations (risking throwaway semispace code) OR attempting an un-isolated big-bang rewrite across compiler frames, concurrent GC, and OS I/O (breaking fault isolation and green CI), this specification locks **one unified long-term architectural contract upfront** and decomposes delivery into **five strictly decoupled, zero-rework vertical slices**:
+Rather than executing ad-hoc local optimizations (risking throwaway semispace code or hardcoded core/memory magic numbers) OR attempting an un-isolated big-bang rewrite across compiler frames, concurrent GC, dynamic domains, and OS I/O, this specification locks **one unified long-term architectural contract** grounded in **20 primary academic papers** and **direct primary-source audits of =vendor/ocaml= (5.5.1), =vendor/chez= (10), and =vendor/erlang-otp= (OTP-28.0)**, decomposing delivery into **strictly decoupled, zero-rework vertical slices**:
 
-1. *Wave A (Tier 3.1 Phase 3)* :: Close all three empirically measured scaling anomalies in =824f5dc6= (=___rest_fast_grant_fits= lock-free =fast_span=, generational =___STILL= with non-pointer zero-dirty and SATB-ready mark epoch, =O(Y)= Minor GC coordinator & =BARRIER()= compression) plus Darwin =dlclose= fast exit (Issue =#6= / PR =#7=) and Issue =#5= audit closure.
-2. *Slice 1 (Unified =FrameSpec= / =PointId= Semantic Authority)* :: Retire duplicated C-macro frame layout inference across =gsc/_t-c-2.scm=, =lib/_kernel.scm=, =lib/_io.scm=, and =lib/mem.c= BEFORE touching Concurrent Major GC.
-3. *Slice 2 (Non-Moving Mark-Region Mature Space + Concurrent SATB Major GC)* :: Build directly on Tier 3.1's already pre-store =___GC_WRITE_BARRIER(ps, obj, slot_ptr, new_val)= (where =*slot_ptr= is the SATB old value!), Wave A's generational =___STILL= mark-epoch word, Tier 3.3's parked FFI root handoff, and Slice 1's single =FrameSpec= authority.
-4. *Slice 3 (=kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Work-Stealing Parallel Stdlib)* :: Replace =O(N)= =select=/=poll= (=FD_SETSIZE=1024=) with persistent kernel interest queues parked cleanly via Tier 3.3, and expose standard Scheme C11-ordered atomics (=SRFI-230=), lock-free Chase-Lev deques/channels, and structured fork-join (=pmap=/=future=).
-5. *Slice 4 (=tao3k/gerbil= SMP Parallel Compiler + Full-Runtime Clang TSan + Same-Source 12/12 Release Seal)* :: Prove the complete architecture at scale on Gerbil's 1,778-module stdlib and compiler, close =wholeRuntimeAdmitted = true= on one cryptographically sealed producer, and tag the formal release.
+1. *Wave A (Tier 3.1 Phase 3 — CLOSED, =72468e63=)* :: Lock-free =___rest_fast_grant_fits= =fast_span=, generational =___STILL= with non-pointer zero-dirty and SATB-ready mark epoch, =O(Y)= Minor GC coordinator & =BARRIER()= compression, Darwin =dlclose= fast exit (Issue =#6=), and Issue =#5= audit closure.
+2. *Slice 1 (Unified =FrameSpec= / =PointId= Semantic Authority — CLOSED, =edc97dd1=)* :: Retired duplicated C-macro frame layout inference across =gsc/_t-c-2.scm=, =lib/_kernel.scm=, =lib/_io.scm=, and =lib/mem.c= BEFORE Concurrent Major GC.
+3. *Slice 2 (Non-Moving Immix Mark-Region Mature Space + Concurrent SATB Major GC v2 — CLOSED, =02b55ae4=)* :: Built directly on pre-store =___GC_WRITE_BARRIER=, Wave A's generational =___STILL= mark-epoch word, Tier 3.3 parked FFI roots, Slice 1's single =FrameSpec= authority, Immix card-aligned line-hole recycling, 4-barrier parallel Remark/Sweep, idle-core marking, and Dekker interrupt-idle hardening.
+4. *Memory Envelope (=v26=) & Slice 2.5 (Dynamic Domain Hardening & Zero-Magic-Cap Sizing — CLOSED, =d5515c42= .. =f6510651=+)* :: Eliminated =___REST_DIRECTORY_SLOTS= hardcoding via OCaml-5-style per-domain dynamic chunked slabs (=lib/rc.h=, =lib/_mem/rc-allocation.inc=), hardened =os_io.c= two-stage post-poll =___SELECT_PASS_CHECK= custody, replaced socket-wide L3 =min_heap= inflation with zero-magic-cap per-core L2 / RAM-share sizing (=lib/os_thread.c=, =lib/_mem/memory-lifecycle.inc=), and upgraded GitHub Actions CI to full hardware core utilization (=nproc= / =hw.logicalcpu= + =oversub-2x=).
+5. *Slice 3A (Next Immediate Phase: OCaml-5 / Chez-10 Dynamic Per-Domain VM Tables & =O(live)= Major Workers — DESIGN READY)* :: Eliminate every remaining compile-time =[___MAX_PROCESSORS]= fixed array across internal VM structs (=lib/lifecycle.h=, =lib/root.h=, =lib/collector.h=, =include/_gambit/memory_state.h.in=) and ABI-versioned =vm_state.h.in=, and cap Major GC copy workers to =nw = min(P, max(1, live_sections_estimate))= so an idle =P=-core VM creates =O(1)= mature sections instead of =P= nearly-empty 1 MiB mature sections (removing the =+P MiB= empty baseline observed at =p12=).
+6. *Slice 3B (Next Phase: =kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Work-Stealing Parallel Stdlib — DESIGN READY)* :: Replace =O(N)= =select=/=poll= (=FD_SETSIZE=1024=) with persistent kernel interest queues parked cleanly via Tier 3.3, and expose standard Scheme C11-ordered atomics (=SRFI-230=), lock-free Chase-Lev deques/channels, and structured fork-join (=pmap=/=future=).
+7. *Slice 4 (=tao3k/gerbil= SMP Parallel Compiler + Full-Runtime Clang TSan + Same-Source 12/12 Release Seal — DESIGN ALIGNED)* :: Prove the complete architecture at scale on Gerbil's 1,778-module stdlib and compiler, re-seal =wholeRuntimeAdmitted = true= on one cryptographically sealed producer, sync =vendor/gambit=, and tag the formal release.
 
 *Cross-Stream Convergence (=v26= Same-Source 12/12 Seal <-> =824f5dc6= Wave A / Slice 2 Major GC)*:
 While the Slice 2 stream advances Immix non-moving mature space and concurrent SATB Major GC above =824f5dc6=, the sealed =v25= audit exposed eight orthogonal, empirically quantified *Memory Scaling & O(P)/O(W) RSS Envelope* bottlenecks. All memory-envelope optimizations are locked below as a **zero-throwaway shared contract** and are now **fully implemented, formally verified, and 12/12 same-source admitted on sealed =v26=** ([[file:families-8-to-12-closure.org][families-8-to-12-closure.org]], =wholeRuntimeAdmitted = true=): cutting full 2-pass =make -j8= bootstrap by *-25%* (=717.95s=, =source-core= *-1.60 GiB*), cutting 8-core Gerbil =stage0= by *-1.52 GiB RSS / -1.65 GiB fp* (=5.487 GiB / 4.797 GiB=), unlocking **8-core =stage1=** (=6.918 GiB=) and **5-core =stdlib=** (*2.0x faster*, =1347.2s=, *-1.01 GiB fp*), cutting total 8-stage Gerbil wall time by *-41.5%* (=3760.1s -> 2201.3s=), and turning =par_rest_alloc_m65536= at =p8= from =0.64x= to *=3.84x=* (*10.7x faster*, =rest-parameter-smp-p8= =46.0 ms= = *16.3x faster* than =v10=). Every mechanism transfers 1-to-1 into Wave A / Slice 2 Immix Major GC without rework or file conflict.
@@ -58,7 +60,29 @@ Tracked machine-readable manifest: [[file:../../modeling/inputs/papers-longterm-
 | Ueno & Ohori, /A Fully Concurrent GC for Functional Programs on Multicore/ | ACM ICFP 2016 | Slice 2 | Non-moving bitmap-marked segments + lock-free SATB write-barrier stacks for functional runtimes | SML# tagless bitmaps differ from Gambit tagged headers and external =___STILL= refcounts |
 | Lemon, /Kqueue: A Generic and Scalable Event Notification Facility/ | USENIX ATC 2001 | Slice 3 | Persistent kernel interest sets (=kqueue=/=epoll=), =O(ready)= dispatch, =EVFILT_USER=/=eventfd= wakeups | Kernel FD reuse still requires explicit userspace FD-generation custody fence before =close(fd)= |
 | Le, Pop, Cohen & Zappa Nardelli, /Correct and Efficient Work-Stealing for Weak Memory Models/ | ACM PPoPP 2013 | Slice 3 | C11 relaxed/acquire/release/seq_cst Chase-Lev deque proven sound on ARM64/POWER | Deque backing storage must remain GC-traced Scheme vectors or registered root banks |
-| Nieper-Wisskirchen, /SRFI-230: Atomic Operations/ | SRFI Final 2021 | Slice 3 | Standard Scheme =atomic-box=/=fxbox=/=flag=/=pair= & fences lowered directly onto =___ORDERED_WORD_NATIVE= | Ordinary Scheme =vector-set!=/=set-car!= remain DRF-0 non-atomic writes |
+| Nieper-Wisskirchen, /SRFI-230: Atomic Operations/ | SRFI Final 2021 | Slice 3B | Standard Scheme =atomic-box=/=fxbox=/=flag=/=pair= & fences lowered directly onto =___ORDERED_WORD_NATIVE= | Ordinary Scheme =vector-set!=/=set-car!= remain DRF-0 non-atomic writes |
+| Dybvig, /The Development of Chez Scheme/ (+ =vendor/chez= 10 =segment.c=/=alloc.c=) | ACM ICFP 2006 | Slice 2.5, Slice 3A | Dynamic per-thread context (=S_threads=) & live-proportional segment retention (=heap_reserve_ratio=), zero compile-time core/slot caps | Chez native-code register conventions differ from Gambit portable C23 backend and dual-half msections |
+| Dolan, Sivaramakrishnan & Madhavapeddy, /Bounding Data Races in Space and Time/ (+ =vendor/ocaml= 5.5.1 =domain.c=/=config.h=) | ACM PLDI 2018 | Slice 2.5, Slice 3A | Owner-local per-domain slabs (zero cross-domain scan/false sharing) + dynamic runtime domain table (=caml_init_domains=) | OCaml LDRF racy-store semantics not imported; Gambit enforces strict C23 DRF-0 and explicit ordered atomics |
+| Blackburn, Cheng & McKinley, /Myths and Realities: The Performance Impact of Garbage Collection/ | ACM SIGMETRICS 2004 | Memory Envelope, Slice 2.5 | Empirically refutes socket-L3 cache sizing myth; decouples idle =min_heap= from 512+ MiB multi-CCD L3 caches | Jikes RVM fixed-nursery benchmarks do not determine Gambit msection fudge invariants |
+| Yang, Berger, Kaplan & Moss, /Automatic Heap Sizing: Taking Real Memory into Account/ | ACM ISMM 2004 | Memory Envelope, Slice 2.5 | Physical-RAM- and CPU-aware heap sizing (=gc_adaptive_live_percent= + per-core RAM idle bound =phys_mem/cpus/256=) | Kernel page-fault counters replaced by portable =sysconf=/=sysctl= physical RAM + explicit user flags |
+| Kirisame, Shenoy & Panchekha, /Optimal Heap Limits for Reducing Browser Memory Use (MemBalancer)/ | ACM OOPSLA 2022 | Memory Envelope, Slice 2.5 | Sublinear =O(sqrt)= heap elasticity across uncoordinated parallel processes (=gsc=/Gerbil workers) without IPC | Dynamic shadow-price =c= approximated by deterministic CBMC-verified =O(sqrt(P))= headroom & =50%->80%= curve |
+| White, Singer, Aitken & Lujan, /Control Theory for Principled Heap Sizing/ (+ =vendor/erlang-otp= 28 =erl_gc.c=) | ACM ISMM 2013 | Memory Envelope, Slice 3A | Closed-loop collapse-aware contraction avoiding static 16-GC pinning ratchets | Workload-specific PID tuning deferred behind deterministic CBMC-verified contraction |
+| Gammo, Brecht, Shukla & Pariag, /Comparing and Evaluating epoll, select, and poll Event Mechanisms/ | OLS 2004 | Slice 3B | Linux =epoll= persistent =O(ready)= readiness + =eventfd= abort wakeup paired with post-poll close custody | Edge-triggered starvation avoided in favor of level-triggered/one-shot =condvar-select= semantics |
+
+** Primary-Source Comparative Audit (=vendor/ocaml= 5.5.1 vs =vendor/chez= 10 vs =vendor/erlang-otp= 28 vs Gambit SMP)
+:PROPERTIES:
+:CUSTOM_ID: longterm-vendor-comparative-audit
+:END:
+
+Every architectural mechanism in Slice 2.5 and Slice 3A is grounded directly in primary C runtime source code inside =vendor/= (never secondary summaries):
+
+#+NAME: vendor-primary-source-audit
+| Runtime Dimension | =vendor/ocaml= 5.5.1 | =vendor/chez= 10 (=41d5ffc=) | =vendor/erlang-otp= OTP-28.0 | Gambit SMP (=f6510651=+ -> Slice 3A) |
+|-------------------+----------------------+------------------------------+------------------------------+--------------------------------------|
+| **Idle Heap / Nursery Floor** | =config.h:203= =Minor_heap_def = 262144= words (=2 MiB=/domain); =Small_heap_limit_def = 2 MiB=; **0 socket-L3 queries** | =alloc.c:48= =default_collect_trip_bytes= (=4 MiB=); =segment.c:465= =S_free_chunks= retains only =heap_reserve_ratio * live=; **0 L3 queries** | =erl_gc.c:2049= =H_MIN_SIZE= (=233= words), shrinks immediately when =4*need < heap=; **0 L3 queries** | **FIXED**: Replaced uncapped =___cpu_cache_size(0,0)/2= (283 MiB on 512 MiB EPYC L3!) with zero-magic-cap =min(L2/2, phys_mem/cpus/256, max_heap/8)= floored at =2 MiB=; explicit =-:m= honored verbatim |
+| **Per-Domain Metadata Slabs** | Per-domain =caml_domain_state= + =shared_heap.c= local pools; zero cross-domain scan | Per-thread =tc= dynamically linked via =S_threads= (=gc.c:1724=) | Per-scheduler =ErtsSchedulerData= + thread-specific allocators (=erl_alloc.c:714=) | **DONE (Slice 2.5)**: Replaced VM-global =rest_directory[4]= with OCaml-5-style per-domain non-relocating chunked slab (=lib/rc.h= =___rest_directory_chunk=, =4->8->16->...=) |
+| **Processor / Domain Table Sizing** | =domain.c:1062= =caml_init_domains(max_domains)= dynamically =calloc=s =all_domains= & =stw_domains= from =OCAMLRUNPARAM= | =S_threads= dynamic list; zero compile-time core limit | =erl_process.c:6093= =erts_init_scheduling(erts_no_schedulers)= dynamically allocates all scheduler/runq/allocator arrays | **NEXT (Slice 3A)**: Replace remaining 28 =[___MAX_PROCESSORS]= static arrays across =lifecycle.h=, =root.h=, =collector.h=, =memory_state.h.in=, =vm_state.h.in= + cap idle Major GC workers to =min(P, max(1, live_sections))= |
+| **Paper-to-Source Process Rule** | Every paper in =dev/modeling/inputs/papers-longterm-unified.json= (20 entries) now records explicit =source_anchors=, =model_obligations=, =native_witness=, and =non_import= refutation boundaries. | | | |
 
 * ALIGNED Complete 8-Stage Formal Engineering Workflow (Org -> SysML v2 -> QNT -> Lean -> CBMC -> TSan -> AB/BA)
 :PROPERTIES:
@@ -86,10 +110,10 @@ Every slice (Wave A through Slice 4) MUST pass all 8 stages sequentially before 
 :CUSTOM_ID: longterm-slice-contracts
 :END:
 
-** Wave A — Tier 3.1 Phase 3 & Micro-Architecture Bottleneck Closure (Next Immediate Execution)
+** Wave A — Tier 3.1 Phase 3 & Micro-Architecture Bottleneck Closure (CLOSED, =72468e63=)
 :PROPERTIES:
 :CUSTOM_ID: slice-wave-a
-:STATUS: READY_FOR_EXECUTION
+:STATUS: STAGE8_CLOSED_COMMITTED
 :QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/tier31p3_still_and_rest_fastpath_v2.qnt
 :LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
 :END:
@@ -111,10 +135,10 @@ Empirically motivated by three concrete scaling anomalies discovered in =824f5dc
 4. *Open Issue =#6= (Darwin =dlclose= Fast Exit) & Issue =#5= Verification*:
    - Port PR =#7='s final-exit Darwin =dlclose= fast path into =lib/os_dyn.c= (cutting macOS Gerbil 969-module exit from =10--11s= to =~15ms= while preserving ordinary cleanup/destructors/=atexit=), and post verified source closure reference on Issue =#5= (=lib/_mem/allocation-limits.inc:254=).
 
-** Slice 1 — Unified =FrameSpec= / =PointId= Semantic Authority
+** Slice 1 — Unified =FrameSpec= / =PointId= Semantic Authority (CLOSED, =edc97dd1=)
 :PROPERTIES:
 :CUSTOM_ID: slice-1-framespec
-:STATUS: DESIGN_ALIGNED
+:STATUS: STAGE8_CLOSED_COMMITTED
 :QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/unified_framespec_authority_v2.qnt
 :LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
 :END:
@@ -150,10 +174,73 @@ Grounded in Yuasa (1990), Huelsbergen & Winterbottom VCGC (1998), Blackburn & Mc
   - Route cross-processor C runtime card barriers through VM-level atomic =___gc_write_barrier_slot_vm= (+ =card_overflow_any_=) so remote cores never touch another processor's private hint/SATB buffer, and keep =gc_hash_table_rehash_in_situ= strictly DRF under Clang C23 =-fsanitize=thread= via =___WORD_LOAD_ACQUIRE= on =FLAGS= and narrowed =___GC_WRITE_BARRIER_RANGE=.
   - Mandatory verification gate: Quint V2 (13 mutation-killers + ITF Python replay), Lean 4 (22 zero-sorry theorems), CBMC =--mm pso= (2 harnesses, 7 mutants killed), Clang C23 =-fsanitize=thread= across =t1/t5/t6/c1/c5= (0 non-signal races), Python =gambit_smp.revision_matrix= (=N=5= AB/BA =admitted=True=), and 15/15 GitHub Actions PR CI green.
 
-** Slice 3 — =kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Parallel Stdlib
+** Slice 2.5 — Per-Domain Dynamic Rest Slab, Two-Stage =os_io= Check Fence & Zero-Magic-Cap Auto =min_heap= (CLOSED, =f6510651=+)
+:PROPERTIES:
+:CUSTOM_ID: slice-2-5-dynamic-hardening
+:STATUS: STAGE8_CLOSED_COMMITTED
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/per_domain_rest_slab_and_io_check_v2.qnt; dev/refactoring/modern-c/models/quint/v2/adaptive_heap_scaling_and_reclaim_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean; dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean
+:CBMC_HARNESS: dev/refactoring/modern-c/models/cbmc/per_domain_rest_slab_and_io_check_pso.c; dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c
+:END:
+
+- *OCaml-5-Style Per-Domain Dynamic Chunked =rest_directory= Slab* (=lib/rc.h=, =lib/lifecycle.h=, =lib/_mem/rc-allocation.inc=): Eliminated hardcoded =___REST_DIRECTORY_SLOTS = 4= and the VM-global shared array completely. Each processor's =___rc_domain= owns a non-relocating geometrically-growing chunk list (=4 -> 8 -> 16 -> ...=, overflow-guarded), preserving address-stable =___rest_directory_slot*= handles, retired-generation receipts, bounded round-robin drained reuse (=rest_evict_cursor=), and zero-leak =cleanup_rc= teardown. Verified via 24-simultaneously-live-nested slab growth (=4+8+16=28= slots), 30x =p8/p12/p16= contention stress, 50x =t5= soak, and 0 Clang C23 TSan races.
+- *Two-Stage Post-Poll =___SELECT_PASS_CHECK= Close Custody Fence* (=lib/os_io.c=): Fixed intermittent Linux CI =c8-io-close-reap[p4] exit=139= SIGSEGV by keeping =d->select_active > 0= across =___SELECT_PASS_CHECK= while snapshotting =(close_pending_mask & dir) != 0 || close_in_progress > 0= beforehand, releasing =select_active= and waking =___device_close= strictly after =PASS_CHECK= finishes, plus =0 <= fd < fdset.size= and =pollfd_count < MAX_CONDVARS= bounds guards. Verified 50/50 local soak + Linux CI =all-cores-soak= + 0 Clang C23 TSan races.
+- *Zero-Magic-Cap Hardware-Topology Automatic =min_heap=* (=lib/mem.h=, =lib/os_thread.c=, =lib/_mem/memory-lifecycle.inc=, =c12=): Replaced upstream uncapped =___cpu_cache_size(0, 0) / 2= (which exploded idle VMs to 283 MiB on 512 MiB L3 AMD EPYC cloud runners!) with per-core private L2 (=___cpu_cache_size(0, 2) / 2=, fixing =os_thread.c= early break on unsupported =-1/0= split-L2 entries) bounded by =phys_mem / max(2, cpus) / 256= and =max_heap / 8=, floored at =2 MiB= (=___DEFAULT_MIN_HEAP=), honoring explicit =-:m<N>= verbatim. Core-count-invariant =c12= burst-delta contraction verified across =p1..p16=.
+
+** Slice 2 v3 — Memory Endgame (P0--P3): Legacy Switch Removal, Immediate =new_mat= Release, Selective Immix Evacuation, Sub-Linear Generational Nursery & Fine-Grained Medium =___STILL= Slab
+:PROPERTIES:
+:CUSTOM_ID: slice-2-v3-memory-endgame
+:STATUS: VERIFIED_ALL_GATES_PASS
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/slice2_v3_immix_evac_and_slab_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/Slice2V3MemoryEndgameRefinement.lean
+:CBMC_HARNESS: dev/refactoring/modern-c/models/cbmc/slice2_v3_evac_and_slab_pso.c
+:END:
+
+Closes the remaining structural memory gaps across P0--P3 on top of =f6510651= / =4498c69b= without any legacy fallback baggage:
+
+1. *P0 (Modern-C Legacy GC Switch Removal)* (=configure.ac=, =include/_gambit/configuration.h.in=, =lib/_mem/capacity-resize.inc=, =lib/_mem/memory-lifecycle.inc=):
+   - Removed the obsolete transition switches =--enable-gc-adaptive-sizing[=auto|off]= (=___GC_ADAPTIVE_SIZING=) and =--enable-gc-heap-contraction[=auto|legacy]= (=___GC_HEAP_CONTRACTION_MODE=). Hardware-adaptive large-heap =live_percent= (still honoring explicit =-:l<N>= verbatim) and collapse-aware contraction history decay are now unconditional Modern-C defaults.
+2. *P1 (Immediate =new_mat= Opposite-Half Release + Unified Adaptive Major Pacing)* (=lib/_mem/generational.inc=, =lib/_mem/concurrent-major.inc=, =lib/mem.c=):
+   - Immediately release the dead opposite 512 KiB half (=release_drained_source_half(cur, opp)=) of every newly promoted Minor GC mature section (=new_mat=) once unclaimed, closing the =512 KiB/section= stranded-half leak before the next Major GC.
+   - Replace fixed =2.0x= =major_trigger_sections_= with unified hardware-adaptive =gc_update_major_triggers(vm)= reusing =gc_adaptive_live_percent()= (tightening movable trigger from =2.0x -> 1.25x= and still trigger from =1.5x -> 1.25x= as heap approaches per-core RAM soft budget, floored at =mcnt + 8=).
+3. *P2 (Selective Immix Evacuation + Sub-Linear Generational Nursery + Fine-Grained Medium =___STILL= Page-Backed Slab)* (=include/_gambit/memory_state.h.in=, =lib/collector.h=, =lib/_mem/{movable-sections,copy-planning,copy-reservations,heap-sections,diagnostics,generational,capacity-resize,aligned-allocation,collection-round,memory-lifecycle}.inc=):
+   - *Selective Immix Evacuation (P2-1)*: During =IDLE= Minor GCs (=major_phase_ == ___GC_MAJOR_IDLE=), boundedly evacuate sparse =major_evacuate == 1= (<50%-live) mature sections (=g->evac_selective = 1=, =sec->gc_evacuating = 1=) without copying dense mature sections or waiting for =2x= growth. Disables Immix interior hole recycling (=allow_hole = 0=) during selective evacuation so pinned mature sections =[0..scan_end_words)= stay strictly read-only while parallel workers perform a complete linear pointer-update scan over all pinned mature sections and mature =still_objs_= (skipping young still objects).
+   - *Sub-Linear Generational Nursery Sizing (P2-2)*: Under non-moving generational Immix (when =!___live_percent_is_explicit()=), cap young nursery headroom above mature space at =max(32, 16 + 4*isqrt(nb_msections_mature_))= (honoring =min_heap=, =adjust_heap_hook=, and =lower_bound_nb_sections=), eliminating 1:1 mature-to-nursery bloat on multi-hundred-MiB compiler heaps.
+   - *Fine-Grained Medium =___STILL= Page-Backed Slab (P2-3)*: Lower direct =mmap= (=tag 1u=) threshold =___LARGE_HEAP_MMAP_MIN_BYTES= from =64 KiB -> 32 KiB=, and back medium =3 KiB -- 32 KiB= =___STILL= objects with 28 sharded (=7= 25%-step classes =4K/6K/8K/12K/16K/24K/32K= x =4= shards, exact 16 KiB page multiples =128/192/256/384/512 KiB=) =mmap= slab chunks (=tag 2u=, =uint64_t free_mask=, immediate =munmap= of overflow empty chunks + post-GC =still_slab_purge_empty()=).
+4. *P3 (Gerbil Multicore Compiler Memory Governance & Empirical Closure)* (=gsc/_t-c-1.scm=, =c14-immix-selective-evac-and-slab-smp.scm=):
+   - Allow explicit =-cfg-host-limit -1= (adaptive CFG host partitioning, =(not (= targ-active-cfg-host-limit 0))=) on demand while keeping default =tests/test5.ok= 100% byte-identical.
+   - *Verified real-hardware evidence*:
+     - =104/104= multicore PBT + scaling PASS across =p1,p4,p8,p12= (incl. adversarial =c14=: zero Full STW Major GCs, mature section reclamation =20->7= (-65%) at =p1=, =23->10= (-57%) at =p4=, =27->13= (-52%) at =p8=, =31->16= (-48%) at =p12=, zero slab creep across 4 waves); =par_rest_alloc_m65536= =p8= =6.67x=, =par_compute_fib= =p8= =7.59x=.
+     - *Clang C23 TSan*: =0= races across all P0--P2 code (14/14 runs across =t5,c5,c8,c9,c12,c13,c14= at =p4/p8=; =c12= and =c14= achieve =0= total TSan warnings).
+     - *Non-SMP Debug =make check=*: =ALL TESTS SUCCESSFUL=.
+     - *Real Gerbil Monster-Module & 8-Core Parallel Compilation (macOS arm64, 12-core)*:
+       - Single =gerbil/compiler/optimize-top~0.scm= (1.3 MB): =v26= =1060.7 MiB= -> =P0+P1= =890.1 MiB= -> =P2= *=599.1 MiB=* (*-43.5% RSS*, *-36.4% footprint*).
+       - Single =std/ensemble/network/connection~1.scm= (2.9 MB): =v26= =1193.6 MiB / 44.20s= -> =P2= =994.7 MiB / 40.69s= -> =P2 + auto-cfg-host= *=784.2 MiB / 36.92s=* (*-34.3% RSS*, *-16.5% wall*) -> =P2 + cfg-limit-256= *=756.0 MiB / 36.90s=* (*-36.7% RSS*).
+       - *8-Core Heavy Gerbil Batch (8 simultaneous modules, 11.5 MB =.scm=)*: =v26= *=7.00 GiB=* (=6.42 GiB fp=, =29.41s=) -> =P2 default= *=5.93 GiB=* (*-1.07 GiB / -15.3%*, =5.42 GiB fp=, =27.65s=) -> =P2 + auto-cfg-host= *=5.38 GiB=* (*-1.62 GiB / -23.2%*, =5.11 GiB fp=, =25.30s=, *-14.0% wall*).
+
+** Slice 3A — OCaml-5 / Chez-10 Dynamic Per-Domain VM Tables & =O(live)= Major GC Workers (Next Immediate Phase)
+:PROPERTIES:
+:CUSTOM_ID: slice-3a-dynamic-domains
+:STATUS: NEXT_PHASE_DESIGN_READY
+:QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/per_domain_rest_slab_and_io_check_v2.qnt
+:LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
+:END:
+
+Eliminates ALL remaining compile-time =[___MAX_PROCESSORS]= static arrays audited across the runtime (28 arrays across 7 files), split cleanly into two ABI-disciplined sub-phases:
+1. *Phase 3A-1 (Zero-ABI-Break Internal Dynamic VM Tables + =O(live)= Major Workers)*:
+   - Dynamically allocate per-VM processor tables at runtime capacity (=vm->processor_capacity=, growing geometrically or sized from host/configured topology, mirroring =vendor/ocaml/runtime/domain.c:1062= =caml_init_domains= & =vendor/erlang-otp= =erts_init_scheduling=) for internal non-ABI structs:
+     - =lib/lifecycle.h= (11 arrays: =requests=, =entries=, =cleanup=, =activations=, =owners=, =sync_constructed=, =sync_parked=, =sync_active=, =slots=, =launches=, =group_demand=)
+     - =lib/root.h= (4 arrays: =shards=, =members=, =workers=, =resume=)
+     - =lib/collector.h= (12 arrays: =worker_proc=, =proc_worker=, =active=, =observed=, =promo_tails=, =promo_tail_starts=, =promo_tail_ends=, =promo_tail_is_hole=, =major_reclaimed_still=, =major_live_still=, =young_heap_secs=, =hints=)
+     - Stack-local scratch arrays in =lib/setup.c:1667= (=targets=), =lib/_mem/root-tasks.inc:677= (=active_procs=), =lib/_mem/generational.inc:866= (=cards=) -> small stack buffer + dynamic heap fallback
+   - Cap Major GC copy workers to =nw = min(active_procs, max(1, estimated_live_sections))= so an idle 12-core or 64-core VM creates =O(1)= mature section instead of =P= nearly-empty 1 MiB mature sections (cutting =p12= empty baseline from =43 MiB -> ~32 MiB= and =p64= from =204 MiB -> ~141 MiB=!).
+2. *Phase 3A-2 (Public ABI-Versioned Dynamic =pstate= / =execution_contexts= Indirection)*:
+   - Migrate =include/_gambit/vm_state.h.in:5-6= (=aligned_pstate[___MAX_PROCESSORS]=, =execution_contexts[___MAX_PROCESSORS]=) and =include/_gambit/memory_state.h.in:584= (=promo_cands_[___MAX_PROCESSORS * 2]=) behind stable non-relocating chunk/pointer tables with formal Quint/Lean/CBMC + =abi-seal-check= alignment.
+
+** Slice 3B — =kqueue=/=epoll= Evented SMP I/O Reactor + =SRFI-230= & Parallel Stdlib (Next Phase)
 :PROPERTIES:
 :CUSTOM_ID: slice-3-io-stdlib
-:STATUS: DESIGN_ALIGNED
+:STATUS: NEXT_PHASE_DESIGN_READY
 :QUINT_MODEL: dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt
 :LEAN_PROOF: dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean
 :END:
@@ -191,13 +278,13 @@ Empirically audited on =v25= and **verified end-to-end across 100/100 multicore 
    - *Shared contract*: Back oversized =census.queue= (=>= 64 KiB=) directly via =mmap=/=munmap= (zero =MALLOC_LARGE (empty)=), release oversized buffers (> =512 KiB=) at the end of =plan_copy_round= whenever =state != ALLOCATING/RETAINED && !replacement && !retired= (preserving =peak_bytes= and unknown-fault custody). Transfers directly to Slice 2 concurrent mark-stack/SATB worklists.
 2. *Collapse-Aware Contraction History & =gsc= Pre-=##gambuild= Heap Trim* (=lib/_mem/capacity-resize.inc=, =lib/_kernel.scm=, =gsc/_gsclib.scm=):
    - *Audited flaw*: Live 8-worker Gerbil =stage0= profiling proved =8 x cc1= (=3.76 GiB=) coexisted with =8 x idle gsc= (=1.88 GiB=, up to =365 MiB= per single idle =gsc= blocked in =##gambuild=), because =gsc/_gsclib.scm= never freed dead codegen garbage before spawning =gcc-16=, and =___TARGET_HEAP_SPACE_HIST_LENGTH = 16= pinned =the_msections= at historical peak for 16 consecutive GCs via =SET_MAX(ths, recent_history)=.
-   - *Shared contract (verified on =v26=)*: Replace static 16-GC pinning with collapse-aware decaying history (=--enable-gc-heap-contraction[=auto|legacy]=) plus immediate post-codegen =(##gc)= contraction in =gsc/_gsclib.scm= before =##gambuild=, strictly preserving =target_nb_sections >= lower_bound_nb_sections=. Native =c12= kills =v25= (=ratio=1.04=) while passing =5/5= on =v26= (91.4% 1-GC contraction at =p1=, 80.8% at =p4=); 8-core Gerbil =stage0= dropped *-1.52 GiB RSS / -1.65 GiB fp*. Transfers directly to Slice 2 Immix empty-block =munmap= after burst phases.
+   - *Shared contract (verified on =v26=, unconditional after P0)*: Replace static 16-GC pinning with unconditional collapse-aware decaying history plus immediate post-codegen =(##gc)= contraction in =gsc/_gsclib.scm= before =##gambuild=, strictly preserving =target_nb_sections >= lower_bound_nb_sections=. Native =c12= kills =v25= (=ratio=1.04=) while passing =5/5= on =v26= (91.4% 1-GC contraction at =p1=, 80.8% at =p4=); 8-core Gerbil =stage0= dropped *-1.52 GiB RSS / -1.65 GiB fp*. Transfers directly to Slice 2 Immix empty-block =munmap= after burst phases.
 3. *Sub-Linear SMP Nursery Headroom & Processor-Aware =avail= Budgeting* (=lib/_mem/capacity-resize.inc=, =lib/_mem/memory-lifecycle.inc=):
    - *Audited flaw*: =smp_nursery_sections = nb_msections_assigned + overflow + 2 * P= added =+2 MiB/core= on top of already-assigned =2 * P= sections (=34 MiB= empty floor at =p8=, =258 MiB= at =p64=), while =prepare_mem_pstate= divided free space by 2 regardless of =P=.
    - *Shared contract (verified on =v26=)*: Replace linear =2 * P= with sub-linear =headroom(P) = (P <= 2) ? P : (2 + isqrt(P))= and scale =prepare_mem_pstate= per-processor =avail= smoothly with =P= (=div = min(P + 1, 8)=), cutting =c11=/=c2= =p1 -> p8= RSS slope by *-57%* / *-49%*.
 4. *Hardware-Adaptive Large-Heap =live_percent= Damping* (=lib/_mem/memory-lifecycle.inc=, =lib/setup.c=, =lib/setup.h=):
    - *Audited flaw*: Flat =live_percent = 50%= forced =2.0x= active-half (=4.0x= virtual) overhead on multi-GB heaps (Gerbil =stdlib= =1.76 GiB= live -> =3.53 GiB= active half -> =7.69 GiB= footprint at 3c; =tfib_stress= -> =7.09 GiB= fp).
-   - *Shared contract (verified on =v26=)*: Honor explicit =-:l<N>= / =___set_live_percent= verbatim (zero ABI change to =___setup_params_struct=); when default/auto (=--enable-gc-adaptive-sizing[=auto|off]=), smoothly ramp effective =live_percent= from =50%= (for =live <= soft_budget/8=) up to =80%= (for =live >= soft_budget/2=, where =soft_budget = phys_mem / max(2, cpus)= bounded by =max_heap=). Unlocked **5-core Gerbil =stdlib=** at =6.677 GiB= fp (*-1.01 GiB* lower than =v25= at 3c, *2.0x faster*). Directly reused as Slice 2 Immix Major GC pacing curve.
+   - *Shared contract (verified on =v26=, unconditional after P0)*: Honor explicit =-:l<N>= / =___set_live_percent= verbatim (zero ABI change to =___setup_params_struct=); when default/auto, smoothly ramp effective =live_percent= from =50%= (for =live <= soft_budget/8=) up to =80%= (for =live >= soft_budget/2=, where =soft_budget = phys_mem / max(2, cpus)= bounded by =max_heap=). Unlocked **5-core Gerbil =stdlib=** at =6.677 GiB= fp (*-1.01 GiB* lower than =v25= at 3c, *2.0x faster*). Directly reused as Slice 2 v3 Immix Major GC pacing curve (=gc_update_major_triggers=).
 5. *Direct =mmap= Large =___STILL= & =msection= Blocks + Post-Sweep OS Pressure Relief + =resize_heap=-First Ordering* (=lib/_mem/aligned-allocation.inc=, =lib/_mem/still-sweep.inc=, =lib/_mem/collection-round.inc=):
    - *Shared contract (verified on =v26=)*: Allocate =>= 64 KiB= heap-aligned blocks (both =msection=s and large =___STILL= buffers, non-exec) directly via =mmap=/=munmap= (eliminating =libmalloc= power-of-2 padding and Darwin =MALLOC_LARGE (empty)= overhang — =tfib_stress= =peakFP - peakRSS= dropped from =+1.04 GiB= to =0.00 GiB=); run =resize_heap= *before* =reclaim_drained_source_pages=; invoke =malloc_zone_pressure_relief(NULL, 0)= (Darwin) / =malloc_trim(0)= (glibc) when freed =malloc=-backed still memory reaches =4 MiB=.
 6. *Wave A Lock-Free =___rest_fast_grant_fits= =fast_span= + Strict-DRF Mutex-Guarded Mailbox Wakeup* (=lib/_mem/rc-allocation.inc=, =lib/_thread.scm=):
@@ -230,6 +317,11 @@ Every formal model in this package was deliberately engineered to *attack* tempt
 | 13 | Slice 2 v2 (Immix Line-Hole Recycling) | Promote young survivors into an interior Immix hole =[hole_lo, hole_hi) < major_snapshot_words= while concurrent =MARKING= is active, OR overwrite =NULL_CHUNK_LINK= inside a hole before parallel chunk-stealing drains | Newly promoted object sits at offset =< major_snapshot_words= with mark bit =0= (=WHITE= -> swept!), OR stealing worker scans past chunk terminator into garbage | Strictly gate Immix hole recycling on =major_phase_ == ___GC_MAJOR_IDLE && major_action != START && !lineLive=, and close =[cursor, hole_hi)= fillers strictly inside post-barrier =finalize_gc_sections= (=mutant11RecycleLiveLineKilledTest=, =immix_hole_recycle_disjoint_from_live_lines=, =immix_hole_closing_filler_covers_remainder=) |
 | 14 | Slice 2 v2 (Idle-Core Marking & Post-Remark Contraction) | Let idle cores enter =___gc_major_mark_slice= without checking =major_phase_ == ___GC_MAJOR_MARKING=, OR keep =is_minor= contraction block active after a completed Concurrent Major Remark | Idle core races with non-moving sweep or =resize_heap= never contracts reclaimed 100%-dead sections (RSS ratchets +55%) | Acquire-load phase guard inside =___gc_major_mark_slice= + idle scheduler check on =satb_active_ && primlock_depth == 0= + allow =resize_heap= contraction when =major_action == ___GC_MAJOR_ACTION_REMARK= (=mutant12IdleCoreMarkDuringSweepKilledTest=) |
 | 15 | Slice 2 v2 (Interrupt-Idle Dekker & Cross-Core WB) | Clear =___STACK_TRIP_OFF()= without Store-Load barrier before reading =intr_flag[]=, enter =##wait-idle-if-unchanged!= without checking pending interrupts/=interrupts-head=, or invoke remote-processor =___GC_WRITE_BARRIER= | x86_64 TSO / ARM64 PSO lost wakeup deadlock (=t1= Linux CI =cpu=0.15s= / 120s timeout!) and TSan data race on remote =card_hints_= / =gc_hash_table= =FLAGS= | =___SHARED_MEMORY_BARRIER()= after =___STACK_TRIP_OFF()= + pending-interrupt/=interrupts-head= recheck in =##wait-idle-if-unchanged!= + VM-level atomic =___gc_write_barrier_slot_vm= + =___WORD_LOAD_ACQUIRE= on =FLAGS= (=mutant13UnfencedTripOffMissedInterruptKilledTest=, =dekker_interrupt_idle_no_lost_wakeup=, =slice2_interrupt_idle_dekker_pso.c=) |
+| 16 | Slice 2.5 (Per-Domain Dynamic =rest_directory= Slab — *Caught at =p8= Oversub!*) | Hardcode VM-global =rest_directory[4]= or grow via relocating =realloc()= or clear =retired_generation= on slot reuse | Intermittent =#<heap-overflow-exception>= on =t5 p8= when >4 threads enter rest slow path; dangling pinned =___rest_directory_slot*= on relocation; stale activation token reopen | OCaml-5-style per-domain non-relocating chunked slab (=4->8->16->...=) preserving =retired_generation= receipts (=per_domain_rest_slab_and_io_check_v2.qnt= Mutants 1--4, =LongTermUnifiedRefinement.lean#Part7=, =per_domain_rest_slab_and_io_check_pso.c=) |
+| 17 | Slice 2.5 (=os_io.c= Post-Poll =___SELECT_PASS_CHECK= — *Caught Live in Linux CI =c8 exit=139=!*) | Decrement =--d->select_active= and wake =___device_close= BEFORE running =___SELECT_PASS_CHECK=, or skip =close_in_progress= on =FOR_EVENT= (=dir=0=), or omit =fd=/=pollfd= bounds checks | Concurrent =___device_close= mutates/destroys device while =___SELECT_PASS_CHECK= dereferences it (=SIGSEGV exit=139= under =p4= soak!) | Keep =select_active > 0= across =___SELECT_PASS_CHECK=, snapshot =(close_pending_mask & dir) != 0 \|\| close_in_progress > 0= beforehand, guard =0 <= fd < fdset.size= & =pollfd_count < MAX_CONDVARS= (=per_domain_rest_slab_and_io_check_v2.qnt= Mutants 5--8, =select_pass_check_requires_positive_active_borrow=, =per_domain_rest_slab_and_io_check_pso.c= kills =-DUSE_POST_CHECK_FENCE=0=) |
+| 18 | Slice 2.5 (Cloud 512 MiB L3 =min_heap= Bloat & =ram_idle_bound==0= — *Caught Live on Linux EPYC CI & Quint V2!*) | Derive automatic =min_heap= from uncapped socket-wide =_SC_LEVEL3_CACHE_SIZE / 2=, or hardcode an arbitrary =16 MiB= cap, or skip =SET_MIN= when =ram_idle_bound == 0= on tiny-RAM/high-CPU devices | 512 MiB EPYC L3 inflates every idle VM to =283 MiB= (breaking =c12= contraction!), or =ram_idle_bound == 0= leaks =8 MiB= floor on tiny embedded nodes (caught by Quint seed =0xe3ee7bc6115b05bf= in 36ms!) | Zero-magic-cap per-core private L2 (=___cpu_cache_size(0, 2) / 2=) unconditionally bounded by =phys_mem / max(2, cpus) / 256= and =max_heap / 8=, floored at =2 MiB=, honoring explicit =-:m<N>= verbatim (=mutant9UncappedSocketL3MinHeapKilledTest=, =AdaptiveHeapScalingRefinement.lean#Part6=, =adaptive_heap_scaling_pso.c=) |
+| 19 | Slice 2 v3 (Selective Immix Evacuation vs Interior Hole Recycling — *Caught Live on =t5 p4/p8= SIGBUS!*) | Leave =allow_hole = 1= during =g->evac_selective = 1=, allowing =prepare_worker_msection= to overwrite =hbase[hole_lo]= with =NULL_CHUNK_LINK= inside a pinned mature section =[0..scan_end_words)= while parallel =scan_remembered_set= linearly walks it; OR scan young =___STILL_FLAG_YOUNG= still objects as roots | Concurrent workers clobber interior hole header during linear scan -> =mark_array= dereferences corrupt word (=EXC_BAD_ACCESS= / =SIGBUS= on =t5 p4/p8=!) | Disable Immix interior hole recycling (=!g->evac_selective= in =allow_hole=) during selective evacuation so only disjoint tail-appends (=gc_is_dest == 2= at =>= scan_end_words=) run alongside linear pinned scans, and skip =___STILL_FLAG_YOUNG= in =scan_remembered_set= (=slice2_v3_immix_evac_and_slab_v2.qnt= Mutants 3--5 & 10, =Slice2V3MemoryEndgameRefinement.lean=) |
+| 20 | Slice 2 v3 (Medium =___STILL= Slab Fragmentation & Lock Safety — *Caught Live by Paired AB/BA!*) | Use coarse power-of-2 classes (=4/8/16/32 KiB=) x 8 shards with =256/512 KiB= chunks, OR omit per-bucket lock around =free_mask= / =munmap= empty slab chunks while live slots remain | Up to 50% internal fragmentation (+23.4% RSS regression on =medium_still_wave_p8=!), OR concurrent double-free / live-chunk UAF | 7 fine-grained 25%-step size classes (=4K/6K/8K/12K/16K/24K/32K=, exact 16 KiB page-multiple chunks) x 4 mutex-striped shards + =still_slab_purge_empty()= (flips =medium_still_wave_p8= to =-0.9% RSS= / =-1.0% fp=; =slice2_v3_immix_evac_and_slab_v2.qnt= Mutants 7--9, =slice2_v3_evac_and_slab_pso.c= kills =-DUSE_SLAB_LOCK=0=) |
 
 * ALIGNED Reproducible Formal Verification Commands
 :PROPERTIES:
@@ -253,7 +345,9 @@ for spec in \
   dev/refactoring/modern-c/models/quint/v2/concurrent_major_satb_v2.qnt \
   dev/refactoring/modern-c/models/quint/v2/evented_io_reactor_park_v2.qnt \
   dev/refactoring/modern-c/models/quint/v2/adaptive_heap_scaling_and_reclaim_v2.qnt \
-  dev/refactoring/modern-c/models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt; do
+  dev/refactoring/modern-c/models/quint/v2/gerbil_multicore_memory_challenge_v2.qnt \
+  dev/refactoring/modern-c/models/quint/v2/per_domain_rest_slab_and_io_check_v2.qnt \
+  dev/refactoring/modern-c/models/quint/v2/slice2_v3_immix_evac_and_slab_v2.qnt; do
   quint test "$spec"
   quint run --invariant=safe --max-samples=2000 --max-steps=30 "$spec"
 done
@@ -261,15 +355,23 @@ done
 # 4. Standalone Lean 4 refinement proofs (must be 0 errors, 0 warnings, 0 sorry)
 for lf in \
   dev/refactoring/modern-c/models/lean/LongTermUnifiedRefinement.lean \
-  dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean; do
-  ! grep -Eq '\bsorry\b' "$lf"
-  lean "$lf"
+  dev/refactoring/modern-c/models/lean/AdaptiveHeapScalingRefinement.lean \
+  dev/refactoring/modern-c/models/lean/SmpIoSelectCloseRefinement.lean \
+  dev/refactoring/modern-c/models/lean/Slice2V3MemoryEndgameRefinement.lean; do
+  lean -DwarningAsError=true "$lf"
 done
 
 # 5. CBMC weak-memory PSO & arithmetic contract checks (safe PASS + mutants FAIL)
-cbmc --mm pso -DUSE_MUTEX_GUARD=1 --bounds-check --pointer-check --signed-overflow-check --unsigned-overflow-check \
+cbmc --mm pso -DUSE_SLAB_LOCK=1 --unwind 10 --unwinding-assertions \
+  dev/refactoring/modern-c/models/cbmc/slice2_v3_evac_and_slab_pso.c
+! cbmc --mm pso -DUSE_SLAB_LOCK=0 --unwind 10 dev/refactoring/modern-c/models/cbmc/slice2_v3_evac_and_slab_pso.c
+cbmc --mm pso -DUSE_MUTEX_GUARD=1 --unwind 12 --bounds-check --pointer-check --signed-overflow-check --unsigned-overflow-check \
   dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c
-! cbmc --mm pso -DUSE_MUTEX_GUARD=0 dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c
+! cbmc --mm pso -DUSE_MUTEX_GUARD=0 --unwind 12 dev/refactoring/modern-c/models/cbmc/adaptive_heap_scaling_pso.c
+
+cbmc --mm pso -DUSE_POST_CHECK_FENCE=1 --bounds-check --pointer-check --signed-overflow-check --unsigned-overflow-check \
+  dev/refactoring/modern-c/models/cbmc/per_domain_rest_slab_and_io_check_pso.c
+! cbmc --mm pso -DUSE_POST_CHECK_FENCE=0 dev/refactoring/modern-c/models/cbmc/per_domain_rest_slab_and_io_check_pso.c
 
 cbmc --mm pso -DUSE_SATB_GUARD=1 dev/refactoring/modern-c/models/cbmc/slice2_satb_major_pso.c
 for flag in "-DUSE_SATB_GUARD=0" "-DMUTANT_SKIP_WEAK_CLEAR=1" "-DMUTANT_SKIP_WEAK_READ_BARRIER=1" "-DMUTANT_SKIP_LOCAL_MARK_FLUSH=1"; do

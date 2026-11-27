@@ -148,7 +148,7 @@ class ScientificLibraryTests(unittest.TestCase):
     def test_native_artifact_build_capture_and_drift_refusal(self):
         import os,shutil
         from gambit_smp.native_capabilities import c_build
-        compiler=os.environ.get('GAMBIT_SMP_TEST_GCC') or shutil.which('gcc-16')
+        compiler=os.environ.get('GAMBIT_SMP_TEST_GCC') or shutil.which('gcc-16') or shutil.which('gcc')
         if not compiler:self.skipTest('GNU GCC provider unavailable; native admission not established')
         with TemporaryDirectory() as temporary:
             root=Path(temporary).resolve();context=self.context(root)

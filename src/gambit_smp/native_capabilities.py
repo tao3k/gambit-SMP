@@ -1514,7 +1514,7 @@ def bootstrap(args, ctx):
     from gambit_smp.gambit_build_primitives import (build_errors, build_capacity, compiler_rss_limit,
                                                    core_command, BootstrapPhaseProgress,
                                                    host_compiler_reservation, scheme_inputs)
-    from gambit_smp.native_review import preflight
+    from gambit_smp.native_review import _historical_path, _historical_stage_dir, preflight
     if "engine" not in ctx.receipt or "identity" not in args:
         raise ValueError("bootstrap execution requires sealed known-failure review and matching identity")
     runtime = ctx.artifact(args["runtime"], {"seed-runtime", "source-runtime", "bootstrap-input"})
@@ -1905,7 +1905,7 @@ def additional_fixtures(args, ctx, unit, *, origin_runtime=None):
 def suite(args, ctx):
     from gambit_smp.artifact_storage import transfer_tree
     from gambit_smp.suite_primitives import selected_files, runtime_view, capacity, admitted_processors, admitted_suite, runner_option
-    from gambit_smp.native_review import preflight
+    from gambit_smp.native_review import _historical_path, _historical_stage_dir, preflight
     from gambit_smp.suite_primitives import check_runtime as check
     from gambit_smp.recipes import read_json
     if args.get("childProgress") and not getattr(ctx, "progress_mode", False):
@@ -1942,7 +1942,8 @@ def suite(args, ctx):
         return ordered_stress_suite(ctx, args, runtime, identity_path, files, gcc, driver)
     retry = preflight(ctx, args, runtime, identity_path, files, copied / "unit-tests")
     (ctx.directory / "retry-preflight.json").write_text(json.dumps(retry, indent=2) + "\n")
-    ctx.bind(ctx.root / name for name in retry["inputs"])
+    stage_dir = _historical_stage_dir(ctx)
+    ctx.bind(_historical_path(ctx.root, name, stage_dir=stage_dir) for name in retry["inputs"])
     if retry["decision"] not in {"NOT_REQUIRED", "RETRY_ELIGIBLE"}:
         raise ValueError("suite retry preflight: " + retry["decision"])
     population, jobs = retry["campaign"]["effectiveProcessors"], retry["campaign"]["effectiveJobs"]

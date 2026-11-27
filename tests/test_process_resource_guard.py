@@ -112,24 +112,24 @@ class GroupResourceTests(unittest.TestCase):
             with self.assertRaises(PermissionError):memory_sample(Path(temp),'task','run',footprint=True)
             self.assertEqual(1,sample.call_count)
 
-    @unittest.skipUnless(sys.platform=='darwin','Darwin kernel ledger ABI')
-    def test_native_sdk_layout_and_live_footprint(self):
-        from gambit_smp.process_identity import RusageInfoV0,footprint_bytes,process
-        compiler=shutil.which('gcc-16')
-        self.assertIsNotNone(compiler,'explicit C23 compiler required for SDK ABI calibration')
-        code=('#include <stdio.h>\n#include <stddef.h>\n#include <sys/resource.h>\n'
-              'int main(void){printf("%zu %zu\\n",sizeof(struct rusage_info_v0),'
-              'offsetof(struct rusage_info_v0,ri_phys_footprint));}\n')
-        with TemporaryDirectory() as temp:
-            target=Path(temp)/'abi'
-            sdk=subprocess.check_output(['/usr/bin/xcrun','--show-sdk-path'],text=True,timeout=5).strip()
-            compilation=subprocess.run([compiler,'-std=c23','-B/usr/bin/','-isysroot',sdk,
-                '-x','c','-','-o',str(target)],input=code,text=True,capture_output=True,timeout=10)
-            self.assertEqual(0,compilation.returncode,compilation.stderr)
-            observed=subprocess.check_output([target],text=True,timeout=3).split()
-        self.assertEqual([ctypes.sizeof(RusageInfoV0),RusageInfoV0.phys_footprint.offset],
-                         [int(x) for x in observed])
-        self.assertGreater(footprint_bytes(process(os.getpid())),0)
+    if sys.platform == 'darwin':
+        def test_native_sdk_layout_and_live_footprint(self):
+            from gambit_smp.process_identity import RusageInfoV0,footprint_bytes,process
+            compiler=shutil.which('gcc-16')
+            self.assertIsNotNone(compiler,'explicit C23 compiler required for SDK ABI calibration')
+            code=('#include <stdio.h>\n#include <stddef.h>\n#include <sys/resource.h>\n'
+                  'int main(void){printf("%zu %zu\\n",sizeof(struct rusage_info_v0),'
+                  'offsetof(struct rusage_info_v0,ri_phys_footprint));}\n')
+            with TemporaryDirectory() as temp:
+                target=Path(temp)/'abi'
+                sdk=subprocess.check_output(['/usr/bin/xcrun','--show-sdk-path'],text=True,timeout=5).strip()
+                compilation=subprocess.run([compiler,'-std=c23','-B/usr/bin/','-isysroot',sdk,
+                    '-x','c','-','-o',str(target)],input=code,text=True,capture_output=True,timeout=10)
+                self.assertEqual(0,compilation.returncode,compilation.stderr)
+                observed=subprocess.check_output([target],text=True,timeout=3).split()
+            self.assertEqual([ctypes.sizeof(RusageInfoV0),RusageInfoV0.phys_footprint.offset],
+                             [int(x) for x in observed])
+            self.assertGreater(footprint_bytes(process(os.getpid())),0)
 
     def test_footprint_is_not_inferred_from_resident_bytes(self):
         from gambit_smp.process_identity import groups_memory

@@ -89,6 +89,35 @@ static uint64_t gc_decay_history_entry(uint64_t entry, uint64_t target, int forc
   return entry;
 }
 
+/* Principled zero-magic-cap hardware-topology auto min_heap (mirrors memory-lifecycle.inc):
+ * uses per-core private L2 cache (NEVER socket-wide L3!), bounded by phys_mem / max(2,cpus) / 256
+ * and max_heap / 8, floored at 2 MiB (2 msections). Explicit -:m<N> is never modified. */
+static uint64_t gc_compute_auto_min_heap(
+    uint64_t configured_min_heap,
+    int per_core_l2_bytes,
+    uint64_t phys_mem_bytes,
+    uint64_t cpu_count,
+    uint64_t max_heap_bytes)
+{
+  const uint64_t default_min = 2ull << 20;
+  if (configured_min_heap != 0u)
+    return (configured_min_heap >= default_min) ? configured_min_heap : default_min;
+
+  uint64_t auto_min = (per_core_l2_bytes > 0) ? ((uint64_t)per_core_l2_bytes / 2u) : 0u;
+  uint64_t eff_cpus = (cpu_count >= 2u) ? cpu_count : 2u;
+  if (phys_mem_bytes > 0u) {
+    uint64_t ram_idle_bound = (phys_mem_bytes / eff_cpus) >> 8;
+    if (auto_min > ram_idle_bound)
+      auto_min = ram_idle_bound;
+  }
+  if (max_heap_bytes > 0u) {
+    uint64_t max_idle_bound = max_heap_bytes >> 3;
+    if (auto_min > max_idle_bound)
+      auto_min = max_idle_bound;
+  }
+  return (auto_min >= default_min) ? auto_min : default_min;
+}
+
 /* --- Part 5: Concurrent PSO Weak-Memory Mailbox Waiter/Sender Protocol --- */
 static int mutex_lock = 0;
 static int msg_available = 0;
@@ -217,7 +246,21 @@ int main(void) {
   uint64_t contracted = (d_force >= lower_bound) ? d_force : lower_bound;
   assert(contracted >= lower_bound);
 
-  /* 4. Concurrent PSO mailbox empty-check soundness (0 lost wakeups!) */
+  /* 4. Principled zero-magic-cap auto min_heap across negative L2, embedded 512MiB,
+   *    4-vCPU EPYC (1MiB L2, ignoring 512MiB socket L3), 12-core Apple Silicon (4MiB L2),
+   *    and explicit -:m65536 override. */
+  static const int l2_table[5] = { -1, 0, 1 << 20, 4 << 20, 16 << 20 };
+  int l2_i;
+  __CPROVER_assume(l2_i >= 0 && l2_i < 5);
+  uint64_t auto_mh = gc_compute_auto_min_heap(0u, l2_table[l2_i], ram, cpus, max_heap);
+  assert(auto_mh >= (2ull << 20));
+  uint64_t ram_idle = (ram / ((cpus >= 2u) ? cpus : 2u)) >> 8;
+  if (ram_idle >= (2ull << 20))
+    assert(auto_mh <= ram_idle);
+  /* Explicit -:m65536 (64 MiB) is always honored verbatim */
+  assert(gc_compute_auto_min_heap(64ull << 20, 1 << 20, ram, cpus, 0u) == (64ull << 20));
+
+  /* 5. Concurrent PSO mailbox empty-check soundness (0 lost wakeups!) */
   __CPROVER_ASYNC_1: receiver_thread();
   sender_thread();
   __CPROVER_assume(receiver_done == 1);

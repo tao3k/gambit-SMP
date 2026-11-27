@@ -40,13 +40,13 @@ def gcc():
     raise AssertionError('real GNU GCC required for native adapter tests')
 
 
-@unittest.skipUnless(sys.platform == 'darwin', 'Darwin developer tool dispatch')
-class DarwinNativeToolResolutionTests(unittest.TestCase):
-    def test_actual_tools_and_compiler_search_path_have_the_same_identity(self):
-        tools,env=native.host_tools(gcc(),[{'capability':'gambit.configure'}],dict(os.environ))
-        for name in ('as','ld','make','m4'):
-            self.assertNotEqual(Path('/usr/bin'),tools[name].parent)
-            self.assertEqual(tools[name],Path(shutil.which(name,path=env['PATH'])).resolve())
+if sys.platform == 'darwin':
+    class DarwinNativeToolResolutionTests(unittest.TestCase):
+        def test_actual_tools_and_compiler_search_path_have_the_same_identity(self):
+            tools,env=native.host_tools(gcc(),[{'capability':'gambit.configure'}],dict(os.environ))
+            for name in ('as','ld','make','m4'):
+                self.assertNotEqual(Path('/usr/bin'),tools[name].parent)
+                self.assertEqual(tools[name],Path(shutil.which(name,path=env['PATH'])).resolve())
 
 
 class NativeIncrementalAdapterTests(unittest.TestCase):

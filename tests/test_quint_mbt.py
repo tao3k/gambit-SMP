@@ -222,16 +222,16 @@ class QuintV2MbtAndAscentRoutingTest(unittest.TestCase):
             self.assertFalse(res["safe"], f"{fname} should violate {inv_name}")
             self.assertIn(inv_name, {v["invariant"] for v in res["violations"]})
 
-    @unittest.skipUnless(_HAS_OPT_RUNTIME, "requires pre-built native runtime at .cache/tasks/family7-gambit-opt/runtime")
-    def test_live_itf_mbt_replay_against_gambit_smp_p2(self) -> None:
-        itf_dir = self._require_itf_dir()
-        replay = replay_binding_itf_against_gambit(
-            itf_dir / "binding_v2_seed101.itf.json",
-            OPT_RUNTIME,
-            processors=2,
-        )
-        self.assertTrue(replay["passed"], replay)
-        self.assertIn("QUINT-MBT-REPLAY-PASS", replay["stdout"])
+    if _HAS_OPT_RUNTIME:
+        def test_live_itf_mbt_replay_against_gambit_smp_p2(self) -> None:
+            itf_dir = self._require_itf_dir()
+            replay = replay_binding_itf_against_gambit(
+                itf_dir / "binding_v2_seed101.itf.json",
+                OPT_RUNTIME,
+                processors=2,
+            )
+            self.assertTrue(replay["passed"], replay)
+            self.assertIn("QUINT-MBT-REPLAY-PASS", replay["stdout"])
 
     def test_f6rest01_reverse_trace_validation_positive_and_negative(self) -> None:
         with tempfile.TemporaryDirectory(prefix="f6rest-tv-") as td:
@@ -271,42 +271,42 @@ class QuintV2MbtAndAscentRoutingTest(unittest.TestCase):
             self.assertIn("fudge-zone-thrash-guard", {v["rule"] for v in res_thrash["violations"]})
             self.assertEqual(res_thrash["maxConsecutiveSlowGrantsWithoutGc"], 40)
 
-    @unittest.skipUnless(_HAS_OPT_RUNTIME, "requires pre-built native runtime at .cache/tasks/family7-gambit-opt/runtime")
-    def test_f6rest01_reverse_trace_validation_on_live_native_o1_trace(self) -> None:
-        # Capture a genuine binary F6REST01 wire trace directly from compiled 45d83511 runtime!
-        from gambit_smp.stress_gsc_link4 import _init_wire_trace_file
+    if _HAS_OPT_RUNTIME:
+        def test_f6rest01_reverse_trace_validation_on_live_native_o1_trace(self) -> None:
+            # Capture a genuine binary F6REST01 wire trace directly from compiled 45d83511 runtime!
+            from gambit_smp.stress_gsc_link4 import _init_wire_trace_file
 
-        with tempfile.TemporaryDirectory(prefix="f6rest-live-") as td:
-            d = Path(td)
-            trace_file = d / "live_control_a.trace"
-            _init_wire_trace_file(trace_file, capacity=65536)
-            src = d / "probe.scm"
-            src.write_text(
-                "(declare (standard-bindings) (extended-bindings))\n"
-                "(define (mk n) (let loop ((i 0) (acc '())) "
-                "(if (< i n) (loop (+ i 1) (cons (vector i (+ i 1) (+ i 2)) acc)) (length acc))))\n"
-                "(display (list 'LIVE-TRACE-OK (mk 6000))) (newline)\n",
-                encoding="utf-8",
-            )
-            o1 = d / "probe.o1"
-            rt_opts = f"~~bin={OPT_RUNTIME / 'bin'},~~lib={OPT_RUNTIME / 'lib'},~~include={OPT_RUNTIME / 'include'}"
-            env = dict(os.environ)
-            env["PATH"] = f"/usr/bin:/bin:/opt/homebrew/bin:{env.get('PATH', '')}"
-            env["___GAMBIT_REST_OBSERVATION"] = str(trace_file)
-            c_res = subprocess.run(
-                [str(OPT_RUNTIME / "gsc/gsc"), f"-:p1,{rt_opts}", "-o", str(o1), str(src)],
-                capture_output=True, text=True, env=env, timeout=60,
-            )
-            self.assertEqual(c_res.returncode, 0, c_res.stderr)
-            r_res = subprocess.run(
-                [str(OPT_RUNTIME / "gsi/gsi"), f"-:p2,{rt_opts}", str(o1)],
-                capture_output=True, text=True, env=env, timeout=60,
-            )
-            self.assertEqual(r_res.returncode, 0, r_res.stderr)
-            self.assertIn("LIVE-TRACE-OK", r_res.stdout)
-            tv = validate_f6rest01_trace(trace_file)
-            self.assertTrue(tv["valid"], tv)
-            self.assertEqual(tv["dropped"], 0)
+            with tempfile.TemporaryDirectory(prefix="f6rest-live-") as td:
+                d = Path(td)
+                trace_file = d / "live_control_a.trace"
+                _init_wire_trace_file(trace_file, capacity=65536)
+                src = d / "probe.scm"
+                src.write_text(
+                    "(declare (standard-bindings) (extended-bindings))\n"
+                    "(define (mk n) (let loop ((i 0) (acc '())) "
+                    "(if (< i n) (loop (+ i 1) (cons (vector i (+ i 1) (+ i 2)) acc)) (length acc))))\n"
+                    "(display (list 'LIVE-TRACE-OK (mk 6000))) (newline)\n",
+                    encoding="utf-8",
+                )
+                o1 = d / "probe.o1"
+                rt_opts = f"~~bin={OPT_RUNTIME / 'bin'},~~lib={OPT_RUNTIME / 'lib'},~~include={OPT_RUNTIME / 'include'}"
+                env = dict(os.environ)
+                env["PATH"] = f"/usr/bin:/bin:/opt/homebrew/bin:{env.get('PATH', '')}"
+                env["___GAMBIT_REST_OBSERVATION"] = str(trace_file)
+                c_res = subprocess.run(
+                    [str(OPT_RUNTIME / "gsc/gsc"), f"-:p1,{rt_opts}", "-o", str(o1), str(src)],
+                    capture_output=True, text=True, env=env, timeout=60,
+                )
+                self.assertEqual(c_res.returncode, 0, c_res.stderr)
+                r_res = subprocess.run(
+                    [str(OPT_RUNTIME / "gsi/gsi"), f"-:p2,{rt_opts}", str(o1)],
+                    capture_output=True, text=True, env=env, timeout=60,
+                )
+                self.assertEqual(r_res.returncode, 0, r_res.stderr)
+                self.assertIn("LIVE-TRACE-OK", r_res.stdout)
+                tv = validate_f6rest01_trace(trace_file)
+                self.assertTrue(tv["valid"], tv)
+                self.assertEqual(tv["dropped"], 0)
 
     def test_ascent_scenario_driven_tool_routing(self) -> None:
         # 1. Host environment routing

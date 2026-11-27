@@ -1,6 +1,6 @@
 {
   "schema": "gambit-smp-papers.v1",
-  "scope": "Long-Term Unified Gambit SMP Architecture (Wave A -> Slice 1 FrameSpec -> Slice 2 Concurrent Major GC -> Slice 3 kqueue/epoll & SRFI-230/Parallel Stdlib -> Slice 4 Gerbil SMP & 12/12 Seal)",
+  "scope": "Long-Term Unified Gambit SMP Architecture (Wave A -> Slice 1 FrameSpec -> Slice 2 Concurrent SATB Major GC & Dynamic Domain Hardening -> Slice 3A Dynamic Per-Domain VM Tables & Slice 3B kqueue/epoll + SRFI-230/Parallel Stdlib -> Slice 4 Gerbil SMP & Same-Source 12/12 Release Seal)",
   "papers": [
     {
       "id": "feeley-miller-lfp-1990",
@@ -10,7 +10,10 @@
       "url": "https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf",
       "slices": ["Slice 1 (FrameSpec/PointId)", "Slice 4 (Incremental Build)"],
       "adopted": "Logical frames, bidirectional target knowledge, explicit operand storage classes, measurement feedback loop.",
-      "non_import": "PVM futures do not prove SMP safety or allow simultaneous multi-core invocation of a single continuation."
+      "non_import": "PVM futures do not prove SMP safety or allow simultaneous multi-core invocation of a single continuation.",
+      "source_anchors": ["gsc/_t-c-2.scm", "gsc/_t-c-3.scm", "lib/_mem/object-scanning.inc"],
+      "model_obligations": ["unified_framespec_authority_v2.qnt", "LongTermUnifiedRefinement.lean#Part2", "slice1_framespec_authority_pso.c"],
+      "native_witness": "edc97dd1 (Slice 1 unified FrameSpec authority, 15/15 CI green)"
     },
     {
       "id": "feeley-polling-1993",
@@ -20,7 +23,10 @@
       "url": "https://www.iro.umontreal.ca/~feeley/papers/FeeleyFPCA93.pdf",
       "slices": ["Wave A (fast_span)", "Slice 1 (GeneratedCheckpoint)"],
       "adopted": "Inexpensive allocation/stack limit polling and fast-span grant reload at explicit safepoints.",
-      "non_import": "Polling alone does not cover blocking C FFI without Tier 3.3 park/unpark participation."
+      "non_import": "Polling alone does not cover blocking C FFI without Tier 3.3 park/unpark participation.",
+      "source_anchors": ["lib/_mem/rc-allocation.inc", "lib/_mem/memory-lifecycle.inc", "lib/_kernel.scm"],
+      "model_obligations": ["tier31p3_still_and_rest_fastpath_v2.qnt", "wave_a_rest_fast_span_pso.c"],
+      "native_witness": "72468e63 + f6510651 (par_rest_alloc p4=3.87x E=0.97, p8=5.40x)"
     },
     {
       "id": "feeley-continuations-2000",
@@ -30,7 +36,10 @@
       "url": "https://www-labs.iro.umontreal.ca/~feeley/papers/FeeleySW00.pdf",
       "slices": ["Slice 1 (FrameSpec/ControlRoots)", "Slice 2 (SATB on captured frames)"],
       "adopted": "Lazy stack-to-heap frame capture, break frames, multi-shot continuation semantics with C interoperability.",
-      "non_import": "Captured mature heap frames remain mutable (##frame-set!); old age never implies immutability."
+      "non_import": "Captured mature heap frames remain mutable (##frame-set!); old age never implies immutability.",
+      "source_anchors": ["lib/_mem/continuation-roots.inc", "lib/_kernel.scm", "lib/_mem/capacity-resize.inc"],
+      "model_obligations": ["unified_framespec_authority_v2.qnt", "LongTermUnifiedRefinement.lean#framespec_slot_bijection"],
+      "native_witness": "c5-multishot-cc p1/p4/p8/p12 + c3-ffi-callback-reentry p1/p4/p8/p12"
     },
     {
       "id": "diwan-moss-hudson-pldi-1992",
@@ -40,7 +49,10 @@
       "url": "https://doi.org/10.1145/143095.143140",
       "slices": ["Slice 1 (FrameSpec/PointId)"],
       "adopted": "Compiler-generated exact per-call-site pointer liveness maps decoupled from runtime scanning logic.",
-      "non_import": "Static-type assumptions are replaced by Gambit dynamic tags plus explicit unboxed raw-slot scrubbing."
+      "non_import": "Static-type assumptions are replaced by Gambit dynamic tags plus explicit unboxed raw-slot scrubbing.",
+      "source_anchors": ["gsc/_t-c-2.scm", "lib/_mem/object-scanning.inc"],
+      "model_obligations": ["unified_framespec_authority_v2.qnt", "RawF64ScrubRefinement.lean"],
+      "native_witness": "edc97dd1 (zero duplicated C frame inference; single FrameSpec authority)"
     },
     {
       "id": "yuasa-satb-1990",
@@ -50,7 +62,10 @@
       "url": "https://doi.org/10.1016/0164-1212(90)90084-Y",
       "slices": ["Wave A (SATB-ready pre-store barrier)", "Slice 2 (Concurrent SATB Major GC)"],
       "adopted": "Snapshot-At-The-Beginning (SATB) pre-store deletion barrier + black-allocation during mark phase for bounded termination.",
-      "non_import": "Single-processor assumptions are replaced by C11/C23 release-acquire synchronization and per-processor SATB buffers."
+      "non_import": "Single-processor assumptions are replaced by C11/C23 release-acquire synchronization and per-processor SATB buffers.",
+      "source_anchors": ["lib/_mem/concurrent-major.inc", "include/_gambit/memory_barrier.h.in"],
+      "model_obligations": ["concurrent_major_satb_v2.qnt", "LongTermUnifiedRefinement.lean#Part3", "slice2_satb_major_pso.c"],
+      "native_witness": "02b55ae4 (t6-concurrent-satb-major-gc p1/p4/p8/p12 + Clang C23 TSan 0 SATB races)"
     },
     {
       "id": "huelsbergen-winterbottom-vcgc-1998",
@@ -60,7 +75,10 @@
       "url": "https://doi.org/10.1145/286860.286878",
       "slices": ["Slice 2 (Concurrent Major GC)"],
       "adopted": "Epoch/color-bit non-moving mark-and-sweep allowing concurrent mutators, markers, and sweepers with coarse-grain phase barriers.",
-      "non_import": "C11 data-race freedom requires explicit atomic mark-word operations rather than unguarded racy loads/stores."
+      "non_import": "C11 data-race freedom requires explicit atomic mark-word operations rather than unguarded racy loads/stores.",
+      "source_anchors": ["lib/_mem/concurrent-major.inc", "lib/_mem/configuration.inc"],
+      "model_obligations": ["concurrent_major_satb_v2.qnt", "slice2_satb_major_pso.c"],
+      "native_witness": "02b55ae4 (alternating ___STILL_MAJOR_MARK_BIT(epoch) + parallel non-moving sweep)"
     },
     {
       "id": "blackburn-mckinley-immix-2008",
@@ -69,8 +87,11 @@
       "venue": "ACM PLDI 2008",
       "url": "https://doi.org/10.1145/1375581.1375586",
       "slices": ["Slice 2 (Non-Moving Mark-Region Mature Space)"],
-      "adopted": "Block/line mark-region non-moving mature allocation with opportunistic defragmentation, fitting Gambit msection blocks without 2x semispace RSS overhead.",
-      "non_import": "Opportunistic evacuation only runs at STW defragmentation cuts; ordinary concurrent major cycles remain strictly non-moving."
+      "adopted": "Block/line mark-region non-moving mature allocation with card-aligned line-hole recycling and opportunistic STW defragmentation on msections.",
+      "non_import": "Opportunistic evacuation only runs at STW defragmentation cuts; ordinary concurrent major cycles remain strictly non-moving.",
+      "source_anchors": ["lib/_mem/concurrent-major.inc", "lib/_mem/generational.inc", "lib/_mem/heap-sections.inc"],
+      "model_obligations": ["concurrent_major_satb_v2.qnt", "LongTermUnifiedRefinement.lean#Part6"],
+      "native_witness": "02b55ae4 (t6 s10-v2-holes-idle verified across p1/p4/p8/p12)"
     },
     {
       "id": "marlow-parallel-gen-gc-2008",
@@ -80,7 +101,10 @@
       "url": "https://simonmar.github.io/bib/papers/parallel-gc.pdf",
       "slices": ["Wave A (O(Y) Minor GC)", "Slice 2 (Minor/Major Composition)"],
       "adopted": "Block-structured parallel generational evacuation, card/remembered-set scanning, work-stealing parallel promotion.",
-      "non_import": "GHC lazy-thunk promotion heuristics and thunk blackholing do not transfer to strict Scheme."
+      "non_import": "GHC lazy-thunk promotion heuristics and thunk blackholing do not transfer to strict Scheme.",
+      "source_anchors": ["lib/_mem/generational.inc", "lib/_mem/collection-round.inc"],
+      "model_obligations": ["tier31p3_still_and_rest_fastpath_v2.qnt", "wave_a_still_cas_claim_pso.c"],
+      "native_witness": "7ad4e068 + 72468e63 (t5-generational-minor-gc p1/p4/p8/p12 + 50x soak + TSan)"
     },
     {
       "id": "sivaramakrishnan-ocaml5-icfp-2020",
@@ -88,9 +112,38 @@
       "authors": "KC Sivaramakrishnan, Stephen Dolan, Leo White, Sadiq Jaffer, Tom Kelly, Anmol Sahoo, Sudha Parimala, Atul Dhiman, Anil Madhavapeddy",
       "venue": "ACM ICFP 2020",
       "url": "https://anil.recoil.org/papers/2020-icfp-retropar.pdf",
-      "slices": ["Wave A", "Slice 2 (Concurrent SATB Major GC)"],
-      "adopted": "Coordinated STW parallel Minor GC paired with non-moving concurrent SATB Major GC (piggybacking major phase transitions on minor barriers) and C-FFI domain rendezvous.",
-      "non_import": "OCaml single-shot effect-handler stacks and OCaml's C volatile/fence idioms are not imported; Gambit keeps multi-shot continuations and C11/C23 atomics."
+      "slices": ["Wave A", "Slice 2 (Concurrent SATB Major GC)", "Slice 2.5 (Per-Domain Dynamic Slabs)", "Slice 3A (Dynamic Domain VM Tables)"],
+      "adopted": "Coordinated STW parallel Minor GC paired with non-moving concurrent SATB Major GC, FFI domain park/rendezvous, and owner-local dynamic per-domain slabs eliminating global arrays and cross-core false sharing.",
+      "non_import": "OCaml single-shot effect-handler stacks and OCaml's C volatile/fence idioms are not imported; Gambit keeps multi-shot continuations and C11/C23 atomics.",
+      "source_anchors": ["lib/rc.h", "lib/lifecycle.h", "lib/_mem/rc-allocation.inc", "lib/_mem/concurrent-major.inc"],
+      "model_obligations": ["per_domain_rest_slab_and_io_check_v2.qnt", "LongTermUnifiedRefinement.lean#Part7", "per_domain_rest_slab_and_io_check_pso.c"],
+      "native_witness": "f6510651 (24-live-nested slab growth 4->8->16=28; 30x p8/p12/p16 rest stress; 50x t5 soak; 0 TSan races)"
+    },
+    {
+      "id": "dolan-ocaml-memory-model-pldi-2018",
+      "title": "Bounding Data Races in Space and Time",
+      "authors": "Stephen Dolan, KC Sivaramakrishnan, Anil Madhavapeddy",
+      "venue": "ACM PLDI 2018",
+      "url": "https://doi.org/10.1145/3192366.3192421",
+      "slices": ["Slice 2.5 (Per-Domain Dynamic Slabs)", "Slice 3A (Dynamic Domain VM Tables)", "Slice 3B (SRFI-230 Atomics)"],
+      "adopted": "Domain-local ownership partitioning (zero cross-domain scans or false-sharing on owner-private metadata) paired with explicit acquire/release publication cuts on shared control words.",
+      "non_import": "OCaml's Local Data Race Freedom (LDRF) semantics for tearing/out-of-thin-air on racy mutable fields are NOT imported; Gambit enforces strict C23 DRF-0 and explicit atomic primitives (SRFI-230 / ___ORDERED_WORD_NATIVE).",
+      "source_anchors": ["lib/rc.h", "lib/_mem/rc-allocation.inc", "include/_gambit/ordered_sync.h.in"],
+      "model_obligations": ["per_domain_rest_slab_and_io_check_v2.qnt", "LongTermUnifiedRefinement.lean#rest_slab_domain_disjointness", "per_domain_rest_slab_and_io_check_pso.c"],
+      "native_witness": "f6510651 (Clang C23 TSan 0 data races across 12 runs incl. rest24/t5/t6/c8/c9/c12)"
+    },
+    {
+      "id": "dybvig-chez-scheme-icfp-2006",
+      "title": "The Development of Chez Scheme",
+      "authors": "R. Kent Dybvig",
+      "venue": "ACM ICFP 2006 (and Chez Scheme 10 Threaded Runtime)",
+      "url": "https://doi.org/10.1145/1159803.1159805",
+      "slices": ["Slice 2.5 (Dynamic Rest Slab)", "Slice 3A (Eliminating Static MAX_PROCESSORS Caps)", "Slice 4 (Parallel Compiler)"],
+      "adopted": "Hardware-adaptive dynamic thread-context (TC) and per-thread/domain segment allocation with zero compile-time core-count ceilings and clean generational scaling across arbitrary host topologies.",
+      "non_import": "Chez's fixed-size generational sweep arenas and native-code register conventions differ from Gambit's portable C23 backend and msection dual-half layout.",
+      "source_anchors": ["lib/rc.h", "lib/lifecycle.h", "lib/root.h", "lib/collector.h", "include/_gambit/vm_state.h.in"],
+      "model_obligations": ["per_domain_rest_slab_and_io_check_v2.qnt", "LongTermUnifiedRefinement.lean#Part7"],
+      "native_witness": "f6510651 (rest_directory dynamic slab verified p1/p4/p8/p12/p16; full [___MAX_PROCESSORS] inventory audited for Slice 3A)"
     },
     {
       "id": "ueno-ohori-icfp-2016",
@@ -100,7 +153,62 @@
       "url": "https://doi.org/10.1145/2951913.2951944",
       "slices": ["Slice 2 (Concurrent Major GC)"],
       "adopted": "Non-moving bitmap-marked segments + SATB write-barrier buffers + lock-free segment handoff for functional runtimes.",
-      "non_import": "SML# tagless bitmap layouts differ from Gambit tagged words and still-object refcount headers."
+      "non_import": "SML# tagless bitmap layouts differ from Gambit tagged words and external still-object refcount headers.",
+      "source_anchors": ["lib/_mem/concurrent-major.inc", "lib/_mem/section-claim.inc"],
+      "model_obligations": ["concurrent_major_satb_v2.qnt", "slice2_satb_major_pso.c"],
+      "native_witness": "02b55ae4 (t6-concurrent-satb-major-gc p1/p4/p8/p12)"
+    },
+    {
+      "id": "yang-berger-mckinley-ismm-2004",
+      "title": "Automatic Heap Sizing: Taking Real Memory into Account",
+      "authors": "Ting Yang, Emery D. Berger, Scott F. Kaplan, J. Eliot B. Moss",
+      "venue": "ACM ISMM 2004",
+      "url": "https://doi.org/10.1145/1029873.1029881",
+      "slices": ["Memory Envelope (v26 <-> Slice 2)", "Slice 2.5 (Cloud LLC min_heap Clamp)"],
+      "adopted": "Physical-RAM- and CPU-aware heap-sizing curves (adaptive live_percent 50%->80%, collapse-aware contraction history, O(sqrt(P)) SMP floor, and bounded LLC-derived auto min_heap <= 16 MiB).",
+      "non_import": "Kernel page-fault-counter feedback loops (CRAMM/BC) are replaced by portable sysconf/sysctl physical-memory and cache queries plus explicit user flag precedence (-:m / -:l).",
+      "source_anchors": ["lib/mem.h", "lib/_mem/memory-lifecycle.inc", "lib/_mem/capacity-resize.inc", "tests/smp/multicore/c12-memory-scaling-contraction-smp.scm"],
+      "model_obligations": ["adaptive_heap_scaling_and_reclaim_v2.qnt", "AdaptiveHeapScalingRefinement.lean", "adaptive_heap_scaling_pso.c"],
+      "native_witness": "d5515c42 + 4498c69b (c12 p1/p4/p8/p12/p16 + explicit -:m65536 honored)"
+    },
+    {
+      "id": "blackburn-cheng-mckinley-sigmetrics-2004",
+      "title": "Myths and Realities: The Performance Impact of Garbage Collection",
+      "authors": "Stephen M. Blackburn, Perry Cheng, Kathryn S. McKinley",
+      "venue": "ACM SIGMETRICS 2004",
+      "url": "https://doi.org/10.1145/1005686.1005693",
+      "slices": ["Memory Envelope (v26 <-> Slice 2)", "Slice 2.5 (Principled Per-Core Auto min_heap)"],
+      "adopted": "Empirically refutes the myth that nursery / minimum heap floors must match hardware L2/L3 cache sizes; prioritizes space efficiency and live-driven collection frequency over socket-wide LLC floor bloat (aligned with vendor/ocaml 5.5.1 config.h:203 Minor_heap_def=2MiB and vendor/chez 10 segment.c:465 heap_reserve_ratio).",
+      "non_import": "Java/Jikes RVM fixed-nursery benchmarks do not determine Gambit's msection dual-half fudge invariants.",
+      "source_anchors": ["lib/os_thread.c", "lib/_mem/memory-lifecycle.inc", "vendor/ocaml/runtime/caml/config.h", "vendor/chez/c/segment.c"],
+      "model_obligations": ["adaptive_heap_scaling_and_reclaim_v2.qnt#mutant9UncappedSocketL3MinHeapKilledTest", "AdaptiveHeapScalingRefinement.lean#Part6", "adaptive_heap_scaling_pso.c"],
+      "native_witness": "Eliminates 283 MiB idle min_heap explosion on 512 MiB L3 AMD EPYC cloud runners without any hardcoded cap constant"
+    },
+    {
+      "id": "kirisame-panchekha-membalancer-oopsla-2022",
+      "title": "Optimal Heap Limits for Reducing Browser Memory Use (MemBalancer)",
+      "authors": "Marisa Kirisame, Pranav Shenoy, Pavel Panchekha",
+      "venue": "ACM OOPSLA 2022 (PACMPL Vol. 6)",
+      "url": "https://doi.org/10.1145/3563323",
+      "slices": ["Memory Envelope (v26 <-> Slice 2)", "Slice 2.5 (Multi-Process Parallel Build Elasticity)"],
+      "adopted": "Sublinear (square-root) heap limit scaling across uncoordinated concurrent heaps/processes (e.g. parallel gsc/Gerbil workers and multi-VM processes), minimizing total RSS x GC-time without cross-process IPC.",
+      "non_import": "V8 allocation-rate telemetry shadow-price c is approximated in Gambit by deterministic O(sqrt(P)) SMP headroom, per-core physical-RAM share (phys_mem / cpus), and 50%->80% adaptive live_percent.",
+      "source_anchors": ["lib/_mem/capacity-resize.inc", "lib/_mem/memory-lifecycle.inc"],
+      "model_obligations": ["adaptive_heap_scaling_and_reclaim_v2.qnt", "AdaptiveHeapScalingRefinement.lean#smp_headroom_strictly_below_linear_from_p4", "adaptive_heap_scaling_pso.c"],
+      "native_witness": "v26 + Slice 2.5: 8-core Gerbil stage0 -1.65 GiB fp, 5-core stdlib 2.0x faster, idle floor bounded by per-core L2 and phys_mem/cpus/256"
+    },
+    {
+      "id": "white-singer-principled-heap-sizing-ismm-2013",
+      "title": "Control Theory for Principled Heap Sizing",
+      "authors": "David R. White, Jeremy Singer, Jonathan M. Aitken, Mikel Luján",
+      "venue": "ACM ISMM 2013",
+      "url": "https://doi.org/10.1145/2464157.2466481",
+      "slices": ["Memory Envelope (v26 <-> Slice 2)", "Slice 3A (Dynamic Domain Memory Control)"],
+      "adopted": "Closed-loop collapse-aware heap contraction and proportional control avoiding static hysteresis ratchets (replacing Gambit's 16-GC max history pin and aligning with vendor/erlang-otp 28 erl_gc.c:2049 immediate shrink when live < 25% of heap).",
+      "non_import": "PID controller gain tuning requires workload-specific damping and is deferred behind Gambit's deterministic CBMC-verified decay and explicit (##gc) contraction contract.",
+      "source_anchors": ["lib/_mem/capacity-resize.inc", "vendor/erlang-otp/erts/emulator/beam/erl_gc.c"],
+      "model_obligations": ["adaptive_heap_scaling_and_reclaim_v2.qnt", "AdaptiveHeapScalingRefinement.lean#auto_decay_strictly_shrinks_stale_peak"],
+      "native_witness": "c12-memory-scaling-contraction 99.9% single-GC burst contraction across p1/p4/p8/p12/p16"
     },
     {
       "id": "lemon-kqueue-usenix-2001",
@@ -108,9 +216,25 @@
       "authors": "Jonathan Lemon",
       "venue": "USENIX ATC 2001 (FREENIX Track)",
       "url": "https://www.usenix.org/legacy/events/usenix01/freenix01/full_papers/lemon/lemon.pdf",
-      "slices": ["Slice 3 (Evented SMP I/O Reactor)"],
-      "adopted": "Persistent kernel interest registration (kevent on macOS/BSD, paired with epoll on Linux), O(ready) delivery, EVFILT_USER/eventfd wakeup, eliminating FD_SETSIZE=1024 and O(N) select/poll.",
-      "non_import": "Kernel FD reuse still requires explicit userspace generation/custody fencing before close(fd)."
+      "slices": ["Slice 3B (Evented SMP I/O Reactor)"],
+      "adopted": "Persistent kernel interest registration (kevent on macOS/BSD), O(ready) delivery, EVFILT_USER wakeup, eliminating FD_SETSIZE=1024 and O(N) select/poll.",
+      "non_import": "Kernel FD reuse still requires explicit userspace generation/custody fencing across BOTH poll wait AND post-poll check before close(fd).",
+      "source_anchors": ["lib/os_io.c", "lib/os_io.h"],
+      "model_obligations": ["evented_io_reactor_park_v2.qnt", "per_domain_rest_slab_and_io_check_v2.qnt", "SmpIoSelectCloseRefinement.lean"],
+      "native_witness": "f6510651 (50x c8 soak + Linux CI all-cores-soak c8 3/3 PASS + Clang TSan 0 os_io races)"
+    },
+    {
+      "id": "gammo-epoll-ols-2004",
+      "title": "Comparing and Evaluating epoll, select, and poll Event Mechanisms",
+      "authors": "Louay Gammo, Tim Brecht, Amol Shukla, David Pariag",
+      "venue": "Ottawa Linux Symposium (OLS) 2004",
+      "url": "https://www.kernel.org/doc/ols/2004/ols2004v1-pages-215-226.pdf",
+      "slices": ["Slice 3B (Evented SMP I/O Reactor)"],
+      "adopted": "Linux epoll persistent readiness registration + eventfd abort wakeup achieving O(ready) scaling over O(N) select/poll, paired with strict userspace post-poll device-custody drain before close(fd).",
+      "non_import": "Edge-triggered epoll starvation hazards are avoided in favor of level-triggered or one-shot readiness aligned with Gambit's condvar-select contract.",
+      "source_anchors": ["lib/os_io.c", "lib/os_io.h"],
+      "model_obligations": ["evented_io_reactor_park_v2.qnt", "per_domain_rest_slab_and_io_check_v2.qnt", "per_domain_rest_slab_and_io_check_pso.c"],
+      "native_witness": "f6510651 (pre-reactor close-vs-check fence & pollfd/fdset bounds hardened; epoll backend targeted in Slice 3B)"
     },
     {
       "id": "le-workstealing-weak-memory-ppopp-2013",
@@ -118,9 +242,12 @@
       "authors": "Nhat Minh Le, Antoniu Pop, Albert Cohen, Francesco Zappa Nardelli",
       "venue": "ACM PPoPP 2013",
       "url": "https://doi.org/10.1145/2442516.2442524",
-      "slices": ["Slice 3 (Parallel Stdlib & Lock-Free Deques)"],
+      "slices": ["Slice 3B (Parallel Stdlib & Lock-Free Deques)"],
       "adopted": "C11 relaxed/acquire/release/seq_cst Chase-Lev work-stealing deque proven sound on ARM64 and POWER weak memory models.",
-      "non_import": "Does not automatically prove GC root visibility of deque slots; deque elements must reside in GC-traced Scheme vectors or registered roots."
+      "non_import": "Does not automatically prove GC root visibility of deque slots; deque elements must reside in GC-traced Scheme vectors or registered root banks.",
+      "source_anchors": ["lib/_thread.scm", "include/_gambit/ordered_sync.h.in"],
+      "model_obligations": ["evented_io_reactor_park_v2.qnt", "LongTermUnifiedRefinement.lean#Part4"],
+      "native_witness": "2ed5f5b1 (Tier 3.2 work-stealing scheduler t4 p1/p4/p8/p12; Chase-Lev stdlib deque targeted in Slice 3B)"
     },
     {
       "id": "srfi-230-atomic-operations-2021",
@@ -128,9 +255,12 @@
       "authors": "Marc Nieper-Wisskirchen",
       "venue": "Scheme Requests for Implementation (Final, Nov 2021)",
       "url": "https://srfi.schemers.org/srfi-230/srfi-230.html",
-      "slices": ["Slice 3 (Parallel Standard Library)"],
-      "adopted": "Standard Scheme atomic-box, atomic-fxbox, atomic-flag, atomic-pair, and explicit memory-order fences lowered directly onto Gambit's native C23 ___ORDERED_WORD_NATIVE primitives.",
-      "non_import": "Ordinary Scheme vector-set!/set-car! remain DRF-0 non-atomic writes."
+      "slices": ["Slice 3B (Parallel Standard Library)"],
+      "adopted": "Standard Scheme atomic-box, atomic-fxbox, atomic-flag, atomic-pair, and explicit memory-order fences lowered directly onto Gambit's native C23 ___ORDERED_WORD_NATIVE primitives with card + SATB write barriers.",
+      "non_import": "Ordinary Scheme vector-set!/set-car! remain DRF-0 non-atomic writes.",
+      "source_anchors": ["include/_gambit/ordered_sync.h.in", "gsc/_prims.scm", "lib/_kernel.scm"],
+      "model_obligations": ["evented_io_reactor_park_v2.qnt#mutant6AtomicBoxMissingBarrierKilledTest"],
+      "native_witness": "1ee29865 (___ORDERED_WORD_NATIVE=1 across GCC/Clang/MSVC; SRFI-230 surface targeted in Slice 3B)"
     }
   ]
 }
