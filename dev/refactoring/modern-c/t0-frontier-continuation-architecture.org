@@ -1930,4 +1930,60 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - Apple M2 Pro throughput: =vmap w=1= *6.06 Melems/s* (vs. 5.95 before), =pfib(32) w=1=
     *0.406 s* (vs. 0.677 s before, benefiting from eager thunk clearing).
 
+* 38. Phase C32: =(gambit fiber)= Structured Nursery Cancellation, LIFO-Closure Livelock Fix, Outside-=run-fibers= Crash Guard & Cross-Scheduler Nursery Validation
+** 38.1 Bugs Fixed & Cooperative Structured Cancellation
+1. *Live =SIGSEGV= on =(fiber-yield)= Outside =run-fibers=*:
+   - Previously, =(fiber-yield)= unconditionally called =(##continuation-capture %yield-cont!)=,
+     dereferencing =(%carrier-wctx)= (=#f=) inside =%yield-push-and-pop-c!= under
+     =(declare (not safe))= and crashing with =SIGSEGV (exit 139)=.
+   - *Fix*: Validate =(%worker-ctx? (%carrier-wctx))= at entry to =fiber-yield= and raise
+     =(%outside-run-fibers-error!)= cleanly.
+2. *Private =ctx.lifo= Closure Starvation Livelock (=spawn.scm= & =scheduler.scm=)*:
+   - Caught live under =p=1= error-cancellation testing: =fiber-spawn= places newly-spawned thunk
+     closures into the worker's private =ctx.lifo= slot (unreachable by work-stealers), but both
+     =%yield-push-and-pop-c!= and =%sched-switch-next!= gated =ctx.lifo= dispatch on
+     =%fiber-k?= (=___STRUCTUREP(___lifo)=). Whenever yielding fibers kept =ctx.dq= non-empty,
+     the newly-spawned closure in =ctx.lifo= starved permanently (infinite livelock).
+   - *Fix*: Removed the =%fiber-k?= / =___STRUCTUREP= gate on =ctx.lifo= in both
+     =%yield-push-and-pop-c!= and =%sched-switch-next!=, copying =ctx.lifo-n= into =ctx.picked-n=,
+     clearing both =ctx.lifo= and =ctx.lifo-n= (fixing the stale nursery GC retention leak too),
+     and grafting non-=%fiber-k= closures to =%worker-run-task=. Even when =streak == 8=, one
+     =dq= pop resets =streak = 0= so =ctx.lifo= is guaranteed to run within <= 2 yields.
+3. *Cross-Scheduler Nursery Spawn Guard*:
+   - =(fiber-spawn thunk n)= now verifies =(eq? (%nursery-sched n) (%wctx-sched ctx))= before
+     touching batched nursery credits, rejecting cross-scheduler nursery misuse cleanly.
+4. *Lock-Free Structured Nursery Cooperative Cancellation (=nursery-cancel!=, =nursery-cancelled?=)*:
+   - Added a 128B-padded =cancelled= fxatom field to =nursery= and exported =nursery-cancel!=
+     and =nursery-cancelled?= in both =fiber#.scm= and =fiber.sld= (safe from both fibers and
+     external OS threads).
+   - =%nursery-record-error!= automatically sets =cancelled = 1= with =seq_cst= before publishing
+     =has-err?= so all sibling fibers observe cancellation immediately, while =with-nursery=
+     still strictly waits for =active == 0= (all =with-finally= cleanups complete) before
+     returning or re-raising =first-err=.
+
+** 38.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=fiber_nursery_cancel_and_guards_smp.qnt=): 5/5 unit tests passed (=66 ms=,
+    including =buggyErrorWithoutCancelDetectedTest= and =buggyEarlyExitOnCancelDetectedTest=) +
+    *=10,000= traces, 0 violations* (=230 ms=, =seed=0xc1f2ac6c70dbce86=).
+  - *Lean 4* (=FiberNurseryCancelAndGuardsRefinement.lean=): 4 theorems, *0 =sorry=*, 0 warnings
+    (=record_error_implies_cancelled_and_preserves_first=,
+    =cancel_is_idempotent_and_preserves_error=, =exit_requires_zero_active=,
+    =spawn_guard_rejects_outside_and_foreign=).
+  - *CBMC =--mm pso=* (=fiber-nursery-cancel-guards-smp/harness.c=): =0 of 16 failed= + *5/5
+    negative mutants caught* (=INJECT_BUG_ERROR_SKIPS_CANCEL=, =INJECT_BUG_CANCEL_NO_FENCE=,
+    =INJECT_BUG_UNCHECKED_YIELD_OUTSIDE=, =INJECT_BUG_UNCHECKED_FOREIGN_NURSERY=,
+    =INJECT_BUG_SKIP_LIFO_CLOSURE=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "fiber"= (=C= + =js=, =((module-ref gambit/fiber) (warnings))=):
+    *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/fiber/test/test.scm=: expanded from 77 to *88 / 88 assertions*
+    passing at =p=1=, =p=4=, and =p=12=.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x ={fiber, effect, srfi/226, concurrent,
+    srfi/230, parallel}= x 4 rounds, 0 failures) + *25 / 25* fiber stress runs (=20x p=12= +
+    =5x p=1=, 0 failures).
+  - MPMC =fiber-channel= (=cap=64=, 100k msgs, Apple M2 Pro): =w=1= *1.04M ops/s*, =w=4=
+    *2.08M ops/s*, =w=8= *3.20M ops/s* (+8.2% vs. 2.96M/s prior).
+
+
 
