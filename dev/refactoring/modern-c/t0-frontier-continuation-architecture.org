@@ -2505,3 +2505,66 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 48. Phase C42: Cross-Scheduler Fast-Slot Routing, ARM64/PSO Seq-Cst Dekker Ordering, Linearizable Unbuffered Try-Ops & Closed-Nursery Lifecycle Guard (=(gambit fiber)=)
+** 48.1 Bugs Fixed
+1. *Cross-Scheduler Foreign =%fiber-k= Hijack on =tx-fast=/=rx-fast= Exchange Cancel*:
+   - Previously, in =%park-send-buf-cont!= (=vendor/gambit/lib/gambit/fiber/channel-send.scm=) and
+     =%park-recv-buf-cont!= (=vendor/gambit/lib/gambit/fiber/channel-recv.scm=), the =res == 6=
+     (ABA-free =exchange= cancel) branch unconditionally called =(%sched-push-lifo! ctx w)=.
+   - Because =___gc_atomic_slot_exchange= can extract a peer fiber =w= belonging to a *second*
+     =run-fibers= scheduler sharing the same buffered channel, pushing =w= onto =ctx='s local LIFO
+     executed =w= on the wrong scheduler, breaking =sum(completed) == sum(spawned)= on both
+     schedulers and deadlocking both in =__ulock_wait=.
+   - *Fix*: Replaced =(%sched-push-lifo! ctx w)= with =(%wake-fk! w)= in both paths so same-scheduler
+     fibers keep the O(1) LIFO fast path while foreign fibers route safely to their owning =%fk-sched=.
+2. *Weak-Memory ARM64 / PSO Dekker Ordering Gaps in Recv-Park & OS Parker*:
+   - Previously, all three Dekker re-checks in =channel-recv.scm= (=%ch-park-recv-c!=,
+     =%ch-park-recv-and-pop-c!= fast path & =rwq= fallback) loaded =___head_p= with relaxed ordering
+     (=0= / plain =LDR=) after =STLR= on =___rxw_p=, which ARMv8-A RCsc permits to reorder before
+     the =STLR= store. Similarly, =%sched-any-work-visible?= (=scheduler.scm=) checked peer deques
+     via relaxed =%dq-empty-rlx?= after =%parker-begin-wait!=.
+   - *Fix*: Upgraded all three =___head_p= loads in =channel-recv.scm= to =seq_cst= (=4= / =LDAR=),
+     added =%dq-nonempty-seq?= in =deque.scm=, and switched =%sched-any-work-visible?= to use
+     =seq_cst= loads on =global-pending= and every peer deque.
+3. *Linearizable Unbuffered (=cap == 0=) Wait-Queue Visibility*:
+   - Previously, =fiber-send!=, =fiber-recv!=, =fiber-try-send!=, and =fiber-try-recv!= on =cap == 0=
+     checked =(%wq-head ...)= via an unsynchronized plain field load without acquire ordering or
+     =ch.lock=, allowing spurious try-op misses against already-parked peers and weak-memory stale
+     =#!eof= observations.
+   - *Fix*: Added acquire atomic =%wq-head-acq= (=channel-ring.scm=) for blocking rendezvous hints,
+     guarded the =cap == 0= closed check in =%fiber-recv-slow!= under =ch.lock=, and made
+     =fiber-try-send!= / =fiber-try-recv!= on =cap == 0= check wait queues directly under =ch.lock=.
+4. *Closed-Nursery Use-After-Exit Guard*:
+   - Previously, spawning into an escaped =nursery= handle after =with-nursery= had already returned
+     silently resurrected =n.active= from =0= to =32= and swallowed uncaught child exceptions.
+   - *Fix*: Extended =nursery.cancelled= to 3 monotonic states (=0=live=, =1=cancelled=, =2=closed=),
+     upgraded =nursery-cancel!= / =%nursery-record-error!= to CAS =0 -> 1= (never downgrading =2=),
+     sealed =n= to =2= on =with-nursery= exit (=nursery.scm=), and rejected closed nurseries in
+     =fiber-spawn= (=spawn.scm=).
+
+** 48.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=fiber_channel_dekker_cross_sched_and_nursery_close_smp.qnt=): 5/5 unit tests passed
+    (=227 ms=) + *=10,000= traces, 0 violations* (=338 ms=, =seed=0xdcbcd69750aaadaf=).
+  - *Lean 4* (=FiberChannelDekkerCrossSchedNurseryRefinement.lean=): 5 theorems, *0 =sorry=*,
+    0 warnings (=wakeFk_routes_foreign_to_owner_preserving_quiescence=,
+    =dekker_seq_cst_no_lost_wakeup=, =unbuf_try_recv_linearizable_sees_parked_sender=,
+    =nursery_closed_rejects_spawn_and_stays_cancelled=, =parker_dekker_seq_cst_no_missed_work=).
+  - *CBMC =--mm pso=* (=fiber-channel-dekker-cross-sched-smp/harness.c=): =0 of 9 failed= +
+    *4/4 negative mutants caught* (=INJECT_BUG_FOREIGN_EXCHANGE_CANCEL_LOCAL_LIFO=,
+    =INJECT_BUG_RECV_DEKKER_RELAXED_HEAD=, =INJECT_BUG_UNBUF_TRY_RECV_STALE_MISS=,
+    =INJECT_BUG_NURSERY_ALLOW_SPAWN_AFTER_CLOSE=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "fiber"= (=C= + =js=, =(warnings)=): *0 errors, 0 warnings*;
+    upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/fiber/test/test.scm=: expanded to *104 / 104 assertions* (+11)
+    passing at =p=1=, =p=4=, and =p=12= (multi-peer cross-scheduler =cap=1=/=cap=2= contention with
+    =##gc=, unbuffered =cap=0= =fiber-try-send!= / =fiber-try-recv!= linearizability, and closed
+    nursery spawn rejection across normal & error exits).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =(gambit fiber)= stress runs.
+  - Microbenchmark (Apple M2 Pro, =p=12=, =workers: 8=, =cap=1= channel ping-pong):
+    *1.241 Mops/s* (=sum=5000050000=).
+
+
+
