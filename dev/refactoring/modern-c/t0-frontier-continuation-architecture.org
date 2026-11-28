@@ -1985,5 +1985,53 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - MPMC =fiber-channel= (=cap=64=, 100k msgs, Apple M2 Pro): =w=1= *1.04M ops/s*, =w=4=
     *2.08M ops/s*, =w=8= *3.20M ops/s* (+8.2% vs. 2.96M/s prior).
 
+* 39. Phase C33: =(srfi 230)= Bounds Safety, Load/Store Memory-Order Conformance, 128B-Padded =atomic-pair= & Lazy-Alloc =atomic-pair-compare-and-swap!=
+** 39.1 Bugs Fixed & Conformance Hardening
+1. *Out-of-Bounds =SIGSEGV= / Heap Corruption in =vector-atomic-*=*:
+   - Previously, =vector-atomic-ref=, =vector-atomic-set!=, =vector-atomic-swap!=, and
+     =vector-atomic-cas!= indexed directly into raw vector bodies under =(declare (not safe))=
+     with zero vector or range validation, causing immediate =SIGSEGV (exit 139)= or arbitrary
+     out-of-bounds heap writes on bad indices.
+   - *Fix*: Added =macro-check-vector-index= validating =(##vector? vec)=, =(##fixnum? idx)=,
+     and =0 <= idx < (##vector-length vec)=, raising standard Gambit type/range exceptions.
+2. *SRFI-230 Load/Store Memory-Order Lattice Enforcement*:
+   - Added =macro-load-order->code= (rejecting ='release= and ='acquire-release= on
+     =atomic-box-ref=, =atomic-fxbox-ref=, =atomic-pair-ref=, =vector-atomic-ref=) and
+     =macro-store-order->code= (rejecting ='acquire= and ='acquire-release= on
+     =atomic-flag-clear!=, =atomic-box-set!=, =atomic-fxbox-set!=, =atomic-pair-set!=,
+     =vector-atomic-set!=), while preserving all 5 memory orders on RMW ops and =atomic-fence=.
+3. *128B Cache-Line Padding on =atomic-pair= & Lazy-Alloc / Valid-Load-Order =atomic-pair-compare-and-swap!=*:
+   - Upgraded =make-atomic-pair= from a 1-word vector to a 16-word (128B) cache-line-padded cell
+     matching =atomic-flag=, =atomic-box=, and =atomic-fxbox= to eliminate cross-core L2 false
+     sharing on Apple Silicon.
+   - Fixed =atomic-pair-compare-and-swap!= so the speculative read before CAS maps RMW
+     ='release= -> ='relaxed= and ='acquire-release= -> ='acquire= (avoiding spurious =seq_cst=
+     hardware barriers on ='release= / ='acquire-release= calls), and deferred =(##cons des-car
+     des-cdr)= lazily inside the match branch (0 heap allocations on fast-fail mismatch).
+
+** 39.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=srfi230_atomic_pair_cas_and_order_smp.qnt=): 5/5 unit tests passed (=69 ms=,
+    including =buggyRawLoadOrderDetectedTest= and =buggyEagerAllocDetectedTest=) + *=10,000=
+    traces, 0 violations* (=278 ms=, =seed=0x42011ee5557c6be1=).
+  - *Lean 4* (=Srfi230AtomicPairCasAndOrderRefinement.lean=): 4 theorems, *0 =sorry=*, 0
+    warnings (=pair_cas_mismatch_zero_alloc=, =pair_cas_match_linearizable_and_satb_shaded=,
+    =load_store_order_guards_exact=, =vector_atomic_bounds_guard_safe=).
+  - *CBMC =--mm pso=* (=srfi230-atomic-pair-cas-order-smp/harness.c=): =0 of 11 failed= + *4/4
+    negative mutants caught* (=INJECT_BUG_EAGER_ALLOC_ON_MISMATCH=,
+    =INJECT_BUG_RELEASE_LOAD_ORDER=, =INJECT_BUG_SKIP_SATB_SHADE_ON_PAIR_CAS=,
+    =INJECT_BUG_UNCHECKED_VEC_OOB=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "230"= (=C= + =js=, =((module-ref srfi/230) (warnings))=):
+    *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/srfi/230/test/test.scm=: expanded from 68 to *121 / 121 assertions*
+    covering load/store order rejection, =vector-atomic-*= bounds checks, modular fixnum
+    wraparound, all-5-order =atomic-pair-compare-and-swap!=, and adaptive-P lock-free Treiber
+    stack + stamped =atomic-pair= CAS conservation with concurrent =##gc=.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =(srfi 230)= stress runs.
+  - =atomic-pair-compare-and-swap!= mismatch fast path: *1.35 Mops/s* (0 cons allocations).
+
+
 
 
