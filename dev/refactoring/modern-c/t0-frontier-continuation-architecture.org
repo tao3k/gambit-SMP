@@ -2135,6 +2135,76 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - Microbenchmarks (Apple M2 Pro, =p=12=): prompted =call/1cc= *0.164 Mops/s*, raw =call/1cc=
     escaping inner prompt *0.221 Mops/s*.
 
+* 42. Phase C36: Transactional Post-=dynamic-wind= Composition, Continuation-Barrier Enforcement & Aliased One-Shot Stack-Span Safety (=(srfi 226)= + =(gambit effect)=)
+** 42.1 Bugs Fixed
+1. *Caller =dynamic-wind= =after=-Thunk Control-State Pollution & Foreign Effect-Handler Hijack*:
+   - Previously, =(srfi 226)= composable continuation replay (=%composable-replay-1!=,
+     =%composable-oneshot-replay-1!=, =%invoke-composable-parts=, =%invoke-composable-cell=),
+     =(gambit effect)= resumption (=%resume-nontail-oneshot-cont!=, =%resume-checked-1!=,
+     =%resume-checked=), and generator resumption (=%gen-resume-swap-cont!=) eagerly mutated
+     =st.mc=, =st.marks=, =st.barriers=, and =st.handlers= *before* calling
+     =##continuation-return sub-k=.
+   - When crossing =dynamic-wind= frames, the caller's =after=-thunk observed the target's
+     not-yet-entered prompts, marks, and effect handlers. Performing an effect inside the
+     caller's =after=-thunk was hijacked by the suspended body's inner handler (returning
+     =(ZOMBIE-INNER-HANDLER 77)= instead of =42=).
+   - *Fix*: Added fast inline =same-dynwind= checks across all 7 replay/resume entry points:
+     when =dynwind= matches, commit directly with zero extra allocation; when crossing
+     =dynamic-wind=, defer =st= commit to a post-unwind landing thunk via
+     =##continuation-graft= so =after=-thunks observe pure caller state and throwing inside
+     an =after=-thunk rolls back cleanly.
+2. *Complete =call-with-continuation-barrier= Bypass via Composable Continuations, =resume=, & Generators*:
+   - Because =call-with-continuation-barrier= maintains =st.barriers= via =dynamic-wind=,
+     unwinding the barrier's =after=-thunk after an eager commit wiped the active barrier
+     token before entering =sub-k=, allowing both =(srfi 226)= composable continuations and
+     =(gambit effect)= =resume= / =resume-multishot= / generators to capture or suspend
+     straight past an enclosing continuation barrier.
+   - *Fix*: Committing =caller-barriers= inside the post-unwind =##continuation-graft=
+     landing thunk restores the active barrier token immediately after the barrier's
+     =after=-thunk unwinds, strictly enforcing barriers across composable replay, one-shot
+     and multi-shot =resume=, and generator resumption.
+3. *Live =SIGSEGV= / Stack-Grant UAF on Aliased One-Shot Continuations in =(srfi 226)=*:
+   - Destructively reclaiming =sub-k='s raw stack span via =___try_return_oneshot_fiber_cont=
+     (Fast Path B) in =%composable-oneshot-replay-1!= and =%invoke-raw-parts= erased =sub-k='s
+     stack-grant marks even when another live continuation's break chain still referenced
+     =sub-k= (e.g. =caller-k= captured directly above =sub-k= without aborting first in
+     =call-with-one-shot-composable-continuation=, or a nested =k2= captured inside =call/1cc='s
+     receiver). Both patterns crashed with =SIGSEGV (exit 139)= / =Break restore source frame
+     is outside its stack grant=.
+   - *Fix*: Switched =%composable-oneshot-replay-1!= and =%invoke-raw-parts= to
+     non-destructive =##continuation-return= so aliased break chains remain valid across
+     arbitrary capture/invocation orders.
+
+** 42.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=composable_and_effect_resume_dynwind_barrier_smp.qnt=): 5/5 unit tests passed
+    (=594 ms=, including =buggyEagerCommitDetectedTest=) + *=10,000= traces, 0 violations*
+    (=2829 ms=, =seed=0xfa696991fc6b918e=).
+  - *Lean 4* (=ComposableAndEffectResumeDynwindBarrierRefinement.lean=): 4 theorems,
+    *0 =sorry=*, 0 warnings (=fast_same_dynwind_commits_directly_with_barrier=,
+    =winding_after_thunk_sees_pure_caller_state=,
+    =winding_landing_restores_barrier_and_blocks_bypass=,
+    =winding_after_throw_preserves_caller_state=).
+  - *CBMC =--mm pso=* (=composable-effect-resume-dynwind-barrier-smp/harness.c=):
+    =0 of 206 failed= + *4/4 negative mutants caught* (=INJECT_BUG_EAGER_COMMIT_BEFORE_AFTER=,
+    =INJECT_BUG_BARRIER_WIPED_BY_AFTER_THUNK=, =INJECT_BUG_STALE_UFRAME_ON_AFTER_THROW=,
+    =INJECT_BUG_CLEAR_MULTISHOT_SLOTS=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"= and =##build-module "effect"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: expanded from 202 to *211 / 211 assertions*
+    passing at =p=1=, =p=4=, and =p=12= (including 5,000-iteration regression tests for both
+    aliased one-shot stack-span crashes and adaptive-P SMP barrier/winding torture).
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded from 499 to *507 / 507 assertions*
+    passing at =p=1=, =p=4=, and =p=12= (caller =after=-thunk isolation, throwing =after=-thunk
+    rollback, barrier enforcement across one-shot =resume=, =resume-multishot=, and generators,
+    and adaptive-P SMP torture).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x srfi/226 + 20x effect=).
+  - 200,000-iteration direct =call-with-one-shot-composable-continuation= stress benchmark
+    (previously crashed at ~1,500 iterations): *0.322 Mops/s* (=acc=600000=, 0 crashes).
+
+
 
 
 
