@@ -132,6 +132,22 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(104, w5["unifiedMulticoreMatrix"]["totalPassed"])
         self.assertEqual(104, w5["unifiedMulticoreMatrix"]["totalCases"])
 
+        # Wave 6 remembered-set parallelism, gc_is_dest race fix, 11/11 TSan/ASan, 108/108 matrix, and Gerbil v0.19 SMP build+audit
+        w6 = receipt["verificationResults"]["wave6RememberedSetAndGerbilQualification"]
+        self.assertEqual(11, w6["nativeClangTsan"]["passed"])
+        self.assertEqual(0, w6["nativeClangTsan"]["totalWarnings"])
+        self.assertEqual(11, w6["nativeClangAsanUbsan"]["passed"])
+        self.assertEqual(0, w6["nativeClangAsanUbsan"]["totalAsanErrors"])
+        self.assertEqual(0, w6["nativeClangAsanUbsan"]["totalUbsanErrors"])
+        self.assertEqual(108, w6["unifiedMulticoreMatrix"]["totalPassed"])
+        self.assertEqual(108, w6["unifiedMulticoreMatrix"]["totalCases"])
+        self.assertEqual(8, w6["gerbilV019SmpQualification"]["buildStagesPassed"])
+        self.assertEqual(8, w6["gerbilV019SmpQualification"]["buildStagesTotal"])
+        self.assertTrue(w6["gerbilV019SmpQualification"]["originalGerbilSourceUnchanged"])
+        self.assertEqual(45, w6["gerbilV019SmpQualification"]["smpQualification"]["p4Passed"])
+        self.assertEqual(45, w6["gerbilV019SmpQualification"]["smpQualification"]["p12Passed"])
+        self.assertEqual(0, w6["gerbilV019SmpQualification"]["smpSpecificFailures"])
+
         # Every tracked artifact SHA-256 digest in the receipt must match the file on disk
         artifacts = receipt["artifactSha256"]
         self.assertGreaterEqual(len(artifacts), 15)
@@ -329,6 +345,21 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertIn("___WORD_STORE_RELAXED(&___rest_before_collect_pops", rc_alloc)
         parallel_src = (ROOT / "vendor/gambit/lib/gambit/parallel/parallel.scm").read_text()
         self.assertIn("(atomic-fxbox-set! (macro-work-stealing-deque-bottom q) (##fx+ b 1) 'release)", parallel_src)
+
+        # Wave 6 remembered-set card-map, value-aware write barrier, and gc_is_dest Release-Acquire anchors
+        cfg_src = (ROOT / "vendor/gambit/lib/_mem/configuration.inc").read_text()
+        self.assertIn("___STILL_FLAG_CARD_MAP", cfg_src)
+        self.assertIn("still_card_bitmap_words", cfg_src)
+        gen_src = (ROOT / "vendor/gambit/lib/_mem/generational.inc").read_text()
+        self.assertIn("___gc_write_barrier_slow_val", gen_src)
+        self.assertIn("scan_mature_still_card_strip", gen_src)
+        self.assertIn("__atomic_load_n(&sec->gc_is_dest, __ATOMIC_ACQUIRE)", gen_src)
+        hs_src = (ROOT / "vendor/gambit/lib/_mem/heap-sections.inc").read_text()
+        self.assertIn("__atomic_store_n(&section->gc_is_dest, new_dest, __ATOMIC_RELEASE)", hs_src)
+        cr_src = (ROOT / "vendor/gambit/lib/_mem/copy-reservations.inc").read_text()
+        self.assertIn("__atomic_load_n(&section->gc_is_dest, __ATOMIC_ACQUIRE)", cr_src)
+        cp_src = (ROOT / "vendor/gambit/lib/_mem/copy-planning.inc").read_text()
+        self.assertIn("fast_minor_pre_nb", cp_src)
 
 
 if __name__ == "__main__":
