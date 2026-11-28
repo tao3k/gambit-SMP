@@ -1651,3 +1651,92 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   | =par_pfib_32= | =91ms= (=23.8M/s=) | *=34ms=* (*+2.69x*) | =32ms= (=67.3M/s=) | *=12ms=* (*182.1M/s*) | =33ms= (=65.4M/s=) | *=13ms=* (*+2.52x*) | =37ms= (=58.5M/s=) | *=13ms=* (*169.2M/s*, *+2.89x*) |
   | =par_vmap_400k_g256= | =190ms= (=2.1M/s=) | *=6ms=* (*+30.9x*) | =100ms= (=4.0M/s=) | *=5ms=* (*87.5M/s*, *+22.0x*) | =30ms= (=13.1M/s=) | *=5ms=* (*+6.10x*) | =29ms= (=13.6M/s=) | *=6ms=* (*+5.10x*) |
   | =par_reduce_400k_g256= | =176ms= (=2.3M/s=) | *=6ms=* (*+30.0x*) | =117ms= (=3.4M/s=) | *=5ms=* (*73.5M/s*, *+21.5x*) | =42ms= (=9.5M/s=) | *=12ms=* (*+3.64x*) | =34ms= (=11.8M/s=) | *=8ms=* (*+4.21x*) |
+
+* 34. Phase C28: Exception-Unwind Metacontinuation Coherency, Generator Cross-Call Fault Propagation & =(gambit effect)= Namespace Modularization
+
+** 34.1 Four Production Bugs Diagnosed & Eliminated
+1. *Silent Time-Travel / Double-Execution Corruption on Exception Unwind* (=srfi/226= + =gambit/effect=):
+   - Raising an exception inside =call-with-continuation-prompt=, suspending =with-handler=,
+     =with-capability-handler=, =make-generator=, =resume=, or composable continuation replay and
+     catching it in an outer =with-exception-catcher= unwound Gambit's C/Scheme stack without
+     popping the heap-allocated thread-local metacontinuation (=st.mc=, =st.marks=, =st.handlers=).
+   - Returning through an enclosing prompt popped the stale inner =pframe= and jumped back to its
+     dead =escape-k=, re-executing all post-catcher code a second time (reproduced live:
+     =after-count=2=, =(normal-result (normal-result caught-inner))=) and leaving
+     =continuation-prompt-available?= = =#t= plus leaked effect handlers.
+   - *Fix*: Added a lock-free scope-bound =%mc-eh-trampoline= (identified via unforgeable
+     =##closure-code= with a per-thread =(eh-outer-denv, eh-outer-proc, eh-tramp-denv, eh-tramp-proc)=
+     cache on =%tc-state=) installed *outside* =##continuation-capture= once per outer
+     exception-handler scope. Nested prompts/effects/yields incur a single =eq?= check with zero
+     =denv= allocation. On uncaught exception, =%mc-unwind-and-raise!= walks =st.mc= to the owning
+     scope boundary (distinguishing foreign outer trampolines when a handler clause throws after
+     =perform= already popped its prompt), runs generator unwind hooks, restores =st.mc/marks/barriers/handlers=,
+     and delivers to the exact outer catcher (and cleanly restores state if a continuable
+     =with-exception-handler= returns).
+2. *Generator Permanent Poisoning & Cross-Call Exception Bypass* (=gambit/effect/generator.scm=):
+   - Throwing on Call #1 left =gen.state= permanently stuck in =%GEN-RUNNING= (subsequent calls
+     failed with ="generator already running"= forever) and leaked =init-pf=/=gen.frame=.
+   - Throwing on Call #2..N (post-=yield=) inside a caller's =with-exception-catcher= bypassed Call
+     #2's catcher and crashed the process (exit 70) because resuming =sub-k= restored Call #1's
+     stale =denv=.
+   - *Fix*: Generator prompt frames carry =(eh-scope = caller-eh, unwind-hook = unwind-fn)=
+     (allocated once per generator in =make-generator=, zero alloc per yield/resume) updated on
+     every entry. Uncaught exceptions on Call #1..N (even across OS threads) pop the generator
+     frame, atomically release-store =gen.state := %GEN-DONE= (clearing =sub-k=), and deliver to
+     Call #N's exact catcher. Upgraded =%return-oneshot-same-denv!= and =%mc-try-reclaim-return!=
+     to perform a same-=dynwind=/=local=/=interrupt-mask= fast =denv= switch with
+     =___GC_WRITE_BARRIER= + =___WORD_STORE_RELAXED=, preserving *10,000 / 10,000 (100%)* in-place
+     one-shot stack rewinds across 5,000 yields even at top level.
+3. *Leaked =with-continuation-mark= Frames on Exception Unwind* (=srfi/226/226.scm=):
+   - Raising an exception inside =with-continuation-mark= outside any prompt skipped =%mark-pop-frame=
+     and permanently leaked marks on =st.marks=. Fixed by guarding unguarded non-tail
+     =%mark-dispatch= around a =(not inline)= =%mark-push-and-run!= so O(1) tail-recursive
+     =%mark-pop-ra= matching (100,000 tail iterations) is 100% preserved.
+4. *Two Subtle SMP Continuation Safety Races* (=gambit/effect/resume.scm=):
+   - Non-tail one-shot =%resume-nontail-oneshot-cont!= now allocates a frozen replay =pframe=
+     (=handler = #t=) so =caller-k= is never reclaimed in-place if =%return-oneshot-same-denv!=
+     falls back to =##continuation-return= under =denv= mismatch or active SATB marking.
+   - Concurrent =resume= vs. =resume-multishot= on the same =ONE_SHOT_LIVE= =effect-continuation=
+     now both call idempotent =%freeze-ec!= before entering =%resume-checked= whenever
+     =prev == %EC-MULTISHOT-COW=.
+5. *Subsystem Namespace Modularization of =(gambit effect)=*:
+   - Split the 901-line monolith =vendor/gambit/lib/gambit/effect/effect.scm= into 5 focused
+     submodules compiled inside a single =(block)= unit (zero dispatch overhead, =C= + =js= dual-target):
+     =types.scm= (=gambit/effect/types#=, 202 lines), =handler.scm= (=gambit/effect/handler#=, 286 lines),
+     =resume.scm= (=gambit/effect/resume#=, 233 lines), =capability.scm= (=gambit/effect/capability#=, 95 lines),
+     =generator.scm= (=gambit/effect/generator#=, 206 lines), plus =_internal#.scm= (132 lines),
+     thin 55-line =effect.scm= façade, and updated =makefile=. Added =macro-if-c-compiled= dual-target
+     support to =srfi/226/226.scm= as well.
+
+** 34.2 3-Layer Formal Verification, CPU-Adaptive Tests & Benchmarks
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=effect_unwind_and_multishot_freeze_smp.qnt=): 4/4 unit tests passed (=97 ms=,
+    including live =buggyUnwindReproTest=) + *=10,000= traces, 0 violations* (=576 ms=,
+    =seed=0xaa0d565027624805=).
+  - *Lean 4* (=EffectUnwindAndMultishotFreezeRefinement.lean=): 5 theorems, *0 =sorry=*, 0 warnings
+    (=unwind_clears_inner_preserves_outer=, =unwind_terminates_traversed_generator=,
+    =generator_call2_delivers_to_caller_catcher=, =multishot_race_freezes_before_replay=,
+    =oneshot_win_rejects_promote_and_second_resume=).
+  - *CBMC =--mm pso=* (=effect-unwind-multishot-freeze-smp/harness.c=): =0 of 11 failed= + *4/4
+    negative mutants caught* (=INJECT_BUG_NO_UNWIND_ON_THROW=, =INJECT_BUG_GEN_CALL2_STALE_EH=,
+    =INJECT_BUG_RESUME_NO_FREEZE_ON_MULTISHOT=, =INJECT_BUG_NONTAIL_UNFROZEN_PFRAME=).
+- *CPU-Adaptive Adversarial Test Suites*:
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: expanded from 134 to *147 / 147 assertions*
+    (Tests *10a--10d*: nested prompt + mark exception unwind with zero time-travel, top-level &
+    nested mark unwind, cross-catcher composable continuation replay fault, adaptive-P SMP
+    exception-unwind + continuable handler torture).
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded from 401 to *453 / 453 assertions*
+    (Tests *11a--11f*: suspending handler body/clause & capability throws, generator Call #1 &
+    Call #2 post-yield throws with =dynamic-wind= cleanup, cross-thread generator fault propagation,
+    non-tail one-shot frozen anchor under =denv= mismatch + GC, adaptive-P SMP =resume= vs.
+    =resume-multishot= race on shared =ONE_SHOT_LIVE= continuation, adaptive-P SMP generator &
+    handler fault torture).
+- *Full Gates & Performance Verification*:
+  - Official Gambit =##build-module= (=C= + =js=, =(warnings)= enabled) for both =srfi/226= and
+    modularized =gambit/effect=: *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures).
+  - *40 / 40* =p=12= stress runs (20/20 pairs of =srfi/226= + =gambit/effect=).
+  - Generator one-shot stack rewinds: *10,000 / 10,000 (100%)* across 5,000 yields/resumes;
+    =effect_tail_resumptive= =w=4= *9.77M/s* (=P50=372us=), =effect_oneshot_suspend= =w=1= *1.50M/s*
+    (=P50=60us=) & =w=12= *9.15M/s*, =effect_generator_yield= =w=1= *1.02M/s* (=P50=96us=) &
+    =w=8= *4.44M/s*, =effect_multishot_cow= =w=1= *235k/s* (=P50=81us=).
