@@ -1740,3 +1740,79 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
     =effect_tail_resumptive= =w=4= *9.77M/s* (=P50=372us=), =effect_oneshot_suspend= =w=1= *1.50M/s*
     (=P50=60us=) & =w=12= *9.15M/s*, =effect_generator_yield= =w=1= *1.02M/s* (=P50=96us=) &
     =w=8= *4.44M/s*, =effect_multishot_cow= =w=1= *235k/s* (=P50=81us=).
+
+* 35. Phase C29: Transactional Post-=dynamic-wind= Metacontinuation Commit, Captured-Continuation Marks Inspection, Zero-Leak One-Shot Slot Clearing & =(srfi 226)= Namespace Modularization
+
+** 35.1 Three Production Bugs Diagnosed & Eliminated + Subsystem Modularization
+1. *Premature Metacontinuation Wipe Before =dynamic-wind= Unwinding* (=srfi/226/prompt.scm=,
+   =srfi/226/cont.scm=, =gambit/effect/handler.scm=, =gambit/effect/generator.scm=):
+   - =abort-current-continuation=, suspending =perform=, non-composable continuation invocation,
+     and generator =yield= mutated =st.mc=, =st.marks=, =st.barriers=, =st.handlers= (and
+     =gen.state := %GEN-SUSPENDED=) *before* =##continuation-graft= / =##continuation-return=
+     executed =dynamic-wind= =after= thunks.
+   - Live reproduction confirmed: an =after= thunk inside =abort-current-continuation= saw empty
+     marks =()= and =continuation-prompt-available? = #f=, and an =after= thunk raising an
+     exception caught inside the prompt left the enclosing prompt permanently destroyed
+     (=(caught #f)= instead of =(caught #t)=).
+   - *Fix*: Added an inline 2-load fast-path guard checking =(eq? (macro-denv-dynwind cur-denv)
+     (macro-denv-dynwind (##continuation-denv target-k)))= (zero overhead when no =dynamic-wind=
+     separates the jump). When =dynwind= differs, state updates are deferred into a post-unwind
+     =##continuation-graft= landing callback so =after= thunks observe intact prompts, marks, and
+     handlers, and raising inside an =after= thunk leaves enclosing prompts, handlers, and
+     generator unwind semantics 100% uncorrupted.
+2. *Captured-Continuation Marks Ignored by =(continuation-marks cont [tag])=* (=srfi/226/cont.scm=,
+   =srfi/226/marks.scm=):
+   - =(continuation-marks saved-k tag)= previously ignored =saved-k= and returned the *caller's*
+     =(current-continuation-marks tag)= (live repro: returned =(caller-wrong-val)= instead of
+     =(captured-val)=).
+   - *Fix*: Captured all three unforgeable closure-code sentinels (=%one-shot-closure-code=,
+     =%composable-closure-code=, =%noncomp-closure-code=) via non-inlined factories so
+     =%extract-any-cont-cell= extracts the underlying =%one-shot-cell= in O(1) (zero locks, zero
+     tables) and =(continuation-marks cont)= returns its exact captured mark frames across
+     composable, non-composable, =call/1cc= (including raw =call/1cc=), and one-shot continuations.
+3. *One-Shot Continuation GC Space Leak & Direct Stack Reclaim* (=srfi/226/state.scm=,
+   =srfi/226/cont.scm=):
+   - Exclusively winning =LIVE -> CONSUMED= CAS in =%invoke-one-shot-cell= now extracts locals
+     and immediately clears =cell= slots (=sub-k=, =prefix=, =marks=, =barriers=, =handlers=) so
+     retaining a consumed =call/1cc= / =call-with-one-shot-composable-continuation= closure pins
+     zero stack frames or heap graphs (while promoted =MULTISHOT_COW= cells strictly preserve all
+     slots for concurrent readers). One-shot composable & raw returns also use SATB-safe
+     =%return-oneshot-same-dynwind!= for O(1) stack reclamation.
+4. *Subsystem Namespace Modularization of =(srfi 226)=*:
+   - Split the 1,174-line monolith =vendor/gambit/lib/srfi/226/226.scm= into 5 focused submodules
+     compiled inside a single =(block)= unit (zero dispatch overhead, =C= + =js= dual-target):
+     =state.scm= (=srfi/226/state#=, 293 lines), =unwind.scm= (=srfi/226/unwind#=, 110 lines),
+     =prompt.scm= (=srfi/226/prompt#=, 270 lines), =cont.scm= (=srfi/226/cont#=, 561 lines),
+     =marks.scm= (=srfi/226/marks#=, 158 lines), plus =_internal#.scm= (151 lines), thin 52-line
+     =226.scm= façade, and updated =makefile=.
+
+** 35.2 3-Layer Formal Verification, CPU-Adaptive Tests & Benchmarks
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=srfi226_transactional_wind_and_oneshot_clear_smp.qnt=): 5/5 unit tests passed
+    (=63 ms=, including live =buggyEagerWipeReproTest=) + *=10,000= traces, 0 violations*
+    (=75 ms=, =seed=0x5ced9ec5581b5731=).
+  - *Lean 4* (=Srfi226TransactionalWindAndOneshotClearRefinement.lean=): 4 theorems, *0 =sorry=*,
+    0 warnings (=transactional_unwind_normal_commit=,
+    =transactional_unwind_after_throw_preserves_prompt=,
+    =oneshot_consume_clears_slots_and_blocks_promote=,
+    =multishot_promotion_preserves_subk_and_marks=).
+  - *CBMC =--mm pso=* (=srfi226-transactional-wind-oneshot-clear-smp/harness.c=): =0 of 13 failed=
+    + *4/4 negative mutants caught* (=INJECT_BUG_EAGER_WIPE_BEFORE_AFTER_THUNK=,
+    =INJECT_BUG_CLEAR_ON_MULTISHOT=, =INJECT_BUG_SKIP_ONESHOT_CLEAR=,
+    =INJECT_BUG_IGNORE_CONT_MARKS=).
+- *CPU-Adaptive Adversarial Test Suites*:
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: expanded from 147 to *163 / 163 assertions*
+    (Tests *11a--11d*: transactional =dynamic-wind= abort completing & throwing, exact
+    =(continuation-marks k)= across all 4 continuation types + consumed clear vs. promoted
+    preservation, transactional non-composable =after=-thunk throw, adaptive-P SMP torture).
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded from 453 to *459 / 459 assertions*
+    (Tests *12a--12c*: transactional =dynamic-wind= =perform= completing & throwing with live outer
+    handler check, generator =yield= =after=-thunk throw -> =DONE=, adaptive-P SMP torture).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module= (=C= + =js=, =(warnings)= enabled) for both modularized
+    =srfi/226= and =gambit/effect=: *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures).
+  - *40 / 40* =p=12= stress runs (20/20 pairs of =srfi/226= + =gambit/effect=).
+  - SRFI-226 throughput (Apple M2 Pro 12c): =s226_prompt_noop= =w=1= *1.06M/s* (=w=8= *7.19M/s*),
+    =s226_call_1cc= =w=1= *0.99M/s* (=w=12= *5.07M/s*), =s226_1shot_comp= =w=1= *752k/s* (=w=12=
+    *3.68M/s*).
