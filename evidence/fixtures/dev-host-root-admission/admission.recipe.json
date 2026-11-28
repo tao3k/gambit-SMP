@@ -1,0 +1,150 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-host-root-admission",
+  "scope": "Quint controls for one host-root contract, one stack-handler label binding, and one VM-registry interrupt admission: a marker cannot precede its root, a shifted stack target stays bound, and a deferred interrupt is not lost when the writer closes. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 200,
+  "inputs": [
+    "models/gambit/host_roots_contract.qnt",
+    "models/gambit/stack_handler_label_binding.qnt",
+    "models/gambit/vm_registry_interrupt_admission.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-host-root-admission/binding.json",
+    "evidence/fixtures/dev-host-root-admission/observations.json",
+    "evidence/fixtures/dev-host-root-admission/admission.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "roots-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/host_roots_contract.qnt"
+      }
+    },
+    {
+      "id": "roots",
+      "capability": "quint.test",
+      "dependsOn": [
+        "roots-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/host_roots_contract.qnt",
+        "parsed": "roots-parse",
+        "main": "host_roots_contract",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "nonzeroOwnerTest",
+          "nestedCallbackTest",
+          "relocatingWaitTest",
+          "markerBeforeRootControlTest",
+          "staleResumeControlTest",
+          "conversionCloseRaceTest",
+          "parkedConversionTest",
+          "freezeLiveWriterControlTest",
+          "preMarkerConversionTest",
+          "closedEntryTest"
+        ]
+      }
+    },
+    {
+      "id": "label-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/stack_handler_label_binding.qnt"
+      }
+    },
+    {
+      "id": "label",
+      "capability": "quint.test",
+      "dependsOn": [
+        "label-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_handler_label_binding.qnt",
+        "parsed": "label-parse",
+        "main": "stack_handler_label_binding",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "observedStackMisrouteTest",
+          "shiftedStackTargetTest",
+          "shiftedSfunTargetTest",
+          "shiftedDynamicReturnTargetTest"
+        ]
+      }
+    },
+    {
+      "id": "admit-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/vm_registry_interrupt_admission.qnt"
+      }
+    },
+    {
+      "id": "admit",
+      "capability": "quint.test",
+      "dependsOn": [
+        "admit-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/vm_registry_interrupt_admission.qnt",
+        "parsed": "admit-parse",
+        "main": "vm_registry_interrupt_admission",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "admittedReaderDrainTest",
+          "lateDeferredPublicationTest",
+          "signalDuringWriterTest",
+          "writerMutexOnlyControlTest",
+          "lostDeferredInterruptControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "roots-parse",
+        "roots",
+        "label-parse",
+        "label",
+        "admit-parse",
+        "admit"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-host-root-admission/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

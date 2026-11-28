@@ -1,0 +1,65 @@
+;;; Local to the original libgerbil producer: it still owns every invocation.
+(def (static-unit-record key suffix value)
+  (let* ((path (path-expand (string-append key suffix ".json")
+                           (getenv "GERBIL_COMPILE_ATTEMPT")))
+         (pending (string-append path ".pending")))
+    (call-with-output-file pending
+      (lambda (p) (gxc#compile-product-json value p) (newline p)))
+    (rename-file pending path)))
+
+(def (static-unit-dependencies? dependencies)
+  (and (andmap (lambda (row) (file-exists? (car row))) dependencies)
+       (or (null? dependencies)
+           (let* ((port (open-process
+                         [path: (getenv "GERBIL_GIT")
+                          arguments: (append ["hash-object" "--no-filters" "--"]
+                                             (map car dependencies))
+                          stdout-redirection: #t stderr-redirection: #f]))
+                  (matches? (let loop ((rest dependencies) (ok? #t))
+                              (if (null? rest) ok?
+                                  (let (value (read-line port))
+                                    (loop (cdr rest) (and ok? (equal? value (cadar rest))))))))
+                  (status (process-status port)))
+             (close-port port)
+             (and (zero? status) matches?)))))
+
+(def (static-unit-invoke program args)
+  (let* ((role (car args))
+         (source (path-normalize (last args)))
+         (output (string-append (path-strip-extension source)
+                               (if (equal? role "-c") ".c" ".o")))
+         (source-id (gxc#compile-product-file source))
+         (request [(getenv "GERBIL_COMPILE_CONTEXT") role program args
+                   (current-directory) source source-id output static-unit-contract])
+         (key (gxc#compile-product-key request))
+         (root (getenv "GERBIL_COMPILE_ATTEMPT"))
+         (dep (path-expand (string-append key ".static.d") root))
+         (marker (path-expand (string-append key ".scm")
+                             (path-expand "static-units" (getenv "GERBIL_COMPILE_PRODUCTS"))))
+         (cached (and (equal? (getenv "GERBIL_COMPILE_REUSE") "1")
+                      (file-exists? marker) (call-with-input-file marker read))))
+    (unless (or (and (equal? role "-c") (equal? (path-extension source) ".scm"))
+                (and (equal? role "-obj") (equal? (path-extension source) ".c")))
+      (error "unreviewed static unit role" args))
+    (create-directory (path-expand (string-append "static-output-"
+                         (gxc#compile-product-key output) ".claim") root))
+    (static-unit-record key ".static-request" request)
+    (if (and cached (equal? (car cached) request) (file-exists? output)
+             (equal? (cadr cached) (gxc#compile-product-file output))
+             (static-unit-dependencies? (caddr cached)))
+      (static-unit-record key ".static-completed"
+        [request (cadr cached) (caddr cached) "reused"])
+      (let (observed (if (equal? role "-obj")
+                        (append ["-cc-options" (string-append "-MD -MF "
+                           "'" (string-join (string-split dep #\') "'\\''") "'")] args)
+                        args))
+        (when (file-exists? output)
+          (rename-file output (path-expand (string-append key ".static-previous") root)))
+        (invoke-process program observed)
+        (unless (equal? source-id (gxc#compile-product-file source))
+          (error "static unit changed during invocation" source))
+        (static-unit-record key ".static-completed"
+          [request (gxc#compile-product-file output)
+           (if (equal? role "-obj")
+               (call-with-input-file dep (lambda (p) (read-line p #f))) "")
+           "executed"])))))

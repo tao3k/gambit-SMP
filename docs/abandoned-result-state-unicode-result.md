@@ -21,7 +21,7 @@ Truncation, duplicate inventory and changed valid upper-case mapping controls
 were rejected. These test the record checker, not GC fault recovery.
 
 Portable receipts and snapshots are in
-`evidence/source-results/fixtures/abandoned-result-state/unicode-scalar-bootstrap`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/unicode-scalar-bootstrap`.
 They bind both actual runtime identities and the source lock. No numbered cache
 is a source dependency. Raw binary shards remain regenerable diagnostic output.
 

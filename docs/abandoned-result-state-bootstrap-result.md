@@ -10,7 +10,7 @@ fixed configuration constant.
 The rebuilt runtime's own `config.status --config` retains GNU GCC, SMP,
 multiple VMs and multiple threaded VMs, with O0 diagnostic optimization.
 Portable receipts, rebuilt identity, adapter snapshot and redacted log are under
-`evidence/source-results/fixtures/abandoned-result-state/two-pass-bootstrap`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/two-pass-bootstrap`.
 Generated `lib/_thread.c` matches the seed; `lib/_std.c` and `lib/_module.c`
 still differ. Generated-byte parity is not admitted.
 

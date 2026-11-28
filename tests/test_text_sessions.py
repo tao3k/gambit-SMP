@@ -217,8 +217,11 @@ class TextSessionTests(unittest.TestCase):
         self.assertEqual(current["sourceInputs"], after["ruleSourceInputs"])
         with self.assertRaisesRegex(ValueError, "native result released"):
             old_result.rows("added")
-        # Even an unselected component remains part of the full declared inventory.
+        # Unselected source bytes are not support for this native history scope.
         (second_root / "catalog.ss").write_text("; drift\n")
+        independent, _ = evaluate(self.engine, {}, current, {"added": "added"}, reuse_program=True)
+        self.assertEqual(independent["added"], [])
+        (second_root / "history.ss").write_text("; selected source drift\n")
         with self.assertRaisesRegex(ValueError, "source generation changed"):
             evaluate(self.engine, {}, current, {"added": "added"}, reuse_program=True)
         self.assertEqual({}, _query_owners.get(self.engine, {}))

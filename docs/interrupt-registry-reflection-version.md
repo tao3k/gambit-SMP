@@ -10,7 +10,7 @@ The prior registry was reconstructed by mechanically removing exactly those
 three added bundles. Its bytes reproduce the original digest
 `eac411bf5c033abd4f4554dc4e6c81eeda6d4082581479e637255526446a35d2`.
 It is preserved at
-`evidence/source-results/fixtures/abandoned-result-state/registry-parent.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/registry-parent.json`.
 The old Reflection artifact now points to that snapshot with its unchanged
 digest. Neither the old observation nor its acceptance claim was rewritten.
 

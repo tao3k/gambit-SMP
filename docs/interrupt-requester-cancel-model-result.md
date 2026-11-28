@@ -9,7 +9,7 @@ trajectories also passed, including wake before unlink and the detached-waiter
 window before termination commits.
 
 Portable checked evidence is at
-`evidence/model-results/research/interrupt-requester-cancel`.
+`.cache/research/legacy-evidence/evidence/model-results/research/interrupt-requester-cancel`.
 Its receipt SHA-256 is
 `97f1ec357b6735c1e06cb4f4f7e6f60331dae19d50b244535bcd9790b7d5a5c0`.
 
@@ -18,7 +18,7 @@ multiple initializers reused the imported initialization action. The corrected
 initializers assign the same imported pure initial state directly; no protocol
 action, fairness condition or safety assertion was removed. The denied attempt
 and its original model snapshot are retained separately at
-`evidence/model-results/research/interrupt-requester-cancel-conversion-denial`.
+`.cache/research/legacy-evidence/evidence/model-results/research/interrupt-requester-cancel-conversion-denial`.
 It is not admitted and is not a native SMP counterexample.
 
 ## Remaining Boundary

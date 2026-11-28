@@ -19,7 +19,7 @@ The formerly failed abandoned assertions are retained; additional assertions
 check prior target ownership, abandoned state before requester acquisition,
 requester ownership after exception and successful reacquisition after unlock.
 
-`evidence/source-results/fixtures/abandoned-result-state/native-sync` retains
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/native-sync` retains
 identity, receipt and every shard log. This closes the selected native contract
 on a source-regenerated core, not two-pass bootstrap, full native suites, moving
 GC/source refinement, Gerbil or production performance. No broad admission

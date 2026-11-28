@@ -1,3 +1,4 @@
+from gambit_smp.task_processes import check_output as _task_check_output
 #!/usr/bin/env python3
 """Whitelist a macOS incident into portable evidence; never infer a root cause."""
 import argparse
@@ -91,7 +92,7 @@ def main():
         parser.error("--pid requires the actual --native-receipt")
     if digest(args.binary) != binary_hash(identity, args.binary_role):
         raise ValueError("selected binary identity mismatch")
-    output = subprocess.check_output(["xcrun", "dwarfdump", "--uuid", str(args.binary)], text=True, timeout=30)
+    output = _task_check_output(["xcrun", "dwarfdump", "--uuid", str(args.binary)], text=True, timeout=30)
     uuids = re.findall(r"^UUID: ([0-9a-fA-F-]+) ", output, re.MULTILINE)
     if len(uuids) != 1:
         raise ValueError("exactly one Mach-O binary UUID required")
@@ -104,6 +105,9 @@ def main():
     args.out.write_text(json.dumps(result, indent=2) + "\n")
     print("INCIDENT-IMAGE-BOUND; PID-BOUND=" + str(pid is not None))
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('crash')(main)
 
 if __name__ == "__main__":
     main()

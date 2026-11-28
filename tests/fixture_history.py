@@ -17,11 +17,11 @@ def historical_observation(test, fixture, root=ROOT):
         test.assertTrue(resolved.is_relative_to(root), name)
         return resolved
 
-    index = json.loads(local("evidence/source-results/fixture-history/inputs.json").read_text())
+    index = json.loads(local(".cache/research/legacy-evidence/evidence/source-results/fixture-history/inputs.json").read_text())
     test.assertEqual("gambit-historical-fixture-inputs.v1", index["schema"])
     test.assertIs(False, index["runtimeAdmitted"])
     row = index["fixtures"][fixture]
-    path = local(f"evidence/source-results/fixtures/{fixture}/observation.json")
+    path = local(f".cache/research/legacy-evidence/evidence/source-results/fixtures/{fixture}/observation.json")
     test.assertEqual(row["observationSha256"], digest(path), "original observation changed")
     summary = json.loads(path.read_text())
     test.assertIs(False, summary["runtimeAdmitted"])
@@ -29,5 +29,10 @@ def historical_observation(test, fixture, root=ROOT):
     for name, expected in summary["inputs"].items():
         # Only the fixed, individually recovered historical inputs are remapped.
         archived = row["archives"].get(name, name)
-        test.assertEqual(expected, digest(local(archived)), name)
+        source = local(archived)
+        history = Path(".cache/research/legacy-evidence/evidence/source-results/fixture-history")
+        if not source.is_file() and Path(archived).is_relative_to(history):
+            source = local(str(Path("tests/fixtures/fixture-history") /
+                               Path(archived).relative_to(history)))
+        test.assertEqual(expected, digest(source), name)
     return summary

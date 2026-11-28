@@ -1,0 +1,257 @@
+#+TITLE: Snapshot Pins, Late Observers and Distributed Retirement Cuts
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Architectural decision
+:PROPERTIES:
+:CUSTOM_ID: snapshot-observer-refinement
+:AUTHORITY: GambitSnapshotObserverRefinement
+:STATUS: scoped-formal; source-C11-and-performance-open
+:END:
+
+Modern generated C remains the required direction. This study extends
+[[file:derivation-receipt-environment-design.org][the joint ledger/receipt reference protocol]].
+It separates native snapshot storage, executable code/OFD lifetime, and terminal
+receipt storage. A successful task or an idle worker is not a grace-period proof
+for any of those three domains. No runtime code, build recipe or native test is
+introduced. Current source is rebound by hash; predecessor receipts stay frozen.
+
+The single immutable LedgerHead is retained as a linearizable specification, not
+a mandated global CAS bottleneck for every GC chunk. Current Gambit already has
+per-processor chunk queues. A modernization that centralizes all their traffic
+must justify the extra contention; the mere presence of lock-free CAS is no gain.
+
+* RESEARCH Source and literature anchors
+:PROPERTIES:
+:CUSTOM_ID: snapshot-source-basis
+:END:
+
+Current mem.c:end_heap_chunk links initialized chunk content and changes the
+per-processor tail with barriers and queue lock ownership. Local and stolen chunks
+are scanned after head advancement and unlock. mark_reachable_from_marked joins
+termination through scan_termination_mutex/workers_count. These are distinct queue,
+in-flight scan and phase responsibilities, not the proposed task ledger.
+Stack/captured-frame scanning reads decoded descriptors and trailing GC-map words;
+returning from the decoder is not the final OFD access. os_dyn.c has global unload,
+not a proved old-cohort grace period. Native snapshot allocation/reclamation is
+also not automatically part of Scheme still-object sweep or moving-root tracking.
+
+[[https://www.eecg.utoronto.ca/~amza/ece1747h/papers/hazard_pointers.pdf][Michael's hazard-pointer paper]]
+provides the protect-before-dereference and deferred reclamation mechanism studied
+here. We do not transfer its performance results to Gambit. Our SC reference
+ordering and concrete admission/certificate rules are design proposals requiring
+source and C11 refinement, not claims that the paper proves this runtime.
+
+[[https://www.cs.toronto.edu/~tabrown/debra/fullpaper.pdf][Brown's reclamation study]]
+explains why a stalled participant can prevent ordinary epoch reclamation and
+motivates separating allocation/reclamation policy from data-structure semantics.
+Its signaling solution is not automatically safe for Gambit signals, GC or FFI.
+
+[[https://arxiv.org/abs/2401.11347][Kim, Brown and Singh's batch-free study]]
+shows allocator interactions can make large freeing batches costly. Consequently
+commit batching and free batching are separate decisions here. We claim no
+allocator behavior, tail-latency ratio or throughput result for Darwin/Gambit.
+
+* RESEARCH Snapshot pin and reclamation protocol
+:PROPERTIES:
+:CUSTOM_ID: snapshot-pin-order
+:MODEL: models/quint/snapshot_observer.qnt
+:END:
+
+The directory and slot roster have independent stable lifetimes. A snapshot
+identity is (directory generation, snapshot generation, address), not an address
+alone. The reference reader loads identity, publishes it in its registered slot,
+then reloads head identity. It dereferences only after equality revalidation and
+retains its slot through the final access. A failed validation discards the bare
+identity; it does not decode the old pointer first.
+
+The remover detaches the old identity from head, records it on a retired list,
+then scans the complete stable slot roster. A reader publishing a pin AFTER a
+clear scan is not necessarily unsafe: validation must then fail because head has
+already changed. Conversely, a reader that validated the old head before removal
+must remain visible until its final dereference. The bounded model deliberately
+allows late publication after the scan; it never grants that reader validation.
+
+For the first reference proof, head load/validation/removal, pin publication and
+scan observations use a sequentially consistent metadata ordering. Let p be pin
+publication, v old-head validation, r removal and s a scan that misses that still-held
+pin. Required relations would be p<v<r<s<p, a cycle. Lean proves that arithmetic
+contradiction. The proof assumes no early pin clear, stable membership and no ABA;
+it is NOT a full C11 program proof. Release/acquire on separate head and hazard
+objects cannot simply be substituted: an acquire need not read the relevant
+release. The negative weak-scan control injects such an unqualified observation.
+
+[[https://www9.open-std.org/JTC1/SC22/WG14/www/docs/n1570.pdf][WG14 N1570]],
+5.1.2.4 and 7.17, supplies the C11 ordering basis. This research's SC metadata
+candidate is deliberately stronger than an unproved relaxed variant. Actual
+compiler operations, fences, lock freedom and source data-race freedom remain
+unqualified. A weaker protocol requires its own valid execution-graph proof.
+
+| Boundary | Required custodian / condition | Refusal or unknown outcome |
+|----------+--------------------------------+----------------------------|
+| slot registration | resident directory owner admits participant before roster cut | unregistered FFI/late participant cannot read payload |
+| pin publication | reader owns stable slot; no pointer dereference yet | failed validation retries against current generation |
+| final use | task/reader still owns snapshot and any separate code/root grant | exception/continuation cannot silently clear or lose the grant |
+| detached snapshot | retired-list owner retains immutable storage | failed scan or unknown transfer retains storage |
+| freeing | completed ordered scan and no validated holder for generation | unknown roster/ABA/lifetime refuses reclaim |
+| directory retirement | closes slot admission and drains registered accessors | freeing code does not free directory or hazard slots |
+
+The QNT models one old snapshot, one reader slot and one generation transition.
+It does not model address reuse. The no-ABA obligation explicitly requires no
+address/generation reuse through the grace period or a proven tagged-reuse scheme.
+A stalled validated reader can keep its protected snapshot; cancellation must
+complete final use or transfer an explicit record. No epoch counter or elapsed
+time alone revokes an arbitrary raw pointer. Scheme values in native records need
+RootRegistry/GC-compatible slots independently of metadata pins.
+
+* RESEARCH Receipt observers and executable retirement
+:PROPERTIES:
+:CUSTOM_ID: snapshot-three-lifetimes
+:END:
+
+Closing task publication is distinct from closing receipt lookup. Already admitted
+queries retain observer leases even after lookup admission closes. Query code first
+uses the resident directory and identity, then acquires a valid observer lease;
+it does not dereference a raw terminal-record pointer and register afterwards.
+Terminal records survive pending delivery, admitted/unknown queries and duplicate
+TaskId replay. A fresh request after the observer gate cut must fail admission.
+
+A data-only receipt may outlive executable code ONLY under a DetachCertificate.
+It certifies stable numeric/copied result data, resident query/exception code,
+no saved old return/continuation/catcher, no old label/OFD dereference, no borrowed
+Scheme value, and no callback/function pointer back to the cohort. The certificate
+covers future admitted observers as well as currently active ones. exec=0 cannot
+issue it. Without detachment, BOTH observer admission and existing observers must
+close/drain before code retirement. With detachment, code can retire while an
+observer remains; receipt storage and directory remain separately owned.
+
+The certifyDetached QNT action is an explicit external semantic assumption. The
+Lean witness proves that the permissions are logically compatible, not that any
+existing Gambit consumer can sign such a certificate. Unknown in this bounded
+model denotes original pending task-delivery status and cannot be newly asserted
+after it has been settled. Additional native query/finalizer uncertainties need
+separate domain-specific records, not one unscoped global flag.
+
+Old code release must occur from resident completion code after native epilogues,
+catcher restoration, GC/root use and possible continuation resumption no longer
+access the cohort. Snapshot pin clearance is not an executable-unload permission.
+The scope of the code permission guard assumes all independent root/FFI/inspection
+producers have already closed; complete source inventories remain open.
+
+* RESEARCH Global CAS cost and batch refinement
+:PROPERTIES:
+:CUSTOM_ID: snapshot-contention-model
+:END:
+
+Count mandatory shared commits before estimating speed. For D child tasks, the
+reference reserves, publishes, claims and completes each child: 4D successful
+head commits, plus parent/admission/receipt operations G. A attempts include failed
+CAS retries, so candidate construction/cleanup and pin/scan costs depend on A,
+not merely successful commits. No actual retry rate or machine instruction count
+is known. Serializing all updates on one head introduces a critical path whose
+length is the sum of those commits' service costs, regardless of core count.
+Overall time has lower bounds from total work divided by available processors,
+semantic dependency span and that shared-head path. Their constants are unmeasured.
+
+For batch size b>=1 and k legal batchable child phases (0<=k<=4), the conditional
+commit count is (4-k)D+k*ceil(D/b)+G. The child-phase reduction is exactly
+k*(D-ceil(D/b)); this is NOT an elapsed-time percentage. Claims and completions
+are not assumed batchable when readiness/completion times differ. Waiting for a
+batch can increase span, retained bytes and cancellation latency.
+
+The maintained Lean algebra proves two disjoint reservations commute and an
+explicit two-item batch equals their serial composition. Admission additionally
+requires same cohort/schema, distinct identities, stable membership, preserved
+per-ticket roots/debts/receipts and no intervening dependent reads/effects. Either
+commit all accepted members atomically, or publish a precise mixed result vector.
+One member's receipt is never proof that the whole batch succeeded. A batch lease
+can cover descendants only if it owns all private/queued/running work and observers.
+
+Free scheduling is independent: bounded incremental freeing can reduce bursts,
+but introduces a deferred-free custodian and backlog. Removing a snapshot from the
+retired list before its deallocation responsibility is accepted would repeat the
+same ownership gap. No allocator/tail-latency improvement is asserted.
+
+* RESEARCH Shards and a global retirement cut
+:PROPERTIES:
+:CUSTOM_ID: snapshot-shard-refinement
+:MODEL: models/quint/shard_retirement_cut.qnt
+:END:
+
+Shard local ownership where semantics permit; keep a stable cohort generation and
+explicit global producer cut. Transferring work reserves target ownership BEFORE
+source release. The intermediate overlap counts the same logical unit twice,
+conservatively. Lean subtracts that overlap to recover logical ownership and
+proves conservation. There is no moment when both shards disclaim the work.
+A sealed target rejects transfer; source remains responsible and must finish
+locally, retry an admissible target, or transfer to a stable coordinator.
+
+The two-shard QNT permits either direction, private transfer, target reservation,
+source release, abort, local completion and final seal. A shard can seal only with
+closed independent admission, zero local debt and no in-flight transfer. Incoming
+transfer to a sealed shard is forbidden. Both seals, zero debts and zero transfers
+are required before retirement. No sum of independently sampled local zero values
+is a global cut. Unknown response retains the transfer intent/source reservation;
+full lost-response reconciliation composes with the predecessor TaskId contract
+and is not modeled as a new successful migration here.
+
+Each shard action above is still an abstract transition. A production split across
+target-ledger CAS and source-intent update must use idempotent transfer TaskId and
+recoverable target receipts. A lost target response keeps source debt, even when
+the target already reserved. The composed abstract overlap is determined by actual
+canonical ticket states, not only the sender's local knowledge. This additional
+unknown-response/observation relation is OPEN; the six finite shard histories do
+not prove such a distributed implementation. Target count and receipt can commit
+in one local immutable snapshot; that does not atomically update another shard.
+
+Production refinement must additionally establish complete shard membership, no
+unregistered root/publisher, inherited derivation rules, cross-shard GC/root/FFI
+dependencies, queue/cancellation semantics and final observer drain. The finite
+model does not prove those premises or unrestricted allocation of new tasks.
+With S shards and local successful loads H_i, serialization is governed by the
+most loaded shard plus transfer and cut coordination, not automatically by H/S.
+Cache placement, memory bandwidth, imbalance, snapshot allocation and transfer
+frequency can defeat the expected gain. Keep current distributed chunk queues
+unless replacing them has an independently demonstrated benefit.
+
+* RESEARCH JSON and formal evidence chain
+:PROPERTIES:
+:CUSTOM_ID: snapshot-json-chain
+:END:
+
+The actual snapshot QNT typed IR is used to generate guard/update expressions for
+publishPin, validatePin and freeReceipt. Lean checks each pair against maintained
+PinFlat semantics. This is syntax-level correspondence for those actual expressions;
+no complete protocol-history or C11 simulation is claimed. The separate shard
+model has bounded histories and conditional transfer algebra, not a generated
+full transition-system correspondence.
+
+The pinned map JSON still supplies 91 selected occurrence/declaration pairs through
+the existing rejecting gate. Its generated finite-table consistency certificate
+is reused in the new scope. environmentNoFabrication proves every lookup result
+is a row of the finite table. environmentExactDomain combines that converse with
+the earlier row-to-function theorem. It closes a conditional finite-domain relation,
+not raw bytes-to-authentic-bindings correctness. Canonical declaration, type, scope,
+selected-domain completeness and field-slot extraction remain checked/trusted
+boundaries. Row deletion/target change and strict manifest reordering controls
+remain distinct from semantic proofs; unique-row reordering need not alter lookup.
+
+SysML gives typed accountable/counterpart component references, dependencies and
+exact model scopes. ASCENT requires the shard receipt as well as pin/Lean/actual-AST
+receipts and predecessor source obligations; missing certificates cannot be
+promoted to full source or platform qualification. Org matrices and D2 edges are
+native SysML projections. [[file:snapshot-observer-refinement-matrix.org][The net-benefit matrix]]
+records symbolic work counts and conditions, with open source/C11/performance gates.
+
+* RESEARCH Migration and retirement conditions
+:PROPERTIES:
+:CUSTOM_ID: snapshot-migration
+:END:
+
+Define resident directory and slot ownership; prove stable membership and final-use
+boundaries; distinguish executable/root and data-only receipt capabilities; qualify
+SC pin/refusal behavior; retain the joint ledger as a specification; then refine
+legal batching and shard transfers under a global cut. Only migrated consumers
+may retire implicit lifetime assumptions. No existing FIFO, GC phase counter,
+root scanner, C macro or global unloading path is retired by this research.

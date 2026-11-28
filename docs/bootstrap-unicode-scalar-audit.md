@@ -40,7 +40,7 @@ was compiled and executed afresh; the prior typed denial is retained.
 ## Evidence Boundary
 
 Portable receipts, fixture and verifier snapshots are under
-`evidence/source-results/fixtures/sfun-owned-unwind/unicode-scalar-bootstrap`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/unicode-scalar-bootstrap`.
 Raw binary records remain diagnostic artifacts, not Git dependencies.
 `tests/test_unicode_bootstrap_evidence.py` checks archive identities and scope;
 it does not rerun the native campaign.

@@ -1,0 +1,415 @@
+# HostGraph, FrameSpec and Runtime Role Generation Contracts
+
+Date: 2026-10-20. Design only. No compiler implementation, feature probe,
+native/model execution or performance validation. This refines
+[D1-H](d1h-c-runtime-refactor.md), with a
+[source ledger](hostgraph-generation-evidence.md) and
+[ordered C-path retirement plan](hostgraph-retirement-plan.md).
+All schemas and pass names below are proposed project contracts.
+
+The follow-up [semantic operation inventory](semantic-completion-operations.md)
+and [15 concrete role contracts](runtime-role-entry-contracts.md) refine G3's
+check/materialization/error paths and source anchors. They are now indexed in
+the [existing Scheme DSL/ASCENT research chain](zig-research-chains.md), with
+source correspondence separate from unclosed native feasibility requirements.
+
+## 1. Decision: Complete Semantics Before Native Construction
+
+**Scheme produces a semantically closed, profile-bound HostGraph; Zig owns
+physical frame realization and the new C/native product emitters.** A raw GVM
+serialization is insufficient. The current C scanner creates additional
+heap/poll return points, materializes cached values and constructs internal
+frames while emitting C (HG06-HG09). Those semantic decisions must first become
+explicit Scheme-produced operations and obligations. Moving their C strings
+to Zig without extracting those decisions would retain the old coupling.
+
+This is a substantive C-layer refactor: the managed C route becomes another
+consumer of the same product as native LLVM, and the semantic decisions now
+embedded in C-emission procedures become shared producer logic. The native
+route does not invoke the old C dumper to discover control points, roots,
+runtime handlers or module initialization. The collector and Scheme control
+semantics remain Gambit's responsibility.
+
+![Semantic completion and physical product generation](hostgraph-generation-pipeline.svg)
+[D2 source](hostgraph-generation-pipeline.d2).
+
+The retained Darwin/GCC profile supplies the starting object/frame convention;
+it does not qualify the new emitters. D1-H required-tail edges still need the
+separate E01-E12 evidence in [edge admission](d1h-edge-admission.md). A new frame
+schema neither establishes tail-call lowering nor makes a host transferable
+before writeback or scanner-ready before roots are materialized.
+
+## 2. Generation Stages and Authority
+
+| Stage | Owner / output | Required invariant and source basis |
+| --- | --- | --- |
+| G0: negotiate | Scheme target interface + resolved immutable profile/capability plan | Argument/result locations, frame constraints and representation are available before GVM construction; they already influence entry-context (HG01-HG03) |
+| G1: anchor | Scheme runtime/compiler declarations -> semantic AnchorIds, required runtime roles | Declare actual handler/resume anchors, not the container procedure's entry or an ordinal; extend reachability roots before destructive passes (HG04, HG11) |
+| G2: compile and purify | Scheme -> GVM plus transformation lineage | Preserve Scheme evaluation/effects, polling constraints, closure/environment identity and all exported anchors through cloning, threading, merging and deletion (HG02-HG05) |
+| G3: semantic host lowering | Scheme -> explicit control/check/materialization operations + FrameSpecs | Extract semantic parts of target scan: call/return preparation, check and resume points, allocation budgets, boxing/root obligations, slots-needed and return-link meaning (HG06-HG09) |
+| G4: freeze | Scheme -> immutable HostGraph revision and closure certificate | All required points, frames, effects, roles, foreign/control regions and initialization dependencies resolve; no native addresses or C label numbering |
+| G5: common plan | Zig -> HostSpecs, FrameLayouts, PointLayouts, resource/fixup plan | Realize one profile's layout for both emitters; check reference/cardinality/range closure and preserve semantic identities |
+| G6: emit | Zig C emitter / MLIR-LLVM provider -> object + declarative metadata | Enforce D1-H exits, realize G3 operations, publish the same point/frame contracts; provider cannot invent a collecting boundary |
+| G7: bind | Gambit runtime owner -> anchored ImageBinding and per-VM ModuleBinding | Resolve runtime labels/roles, retain metadata/code lifetime, follow existing publication and initialization authority (D1-H R05/R09/R12) |
+
+G3 occurs after GVM purification and completion of slot requirements, but before
+current `targ-scan-procedure` allocates its C value/goto label numbers or emits
+its final product. G1 precedes transformations; G3-created private points get
+fresh anchors and a creation reason. The new pipeline changes the current
+compiler; it is not an export hook already present in `_gvm.scm`.
+
+The existing slot requirements are an input to G3, not permission to reuse them
+unchanged after expansion. New check/resume/materialization operations require
+freshly validated incoming frames, saved-state roots and stack-frontier data.
+If an expansion changes semantic dataflow, recompute the affected Scheme
+analysis before G4. An internal point's origin frame plus mandatory protocol
+roots must be explicit; copying a frame/comment and assuming completeness fails
+the freeze gate.
+
+There is a deliberate negotiation cycle before freeze: the provider declares
+resource/check capabilities, Scheme selects legal check placement and completes
+frames, and Zig validates realizability. A provider that later needs a new
+allocating spill, collecting helper, observable poll, continuation boundary or
+addressable resume point returns an `AmendmentRequest` to Scheme. That creates
+a new graph revision and redoes affected control/frame/role analysis. It must
+not patch in a new map locally. Bound negotiation by an explicit iteration
+budget; exhaustion rejects the request. There is no unbounded retry contract.
+
+Machine block splitting, ordinary noncollecting spills and instruction
+scheduling can remain provider-local if they preserve the frozen control,
+effect, root and lifetime obligations. This permission does not extend to
+moving a poll across an interrupt-masked region or borrowing an unrooted
+Scheme pointer across allocation.
+
+## 3. HostGraph: Inputs, Identities and Closure
+
+```text
+HostGraph {
+  schema: HostGraph/1,
+  semantic_input_id, graph_revision, source_overlay_identity,
+  object_protocol_id, frame_protocol_id, effective_profile_id,
+  capability_plan_id,
+  control_units: [ControlUnit], values_and_constants,
+  operations: [SemanticOperation], edges: [Transfer],
+  points: [SemanticPoint], frames: [FrameSpec],
+  runtime_roles: [RoleBinding], required_role_manifest_id,
+  foreign_interface_plan, runtime_control_regions,
+  module_dependencies, setup_and_initialization_plan,
+  anchor_lineage, closure_certificate
+}
+SemanticPoint {
+  point_id, origin_anchor, control_unit_id,
+  purpose: procedure_entry | ordinary_resume | task_resume |
+           internal_resume | runtime_handler | local_control,
+  descriptor_requirement: none | RETN | RETT | RETI,
+  visibility: local | addressable | runtime_exported,
+  frame_id?, incoming_state_contract, reload_obligations,
+  arity_and_closure_shape?, debug_origin
+}
+Transfer {
+  source_point_or_operation, destination,
+  kind: local_branch | procedure_tail | procedure_call |
+        scheme_return | runtime_handler | foreign_escape,
+  return_point?, argument_and_self_plan, frame_prepare_plan,
+  effects, writeback_and_root_obligations
+}
+```
+
+The records express meaning, not a serialization of mutable Scheme objects or
+code-generation closures. `proc-obj-inline` currently invokes Scheme lowering
+code (HG09); extract explicit operation laws and effect/resource plans rather
+than transmitting callbacks for Zig to execute. Unknown operations or opaque
+runtime-control fragments reject the selected capability domain. The
+[primitive/FFI catalogue](primitive-ffi-coverage.md) is a starting census, not
+proof that every lowering has been extracted.
+
+The effect contract must distinguish allocation/collection, polling, capture,
+reentry, raises/nonlocal exit, global/heap mutation and foreign interaction.
+The existing coarse primitive `side-effects?` flag cannot stand for no-GC.
+An allocating operation's result, exceptional exits and ordered effects belong
+to G3 even when its arithmetic/body lowering is implemented in Zig. See the
+[evaluation/effect contract](evaluation-effects-contract.md).
+
+| Identity | Issuer / scope | Forbidden substitution |
+| --- | --- | --- |
+| AnchorId | Scheme, semantic origin plus explicit transform lineage | Source line, copied comment or mutable GVM label integer |
+| PointId | Scheme, unique within a frozen graph revision/module | C value-label index, local goto index, debug definition order or runtime address |
+| ControlUnitId | Scheme, semantic grouping and incoming-state constraints | Assumption that every GVM block is a separate native function |
+| HostId | Common product planner, within one graph/profile/product plan | Equality of native function pointers, independent emitter repartition |
+| LocalOrdinal | Common planner, per HostId dispatch membership | Public runtime role or stable semantic identity |
+| Runtime label | Runtime materialization, within anchored cohort/image binding | Pre-relocation compiler address or PointId used as a pointer |
+
+The initial D1-H grouping is fixed by the admitted control-unit/host plan;
+both emitters consume that plan. A change requiring new incoming-state
+semantics returns to G3. This refines the earlier phrase "producer-assigned
+HostId": the product producer assigns it after Scheme semantic identities have
+been frozen. PointIds are revision-local; persistence across arbitrary source
+edits is not promised. A role name remains the lookup key across revisions.
+
+### Deterministic freeze and ID generation
+
+The proposed generation algorithm has no dependence on Scheme heap addresses,
+hash-table iteration order or the legacy C scanner's label counters:
+
+1. Give each control unit a producer-owned `UnitKey` from its resolved module/
+   definition identity and deterministic producer sequence. Each original or
+   generated anchor has `(UnitKey, creation_sequence)` plus an explicit
+   derivation record. A source span is debug provenance, not a unique key.
+2. Run G2/G3 using those symbolic keys. Each transformation records retained,
+   redirected and newly created anchors. Keep required exports materialized;
+   resolve RoleDeclarations against the resulting lineage. No role resolution
+   by nearest source line or remembered ordinal is permitted.
+3. Validate a canonical **pre-ID graph** whose references use symbolic keys.
+   Preserve operation/effect and initialization sequence order. Canonicalize
+   unordered keyed collections by their encoded keys; use specified integer,
+   byte-string and reference encodings. Include semantic input, overlay,
+   capability/profile and required-role identities. Exclude native addresses,
+   local ordinals, product layout, timestamps and transient allocator state.
+4. Derive `GraphRevision` from that canonical payload and schema identity.
+   Enumerate points in deterministic control-unit/anchor order and assign
+   `PointId = (GraphRevision, PointSequence)`, qualified by ModuleId externally.
+   Enumerate FrameSpecs similarly. Rewrite symbolic references, including each
+   role binding, into final IDs. The payload hashed in step 3 contains no
+   final GraphRevision or PointIds, avoiding a circular identity definition.
+5. Seal the payload, lineage, role bindings and closure certificate together.
+   Cache lookup validates the full input identities/schema; a digest collision
+   or inconsistent payload rejects reuse. A new semantic point or obligation
+   after sealing restarts generation at a new revision, not an appended ID in
+   the old image. Physical HostIds/local ordinals are generated only at G5.
+
+This defines determinism for identical declared inputs, not edit-stable IDs.
+Adding a private point can renumber points in a new revision; role declarations
+are resolved again and remain independent of those numbers. Different roles
+may share a target only through an explicitly allowed alias with compatible
+incoming/effect contracts. Structural FrameSpec sharing requires equality of
+all obligations and provenance rules, not just equal encoded map bytes.
+
+Freeze rejects dangling edges/frames, duplicate PointIds, missing required
+roles, addressable points without realizable incoming state, unknown effects,
+undefined foreign/control plans and descriptors inconsistent with point
+contracts. It retains source/profile/overlay provenance and a digest of every
+referenced semantic input. Equal bytes do not prove those inputs are correct.
+
+## 4. FrameSpec: Scheme Meaning; FrameLayout: Zig Realization
+
+Gambit already chooses profile-sensitive GVM argument/register/stack locations
+(HG01-HG03). Therefore "Zig owns layout" cannot mean Zig freely reassigns
+logical GVM slots or rediscovers Scheme liveness. The boundary is the mapping
+from those logical locations and root obligations to admitted physical frames
+and runtime descriptors.
+
+```text
+FrameSpec {                         // Scheme authority
+  frame_id, point_id, frame_protocol_id,
+  return_kind, logical_extent_in_words,
+  ordered_logical_slots, gvm_register_bindings,
+  semantic_live_values, closure_environment_dependencies,
+  return_var_location, stack_frontier_requirement,
+  protocol_saved_registers, protocol_return_value,
+  materialize_before_check, reload_after_resume,
+  frame_expansion_recipe_id, debug_value_origins,
+  semantic_frame_features       // e.g. saved dynamic environment / foreign marker
+}
+FrameLayout {                       // Zig common planner authority
+  frame_spec_id_and_digest, profile_id,
+  logical_to_physical_word_mapping, padding_and_saved_state_offsets,
+  caller_frame_size, actual_scanned_size, normalized_ra_link,
+  ordered_root_obligations, gc_map_chunks,
+  descriptor_form, descriptor_bytes_and_relocations,
+  realization_witness,
+  named_frame_feature_coordinates
+}
+```
+
+FrameSpec's expansion recipe identifies semantic obligations for normal/task/
+internal returns. Scheme supplies which registers/values must be saved and
+why; Zig evaluates the shared profile's alignment, reserve, count and packing
+rules. There is one authoritative FrameLayout for C1 and N1, not a second root
+analysis in LLVM or a second frame packer hidden in C emission.
+
+| Frame question | Scheme must decide | Zig must realize / reject |
+| --- | --- | --- |
+| Ordinary roots | `frame-live?`, including closure-environment dependencies | Exact bitmap over the realized ordered slots; never infer roots from machine SSA liveness (HG03/HG08) |
+| Internal resume | Which GVM registers and protocol return slot are saved roots, even if source values appear dead | Place saved state/padding and encode RETI's actual scanned size (HG08/HG10) |
+| Return link | Required ret-var and logical location; absent return address is an error | Validated coordinate conversion/range and descriptor encoding, not a guessed native stack RA |
+| Stack frontier | Slots needed and legal check/poll policy, separately from live roots | Realize fp offsets/reservation and bounds, preserving both requirements (HG05-HG07) |
+| Cached flonums/state | Which dirty values must become Scheme-visible before check/reentry; account for materialization allocation | Choose cache/spill instructions within that plan; request amendment if new collecting work is needed |
+| Descriptor form | Point's semantic return/scan contract | Profile-bound inline/out-of-line form, bit widths, chunk order, relocations and overflow rejection |
+| Capture/resume | Scheme frame chain, dynamic environment and reload meaning | Retained scanner-compatible bytes/lifetime; no native activation as captured continuation |
+
+Coordinates must have units and domains. A logical stack operand, zero-based
+ordered-map index, scanner's frame slot, return-link field and byte offset are
+different types. For the inspected decoder, bitmap index `j` selects scanner
+slot `j + 1`, and the stored zero-based link is consumed at `link + 1`
+(HG10). As a **synthetic arithmetic example**, ordered physical entries
+`[live-a, ret-var, dead-b]` with obligations `[1,1,0]` give map `0b011`, link
+`1`, scanner RA slot `2`. This is not a captured Gambit output or a claim all
+normal/RETI layouts share these three entries. Internal expansion must be
+applied before coordinate validation.
+
+The current packer uses 32-bit map chunks and the inspected profile has
+reserve/alignment parameters. These are source-bound format rules, not Zig
+struct defaults or universal constants. A future format change revises the
+profile, producer/decoder agreement and cohort together. The existing
+[root/lifetime owner](../root-map-lifetime-contract.md) still controls how long
+descriptors can be interpreted.
+
+The realization witness maps each semantic/protocol root to its physical slot,
+each ret-var to its link, and each internal saved value to its reload. A
+checker independent of the Zig packer must compare these obligations with the
+runtime decoder and source liveness; using the same packer twice establishes
+only consistency, not root completeness. No such checker is implemented here.
+
+## 5. Runtime Roles: Anchors Through Transformations to PointIds
+
+`##kernel-handlers` is explicitly a non-callable container of multiple control
+regions, not a procedure-entry export (HG11). Its historical handwritten
+`___LBL(n)` references cannot be converted merely by naming the enclosing
+procedure. Add compiler-owned role declarations at the actual handler/resume
+anchors while extracting these embedded runtime-control regions.
+
+```text
+RoleDeclaration {
+  role_name, declaration_anchor, required_by_runtime_profile,
+  expected_incoming_state, expected_effects, allowed_point_contract
+}
+RoleBinding {
+  role_name, point_id, graph_revision, declaration_lineage,
+  incoming_contract_id, frame_contract_id?, owning_runtime_scope
+}
+```
+
+The runtime profile owns the required-role manifest and interpretation of each
+role; Scheme binds its declaration to a semantic point; Zig validates and emits
+the binding; runtime setup resolves the PointId to an anchored runtime label
+before publishing that role to its owner. Process/cohort exports and per-VM
+instances follow existing ownership; a role table does not permit sharing
+mutable VM initialization state across VMs.
+
+![Role identity and transformation lineage](runtime-role-point-lineage.svg)
+[D2 source](runtime-role-point-lineage.d2).
+
+| Transform | Required role/identity rule | Why the current representation is insufficient |
+| --- | --- | --- |
+| Label renaming / jump threading | Explicit lineage updates references; the role's incoming-state anchor remains materialized | GVM labels are mutable allocator values; threading can remove intermediate blocks (HG04/HG05) |
+| Dead-code deletion | Seed externally required role anchors as roots, in addition to normal procedure reachability | Current dead-code walk starts from bbs entry (HG05) |
+| Poll/check splitting | Fresh private anchor/PointId, carrying frame/effect origin but no duplicated runtime-role authority | `seal-bb` copies instruction comments; target scan also creates return points (HG02/HG07) |
+| Cloning / specialization | Derived clone gets a new identity; the unique exported anchor remains or is explicitly redirected with the same contract | Clone helpers reuse comments; copied text cannot authorize another role export (HG04) |
+| Common-code merge | Preserve distinct addressable anchor stubs when identities/contracts differ, even if body code is shared | Code equivalence alone does not establish frame/incoming-state equivalence |
+| Inlining | Retain an addressable canonical entry for a required role | The runtime can enter without following a Scheme caller edge |
+| Physical host/block placement | Preserve PointIds, membership and incoming contract through one common plan | Local ordinal/function address is a product detail |
+
+An optimization without a defined preservation rule is not admitted on a graph
+containing affected anchors. Resolve each required role exactly once; reject
+missing, ambiguous, wrong-revision, contract-incompatible or nonaddressable
+targets. Metadata comments may carry debug provenance but cannot grant export
+authority.
+
+### Baseline role census: 15 assignments in setup_kernel_handlers
+
+The old numbers below document coupling, **not new generation inputs**. `K`
+means the `##kernel-handlers` container, `D` the `##dynamic-env-bind` container.
+These are all assignments in that inspected function; they are not a census
+of every runtime role/entry elsewhere in Gambit (HG11).
+
+| Proposed symbolic role | Existing owner field | Old container / LBL | Required semantic review before binding |
+| --- | --- | --- | --- |
+| sfun-conv-error | handler_sfun_conv_error | K / 0 | C calling Scheme: representation-conversion failure and nonlocal exit |
+| cfun-conv-error | handler_cfun_conv_error | K / 1 | Scheme calling C: representation-conversion failure and saved call state |
+| stack-limit | handler_stack_limit | K / 2 | Stack check state, complete frames and interrupt masking |
+| heap-limit | handler_heap_limit | K / 3 | Allocation/check budgets, root materialization and resume |
+| not-proc | handler_not_proc | K / 4 | Invalid dynamic callee and argument state |
+| not-proc-glo | handler_not_proc_glo | K / 5 | Global callee resolution and failure state |
+| wrong-nargs | handler_wrong_nargs | K / 6 | Arity state and exceptional control |
+| get-rest | handler_get_rest | K / 7 | Rest construction, allocation and argument locations |
+| get-key | handler_get_key | K / 8 | Keyword parsing/default state and effects |
+| get-key-rest | handler_get_key_rest | K / 9 | Combined keyword/rest construction state |
+| force | handler_force | K / 10 | Promise state, possible Scheme reentry and return |
+| return-to-c | handler_return_to_c | K / 11 | Foreign marker/catcher and Scheme versus C return |
+| break | handler_break | K / 12 | Stack-segment/frame-chain transition |
+| internal-return | internal_return | K / 13 | Runtime marker/handler interpretation |
+| dynamic-env-bind-return | dynamic_env_bind_return | D / 1 | Dynamic environment restoration and resume frame |
+
+The table identifies required review topics, not qualified incoming-state
+signatures. In particular, role `internal-return` is not automatically a RETI
+point: the runtime marker/handler and a compiler-generated internal resume
+descriptor are different concepts. Point purpose and descriptor requirement are
+separate fields. Final per-role frame/effect/entry signatures remain unresolved
+until the corresponding embedded control region is extracted and audited.
+
+Example: inserting a new private heap-check resume changes C label numbering
+today and motivated the retained stable-prefix patch (HG12). In the new design,
+the private point obtains a fresh PointId; `heap-limit -> PointId(H)` still
+resolves through its explicit anchor. No role lookup depends on the new point's
+position. This illustrates the proposed contract; it does not establish that
+the historical patch can already be removed.
+
+## 6. C, FFI and MLIR Boundaries
+
+The new C emitter owns syntax, local dispatch, cached-state realization,
+required-tail forms, declarations, relocations and descriptor/resource emission.
+Scheme retains primitive semantics, control/effect ordering, foreign conversion
+and exception meaning, module dependencies, initializer order and role meaning.
+Gambit's runtime retains object operations, GC/VM ownership, dynamic environments,
+continuation capture/restore and foreign entry/catcher behavior.
+
+Ordinary retained C helpers can be referenced by typed import/effect contracts.
+An opaque `##c-code` fragment that manipulates GVM state, jumps to runtime labels
+or relies on host-local macros is a `RuntimeControlRegion`, not automatically
+a normal C function call. Each such region needs semantic extraction, explicit
+points and an admitted realization. Forwarding its original macro string into
+an emitter and calling the old path retired is forbidden. Arbitrary FFI remains
+a separate capability domain until its conversions, reentry and exits are
+covered; there is no universal C-to-MLIR translation promise.
+
+MLIR receives explicit operations/effects and the frozen frame/point obligations.
+Its dialect interfaces can expose semantics to reusable infrastructure, but
+Gambit must define them; generic passes do not infer continuation/GC laws.
+[MLIR Interfaces](https://mlir.llvm.org/docs/Interfaces/).
+Transformations invalidate dependent graph/frame/role analyses unless their
+preservation is justified, following the distinction between analysis reuse
+and invalidation in [MLIR Pass Management](https://mlir.llvm.org/docs/PassManagement/).
+Our amendment/freeze protocol is a project design, not an upstream MLIR API.
+Higher-order closure and region optimization still needs the separate
+[high-level semantic path](zig-high-level-semantics-design.md) and
+[pass admission](mlir-pass-admission.md); a low-level HostGraph cannot recover
+all semantics erased before GVM.
+
+## 7. Invalidation and Open Admission
+
+| Changed input | Earliest invalidated output | Reuse allowed only when |
+| --- | --- | --- |
+| Scheme program, primitive law, role anchor or control-region semantics | Relevant GVM/semantic completion and graph revision | Dependency closure proves unaffected units, not merely equal filenames |
+| Argument/GVM register/frame protocol or check capability | G0 and all profile-bound semantic/frame outputs | No reuse across a changed semantic target contract |
+| Only descriptor encoding/layout implementation | G4 identity/re-ID if a bound profile reference changes; FrameLayout and every referencing code/metadata product | Semantic obligations revalidated; decoder/profile and independent realization admission close |
+| C emitter or LLVM provider/toolchain | G4 identity envelope if a bound provider/capability reference changes; always its code and dependent product/capability identity | Reusable semantic/layout content is revalidated and required edge/metadata gates renewed |
+| Role binding/point/host plan | Referencing manifest, host dispatch and runtime image binding | No stale ordinal/address/table mixture is published |
+| VM instance/generation or initializer effects | ModuleBinding and instance roots/state | Immutable anchored image reuse is separately admitted by existing lifetime owner |
+
+No old code may load new maps or vice versa during partial cache reuse. Code,
+point tables, FrameLayouts and role bindings form one coherently identified
+image product. Publication/retirement joins existing metadata/resource owners;
+this document does not introduce a second lifetime authority.
+
+Reusing unchanged analysis content is distinct from reusing an old sealed graph
+or PointId. A changed canonical input yields a new GraphRevision and rebinding,
+even if semantic analysis need not be performed again. No upgrade is allowed to
+retain stale references merely because a layout happens to compare equal.
+
+Open gates are explicit: complete operation/control-region census; exact
+per-role signatures and reachability preservation; independent semantic root
+oracle; resource/check negotiation termination; profile-bound frame realization;
+C/native required-tail edges; materialization/failure/capture lifetime. Static
+research settles the ownership and required artifacts, not these future
+qualification results. See [replacement gates and measures](hostgraph-retirement-plan.md).
+
+## Mainline Ownership Refinement
+
+The [modern generated-C contract](generated-c-native-contract.md) now selects
+Scheme semantic completion and common native planning, Scheme-generated C
+products and C policy bodies as the mainline. Its
+[generator stages](scheme-native-generator-design.md) retain the source-based
+G3 root/control extraction, FrameSpec/PointId and bounded amendment obligations.
+The earlier mandatory Zig placement for common planning/rendering is an
+alternative realization, not a dependency of the current mainline. No frame,
+tail-call, collector or native acceptance result changes with that choice.

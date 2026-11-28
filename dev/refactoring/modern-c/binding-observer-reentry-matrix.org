@@ -1,0 +1,207 @@
+#+TITLE: Binding Callbacks — Observation and Canonical Writer Closure Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitBindingObserverReentry
+:STATUS: conditional-model; source-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| port-install | vendor/gambit/gsc/_t-c-1.scm | (set! targ-port (open-output-file-preserving-case filename)) | Backend selects file port, not a caller-supplied arbitrary port |
+| host-file | vendor/gambit/gsc/_host.scm | (define (open-output-file-preserving-case path) | Gambit branch parameterizes readtable and calls file opener; host artifact binding external |
+| file-open | vendor/gambit/lib/_io.scm | (define-prim (##open-output-file path-or-settings) | File opener uses open-file-generic and device constructor |
+| device | vendor/gambit/lib/_io.scm | (define-prim (##make-device-port device-name rdevice wdevice psettings) | Default device writer uses ##wr; handler and timeout thunk initially false |
+| default-writer | vendor/gambit/lib/_io.scm | (##wr we obj) | Device writer calls mutable global formatter |
+| wr-hook | vendor/gambit/lib/_io.scm | (define-prim (##wr-set! x) | Actual hook setter; not evidence gsc installs a custom hook |
+| wr-write | vendor/gambit/lib/_io.scm | (set! ##wr x) | Formatting behavior may change without replacing port |
+| display | vendor/gambit/gsc/_t-c-1.scm | (display x targ-port) | Display crosses generic Scheme formatter |
+| generic | vendor/gambit/lib/_io.scm | (define-prim (##write-generic-to-character-port style port rt force? limit obj) | Mark and output passes both invoke writer dispatch; not one callback per display |
+| wr-substr | vendor/gambit/lib/_io.scm | (##write-substring s i j port) | Connect primitive string output to buffer drain/error |
+| drain | vendor/gambit/lib/_io.scm | (let ((code ((macro-character-port-wbuf-drain port) port))) | Buffer drain errors can raise after unlocking the port |
+| io-error | vendor/gambit/lib/_io.scm | (define-prim (##raise-io-exception port exc) | Port custom handler or dynamic raise channel |
+| port-handler | vendor/gambit/lib/_io.scm | (define-prim (port-io-exception-handler-set! port handler) | Requires actual port reference and caller installation |
+| timeout | vendor/gambit/lib/_io.scm | (define-prim (output-port-timeout-set! | Requires port capability and finite timeout/OS wait condition |
+| timeout-dispatch | vendor/gambit/lib/_io.scm | ((macro-port-wtimeout-thunk port)) | Reachable dispatch guarded by wait failure; not unconditional default callback |
+| runtime-handler | vendor/gambit/lib/_thread#.scm | (##define-macro (macro-raise obj) | Uses thread dynamic exception handler, separate from compiler-abort continuation |
+| dynamic-install | vendor/gambit/lib/_thread.scm | (define-prim (with-exception-handler handler thunk) | Embedding can establish dynamic handler without owning targ-port |
+| catcher | vendor/gambit/lib/_thread.scm | (define-prim (##with-exception-catcher catcher thunk) | Captures/grafts continuation; different from resumable return |
+| compiler-catch | vendor/gambit/gsc/_utils.scm | (set! throw-to-exception-handler cont) | Compiler wrapper changes its own variable, not dynamic runtime handler |
+| compiler-abort | vendor/gambit/gsc/_utils.scm | (throw-to-exception-handler #f) | Ordinary compiler abort targets outer captured continuation |
+| gc-register | vendor/gambit/lib/_kernel.scm | (define-prim (##add-gc-interrupt-job! thunk) | Global GC job registration is another callback producer |
+| gc-dispatch | vendor/gambit/lib/_kernel.scm | (##execute-jobs! ##gc-interrupt-jobs) | Runtime dispatch exists; exact poll position and current profile qualification OPEN |
+| will-dispatch | vendor/gambit/lib/_kernel.scm | (action testator) | Will action invokes Scheme callback; resource capabilities need closure |
+| table-reset | vendor/gambit/gsc/_t-c-1.scm | (set! targ-glo-vars         (make-table 'test: eq?)) | Nested compilation changes table identity |
+| table-clear | vendor/gambit/gsc/_t-c-1.scm | (set! targ-glo-vars #f) | Normal nested cleanup can leave resumed outer helper with cleared table |
+| demand | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-demanders-set! (cdr x) '("")) | Named use-false canonicalizes same-entry demand |
+| supply | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-suppliers-set! (cdr x) '("")) | Named use-true preserves demand field |
+| raw-setter | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Raw setter can undo canonical value |
+| prm | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_PRM") | First effect before selected PRM text construction |
+| glo | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Second effect must not be deleted under raw write/entry replacement |
+| helper | vendor/gambit/gsc/_t-c-1.scm | (targ-use-glo (string->symbol name) #f) | Helper re-reads current global table; does not retain first entry |
+| namespace | vendor/gambit/gsc/fixnum.scm | targ-use-glo | Compiler namespace maps helper; namespace alone is not a full capability analysis |
+| debug-install | vendor/gambit/gsc/_gscdebug.scm | (##wr-set! | Interactive compiler has a real formatter registration, not merely an API |
+| debug-default | vendor/gambit/gsc/_gscdebug.scm | (##default-wr we | Scalar/non-vector operands take default branch under stable debug bindings |
+| debug-restore | vendor/gambit/gsc/_gscdebug.scm | (##wr-set! save-wr) | Special vector branch restores global hook by normal statement, not guard |
+| debug-transform | vendor/gambit/gsc/_gscdebug.scm | (c#parse-tree->expression obj) | Special var/ptree formatting has a different effect closure |
+| igsc-module | vendor/gambit/gsc/igsc.scm | "_gscdebug" | Interactive compiler module roster includes formatter registration |
+| igsc-load | vendor/gambit/gsc/igsc.scm | (for-each (load-from-root "gsc/") gsc-modules) | Roster is actually loaded before main entry |
+| var-predicate | vendor/gambit/gsc/_envadt.scm | (define (var? x) | First test is vector?; strings and integers excluded |
+| ptree-predicate | vendor/gambit/gsc/_ptreeadt.scm | (define (ptree? obj) | First test is vector?; strings and integers excluded |
+
+** Route
+
+| key | producer | dispatch | capability | status |
+|---+---+---+---+---|
+| formatter | ##wr-set! | device write-datum -> ##wr | Hook registration and a closure capable of metadata access | Actual mechanism; gsc registration and metadata effect not observed |
+| io-dynamic | with-exception-handler | IO error -> macro-raise -> current handler | Dynamic handler plus backend access; no port alias required | Actual route under IO error; handler may return or escape |
+| io-port | port-io-exception-handler-set! | IO error -> port handler | Existing target-port reference and installed handler | API exists; ordinary file initializes handler false |
+| timeout | output-port-timeout-set! | EAGAIN -> wait failure -> thunk | Port reference, timeout setting, wait outcome | Conditional route; not evidence default gsc callback |
+| gc | GC job or will registration | handle-gc-interrupt -> jobs / action | Registered closure, permitted poll and backend capability | Dispatch established; exact interpass scheduling OPEN |
+| compiler-abort | compiler-error -> compiler-abort | throw-to-exception-handler | Compiler wrapper continuation | Does not itself resume failed helper or install dynamic EH |
+| raw-resume | capture inside admitted callback | saved continuation -> old locals and current globals | Capture site, multi-shot continuation, resource lifetime | Source-composable conditional path; no native reproduction |
+| igsc-debug | igsc loads _gscdebug | ##wr hook -> var/ptree predicate -> default writer for scalar | Stable hook and predicate bindings, selected string/integer output | Actual source registration; direct scalar branch excludes resource access, asynchronous effects separate |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| first | Observe demand through capable formatter/handler | Actual callback registration and resource read capability | First normalization is observable in that domain | No current default-gsc malicious/metadata callback asserted |
+| second | Canonicality-preserving writer closure | Same entry/generation and only named demand/supply writes | Second value normalization redundant even with intermediate writes | Setter identity/events and raw writes outside theorem |
+| error | Returning handler can let caller continue | IO failure plus a returning runtime or port handler | Successful close alone cannot certify no prior lost bytes | Sticky error or independent byte validation needs concrete adapter |
+| continuation | Retained roots and multiple resumes | Real capture plus stable entry/output operation identity | Capture does not become consumed after first return | Detachment source proof and byte cursor refinement OPEN |
+| registration | Close or version every callback producer | Formatter port handlers timeout dynamic denv and GC job effects remain admitted throughout output window | Pinned data alone is insufficient for elision | Current source has no unified callback-policy receipt; model profile is conditional |
+| scope | Session and environment-qualified identity | Nested compilation shares the same compiler bindings; distinct VM isolation separately qualified | Same symbol does not prove same resource or output operation | Per-VM/global layout and host binary provenance OPEN |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| first | Up to P first demand writes | Callback effect audit plus plan/root ownership | No observer and matching fault semantics; P=455 is prior artifact count, not timing |
+| second | Up to P second normalizations | Writer-class/canonicality and identity qualification | Allows named writers instead of a blanket no-writer condition |
+| both | Up to 2P late mutation-capable uses | Shared immutable plan, owned buffers, capture custody and validation | Lookup/validation may move rather than disappear |
+| hooked | No guaranteed first-write saving | Preserve supported callback observations; raw writes may retain second effect | Default file port does not close formatter or dynamic exception capabilities |
+| net | Removed duplicate work D and proven redundant work W | Plan K + ownership S + observer audit H + verification V | Positive only if D+W>K+S+H+V; no native speedup established |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| File opener | Device writer | initial defaults |
+| Device writer | Formatter hook | mutable dispatch |
+| Formatter hook | Capability audit | closure effects |
+| IO fault | Dynamic handler | independent channel |
+| Dynamic handler | Capability audit | return or escape |
+| GC and timeout | Capability audit | conditional callbacks |
+| Capability audit | First-effect decision | observer closure |
+| First-effect decision | Canonical writer closure | same entry |
+| Canonical writer closure | Second-effect decision | preserve value |
+| Second-effect decision | Completion guard | byte and error status |
+| Captured continuation | Completion guard | retained root debt |
+| Completion guard | Retirement receipt | no stale resume |
+| igsc loader | Formatter hook | debug registration |
+| Scalar predicates | Capability audit | selected payload |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| binding_observer_reentry.plainProfile | BindingObserver.plainProfilePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.useOnlyProfile | BindingObserver.useOnlyProfilePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.rawProfile | BindingObserver.rawProfilePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.seal | BindingObserver.sealPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.firstElide | BindingObserver.firstElidePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.firstRetain | BindingObserver.firstRetainPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.enterFormatter | BindingObserver.enterFormatterPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.enterIOHandler | BindingObserver.enterIOHandlerPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.enterTimeout | BindingObserver.enterTimeoutPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.enterGC | BindingObserver.enterGCPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.readObserver | BindingObserver.readObserverPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.namedDemand | BindingObserver.namedDemandPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.namedSupply | BindingObserver.namedSupplyPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.rawWrite | BindingObserver.rawWritePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.leaveHook | BindingObserver.leaveHookPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.secondReadonly | BindingObserver.secondReadonlyPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.secondUnobserved | BindingObserver.secondUnobservedPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.secondNormalize | BindingObserver.secondNormalizePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.ioFailure | BindingObserver.ioFailurePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.compilerAbort | BindingObserver.compilerAbortPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.nestedCompilation | BindingObserver.nestedCompilationPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.rejectStale | BindingObserver.rejectStalePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.capture | BindingObserver.capturePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.resumeCaptured | BindingObserver.resumeCapturedPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.certifyNoResume | BindingObserver.certifyNoResumePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.closeOutput | BindingObserver.closeOutputPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.issue | BindingObserver.issuePreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.unknownExit | BindingObserver.unknownExitPreserves | Interpass abstract action; actual producer qualification and source refinement external |
+| binding_observer_reentry.debugScalarPass | BindingObserver.debugScalarPassPreserves | Conditional scalar debug branch; actual Scheme value-to-class reflection external |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| steps | BindingObserver.stepPreserves |
+| reachable | BindingObserver.reachableSafe |
+| error | BindingObserver.errorBlocksReceipt |
+| capture | BindingObserver.captureBlocksReceipt |
+| custody | BindingObserver.unknownKeepsCustody |
+| demand | BindingWriterClosure.demandCanonical |
+| supply | BindingWriterClosure.supplyKeepsCanonical |
+| one-writer | BindingWriterClosure.stepKeepsCanonical |
+| all-writers | BindingWriterClosure.historyKeepsCanonical |
+| second | BindingWriterClosure.secondAfterNamedHistory |
+| first-counterexample | BindingWriterClosure.firstObservable |
+| raw-counterexample | BindingWriterClosure.rawWriterBreaks |
+| identity | BindingWriterClosure.namesDoNotReplaceIdentity |
+
+** Migration
+
+| key | producerAnchor | consumerAnchor | actionName | lemma |
+|---+---+---+---+---|
+| formatter | wr-write | default-writer | binding_observer_reentry.enterFormatter | BindingObserver.enterFormatterPreserves |
+| io-channel | io-error | runtime-handler | binding_observer_reentry.enterIOHandler | BindingObserver.enterIOHandlerPreserves |
+| timeout | timeout | timeout-dispatch | binding_observer_reentry.enterTimeout | BindingObserver.enterTimeoutPreserves |
+| gc | gc-register | gc-dispatch | binding_observer_reentry.enterGC | BindingObserver.enterGCPreserves |
+| canonical | supply | glo | binding_observer_reentry.secondReadonly | BindingWriterClosure.secondAfterNamedHistory |
+| nested | table-reset | helper | binding_observer_reentry.rejectStale | BindingWriterClosure.namesDoNotReplaceIdentity |
+| abort | compiler-abort | compiler-catch | binding_observer_reentry.compilerAbort | BindingObserver.compilerAbortPreserves |
+| debug-scalar | debug-install | debug-default | binding_observer_reentry.debugScalarPass | BindingObserver.debugScalarPassPreserves |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| formatter | vendor/gambit/lib/_io.scm | ##wr-set!(?![A-Za-z0-9?!-]) | 1 | Exact lexical token footprint including definitions/comments; installed capability closure OPEN |
+| port-ref | vendor/gambit/gsc/_t-c-1.scm | targ-port(?![A-Za-z0-9?!-]) | 13 | Exact lexical token footprint including definitions/comments; installed capability closure OPEN |
+| compiler-error | vendor/gambit/gsc/_utils.scm | throw-to-exception-handler(?![A-Za-z0-9?!-]) | 5 | Exact lexical token footprint including definitions/comments; installed capability closure OPEN |
+| io-raise | vendor/gambit/lib/_io.scm | ##raise-io-exception(?![A-Za-z0-9?!-]) | 5 | Exact lexical token footprint including definitions/comments; installed capability closure OPEN |
+
+** Policy
+
+| key | writerClass | assumptions | firstExpected | secondExpected | scope |
+|---+---+---+---+---+---|
+| current-no-qualified-closure | none |  | false | false | Assumption-only sufficient contract profile; not source or native admission |
+| synthetic-unobserved | none | no-observers;same-entry;writer-closure;fault-equivalence;lifetime-closed | true | false | Assumption-only sufficient contract profile; not source or native admission |
+| synthetic-named | named-only | first-retained;same-entry;writer-closure;fault-equivalence;lifetime-closed;setter-events-unobservable | false | true | Assumption-only sufficient contract profile; not source or native admission |
+| synthetic-raw | raw | first-retained;same-entry;writer-closure;fault-equivalence;lifetime-closed;setter-events-unobservable | false | false | Assumption-only sufficient contract profile; not source or native admission |
+| synthetic-swapped | named-only | first-retained;writer-closure;fault-equivalence;lifetime-closed;setter-events-unobservable | false | false | Assumption-only sufficient contract profile; not source or native admission |
+| synthetic-returned-error | named-only | first-retained;same-entry;writer-closure;lifetime-closed;setter-events-unobservable | false | false | Assumption-only sufficient contract profile; not source or native admission |
+| synthetic-live-capture | named-only | first-retained;same-entry;writer-closure;fault-equivalence;setter-events-unobservable | false | false | Assumption-only sufficient contract profile; not source or native admission |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| BO-history | interleaving | dev/refactoring/modern-c/models/quint/binding_observer_reentry.qnt | 20 interpass histories; named/raw writers error return capture debt and stale context |
+| BO-induction | induction | dev/refactoring/modern-c/models/lean/BindingObserver.lean | All projected steps preserve conditional slice invariant |
+| BO-closure | induction | dev/refactoring/modern-c/models/lean/BindingWriterClosure.lean | Canonicality under all finite histories of named same-entry demand/supply operations |
+| BO-projection | restricted-projection | dev/refactoring/modern-c/models/lean/BindingObserverAst.lean | Actual binding IDs field kinds expressions roster; parser trusted |
+| BO-source | source-refinement | dev/refactoring/modern-c/binding-observer-reentry-design.org | Actual installed callbacks full capability/alias closure poll positions and capture detachment OPEN |
+| BO-exceptions | exception-equivalence | dev/refactoring/modern-c/binding-observer-reentry-design.org | Fault-prefix equality returning handler byte loss and operation replay OPEN |
+| BO-platform | c23-platform-qualification | dev/refactoring/modern-c/language-baseline-design.org | C23 owner/publication/lifetime and actual host artifact qualification OPEN |
+| BO-emission | emitter-fidelity | dev/refactoring/modern-c/binding-observer-reentry-design.org | Complete byte mapping and before/after-interpass composition OPEN |

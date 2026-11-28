@@ -51,7 +51,7 @@ budget. First `table_decode` regression passes:
 | Executable compilation | 13.139 | PASS |
 | Compiled regression, including forced GC | 1.850 | PASS |
 
-Receipt: `evidence/model-results/native-postcopy-decode-host-pass.json`.
+Receipt: `.cache/research/legacy-evidence/evidence/model-results/native-postcopy-decode-host-pass.json`.
 The queue-only control timed out at 20.007 seconds; it has no completed compile
 time, so it cannot support an exact speedup ratio. Interpretation did not get
 faster. Repeated stability, full native suites, threaded bootstrap and Gerbil
@@ -83,7 +83,7 @@ blob is `9522db3af90e5c9a841a1ab80e6896862bce8cc0`, matching cached head
 tables, resizing and self-references omitted by the earlier narrow fixture.
 Interpretation passes in 0.190 seconds; compiled mode passes in 8.711 seconds.
 The fixture is added only to the isolated suite, never the candidate runtime.
-Portable receipt: `evidence/model-results/native-upstream-pr1038-serialization-018.json`.
+Portable receipt: `.cache/research/legacy-evidence/evidence/model-results/native-upstream-pr1038-serialization-018.json`.
 
 None of these receipts establishes complete collector correctness, all upstream
 tests, generated-source parity, full bootstrap, Linux admission or Gerbil gates.
@@ -104,7 +104,7 @@ is an assumption to audit, not permission to remove its assertion. Shared
 output and table-search failures remain unclassified. The last started module
 port test has no terminal result; a timeout alone does not identify its cause.
 Do not repeat the unchanged full campaign or widen its budget to claim green.
-Receipt: `evidence/model-results/native-upstream-all-interpreted-018-deny.json`.
+Receipt: `.cache/research/legacy-evidence/evidence/model-results/native-upstream-all-interpreted-018-deny.json`.
 
 ## Source Bootstrap Not Admitted
 
@@ -116,4 +116,4 @@ unfinished bootstrap, not proof of a compiler deadlock or successful parity.
 The original runtime remains source-stable. `include/stamp.h` changed as well
 as generated `_module.c` and `_std.c`; stamp generation needs auditing before
 any future source admission. No candidate identity was emitted or promoted.
-Receipt: `evidence/model-results/bootstrap-018-deny.json`.
+Receipt: `.cache/research/legacy-evidence/evidence/model-results/bootstrap-018-deny.json`.

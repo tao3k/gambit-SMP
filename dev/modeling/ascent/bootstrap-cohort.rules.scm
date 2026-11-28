@@ -1,0 +1,26 @@
+;; SysML owns component requirements. Native/finite/conditional results keep
+;; distinct methods and scopes; a diagnostic heap setting cannot close BC-EARLY-GC.
+;; This policy reviews evidence joins. It does not authenticate their producer
+;; or grant permission to execute Git or admit a runtime.
+(relation cohortNeedFact (component obligation method artifact digest))
+(relation cohortObservedFact (scenario head manifest profile obligation method artifact digest status evidence evidenceDigest evidenceClass))
+(relation cohortEvidenceFact (path digest evidenceClass))
+(relation cohortScenarioClassFact (scenario evidenceClass))
+(relation cohortCovered (scenario component obligation))
+(relation cohortMissing (scenario component obligation))
+(relation cohortFailed (scenario component obligation))
+(relation cohortComponentReady (scenario component))
+(relation cohortComponentBlocked (scenario component))
+((cohortCovered S C O) <-- (commitBoundCandidate S H _ M P)
+ (cohortNeedFact C O K A AH)
+ (cohortObservedFact S H M P O K A AH (lit "pass") E EH Class)
+ (cohortScenarioClassFact S Class) (cohortEvidenceFact E EH Class))
+((cohortMissing S C O) <-- (commitScenario S) (cohortNeedFact C O _ _ _)
+ (not (cohortCovered S C O)))
+((cohortFailed S C O) <-- (commitBoundCandidate S H _ M P)
+ (cohortNeedFact C O K A AH)
+ (cohortObservedFact S H M P O K A AH (lit "fail") E EH Class)
+ (cohortScenarioClassFact S Class) (cohortEvidenceFact E EH Class))
+((cohortComponentBlocked S C) <-- (cohortMissing S C _))
+((cohortComponentReady S C) <-- (commitScenario S) (cohortNeedFact C _ _ _ _)
+ (not (cohortComponentBlocked S C)))

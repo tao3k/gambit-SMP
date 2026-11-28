@@ -1,0 +1,96 @@
+{
+  "schema": "modern-c-native-test-inputs",
+  "sourceTree": "d07f67b40d7781cadecb19f9d69b81fab4af4877",
+  "baseRevision": "3d42cc5b8604d184a3e4edbac2a09a93ea88c994",
+  "profileSha256": "884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69",
+  "complete": true,
+  "sourceInputs": {
+    "vendor/gambit/tests/smp/scheduler/request-service-cost.scm": "98971f5cc24b81f0f527a82854cc83d8cf20b9ebba67ba7475003ce7f8396473",
+    "vendor/gambit/tests/smp/gc/global-storage.scm": "17654fa1e7541008e33d0169452795c11b655975d9e490771f3525ab959f2c1f"
+  },
+  "checks": [
+    {
+      "stage": "compile-primitive-override-roots",
+      "accepted": true,
+      "seconds": 3.774893207999412,
+      "exit": 0,
+      "timeout": false,
+      "markers": []
+    },
+    {
+      "stage": "primitive-override-roots-p1",
+      "accepted": true,
+      "seconds": 1.120604291005293,
+      "exit": 0,
+      "timeout": false,
+      "markers": [
+        "global-storage-pass"
+      ]
+    },
+    {
+      "stage": "primitive-override-roots-p2",
+      "accepted": true,
+      "seconds": 0.5683554999995977,
+      "exit": 0,
+      "timeout": false,
+      "markers": [
+        "global-storage-pass"
+      ]
+    },
+    {
+      "stage": "baseline-input-p1",
+      "accepted": true,
+      "seconds": 0.6727399579976918,
+      "exit": 0,
+      "timeout": false,
+      "markers": [
+        "REQUEST-SERVICE-COMPOSED-PASS count=4096 resumes=8192 explicit-gc=16 mailbox-identity drained",
+        "(result . 4096)"
+      ]
+    },
+    {
+      "stage": "baseline-input-p2",
+      "accepted": true,
+      "seconds": 0.3024965840013465,
+      "exit": 0,
+      "timeout": false,
+      "markers": [
+        "REQUEST-SERVICE-COMPOSED-PASS count=4096 resumes=8192 explicit-gc=16 mailbox-identity drained",
+        "(result . 4096)"
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "role": "baseline",
+      "phase": "scheme-to-c",
+      "headerSha256": "53b1f020877e3c1510eacddb994f9e96e7a06b80d62d8d7207f3984406af8e9a",
+      "compilerSha256": "53516d6dac2871196f8d6f908afff1e4ab06c1bb9fb6149cdd9424f88c150019",
+      "accepted": true,
+      "seconds": 1.436944790999405
+    },
+    {
+      "role": "baseline",
+      "phase": "c-to-dynamic-module",
+      "headerSha256": "53b1f020877e3c1510eacddb994f9e96e7a06b80d62d8d7207f3984406af8e9a",
+      "compilerSha256": "53516d6dac2871196f8d6f908afff1e4ab06c1bb9fb6149cdd9424f88c150019",
+      "accepted": true,
+      "seconds": 2.7490586250060005
+    }
+  ],
+  "dependencyScope": {
+    "mode": "dynamic-module",
+    "driverSha256": "6a11516737c23b9df7b2fe06d583d9353b91020f6c99462ba498ec922069afe6",
+    "buildDynamicTemplate": "BUILD_DYN=\"\\${C_COMPILER} \\${FLAGS_OPT} \\${FLAGS_DYN} \\${DEFS_DYN} -I\\\"\\${GAMBITDIR_INCLUDE}\\\" -o \\${BUILD_DYN_OUTPUT_FILENAME_PARAM} \\${BUILD_DYN_CC_OPTIONS_PARAM} \\${BUILD_DYN_LD_OPTIONS_PRELUDE_PARAM} \\${BUILD_DYN_INPUT_FILENAMES_PARAM} \\${BUILD_DYN_LD_OPTIONS_PARAM}\"",
+    "baselineHeaderSha256": "53b1f020877e3c1510eacddb994f9e96e7a06b80d62d8d7207f3984406af8e9a",
+    "staticArchiveQualified": false,
+    "staticArchiveScope": "Shared candidate archive is not admitted as baseline static-link evidence; BUILD_DYN has no runtime archive operand."
+  },
+  "newEnvironmentVariables": false,
+  "rawResultSha256": "45b248b1e6165e3d6cb581c83c280cee61c427b7e0ca56b47d110e1739555ab9",
+  "scope": "Independent exact test inputs qualified against the frozen runtime; these are not additions to its canonical compiler input tree. Dynamic baseline evidence does not qualify the shared candidate static archive.",
+  "sourceText": {
+    "vendor/gambit/tests/smp/scheduler/request-service-cost.scm": ";;; Paired workload: identical file for old and new embedded GSI.\n;;; Composed mode uses the already-present processor-placement helper.\n;;; No imports or runtime headers; -f suppresses user initialization.\n(define count 4096)\n(define composed?\n  (member \"--composed\" (cdr (command-line))))\n(define caller (current-thread))\n(define caller-processor (processor-id (current-processor)))\n(define target-start-processor #f)\n(define callbacks 0)\n(define resumed 0)\n(define crossed 0)\n(define latencies (make-f64vector count 0.0))\n(define (request-value i)\n  (if composed?\n      (let ((resume #f))\n        (if (not (eq? (current-thread) target)) (error \"request logical target\" i))\n        (set! callbacks (+ callbacks 1))\n        (if (not (= caller-processor (processor-id (current-processor))))\n            (set! crossed (+ crossed 1)))\n        (let ((turn (call-with-current-continuation\n                     (lambda (k) (set! resume k) 0))))\n          (if (< turn 2)\n              (begin (set! resumed (+ resumed 1)) (resume (+ turn 1)))\n              (let ((payload (vector i (cons i i))))\n                (thread-send caller payload)\n                payload))))\n      i))\n(define gate (make-mutex))\n(define changed (make-condition-variable))\n(define ready #f)\n(define finished #f)\n(define target\n  ((if (and composed? (member \"--place-target\" (cdr (command-line)))\n            (> (##current-vm-processor-count) 1))\n       (lambda (thread) (##thread-start-on! 1 thread))\n       thread-start!)\n   (make-thread\n    (lambda ()\n      (set! target-start-processor (processor-id (current-processor)))\n      (mutex-lock! gate)\n      (set! ready #t)\n      (condition-variable-signal! changed)\n      (let wait ()\n        (if (not finished)\n            (begin (mutex-unlock! gate changed 5) (mutex-lock! gate) (wait))))\n      (mutex-unlock! gate)))))\n(mutex-lock! gate)\n(let wait ()\n  (if (not ready)\n      (begin (mutex-unlock! gate changed 5) (mutex-lock! gate) (wait))))\n(mutex-unlock! gate)\n(write\n (cons 'REQUEST-SERVICE-COST\n       (##exec-stats\n        (lambda ()\n          (let loop ((i 0))\n            (if (= i count)\n                i\n                (let* ((start (time->seconds (current-time)))\n                       (n (thread-interrupt! target (lambda () (request-value i)))))\n                  (f64vector-set! latencies i (- (time->seconds (current-time)) start))\n                  (if composed?\n                      (begin\n                        (if (= (modulo i 256) 0) (##gc))\n                        (let ((message (thread-receive)))\n                          (if (not (and (eq? message n) (= (vector-ref n 0) i)\n                                        (= (car (vector-ref n 1)) i)))\n                              (error \"composed request/mailbox result\" i n))))\n                      (if (not (= i n)) (error \"request cost result\" i n)))\n                  (loop (+ i 1)))))))))\n(newline)\n(mutex-lock! gate)\n(set! finished #t)\n(condition-variable-signal! changed)\n(mutex-unlock! gate)\n(if (eq? (thread-join! target 5 'timeout) 'timeout) (error \"cost target not drained\"))\n\n(if composed?\n    (begin\n      ;; Logical target identity is the contract. Scheduler migration may move\n      ;; a parked target to the caller's processor; physical affinity is not.\n      (if (not (and (= callbacks count) (= resumed (* 2 count))\n                    (<= 0 crossed count)))\n          (error \"composed delivery/placement counts\" callbacks resumed crossed))\n      (write (list 'REQUEST-SERVICE-TOPOLOGY caller-processor target-start-processor crossed callbacks resumed))\n      (newline)\n      (write (list 'REQUEST-SERVICE-LATENCIES latencies))\n      (newline)\n      (display \"REQUEST-SERVICE-COMPOSED-PASS count=4096 resumes=8192 explicit-gc=16 mailbox-identity drained\\n\")))\n",
+    "vendor/gambit/tests/smp/gc/global-storage.scm": ";;; Stable identity, VM storage growth and moving-root coverage.\n(declare (standard-bindings) (extended-bindings))\n(##namespace (\"gambit#tests#smp#gc#global_storage#\"\n  count roots check i symbol value pages identity-count page-count))\n(define count 21000) ; Cross the historical 20000 identity ceiling unchanged.\n(define roots (make-vector count))\n(define (check value) (if (not value) (error \"global storage contract failed\")))\n(define identity-count\n  (c-lambda () unsigned-long \"___result=___GSTATE->mem.glo_list.count;\"))\n(define page-count\n  (c-lambda () unsigned-long\n    #<<c-end\n#ifdef ___SINGLE_VM\n___result=0;\n#else\n___result=___VMSTATE_FROM_PSTATE(___PSTATE)->glos->count;\n#endif\nc-end\n))\n(let loop ((i 0))\n  (if (< i count)\n      (let ((symbol (string->symbol (string-append \"global-storage/\" (number->string i)))))\n        (##make-global-var symbol)\n        (vector-set! roots i symbol)\n        (##global-var-set! symbol (vector i (cons i 'root)))\n        (if (= (modulo i 101) 0)\n            (##global-var-primitive-set! symbol (vector 'override i)))\n        (if (= (modulo i 997) 0) (##gc))\n        (loop (+ i 1)))))\n(##gc)\n(let loop ((i 0))\n  (if (< i count)\n      (let* ((symbol (vector-ref roots i)) (value (##global-var-ref symbol)))\n        (check (= (vector-ref value 0) i))\n        (check (= (car (vector-ref value 1)) i))\n        (if (= (modulo i 101) 0)\n            (let ((override (##global-var-primitive-ref symbol)))\n              (check (eq? (vector-ref override 0) 'override))\n              (check (= (vector-ref override 1) i))))\n        (loop (+ i 1)))))\n(check (> (identity-count) 20000))\n(write (list 'global-storage-pass 'identities (identity-count) 'scan-pages (page-count)))\n(newline)\n"
+  }
+}

@@ -27,7 +27,7 @@ with 25 fields and 22 independent choices. This is the existing trusted
 Cartesian-choice conformance rule, not a solver proof of the generator auditor.
 
 Portable receipt, full parse IR, model snapshots and logs are preserved in
-[`gc-source-wait-new-action-induction`](../evidence/model-results/gc-source-wait-new-action-induction/archive.json).
+`gc-source-wait-new-action-induction` (local execution locator: `../.cache/research/legacy-evidence/evidence/model-results/gc-source-wait-new-action-induction/archive.json`; unavailable in a clean checkout).
 Reflection binds every archived artifact by digest.
 
 ## Remaining Boundary

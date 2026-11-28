@@ -1,0 +1,513 @@
+diff --git a/gsc/_front.scm b/gsc/_front.scm
+index 101adfb..645cb34 100644
+--- a/gsc/_front.scm
++++ b/gsc/_front.scm
+@@ -42,6 +42,8 @@
+ (set! cf
+   (lambda (input opts output-filename-gen)
+ 
++    (if compiler-trace?
++        (compiler-trace-write "cf" "enter" 0 0 "c#cf"))
+     (with-exception-handling
+      (lambda ()
+        (let* ((t
+@@ -213,12 +215,17 @@
+               output-filename
+               (string-append root (caar target.file-extensions))))
+          (v1
+-          (if (source? input)
+-              (vector #f (sourcify-deep input input))
+-              (read-source input #f #t)))
++          (compiler-trace-phase
++           "read-source"
++           (lambda ()
++             (if (source? input)
++                 (vector #f (sourcify-deep input input))
++                 (read-source input #f #t)))))
+          (script-line (vector-ref v1 0))
+          (expr (vector-ref v1 1))
+-         (program (expand-source (wrap-program expr)))
++         (program (compiler-trace-phase
++                   "wrap-program"
++                   (lambda () (expand-source (wrap-program expr)))))
+          (module-ref
+           (cond ((assq 'module-ref opts) => cadr)
+                 (else
+@@ -232,11 +239,14 @@
+           (if script-line
+               (**compilation-meta-info-add! 'script-line script-line))
+           (**compilation-module-ref-set! module-ref)
+-          (parse-program
+-           program
+-           (make-global-environment)
+-           module-ref
+-           vector))))
++          (compiler-trace-phase
++           "parse"
++           (lambda ()
++             (parse-program
++              program
++              (make-global-environment)
++              module-ref
++              vector))))))
+      (lambda (v2 comp-ctx)
+ 
+        (if (null? (**macro-compilation-ctx-supply-modules comp-ctx))
+@@ -247,7 +257,11 @@
+        (let* ((lst (vector-ref v2 0))
+               (env (vector-ref v2 1))
+               (c-intf (vector-ref v2 2))
+-              (parsed-program (normalize-program lst)))
++              (parsed-program
++               (compiler-trace-phase "normalize" (lambda () (normalize-program lst)))))
++
++         (if compiler-trace?
++             (compiler-trace-write "undefined-references" "enter" 0 0 "frontend"))
+ 
+          (let* ((externals (env-externals-ref env))
+                 (name->ref-alist (map (lambda (var) (cons
+@@ -307,6 +321,8 @@
+                  (cdr ns-and-names)))
+               (table->list namespace-to-undefined-names))))
+ 
++         (if compiler-trace?
++             (compiler-trace-write "undefined-references" "return" 0 0 "frontend"))
+          (inner parsed-program
+                 env
+                 root
+@@ -395,11 +411,14 @@
+                       (demand-modules
+                        (**macro-compilation-ctx-demand-modules comp-ctx))
+                       (module-procs
+-                       (compile-parsed-program (car (last-pair supply-modules))
+-                                               parsed-program
+-                                               env
+-                                               c-intf
+-                                               info-port))
++                       (compiler-trace-phase
++                        "generate-gvm"
++                        (lambda ()
++                          (compile-parsed-program (car (last-pair supply-modules))
++                                                  parsed-program
++                                                  env
++                                                  c-intf
++                                                  info-port))))
+                       (module-descr
+                        ;; TODO: support type descriptor
+                        (vector (list->vect supply-modules)
+@@ -912,6 +931,8 @@
+                               (make-reason-tail)
+                               (make-obj void-object))))))
+ 
++      (if compiler-trace?
++          (compiler-trace-write "gvm-worklist" "enter" 0 0 "proc-queue"))
+       (let loop3 ()
+         (if (pair? proc-queue)
+             (let ((proc-info (car proc-queue)))
+@@ -931,6 +952,8 @@
+             (newline info-port)
+             (newline info-port)))
+ 
++      (if compiler-trace?
++          (compiler-trace-write "gvm-worklist" "return" 0 0 "proc-queue"))
+       (proc-obj-code-set! main-proc *bbs*)
+ 
+       (let ((procs-to-purify
+@@ -951,7 +974,8 @@
+ 
+         (clear-context)
+ 
+-        (purify-procs procs-to-purify)))))
++        (compiler-trace-phase "gvm-purify"
++          (lambda () (purify-procs procs-to-purify)))))))
+ 
+ (define *bb* '())
+ (define *bbs* '())
+diff --git a/gsc/_gvm.scm b/gsc/_gvm.scm
+index dea03de..8f53630 100644
+--- a/gsc/_gvm.scm
++++ b/gsc/_gvm.scm
+@@ -722,13 +722,19 @@
+ ;; 'Purification' of basic block sets:
+ ;; ----------------------------------
+ 
++(define compiler-trace-gvm-proc #f)
++(define compiler-trace-gvm-revisits 0)
++
+ (define (purify-procs procs)
+ 
+   (for-each
+    (lambda (proc)
+      (let ((bbs (proc-obj-code proc)))
+        (if (bbs? bbs)
+-           (proc-obj-code-set! proc (bbs-purify bbs)))))
++           (begin
++             (if compiler-trace?
++                 (set! compiler-trace-gvm-proc (proc-obj-name proc)))
++             (proc-obj-code-set! proc (bbs-purify bbs))))))
+    procs)
+ 
+   procs)
+@@ -742,13 +748,16 @@
+ ;; is always the entry point.
+ 
+ (define (bbs-purify bbs)
+-  (let loop ((bbs1 bbs))
++  (let loop ((bbs1 bbs) (round 1))
++    (if (and compiler-trace? (compiler-trace-sample? round) (> round 1))
++        (compiler-trace-sample "gvm-purify" "purify-round" round
++                               (bbs-next-lbl-num bbs1) compiler-trace-gvm-proc))
+     (let* ((bbs2 (bbs-remove-jump-cascades bbs1))
+            (bbs3 (bbs-remove-dead-code bbs2))
+            (bbs4 (bbs-remove-common-code bbs3))
+            (bbs5 (bbs-remove-useless-jumps bbs4)))
+       (if (not (eq? bbs3 bbs5)) ;; iterate until code does not change
+-          (loop bbs5)
++          (loop bbs5 (+ round 1))
+           (bbs-order bbs5)))))
+ 
+ ;;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+@@ -1501,7 +1510,7 @@
+        (bb-lbl-num bb)
+        bb)
+ 
+-      (let loop ((bb bb))
++      (let loop ((bb bb) (merges 0) (seen #f))
+         (let ((branch (bb-branch-instr bb)))
+ 
+           ;; is it a non-polling 'jump' to a label without a return address?
+@@ -1532,7 +1541,20 @@
+                        new-bb
+                        (bb-branch-instr dest-bb))
+                       (set! changed? #t)
+-                      (loop new-bb))))))))
++                      (let* ((label (bb-lbl-num dest-bb))
++                             (seen (and compiler-trace?
++                                        (< compiler-trace-gvm-revisits 8)
++                                        (or seen (make-table test: eqv?))))
++                             (revisit? (and seen (table-ref seen label #f))))
++                        (if revisit?
++                            (begin
++                              (set! compiler-trace-gvm-revisits
++                                    (+ compiler-trace-gvm-revisits 1))
++                              (compiler-trace-write "gvm-purify" "gvm-label-revisit"
++                                                    label (+ merges 1)
++                                                    (list compiler-trace-gvm-proc (bb-lbl-num bb)))))
++                        (if seen (table-set! seen label #t))
++                        (loop new-bb (+ merges 1) seen)))))))))
+ 
+     (bbs-next-lbl-num-set! new-bbs (bbs-next-lbl-num bbs))
+     (bbs-entry-lbl-num-set! new-bbs (bbs-entry-lbl-num bbs))
+diff --git a/gsc/_ptree1.scm b/gsc/_ptree1.scm
+index 38b089c..4f637b4 100644
+--- a/gsc/_ptree1.scm
++++ b/gsc/_ptree1.scm
+@@ -663,14 +663,14 @@
+ 
+         (cond ((macro-expr? source env)
+                (parse-exprs
+-                 (cons (macro-expand source env) (cdr exprs))
++                 (cons (macro-expand-queued source env 'parse-exprs) (cdr exprs))
+                  env
+                  lst
+                  cont))
+ 
+               ((**begin-cmd-or-expr? source env)
+                (parse-exprs
+-                 (append (begin-body source) (cdr exprs))
++                 (compiler-trace-splice-begin source exprs append)
+                  env
+                  lst
+                  cont))
+@@ -1001,15 +1001,57 @@
+         (else
+          (pt-syntax-error source "Ill-formed expression"))))
+ 
++(define compiler-trace-macro-calls 0)
++(define compiler-trace-requeue-key #f)
++(define compiler-trace-requeue-count 0)
++
++(define (macro-expand-queued source env queue)
++  (let ((expanded (macro-expand source env)))
++    (if compiler-trace?
++        (let* ((head (source-code (car (source-code source))))
++               (code (source-code expanded))
++               (requeued? (and (pair? code)
++                               (eq? head (source-code (car code)))
++                               (eq? (source-locat source) (source-locat expanded)))))
++          (if requeued?
++              (let ((key (compiler-trace-site (cons queue head) source)))
++                (set! compiler-trace-requeue-count
++                      (if (equal? key compiler-trace-requeue-key)
++                          (+ compiler-trace-requeue-count 1)
++                          1))
++                (set! compiler-trace-requeue-key key)
++                (if (and (> compiler-trace-requeue-count 1)
++                         (compiler-trace-sample? compiler-trace-requeue-count))
++                    (compiler-trace-sample "parse" "macro-requeue"
++                                           compiler-trace-requeue-count
++                                           compiler-trace-macro-calls
++                                           key)))
++              (set! compiler-trace-requeue-count 0))))
++    expanded))
++
+ (define (macro-expand source env)
+-  (let ((code (source-code source)))
+-    (let* ((descr (env-lookup-macro env (source-code (car code))))
+-           (expander (**macro-descr-expander descr)))
+-      (sourcify-deep
+-       (if (**macro-descr-def-syntax? descr)
+-           (expander source)
+-           (apply expander (cdr (source->expression source))))
+-       source))))
++  (let* ((code (source-code source))
++         (head (source-code (car code)))
++         (count (if compiler-trace? (+ compiler-trace-macro-calls 1) 0))
++         (site (and (compiler-trace-sample? count) (compiler-trace-site head source))))
++    (if compiler-trace? (set! compiler-trace-macro-calls count))
++    (if site
++        (compiler-trace-sample "parse" "macro-enter" count 0 site))
++    (if (and compiler-trace? (> count 512))
++        (compiler-trace-dense-write
++         "parse" "macro-enter" count 0
++         (or site (compiler-trace-site head source))))
++    (let* ((descr (env-lookup-macro env head))
++           (expander (**macro-descr-expander descr))
++           (result
++            (sourcify-deep
++             (if (**macro-descr-def-syntax? descr)
++                 (expander source)
++                 (apply expander (cdr (source->expression source))))
++             source)))
++      (let ((return-site
++             (and (or site (> compiler-trace-dense-left 0))
++                  (let ((code (source-code result)))
++                    (let ((returned (and (pair? code) (source-code (car code)))))
++                      (cons (and (symbol? returned) returned)
++                            (or site (compiler-trace-site head source))))))))
++        (if site
++            (compiler-trace-sample "parse" "macro-return" count 0 return-site))
++        (if (> compiler-trace-dense-left 0)
++            (compiler-trace-dense-write "parse" "macro-return" count 0 return-site))
++        (if (and compiler-trace? (= count 512))
++            (set! compiler-trace-dense-left 24)))
++      result)))
+ 
+ (define (pt-self-eval source env use)
+   (let ((val (source->expression source)))
+@@ -1501,14 +1543,14 @@
+           ((macro-expr? (car exprs) env)
+            (extract-defs defs
+                          non-defs
+-                         (cons (macro-expand (car exprs) env)
++                         (cons (macro-expand-queued (car exprs) env 'extract-defs)
+                                (cdr exprs))
+                          env
+                          cont))
+           ((**begin-cmd-or-expr? (car exprs) env)
+            (extract-defs defs
+                          non-defs
+-                         (append (begin-body (car exprs))
+-                                 (cdr exprs))
++                         (compiler-trace-splice-begin (car exprs) exprs append)
+                          env
+                          cont))
+diff --git a/gsc/_ptree2.scm b/gsc/_ptree2.scm
+index f639778..b94b630 100644
+--- a/gsc/_ptree2.scm
++++ b/gsc/_ptree2.scm
+@@ -27,12 +27,12 @@
+ 
+ (define (normalize-program ptrees)
+   (let* ((lst ptrees)
+-         (lst (expand-primitive-calls lst))
+-         (lst (assignment-convert lst))
+-         (lst (remove-dead-definitions lst))
+-         (lst (beta-reduce lst))
+-         (lst (remove-dead-definitions lst))
+-         (lst (lambda-lift lst)))
++         (lst (compiler-trace-phase "expand-primitive-calls" (lambda () (expand-primitive-calls lst))))
++         (lst (compiler-trace-phase "assignment-convert" (lambda () (assignment-convert lst))))
++         (lst (compiler-trace-phase "dead-definitions-before" (lambda () (remove-dead-definitions lst))))
++         (lst (compiler-trace-phase "beta-reduce" (lambda () (beta-reduce lst))))
++         (lst (compiler-trace-phase "dead-definitions-after" (lambda () (remove-dead-definitions lst))))
++         (lst (compiler-trace-phase "lambda-lift" (lambda () (lambda-lift lst)))))
+ 
+     (if (null? lst) ;; must return at least one ptree
+         (list (new-cst (expression->source void-object #f) (node-env (car ptrees))
+@@ -69,12 +69,24 @@
+ (define (clone-ptree ptree)
+   (cp ptree '()))
+ 
++(define compiler-trace-inline-site #f)
++(define compiler-trace-inline-nodes 0)
++(define compiler-trace-current-clone-nodes 0)
++
+ (define (cp ptree substs)
+ 
+   (define (rename-var var)
+     (let ((x (assq var substs)))
+       (if x (cdr x) var)))
+ 
++  (if compiler-trace-inline-site
++      (let ((count (+ compiler-trace-inline-nodes 1)))
++        (set! compiler-trace-inline-nodes count)
++        (set! compiler-trace-current-clone-nodes (+ compiler-trace-current-clone-nodes 1))
++        (if (compiler-trace-sample? count)
++            (compiler-trace-sample "beta-reduce" "inline-clone" count compiler-trace-current-clone-nodes
++                                   compiler-trace-inline-site))))
++
+   (cond ((cst? ptree)
+          (new-cst (node-source ptree) (node-env ptree)
+            (cst-val ptree)))
+@@ -1390,7 +1402,15 @@
+               (val (var-to-val var substs)))
+ 
+          (define (inline-procedure new-expansion-limit)
++           (if compiler-trace?
++               (begin
++                 (set! compiler-trace-current-clone-nodes 0)
++                 (set! compiler-trace-inline-site
++                       (compiler-trace-site
++                        (cons (var-name var) (and new-expansion-limit (car new-expansion-limit)))
++                        (node-source ptree)))))
+            (let ((cloned-oper (clone-ptree val)))
++             (set! compiler-trace-inline-site #f)
+              (delete-ptree br-oper)
+              (br-app ptree cloned-oper args substs reason
+                      new-expansion-limit)))
+diff --git a/gsc/_t-c-1.scm b/gsc/_t-c-1.scm
+index d1e7a56..014b429 100644
+--- a/gsc/_t-c-1.scm
++++ b/gsc/_t-c-1.scm
+@@ -335,6 +335,8 @@
+ ;; Dumping of a compilation module
+ 
+ (define (targ-dump procs output c-intf module-descr linker-name)
++  (if compiler-trace?
++      (compiler-trace-write "c-dump-queue" "enter" 0 0 "targ-dump"))
+   (let ((c-decls-queue (list->queue (c-intf-decls c-intf)))
+         (c-procs (c-intf-procs c-intf))
+         (c-inits (c-intf-inits c-intf))
+@@ -356,6 +358,11 @@
+     (if (not targ-tree-shake?)
+         (for-each (lambda (proc) (targ-use-prc proc #t)) (cdr procs)))
+ 
++    (if compiler-trace?
++        (begin
++          (compiler-trace-write "c-dump-queue" "return" 0 0 "targ-dump")
++          (compiler-trace-write "c-scan" "enter" 0 0 "targ-scan-procedure")))
++
+     ; scan and convert each procedure
+ 
+     (if targ-info-port
+@@ -374,6 +381,8 @@
+     (if targ-info-port
+       (newline targ-info-port))
+ 
++    (if compiler-trace?
++        (compiler-trace-write "c-scan" "return" 0 0 "targ-scan-procedure"))
+     (targ-use-obj module-descr)
+ 
+     (targ-heap-dump
+diff --git a/gsc/_utils.scm b/gsc/_utils.scm
+index ee4283f..0e1dedb 100644
+--- a/gsc/_utils.scm
++++ b/gsc/_utils.scm
+@@ -11,6 +11,49 @@
+ (include-adt "_ptreeadt.scm")
+ (include-adt "_sourceadt.scm")
+ 
++;; Hosted one-module diagnostics. Keep stdout bounded even if the
++;; instrumented compiler never returns. No probe changes a rewrite decision.
++(define compiler-trace? (equal? (getenv "GAMBIT_COMPILER_TRACE" #f) "1"))
++(define compiler-trace-samples 0)
++(define compiler-trace-dense-left 0)
++
++(define (compiler-trace-sample? count)
++  (and (< compiler-trace-samples 128)
++       (> count 0)
++       (= (bitwise-and count (- count 1)) 0)))
++
++(define (compiler-trace-write phase kind first second site)
++  (display "GAMBIT-COMPILER-TRACE\tv1\t")
++  (display phase)
++  (display #\tab)
++  (display kind)
++  (display #\tab)
++  (display first)
++  (display #\tab)
++  (display second)
++  (display #\tab)
++  (write site)
++  (newline)
++  (force-output))
++
++(define (compiler-trace-sample phase kind first second site)
++  (if (< compiler-trace-samples 128)
++      (begin
++        (set! compiler-trace-samples (+ compiler-trace-samples 1))
++        (compiler-trace-write phase kind first second site))))
++
++(define (compiler-trace-phase phase thunk)
++  (if compiler-trace?
++      (begin
++        (compiler-trace-write phase "enter" 0 0 phase)
++        (let ((value (thunk)))
++          (compiler-trace-write phase "return" 0 0 phase)
++          value))
++      (thunk)))
++
++(define (compiler-trace-site name source)
++  (let ((location (locat-filename-and-line (source-locat source))))
++    (list name (path-strip-directory (car location)) (cdr location))))
++
++;; After the sampled 512th expansion returns, record 24 consecutive events.
++;; The next ordinary power-of-two macro sample is 1024.
+++(define (compiler-trace-span items limit)
++  (let loop ((items items) (n 0))
++    (if (or (not (pair? items)) (>= n limit))
++        n
++        (loop (cdr items) (+ n 1)))))
++
+++(define (compiler-trace-form-site source)
++  (if (source? source)
++      (let ((code (source-code source)))
++        (compiler-trace-site
++         (cond ((and (pair? code) (source? (car code))) (source-code (car code)))
++               ((pair? code) (car code))
++               (else 'atom))
++         source))
++      '(unsourced "?" 0)))
++
+++(define (compiler-trace-dense-write phase kind first second site)
++  (if (> compiler-trace-dense-left 0)
++      (begin
++        (set! compiler-trace-dense-left (- compiler-trace-dense-left 1))
++        (compiler-trace-write phase kind first second site)
++        (if (= compiler-trace-dense-left 0)
++            (compiler-trace-write phase "dense-end" compiler-trace-macro-calls 24 site)))))
++
+++(define (compiler-trace-splice-begin source exprs combine)
++  (let ((body (begin-body source))
++        (rest (cdr exprs)))
++    (if (> compiler-trace-dense-left 0)
++        (compiler-trace-dense-write
++         "parse" "begin-before"
++         (compiler-trace-span body 4096)
++         (compiler-trace-span rest 4096)
++         (compiler-trace-form-site source)))
++    (let ((queued (combine body rest)))
++      (if (> compiler-trace-dense-left 0)
++          (compiler-trace-dense-write
++           "parse" "begin-after"
++           (compiler-trace-span queued 4096)
++           compiler-trace-macro-calls
++           (if (pair? queued)
++               (compiler-trace-form-site (car queued))
++               '(empty "?" 0))))
++      queued)))
++
+ (define (append-lists lst)
+ 
+   (define (append1 lst)

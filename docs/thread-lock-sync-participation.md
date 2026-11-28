@@ -53,7 +53,7 @@ Use the pinned `vendor/gambit` revision and cumulative patch from
 `evidence/fixtures/thread-lock-sync-participation/source.lock.json`. The eighteen
 locked inputs reconstruct independently; execution caches are not authority.
 Portable observations and exact candidate identity are under
-`evidence/source-results/fixtures/thread-lock-sync-participation/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-lock-sync-participation/`.
 
 The next candidate changes only the SMP processor-lock macro's contended
 path, preserving its inline fast path. Remaining mutex/condvar/timeout/VM lock

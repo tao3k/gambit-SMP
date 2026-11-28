@@ -54,7 +54,7 @@ not a claim that the current source has that added lock.
 The release-before-MISC variant completes **17 distinct / 23 generated states,
 zero queued**, with safety and progress checked in **23.218 seconds**. The
 negative control took **19.616 seconds**. Receipt and trace are under
-`evidence/model-results/continuation-scan-lock-order/`. `runtimeAdmitted` is false.
+`.cache/research/legacy-evidence/evidence/model-results/continuation-scan-lock-order/`. `runtimeAdmitted` is false.
 
 Assumptions: an eligible chunk exists; both actors run in one GC phase; finite
 copy/scan work; correct lock exclusion/visibility; weak fairness. Excluded:

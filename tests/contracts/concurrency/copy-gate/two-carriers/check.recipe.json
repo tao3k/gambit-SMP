@@ -1,0 +1,176 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "genmc-concurrency-qualification",
+  "scope": "GenMC adapter and actual copy-gate source cut only. No Grok/core, GSI execution or native acceptance. Original 295/300 and 5/12 unchanged.",
+  "budgetSeconds": 140,
+  "inputs": [
+    "tests/contracts/concurrency/copy-gate/two-carriers/check.recipe.json",
+    "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+    "evidence/dsl/c-bounded-contract.ss",
+    "tests/contracts/concurrency/copy-gate/two-carriers/harness.c",
+    "tests/contracts/concurrency/tool-qualification/relaxed-publication/harness.c",
+    "vendor/gambit/lib/collector.h",
+    "vendor/gambit/include/_gambit/activity_log.h.in",
+    "tests/contracts/concurrency/tool-qualification/plain-race/harness.c"
+  ],
+  "steps": [
+    {
+      "id": "copy-gate",
+      "capability": "c.genmc",
+      "dependsOn": [],
+      "budgetSeconds": 35,
+      "arguments": {
+        "function": "main",
+        "interface": "ConcurrencyPublication",
+        "scope": "Finite source-level safety exploration only; not source/image refinement or native Family A admission.",
+        "assumptions": [
+          "LP64 AArch64 LLVM target; explicitly selected model pthread and C headers.",
+          "Two finite, data-deterministic threads; default GenMC spin-assume treatment and safety checking, not an unbounded liveness proof."
+        ],
+        "memoryModel": "rc11",
+        "target": "aarch64-unknown-linux-gnu",
+        "exploration": {
+          "mode": "verify"
+        },
+        "contract": "concurrency/copy-gate",
+        "branch": "two-carriers",
+        "harness": "tests/contracts/concurrency/copy-gate/two-carriers/harness.c",
+        "sources": [
+          "tests/contracts/concurrency/copy-gate/two-carriers/harness.c",
+          "vendor/gambit/lib/collector.h",
+          "vendor/gambit/include/_gambit/activity_log.h.in"
+        ],
+        "assertions": [
+          "counter == 2"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "copy-gate.inc",
+            "begin": "static inline void ___gc_copy_acquire",
+            "end": "static inline int ___gc_arena_reserve"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/activity_log.h.in",
+            "target": "sync-builtins.inc",
+            "begin": "#ifdef ___USE_sync_builtins\n",
+            "end": "#ifdef ___USE_WIN32_sync"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/activity_log.h.in",
+            "target": "relax.inc",
+            "begin": "#ifdef ___CPU_x86\n",
+            "end": "/* Ordered word service."
+          }
+        ]
+      }
+    },
+    {
+      "id": "relaxed-control",
+      "capability": "c.genmc",
+      "dependsOn": [],
+      "budgetSeconds": 35,
+      "arguments": {
+        "function": "main",
+        "interface": "ConcurrencyPublication",
+        "scope": "Deliberate relaxed-publication qualification control, not a Gambit production defect.",
+        "assumptions": [
+          "LP64 AArch64 LLVM target; explicitly selected model pthread and C headers.",
+          "Two finite, data-deterministic threads; default GenMC spin-assume treatment and safety checking, not an unbounded liveness proof."
+        ],
+        "memoryModel": "rc11",
+        "target": "aarch64-unknown-linux-gnu",
+        "exploration": {
+          "mode": "verify"
+        },
+        "contract": "concurrency/tool-qualification",
+        "branch": "relaxed-publication",
+        "harness": "tests/contracts/concurrency/tool-qualification/relaxed-publication/harness.c",
+        "sources": [
+          "tests/contracts/concurrency/tool-qualification/relaxed-publication/harness.c"
+        ],
+        "assertions": [
+          "seen == 42"
+        ],
+        "projections": []
+      }
+    },
+    {
+      "id": "race-control",
+      "capability": "c.genmc",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "function": "main",
+        "interface": "ConcurrencyPublication",
+        "scope": "First non-atomic race qualification control; no later assertion is used after undefined behavior.",
+        "assumptions": [
+          "LP64 AArch64 LLVM target; explicitly selected model pthread and C headers.",
+          "Two finite, data-deterministic threads; default GenMC spin-assume treatment and safety checking, not an unbounded liveness proof."
+        ],
+        "memoryModel": "rc11",
+        "target": "aarch64-unknown-linux-gnu",
+        "exploration": {
+          "mode": "verify"
+        },
+        "contract": "concurrency/tool-qualification",
+        "branch": "plain-race",
+        "harness": "tests/contracts/concurrency/tool-qualification/plain-race/harness.c",
+        "sources": [
+          "tests/contracts/concurrency/tool-qualification/plain-race/harness.c"
+        ],
+        "assertions": [],
+        "projections": []
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "copy-gate",
+        "relaxed-control",
+        "race-control"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+        "queries": {
+          "missing": "missing_boundary",
+          "verified": "verified",
+          "repairs": "repair_needed",
+          "unresolved": "unresolved",
+          "sources": "bound_source",
+          "counterexamples": "counterexample"
+        },
+        "expected": {
+          "missing": [],
+          "verified": [
+            [
+              "concurrency/copy-gate",
+              "two-carriers",
+              "copy-gate",
+              "Finite source-level safety exploration only; not source/image refinement or native Family A admission."
+            ]
+          ],
+          "unresolved": [],
+          "counterexamples": [
+            [
+              "concurrency/tool-qualification",
+              "relaxed-publication",
+              "relaxed-control"
+            ],
+            [
+              "concurrency/tool-qualification",
+              "plain-race",
+              "race-control"
+            ]
+          ]
+        },
+        "recordedQueries": [
+          "sources",
+          "repairs"
+        ]
+      }
+    }
+  ]
+}

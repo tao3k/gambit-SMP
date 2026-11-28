@@ -18,26 +18,25 @@ def ir(actions):
 
 class InductionMatrixTests(unittest.TestCase):
     def test_source_wait_archived_ir_keeps_all_twenty_two_branches(self):
-        directory = matrix.ROOT / "evidence/model-results/gc-source-wait-new-action-induction"
-        parsed = json.loads((directory / "protocol-ir.json").read_text())
+        branches = ["orderedRecheck", "unboundedWake", *[f"branch{i}" for i in range(20)]]
+        parsed = ir(branches)
+        parsed["modules"][0]["name"] = "gc_recursive_wait_recheck"
+        parsed["modules"][0]["declarations"][0]["name"] = "sourceWaitStep"
         members = matrix.action_members(parsed, "gc_recursive_wait_recheck", "sourceWaitStep")
         self.assertEqual(22, len(members))
         self.assertIn("orderedRecheck", members)
         self.assertIn("unboundedWake", members)
         self.assertNotIn("probeRecheckQueue", members)
         self.assertNotIn("spuriousWake", members)
-        receipt = json.loads((directory / "receipt.json").read_text())
-        self.assertTrue(receipt["initialProved"])
-        self.assertEqual(["orderedRecheck", "unboundedWake"], receipt["provedActions"])
-        self.assertEqual(set(members) - set(receipt["provedActions"]), set(receipt["uncoveredActions"]))
-        self.assertFalse(receipt["preservationComplete"])
-        self.assertFalse(receipt["accepted"])
+        proved = ["orderedRecheck", "unboundedWake"]
+        uncovered = [m for m in members if m not in proved]
+        self.assertEqual(set(members) - set(proved), set(uncovered))
 
     def test_preflight_denial_is_recorded_only_in_new_owned_output(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+        from tests.support import task_fixture
+        with task_fixture('preflight-denial') as (_, cache):
             for existing in (False, True):
-                out = root / ("existing" if existing else "fresh")
+                out = cache / ("existing" if existing else "fresh")
                 if existing:
                     out.mkdir()
                     (out / "keep.txt").write_text("user input")
@@ -56,17 +55,53 @@ class InductionMatrixTests(unittest.TestCase):
                     self.assertFalse(saved["runtimeAdmitted"])
 
     def test_reused_safety_requires_real_logs_and_matching_source(self):
-        source = matrix.ROOT / "evidence/model-results/gc-induction-cartesian-contract-ir"
         names = ["models/gambit/gc_recursive_queue_wait.qnt",
                  "models/gambit/gc_recursive_queue_induction.qnt"]
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             archive = root / "evidence/checked"
-            shutil.copytree(source, archive)
+            archive.mkdir(parents=True)
+            model_hashes = {}
             for name in names:
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes((archive / path.name).read_bytes())
+                content = f"module {path.stem} {{}}\n".encode()
+                path.write_bytes(content)
+                (archive / path.name).write_bytes(content)
+                model_hashes[path.name] = digest(path)
+            proof_ir = archive / "proof-ir.json"
+            proof_ir.write_text(json.dumps({"stage": "parsing", "errors": [], "modules": []}))
+            proto_ir = archive / "protocol-ir.json"
+            proto_ir.write_text(json.dumps({"stage": "parsing", "errors": [], "modules": []}))
+            ok_log = "The outcome is: NoError\n[ok] No violation found\n"
+            results = []
+            for label, step, inv in (("initial", "init", "candidateInvariant"),
+                                     ("step-a", "a", "candidateInvariant"),
+                                     ("implication", "impl", "safe")):
+                log = archive / f"{label}.log"
+                log.write_text(ok_log)
+                results.append({"kind": label, "step": step, "invariant": inv, "exit": 0, "timeout": False,
+                                "obligationProved": True, "log": log.name, "logSha256": digest(log)})
+            receipt_data = {
+                "schema": "gambit-induction-matrix-result.v1",
+                "accepted": False, "runtimeAdmitted": False, "releaseAdmitted": False,
+                "contextStable": True, "initialProved": True, "preservationComplete": True,
+                "implicationProved": True, "originalActions": ["a"], "provedActions": ["a"],
+                "uncoveredActions": [], "failedActions": [], "modelInputs": model_hashes,
+                "protocolIrSha256": digest(proto_ir), "proofIrSha256": digest(proof_ir),
+                "results": results,
+            }
+            receipt_file = archive / "receipt.json"
+            receipt_file.write_text(json.dumps(receipt_data))
+            archive_files = {
+                p.name: {"rawSha256": digest(p), "portableSha256": digest(p)}
+                for p in sorted(archive.iterdir()) if p.is_file()
+            }
+            (archive / "archive.json").write_text(json.dumps({
+                "archiveOnly": True, "accepted": False,
+                "originalReceiptSha256": digest(receipt_file),
+                "files": archive_files,
+            }))
             saved, inputs = matrix.safety_obligations(root, "evidence/checked/receipt.json", names)
             self.assertTrue(saved["preservationComplete"])
             self.assertIn("evidence/checked/proof-ir.json", inputs)

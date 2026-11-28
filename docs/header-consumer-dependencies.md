@@ -25,7 +25,7 @@ not a Darwin-only performance intervention. No Python framework files change.
 The semantic fixture `header-consumer-dependencies` inherits the startup-return
 outcome repair. Its 16-file cumulative overlay and source lock bind to the
 pinned submodule and pass apply-check. The executable dependency controls are
-in `evidence/source-results/fixtures/header-consumer-dependencies/dependency-controls.json`.
+in `.cache/research/legacy-evidence/evidence/source-results/fixtures/header-consumer-dependencies/dependency-controls.json`.
 Reflection references these hashes as source evidence, not protocol acceptance.
 
 ## Admission Boundary

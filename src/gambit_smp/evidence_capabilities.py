@@ -37,6 +37,34 @@ class EvaluationOwner:
         self.engine_id = None
         self.manifest = None
         self.manifest_sha = None
+        self.source_archives = {}
+        self.source_archive_reuses = 0
+
+    def archive_source(self, original, expected):
+        """One read-only copy per source identity within this existing owner.
+
+        Every reference still checks both live source and archived bytes. A
+        changed/missing snapshot refuses; it is never silently reconstructed.
+        Request/response records remain distinct and source paths stay original.
+        """
+        if self.closed:raise ValueError('evaluation owner is closed')
+        original=Path(original);key=(str(original),expected)
+        if key in self.source_archives:
+            row=self.source_archives[key];target=Path(row['archivePath'])
+            if (hashlib.sha256(original.read_bytes()).hexdigest()!=expected
+                    or target.is_symlink() or target.resolve()!=target
+                    or hashlib.sha256(target.read_bytes()).hexdigest()!=expected):
+                raise ValueError('observation archive source or snapshot identity changed')
+            self.source_archive_reuses+=1
+            return dict(row)
+        directory=self.directory/'sources'
+        if not self.source_archives:directory.mkdir(exist_ok=False)
+        name=hashlib.sha256((str(original)+'\0'+expected).encode()).hexdigest()
+        row=archive_bytes(directory,name,original,expected)
+        if hashlib.sha256(Path(row['archivePath']).read_bytes()).hexdigest()!=expected:
+            raise ValueError('observation archive snapshot write identity changed')
+        self.source_archives[key]=row
+        return dict(row)
 
     def policy_identity(self):
         """Bind metadata; completed requests still require full child checks."""
@@ -73,6 +101,7 @@ class EvaluationOwner:
         execution_origin(self.engine)
         request_sha = digest(request_path)
         if self.process is None:
+            from gambit_smp.task_processes import spawn as _task_spawn
             self.policy_identity()
             self.directory.mkdir(parents=True, exist_ok=False)
             self.log = (self.directory / "stderr.log").open("wb")
@@ -84,8 +113,12 @@ class EvaluationOwner:
             if slot is not None:
                 environment.update(GAMBIT_SMP_SESSION_CONSTRUCTION_LOCK=str(slot[0]),
                                    GAMBIT_SMP_SESSION_CONSTRUCTION_DEADLINE=str(slot[1]))
-            self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                            stderr=self.log, env=environment)
+            from gambit_smp.research_flow import _approved_command
+            authority=_approved_command.set(tuple(argv))
+            try:
+                self.process = _task_spawn(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                stderr=self.log, env=environment)
+            finally:_approved_command.reset(authority)
             self.argv = argv
         row = {"request": str(request_path), "requestSha256": request_sha,
                "budgetSeconds": ceiling, "requestCompleted": False, "timeout": False}
@@ -95,8 +128,8 @@ class EvaluationOwner:
             archive.mkdir(parents=True, exist_ok=False)
             row["requestArchive"] = archive_bytes(archive, "request.json", request_path, request_sha)
             request = json.loads(request_path.read_bytes())
-            row["sourceArchives"] = [archive_bytes(archive, "input-" + str(index), Path(path), sha)
-                                     for index, (path, sha) in enumerate(sorted(request.get("observationInputs", {}).items()))]
+            row["sourceArchives"] = [self.archive_source(Path(path), sha)
+                                     for path, sha in sorted(request.get("observationInputs", {}).items())]
             if time.monotonic() >= started + ceiling:
                 row["timeout"] = True
                 raise TimeoutError("sealed evaluation preparation exceeded request budget")
@@ -133,7 +166,7 @@ class EvaluationOwner:
                 if path in captured and captured[path] != sha:
                     raise ValueError("observed rule bytes differ from the original archive")
                 if path not in captured:
-                    row["sourceArchives"].append(archive_bytes(archive, "rule-" + str(len(row["sourceArchives"])), Path(path), sha))
+                    row["sourceArchives"].append(self.archive_source(Path(path), sha))
             execution_origin(self.engine)
             if time.monotonic() > started + ceiling:
                 row["timeout"] = True
@@ -162,13 +195,13 @@ class EvaluationOwner:
         forced = False
         try:
             from gambit_smp.ascent_program import construction_admission, construction_slot
-            admission = (construction_admission() if construction_slot() is not None
+            admission = (construction_admission(deadline=self.deadline) if construction_slot() is not None
                          and all(row["requestCompleted"] for row in self.records) else nullcontext())
             with admission:
                 # Completed owners finalize one at a time; unfinished native
                 # requests must not wait on a permit they may themselves hold.
                 self.process.stdin.close()
-                self.process.wait(timeout=max(.001, min(1, self.deadline - time.monotonic())))
+                self.process.wait(timeout=max(.001, self.deadline - time.monotonic()))
         except (subprocess.TimeoutExpired, TimeoutError):
             forced = True
             if not self.process.stdin.closed:
@@ -191,6 +224,9 @@ class EvaluationOwner:
                         "engineId": self.engine_id, "terminalIdentityError": identity_error,
                         "terminalIdentityAuthority": "reaped-owner-full-byte-check",
                         "requestIdentityAuthority": "sealed-child-full-before-and-after"}
+        self.receipt['sourceArchiveStorage']=dict(copies=len(self.source_archives),
+            reuses=self.source_archive_reuses,scope='same-owner-read-only-source-identities',
+            sourceAndSnapshotCheckedOnEveryReference=True)
         with (self.directory / "receipt.json").open("x") as stream:
             json.dump(self.receipt, stream, indent=2)
         if identity_error is not None:
@@ -272,9 +308,51 @@ def facts(receipt):
         if step["capability"] == "evidence.evaluate":
             continue
         name, args = step["id"], step["arguments"]
+        if (step['capability'] == 'source.contract' and step.get('outcome') == 'PASS'
+                and step.get('kind') == 'linked-image-cuts'):
+            image = step['observed']
+            sha = image['imageSha256']
+            result.setdefault('linked_image', []).append([name, sha, image['architecture']])
+            result.setdefault('image_byte_cut', []).extend([
+                name, sha, cut['id'], cut['start'], cut['bytesSha256']]
+                for cut in image['witnesses'])
+            result.setdefault('image_direct_edge', []).extend([
+                name, sha, edge['id'], edge['from'], edge['to'], edge['kind']]
+                for edge in image['edges'])
+            result.setdefault('image_address_slot', []).extend([
+                name, sha, slot['id'], slot['save'], slot['return'], slot['overwrite'],
+                slot['offset'], slot['status']]
+                for slot in image['slots'])
+        if 'restObservation' in step:
+            # Retain failure/missing facts as well as successful observations.
+            # The producer's report was validated against its raw stream.
+            result.setdefault('rest_observation_report', []).append([
+                name, step['restObservation']['report'], step['restObservation']['sha256']])
+        verification = step.get('cVerification')
+        if verification is not None:
+            result.setdefault('c_verdict', []).append([
+                name, verification['contract'], verification['branch'],
+                verification['verdict'], verification['scope']])
+            for prop in verification['properties']:
+                loc = prop.get('sourceLocation', {})
+                result.setdefault('c_property', []).append([
+                    name, prop['property'], prop['status'],
+                    loc.get('file', ''), str(loc.get('line', '')),
+                    prop.get('description', '')])
+            result.setdefault('c_source', []).extend([
+                name, path, sha] for path, sha in verification['inputDigests'].items())
+            result.setdefault('c_assumption', []).extend([
+                name, assumption] for assumption in verification['assumptions'])
+            result.setdefault('c_reachability', []).extend([
+                name, verification['contract'], verification['branch'], witness['name'], witness['status']]
+                for witness in verification.get('witnesses', []))
         result["required_step"].append([name])
         result["observed_step"].append([name, step["outcome"], step["capability"]])
         result["step_dependency"].extend([name, parent] for parent in step["dependsOn"])
+        storage = step.get('workspaceReuse')
+        if isinstance(storage, dict) and 'sourceContentId' in storage:
+            result.setdefault('runtime_storage_observation', []).append([
+                name, storage['mode'], storage['sourceContentId'], storage['copiedFiles']])
         if step["outcome"] == "PASS":
             decision = step.get("producerDecisionSupersession")
             if decision is not None:
@@ -302,6 +380,11 @@ def facts(receipt):
 
 def evaluate(args, ctx):
     projected = facts(ctx.receipt)
+    from gambit_smp.rest_observation import add_facts, bound_read
+    for step in ctx.receipt['steps']:
+        observation = bound_read(ctx.out, step)
+        if observation is not None:
+            add_facts(projected, observation)
     bindings = {}
     if "observationBinding" in args:
         from gambit_smp.observation_contract import bind_execution
@@ -348,11 +431,18 @@ def dsl_entry(value):
     return value
 
 
-def dsl_sources(entry, root):
+def dsl_sources(entry, root, *, generated=False):
     from gambit_smp.framework import digest
     from gambit_smp.recipes import source_path
     inventory = entry["sources"] + ([entry["manifest"]] if "manifest" in entry else [])
-    paths = [source_path(root, item["path"]) for item in inventory]
+    if generated:
+        root = root.resolve(strict=True)
+        paths = [root / item["path"] for item in inventory]
+        if any(not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(root)
+               for path in paths):
+            raise ValueError("generated Evidence source escaped its current owner")
+    else:
+        paths = [source_path(root, item["path"]) for item in inventory]
     if any(digest(path) != item["sha256"] for path, item in zip(paths, inventory)):
         raise ValueError("Evidence DSL source changed before execution")
     return paths
@@ -381,21 +471,47 @@ def evaluate_observations(ctx, rules, projected, queries, label, *, dsl=None, ru
     if rules_contract is not None:
         request["rulesContract"] = rules_contract
     if dsl is not None:
-        entry_path = source_path(ctx.root, dsl)
-        request["dsl"] = dsl_entry(read_json(entry_path))
-        paths = dsl_sources(request["dsl"], ctx.root)
-        inventory = request["dsl"]["sources"] + ([request["dsl"]["manifest"]] if "manifest" in request["dsl"] else [])
-        if any(item["path"] not in ctx.receipt["declaredInputs"] for item in inventory):
+        generated = isinstance(dsl, dict)
+        if generated:
+            from gambit_smp.recipes import fields
+            from gambit_smp.framework import digest
+            fields(dsl, ("source", "constructor", "arguments"))
+            current=next((row for row in ctx.receipt.get("steps", []) if row["id"]==ctx.directory.name),None)
+            if rules or not (getattr(ctx, "scientific_active", False) is True or
+                    current is not None and current['capability']=='research.audit'):
+                raise ValueError("generated DSL requires the current research Recipe owner")
+            ctx.remaining()
+            if not isinstance(dsl["source"], str) or not dsl["source"]:
+                raise ValueError("complete generated Evidence source required")
+            source = directory / "entry.ss"
+            with source.open("x") as stream:stream.write(dsl["source"])
+            entry_path = directory / "entry.json"
+            entry = dsl_entry(dict(schema="ascent.evidence-dsl-entry.v1", trusted=True,
+                constructor=dsl["constructor"], arguments=dsl["arguments"],
+                sources=[dict(path="entry.ss", sha256=digest(source))]))
+            with entry_path.open("x") as stream:json.dump(entry, stream)
+            dsl_root = directory
+        else:
+            entry_path = source_path(ctx.root, dsl)
+            entry = dsl_entry(read_json(entry_path))
+            dsl_root = ctx.root
+        request["dsl"] = entry
+        paths = dsl_sources(entry, dsl_root, generated=generated)
+        inventory = entry["sources"] + ([entry["manifest"]] if "manifest" in entry else [])
+        if not generated and any(item["path"] not in ctx.receipt["declaredInputs"] for item in inventory):
             raise ValueError("all DSL sources must be declared recipe inputs")
         ctx.bind([entry_path, *paths])
         request.update(dslInput=str(entry_path), dslInputSha256=ctx.extra_inputs[str(entry_path.resolve())],
-                       dslRoot=str(ctx.root))
+                       dslRoot=str(dsl_root), generatedDsl=generated)
     target = directory / "evaluation.json"
     request["observationInputs"] = dict(getattr(ctx, "extra_inputs", {}))
     target.write_text(json.dumps(request, sort_keys=True, indent=2) + "\n")
     if _evaluation_owner is None:
-        ctx.require("native-" + label, [sys.executable, "-I", "-B", engine / "runner.py", "rules", target],
-                    ctx.root, ctx.remaining())
+        from gambit_smp.research_flow import _approved_command
+        argv=[sys.executable, "-I", "-B", engine / "runner.py", "rules", target]
+        authority=_approved_command.set(tuple(str(value) for value in argv))
+        try:ctx.require("native-" + label, argv, ctx.root, ctx.remaining())
+        finally:_approved_command.reset(authority)
     else:
         if _evaluation_owner.engine != engine.resolve():
             raise ValueError("evaluation owner belongs to another seal")
@@ -425,7 +541,12 @@ def native_evaluate(request, *, retain=False):
             entry_path = Path(request["dslInput"])
             if digest(entry_path) != request["dslInputSha256"] or read_json(entry_path) != entry:
                 raise ValueError("Evidence DSL entry changed before execution")
-            paths = dsl_sources(entry, Path(request["dslRoot"]))
+            generated = request.get("generatedDsl", False)
+            if type(generated) is not bool or (generated and (
+                    Path(request["dslRoot"]).resolve() != directory.resolve()
+                    or entry_path.resolve() != directory.resolve() / "entry.json")):
+                raise ValueError("generated DSL does not belong to its evaluation owner")
+            paths = dsl_sources(entry, Path(request["dslRoot"]), generated=generated)
             if "manifest" in entry:
                 catalog = load_component_catalog(paths[-1], entry=entry["entry"], constructor=entry["constructor"],
                                                 arguments=entry["arguments"], trusted=entry["trusted"])

@@ -1,0 +1,166 @@
+#+TITLE: RC borrowed-slot write authority
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %45ITEM(Responsibility) %AUDIT_NUMBER(Audit) %STATUS(State)
+
+* QUALIFYING 3.5.1 RC logical-slot write admission :roots:refactoring:audit:
+:PROPERTIES:
+:CUSTOM_ID: ROOT-RC-SLOT-WRITES
+:AUDIT_NUMBER: 3.5.1
+:PARENT_ITEM: 3.5 / ROOT-WRITERS
+:BASE: 86fdffccc600336770eb449939083105e9cbd3fc
+:AUTHORITY: GambitRcSlotWrites
+:SOURCE: models/sysml/rc-slot-writes.sysml
+:STATUS: QUALIFYING
+:END:
+
+** The responsibility being replaced
+
+A stable RC root cell must keep its logical referent while borrowed. The old
+owner/OPEN/refcount check admitted a different value even with two live loans.
+The receiver could consequently resume a different thunk after a GC-capable
+handoff. This is an allowed bad source history, not an assertion that a recorded
+test8/Repair9 failure had this cause.
+
+The single admitted setter now arbitrates writes against the existing per-header
+borrow count under the existing domain mutex. A differing value is refused while
+any loan remains. An identical value is accepted without a store. All public
+=___set_data_rc= calls already delegate to this authority; no caller-side shadow
+counter or second API is introduced. Native positive refcount does not override
+a logical loan. Mutating the Scheme object's contents remains legal.
+
+This is a small, complete write-authority replacement in the larger architecture,
+not a whole-root or whole-SMP completion. It removes a conflicting permission
+rather than adding a timing check around a known failing workload.
+
+** Source-backed producer, writer, scanner and exit census
+
+These are selectors in the exact source tree recorded by the
+[[file:../../../evidence/research/retained/modern-c/rc-slot-writes/receipt.json][portable evidence receipt]]. The receipt retains source hashes, matched lines and
+the exact predecessor setter body. Current dirty vendor files are not authority.
+
+#+NAME: rc-slot-callers
+| Source / selector | Effect | Admission / remaining duty |
+|-------------------+--------+----------------------------|
+| lib/_mem/rc-allocation.inc / alloc_rc_no_register | Initial FAL | Unpublished header initialization precedes domain registration |
+| Same / try_set_data_rc; set_data_rc | Logical referent | One owner/OPEN/live-reference domain gate; loan blocks replacement |
+| lib/setup.c / resize preparation | Thunk root | alloc→set→borrow→thread setup; root stays owned on rollback |
+| lib/setup.c / current_vm_resize | Request source root | set before borrow; BEGIN_TRY/END_TRY surrounds cooperative operation; return/release precedes rethrow |
+| lib/setup.c / run_startup_root; release_startup_activation_root | Receiver loan | marker_root consumes reloaded cell; after marker owns thunk, return/release; exceptional path retains cleanup responsibility |
+| lib/os_dyn.c / make_c_closure | Procedure install | Set before C-closure exposure; payload snapshot reader remains separate |
+| examples/tcltk/tcltk.scm / command creation | Command vector install | Set before exposure; existing raw callback/delete readers remain open |
+| lib/_mem/rc-roots.inc / mark_rc | Physical address repair | Frozen, claimed RootTask with one scan lease; scans every header, including zero native refs with a loan |
+| lib/_mem/rc-allocation.inc / release_rc; return_rc_root | Native lifetime | Unlink/free only when native refs and root borrows are both zero |
+| lib/c_intf.c / C-closure marker; Tcl callback/delete | Snapshot read | Not migrated by this leaf; allocating snapshot users and full FFI participation remain open |
+| lib/setup.c / GSTATE function-table assignments | Export binding | Not an additional payload store |
+
+The source census is bounded to RC cells and named borrowers. It does not certify
+arbitrary casts, external C extensions, raw globals or every Scheme field writer.
+Those stay under3.5 and the composed lifetime/source census under3.6.
+
+** Conditional correctness and counterexamples
+
+Given a live valid RC header, admitted owner access, domain-lock mutual exclusion,
+and the existing cooperative collector freeze/participation protocol:
+
+1. Borrow increments cell/domain loan counts under that mutex before returning
+   the native cell address. Native release cannot reclaim a header with a loan.
+2. An admitted mutator write during the loan is either rejected or a no-store
+   identity operation. Thus it cannot change the borrowed logical referent.
+3. A frozen claimed scanner may still relocate the cell's address value. This
+   preserves referent identity. The borrower reloads after allocating calls;
+   freezing the cell's bytes or forbidding GC during loans would be incorrect.
+4. Last loan return can reclaim a header only if native refs are also zero.
+   An unknown outstanding loan retains custody; no timer invents a return.
+
+The old setter's real function body is compiled under a test-only renamed symbol.
+Create→borrow twice→replace produces a counterexample with live native refs.
+The existing shrinker reduces a13-action history to one *compound request* and
+replays it against old/current functions. That request still contains allocation,
+two loans, attempted replacement and cleanup: one action is not one C instruction
+or a globally minimal concurrent schedule. No production legacy fallback exists.
+
+Other counterexamples remain open: naked =data_rc= snapshot carried through an
+allocation; a foreign reader ignoring GC participation; dead owner retaining an
+unreturned loan; a raw external store bypassing the API. This leaf cannot grant
+independent-worker or arbitrary native-death recovery admission.
+
+** Actual verification and reproducible replay
+
+Existing Bazel Darwin/GCC16.2/C23 profile, persistent Modern C SDK, j11/p1 and
+unchanged600-second source-producer budget apply. The source producer completed
+two phase1--4 passes in152.909s and stock core in48.892s. Later test-only edits
+reuse that exact runtime producer; canonical inputs and native products are
+rechecked, not accepted from a directory name or timestamp.
+
+The existing =test-root-task= target now additionally runs =root-task --rc-writes=;
+no new SCM, test framework or official target name is introduced. It checks400
+actual C actions in12 seeded histories plus the mandatory history, three explicit
+GCs there, nested loans, zero-refcount/live-loan roots, mutable object contents,
+same-value no-store admission, and real predecessor13→1 shrink/current replay.
+Existing root families, multi-shot continuation and moving bank/global cases run
+in that same target. =test-rc-roots= covers processor0/1 ownership and last-return
+cleanup (2.868s). The combined root-task target completed in67.531s. Original
+GSI passed408/408 in62.433s; all remaining Make prerequisites completed in93.262s
+under120s, including original test8/test9,290 frame/layout assertions and map
+multi-shot/frame-root controls. These are current candidate results, not inherited
+repair-line acceptance. The portable receipt records the actual inventory.
+
+The existing RC fixture's differing-payload write expectation is deliberately
+strengthened: while borrowed it now expects refusal and preserves the old model
+referent. This is the new private loan contract, not deletion of the scenario.
+Nonzero-owner, live-borrow GC and last-return tests remain. Native SysML validates
+20 model inputs; actual ASCENT rejects eight missing/stale/caller/effect/calibration
+or unresolved-failure promotion cases. QNT and Lean hashes remain unchanged.
+
+Three conflicting pending prototypes (RC allocation, tests Make, RC fixture)
+cannot be losslessly merged with this selected cut. They and the real index,
+including the prior staged fixture deletion, remain untouched. The alternate
+submission tree selects the five qualified SDK files; it does not admit those
+working prototypes. Nonconflicting header/fixture changes are materialized.
+The source-custody receipt records both identities. Reviewing or building the
+remaining dirty worktree is distinct from checking out the committed REV tree.
+
+#+BEGIN_SRC scheme
+;; After the official test-root-task has compiled the existing fixture:
+;; ./root-task -:p1 --rc-writes
+;; ./root-task -:p1 --replay rc-write-legacy-minimal.trace   ; expected mismatch
+;; ./root-task -:p1 --replay rc-write-current-minimal.trace  ; expected pass
+(rc-write-trace 1 (#(8 0 0)) 0)
+#+END_SRC
+
+The same fixture source and recorded profile are required for replay. Historical
+thread_interrupt failure stays in the independent SMP ledger. Carrying that
+obligation to the new source is explicit: RC runtime bytes change, so predecessor
+byte-identity does not prove the outcome on this candidate. Scheduler source and
+unit are unchanged; a new passing run cannot diagnose the old cause.
+
+** Benefit, cost and peak-memory matrix :matrix:
+
+| Contract | Demonstrated gain | New cost / limitation |
+|----------+-------------------+-----------------------|
+| Borrowed logical slot | Old admitted rebinding is rejected; exact C predecessor control fails and shrinks13→1 | Additional borrow predicate/comparison under existing setter lock |
+| Identical writes | Existing store omitted | No allocation, new lock or metadata; no throughput claim |
+| Moving GC | Loan remains a live scanned/reloaded root, even at native refcount0 | Existing per-header scan still required; this is not address pinning |
+| Peak runtime memory | Zero added fields, buffers, queues or retention classes | Zero demonstrated peak reduction; existing live loans retain roots |
+| Scheme control | Preserves shared object identity, mutable payloads and multi-shot continuation | No one-shot conversion, cloning or deep freeze |
+| Maintenance | One setter policy covers named setup/closure/Tcl producers | Snapshot readers, external bypasses and full writer census remain open |
+| Assurance | Existing replay/shrinker and Make target reused | Additional test actions/compile work; finite PBT is not schedule exhaustiveness |
+
+** Programme and proof boundaries
+
+Primary item3 ROOTS: four scoped-closed groups, two remaining. This leaf belongs
+to3.5; completing it does not close3.5 or3.6. The thirteen top-level items remain
+in [[file:delivery-plan.org][the SysML-derived audit]]. SMP12 remains an independent current-source acceptance
+axis with the unresolved thread failure explicitly vetoing GSI-family promotion.
+No repair-line fraction transfers. No capacity/scheduler/whole Repair9 changes join.
+
+Native SysML owns the typed callers/effects and five Needs. Actual ASCENT checks
+those source-derived dispositions, candidate source/profile, the distinct logical
+and physical effects, predecessor calibration and five commit gates. Existing QNT
+alone owns competing task/lifecycle histories. Existing Lean alone owns conditional
+cell/coverage/address laws. Neither is copied or rerun. The LLM reviews the source
+refinement and applicability of evidence; it supplies no missing native result.
+
+[[file:rc-slot-writes.d2][Responsibility and handoff diagram]]

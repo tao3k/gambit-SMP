@@ -20,7 +20,7 @@ edge. It is not a complete C memory model or a same-thread signal-handler proof.
 
 Campaign `.data/vm-list-memory-model-001` failed QNT typechecking and is retained.
 The corrected campaign `.data/vm-list-memory-model-002` has stable input hashes.
-Its portable receipt is `evidence/model-results/vm-list-c-memory-order-model/`.
+Its portable receipt is `.cache/research/legacy-evidence/evidence/model-results/vm-list-c-memory-order-model/`.
 
 | Control | Counterexample States |
 | --- | --- |

@@ -1,0 +1,71 @@
+#+TITLE: Movable Will Domains, Action Ownership and Migration Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: will-domain-migration-matrix
+:AUTHORITY: WillDomainMigration
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** Caller
+
+| key | anchor | condition |
+|---+---+---|
+| registration-and-writers | gambit.h.in:5997-6027; _t-c-2.scm:2668-2675,3786-3790 | MAKEWILL prepends movable will to current PSTATE nonexec list; raw field setters and explicit execution are distinct managed writers |
+| decision-and-rebuild | mem.c:3990-3998,4039-4064,4997-5105 | Testator must be memory allocated and unmarked; follow forwarding before reading; preserve tagged next flags and rebuild moved list heads |
+| automatic-and-explicit | mem.c:7054-7071; _kernel.scm:2082-2116,2153-2162; _nonstd.scm:1892-1895 | Current GC raises interrupt only on p0; finalizer pops current PSTATE list; public explicit execution need not wait for eligibility; Scheme owns action context |
+| shutdown-and-real-users | _kernel.scm:2118-2151,4722-4728; std/db/sqlite.ss:35-74; srfi/124/124.scm:56-65 | Exit final-will FIFO is separate; real SQLite and ephemeron callbacks mutate resources/state and require explicit context and failure policy |
+| processor-exit | setup.c:918-978; mem.c:308-309,4685-4689,6896-6900 | Storage handoff does not transfer semantic weak membership; creator exit must preserve both lists, pending work and rooted action frames |
+
+** Protocol
+
+| key | anchor | condition |
+|---+---+---|
+| weak-domain-transfer | mem.c:243-249,308-309; proposed migration | Same VM weak-domain membership, not ordinary strong RootRegistry payload; close producers and list consumers; exact durable transfer before creator cleanup |
+| strong-decision-cut | mem.c:4997-5046,6896-6900 | Freeze strong reachability for every relevant decision; prevent earlier weak marking from changing later eligibility; cross-domain source refinement remains open |
+| moving-list-rebuild | mem.c:5011-5014,5061-5104 | Preserve per-origin list sequence and tag semantics; rewrite heads and links after forwarding; keep weak-derived work until completion receipt |
+| dispatch-and-capture | _kernel.scm:2087-2115; _nonstd.scm:1892-1895 | Pop acquires rooted action frame; capture testator/action before clearing; no safepoint in unprotected pop-to-capture quantum; Scheme context executes action |
+| continuation-and-shutdown | _kernel.scm:2110-2151,4722-4728 | Cleared fields forbid fresh dispatch of same payload but continuations may repeat body effects; escaped roots remain owned; no timeout-based retirement or destructor equivalence |
+
+** Route
+
+| key | anchor | qntAction | leanLemma | condition |
+|---+---+---+---+---|
+| registration | gambit.h.in:6014-6021; mem.c:308-309 | transfer | writerBlocksTransfer | Exact weak membership survives source exit without upgrading list nodes to strong roots |
+| decision | mem.c:5011-5026; 5046 | decide | strongNotEligible | Decide from immutable strong snapshot plus allocated testator predicate; weak preservation is a later phase |
+| coverage | mem.c:5061-5104; 6898-6900 | rebuild | oldHeadInvalid | Rebuild forwarding-aware heads/links and preserve order; all weak-derived work must settle before finish |
+| execution | _kernel.scm:2087-2115; _nonstd.scm:1892-1895 | captureAndClear | clearedNoFreshCall | Protect captures before clearing shared will fields; explicit and automatic callers share controlled admission |
+| retirement | _kernel.scm:2113-2115,4722-4728; setup.c:930-933 | retireContinuation | retainedCapture | Source-bound frames/continuations prevent unsafe departure; safe retirement requires independently proved no-future-resume evidence |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| weak-membership | Creator affinity and duplicated rediscovery solely needed to preserve per-PSTATE will lists | Typed VM weak domains, epoch membership, forwarding-aware list rewrite and publication receipts | Positive work benefit only if removed affinity/reconstruction exceeds metadata; all required weak scans remain |
+| action-ownership | Lost or ambiguous action dispatch responsibility when creator exits | Scheme execution lane, explicit-call synchronization, capture roots and continuation custody | May reduce critical-path affinity; arbitrary action context, resource ordering and escaped frames can negate parallel gain |
+| single-authority | Independent old list head and new VM head mutating same membership | One root/classification/dispatch authority; separate final FIFO obligations and resource admission | Modern C can express full contract; Zig supplies no demonstrated unique semantic saving; no speedup asserted |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| migration | closeAdmission;transfer;depart | writerBlocksTransfer;continuationBlocksTransfer | All registration, raw setters, direct execution, GC roots and list consumers mediated; exact commit and unknown result custody inherited from storage/root design |
+| eligibility | beginGC;decide;rebuild;scanWeak;endGC | immediateNotEligible;strongNotEligible;weakNotStrong;pendingBlocksFinish;oldHeadInvalid;appendPreservesOldPrefix | Movable/forwarded will links and strong reachability epoch; cross-domain decision barrier or immutable classification; weak body work and termination refine to real collector |
+| action | popExecutable;explicitClaim;captureAndClear;invoke | clearedNoFreshCall;resumedEffectsMayRepeat | Execution context, interrupt/no-safepoint quantum, strong captured roots and exact explicit-call order; no assertion of exactly-once action effects |
+| lifetime | captureContinuation;returnAction;resume;retireContinuation | retainedCapture;netBenefit | Actual exceptions, dynamic-wind/multi-shot continuation roots, resource owner affinity and shutdown drain remain source/native obligations |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| producer-closure | False | All generated MAKEWILL, internal field setters, explicit calls, GC and final registry writers classified and mediated |
+| vm-ownership | False | Weak-domain heads and action contexts preserved independently of creator and still storage; no accidental strong rooting |
+| gc-seal | False | Cross-domain strong snapshot versus weak-mark interference and real forwarding/termination/C memory order refined |
+| scan-coverage | False | List flags/order, copied will roots, captured frame relocation and weak-derived work covered; old source ordering not assumed equivalent |
+| retirement | False | Exception and multi-shot continuation root retirement, native action affinity, unknown handoff and shutdown closure proved |
+| source-replacement | False | Per-PSTATE registration/weak walk/pop authorities retired only after all accepted managed users migrate |
+| platform | False | Actual configured GC/interrupts/ABI, host attestation, native correctness and measured benefit remain open |

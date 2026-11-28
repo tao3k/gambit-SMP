@@ -102,7 +102,7 @@ native predicate blocks the exact-step ASCENT verdict.
 
 Source/recipe: [model](../models/gambit/root_cleanup_sticky_retention.qnt),
 [native fixture](../models/gambit/native/root_cleanup_sticky_retention.scm),
-[combined recipe](../evidence/research/vm-registry-reader-lease/vector-arity-root-sticky.recipe.json).
+combined recipe (local execution locator: `../.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/vector-arity-root-sticky.recipe.json`; unavailable in a clean checkout).
 Remaining scope: host embedding quiescence, legacy fatal callback, arbitrary
 host concurrency, constructor rollback, direct ownership and API reentry,
 GC/FFI, full compiled/stress suites and release performance. No claim of full

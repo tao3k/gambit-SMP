@@ -48,7 +48,7 @@ or fixed host worker count is added.
 The first complete campaign rejected all five controls as expected. The positive
 safety and temporal check exhausted 109 distinct states (120 generated, no queued
 states) in 21.778 seconds. Portable logs, counterexamples and a source-bound
-receipt are in `evidence/model-results/pstate-resize-composition/`. This is model
+receipt are in `.cache/research/legacy-evidence/evidence/model-results/pstate-resize-composition/`. This is model
 evidence only; runtime and release admission remain false.
 The older `vm-resize-rollback.json` matches the current base model hash but lacks
 the stable-source admission required by the current index. It is preserved as

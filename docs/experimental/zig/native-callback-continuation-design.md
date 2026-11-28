@@ -1,0 +1,168 @@
+# Native Callback Capturing a Map Continuation
+
+Design research only. No implementation, Scheme expansion, native test,
+performance experiment or model execution. Read the
+[source and paper ledger](native-callback-evidence.md),
+[custody and memory-order contracts](native-callback-custody-contract.md),
+[conditional arguments and counterexamples](native-callback-arguments.md),
+[net-benefit matrix](native-callback-benefit-matrix.md) and
+[trace](native-callback-traceability.json). The mainline remains Scheme
+semantic completion and generated typed C. Zig is an optional provider whose
+additional value must be established separately.
+
+## Case and Actual Callers
+
+NC01. Compose two existing source paths: public `map` calls its procedure;
+that procedure calls `##tcltk-eval`; Tcl dispatches an exported command through
+`scheme_call_cmd` → `tcltk_call` → `##apply proc args`. In that Scheme callback,
+`call-with-current-continuation` saves k in a managed binding and returns a
+string, allowing Tcl and the pending map application to complete. A callback
+may recursively invoke `##tcltk-eval` and enter a second exported procedure.
+This is an **unexecuted composed scenario**, not a discovered existing program
+containing map, Tcl, capture, blocking and nesting together. Map and the Tcl
+bridge are actual callers; a blocking branch must separately use an inspected
+wait adapter. Do not attribute blocking behavior or thread safety to all Tcl
+commands. [NE01, NE02, NE03]
+
+NC02. Exact existing registration is important. `##tcltk-define-procedure`
+allocates RC client data, creates a positive-refcount still vector, writes proc
+into slot zero, stores the vector in RC `data`, then calls `Tcl_CreateCommand`.
+`scheme_call_cmd` loads `data_rc(client_data)` and passes the vector plus Tcl
+argument strings to the static `c-define`. `##tcltk-call` extracts proc, applies
+it and returns only a string or false. `scheme_delete_cmd` releases the Scheme
+vector and RC cell; string results have a separate `release_string` handoff to
+Tcl. These are at least three different lifetimes. The source checks command
+creation's return value but shows no explicit failure disposal after the final
+creation call. Library ownership on failure and deletion-during-invocation
+must be established before claiming a closed client-data lifecycle. [NE02]
+
+NC03. A stored continuation can remain reachable through a managed binding
+captured by the exported proc, while the RC vector roots that proc. Moving GC
+updates **registered source locations**, not every copied word in C. A stable
+address of a positive-refcount still vector does not make proc, saved k, its
+denv or descendants immovable. Replacing the callback's root with a different
+closure additionally needs a store contract for the vector slot. Raw
+`set_data_rc` itself has no owner, barrier or synchronization argument.
+Baseline `mark_rc` updates header `data`; baseline strong GC calls it in P0's
+block. The existing cumulative patch moves marking to each processor and
+transfers joined donor RC/still lists. Credit that work; neither source layer
+proves arbitrary foreign-thread updates or pending-donor completeness. [NE04]
+
+![Actual callback and separate lifetimes](native-callback-callers.svg)
+[D2 source](native-callback-callers.d2).
+
+## Control Lifetime Is Independent of Reachability
+
+NC04. `___call` constructs a logical return frame carrying a native stack
+marker. The kernel return handler checks its processor and marker slot zero;
+a cleared marker raises multiple-C-return rather than resurrecting C frames.
+The manual contains a real `c-define`/`c-lambda` example which captures a
+continuation, returns it to Scheme, then resumes it and encounters this error.
+For the composed map case, restoring k may execute Scheme continuation code,
+but it cannot successfully return through the expired native activation.
+General Scheme multi-shot continuations remain supported within their valid
+control domain; a native return capability is a separate limited resource.
+Do not silently make Scheme one-shot, copy a C stack, or promise an additional
+successful map result after the callback has returned. [NE05, NE06]
+
+NC05. Static Tcl entry avoids the dynamic C-closure trampoline provider.
+The latter's architecture guards, process-global `c_closure_self` and TLS TODO
+remain separate obligations. Snapshot the selected carrier at a qualified
+entry; never select it again after an allocating/reentrant operation. Merely
+changing the global to TLS would still not define nesting, carrier retention,
+root writeback or module lifetime. No Darwin arm64 dynamic-closure capability
+is inferred. The recorded Darwin GCC build script and header bind a comparator,
+including C setjmp versus C++ conditional branches; this study does not
+preprocess that header or certify its active binary configuration. [NE07, NE10]
+
+## Admission Boundary
+
+NC06. The following policies concern admission to the proposed modern GC/native
+profile. They are not claims that every existing extension must be disabled in
+its already qualified runtime. A legacy fallback needs its own complete
+collector/control contract; the name “conservative” grants no missing roots.
+
+| Foreign access | Controlled path | Conservative path with a defined bound | Refuse modern-profile admission when |
+| --- | --- | --- | --- |
+| Copied C string / native bytes | Existing conversion allocation, native owner and explicit release; no managed pointers in bytes | No managed graph scan needed for the copy itself | Copy retained after release, failure ownership unknown, or hidden Scheme pointers exist in payload |
+| Foreign resource pointer | Typed resource lease across last native use; release coordinated with owner | Existing stable external resource under a proven last-use rule | Wrapper can release resource while pointer is in use; pointer conversion alone gives no lease |
+| Raw `scheme-object` argument | Caller-established precise mutable root before the first effect; reload after each relocating effect | Enumerate every mutable root cell at each minor cut | Unregistered copies survive GC, or caller cannot supply root storage/lifetime |
+| Interior managed body pointer | Bounded no-move/no-reentry extent, or an explicit supported pin/copy protocol | Fully known object/range with relocation excluded and writers stopped | Arbitrary alias escapes; moving GC/reentry can occur with stale pointer |
+| Managed heap/root write | Typed write plus actual owner, field/root location, epoch and major/minor protocol | Scan known dirty region at the coordinated cut, with all aliases and source lifetime covered | Unknown external writes, unsynchronized access, or incomplete dirty region |
+| Callback while waiting | Reacquire an execution permit, reload roots and establish child invocation before managed access | Keep existing participating wait and service only at a legal cut | “Parked” code reads managed objects, or callback steals an owner active elsewhere |
+| Nonlocal transfer | Qualified C control island plus custody settlement on each crossed owned scope | Existing full control profile with proven cleanup obligations | Jump crosses unsupported Zig/native library frames, dead marker or wrong-thread saved environment |
+
+“Conservative” here usually means precise scanning of a larger known region,
+not guessing tagged words in arbitrary native stack bytes. Ambiguous native
+words cannot safely be rewritten by a moving collector; a genuine conservative
+collector/pinning design would be a different architecture. A VM-wide heap scan
+still cannot discover an unregistered C root or legalize a C data race.
+[NE02–NE10, NP03; deductions in NA01–NA05]
+
+## What Must Change
+
+NC07. Scheme owns evaluation/control effects, root liveness, construction
+frontiers, dynamic-wind and supported native-boundary behavior. The shared
+native plan adds `ForeignEffectSpec`, root extents, borrow boundaries and
+explicit exit dispositions. The generator must derive these from actual
+conversion order and cleanup types in `_ptree2.scm`, not assume source parameter
+order or equate “has generated cleanup” with “covers every unwind.” Runtime C
+owns rooted entry, scan/writeback synchronization, invocation ancestry,
+blocking participation, marker invalidation and native cleanup dispatch.
+Per-context participation cannot be replaced by a generic OCaml domain-lock
+name. A future Zig or MLIR provider consumes the same effects and stack/root
+contract; it does not create a second root system. [NE03–NE10, NP01–NP04]
+
+NC08. Retirement is conditional and cohort-scoped:
+
+| Existing responsibility | Reuse / required replacement | Retirement condition |
+| --- | --- | --- |
+| Tcl client-data and still-vector storage | Retain representation initially; adapt owner/root/update/revoke protocol | All actual create/invoke/delete/failure paths use the qualified adapter; only then retire raw writes in that cohort |
+| SFUN target and raw arguments | Root before marker/converter effects; use existing stable carrier/saved slot only under an exclusive reservation, otherwise an extent | Direct run, static exports, converters and error-handler reentry all mapped; one protected proc does not cover arguments |
+| CFUN conversion cleanup selection | Generate effect and exit plans beside conversions; preserve existing conversion semantics | Every cleanup-required type and nonlocal path has an owner; ordinary conversion cleanup can then be replaced by the common plan |
+| RC membership and scan updates | Reuse credited per-processor marking and donor transfer; define admission, drain and relocation handoff | No forced `cleanup_rc` before invocation/scanner/release users drain; all relevant processors/donors enumerated |
+| Wait and C local aliases | Retain BW1 participation, or reconstruct arrays as root extents plus reload/resource leases | Actual virtual methods, queue locks, abort and service cuts close; no count decrement masquerading as detach |
+| Native return marker / trampoline | Preserve semantic check and qualified C island | Retire only a duplicate emission recipe after equivalent generated plan exists; marker validity itself cannot retire |
+| Dynamic global closure selector | Explicit invocation carrier with qualified provider, if this capability is demanded | Every supported target/nested/concurrent caller mapped; no unused arm64 provider counted as a saving |
+
+No path is retired by this study. Full extension, major/weak GC, progress,
+native correctness and Zig-positive-value gates remain unresolved.
+
+## Learning and Reflection
+
+NC09. OCaml's useful lesson is the separation of cooperating root updates,
+runtime participation and callback effects. Its C interface requires roots
+before GC and controlled updates for generational root classification; releasing
+runtime access forbids heap access and reacquisition/release can run pending
+actions. Gambit must derive the equivalent rule for its own collective members,
+logical frames and native markers. [NP01]
+
+NC10. Local OCaml source makes the mechanism concrete: `globroots.c` maintains
+ordinary/young/old root lists; registration and deletion synchronize membership;
+updates maintain classification. `callback.c` roots inputs and discards a cached
+string address after acquiring a potentially effectful lock. `signals.c`
+contains actual blocking hooks and pending-signal handling; local-root macros
+restore an earlier root head on specified exits. This is evidence for the
+questions to answer, not a drop-in proof of Gambit's memory order. [NE11]
+
+NC11. The parallel-GC paper explains synchronization around fiber activation
+and scanning. The effects paper deliberately chooses one-shot continuations
+and excludes C frames from captured effects. Gambit's design should keep its
+multi-shot Scheme capability and explicit existing C-return errors, while
+making access and custody just as deliberate. We learn from the mechanisms
+and their assumptions; benchmark gains and control restrictions do not transfer.
+[NP02, NP04]
+
+
+## Tcl Lifecycle and Cross-Library Follow-Up
+
+The [Tcl command custody design](tcl-command-custody-design.md) traces creation,
+replacement, deletion, the actual widget/export and event-loop callers, result
+release and shutdown. [Conditional arguments](tcl-command-custody-arguments.md)
+add pre-dispatch scope grace and distinguish normal-return closure from raw
+jumps which skip Tcl cleanup. The
+[net-benefit matrix](tcl-command-custody-benefit-matrix.md) and
+[evidence](tcl-command-custody-evidence.md) retain general control, installed
+Tcl/Tk identity and finite-progress gaps. This refines NC02/NC06/NC08 and
+NT08/NT09 without changing the prior immutable receipt or claiming native
+correctness.

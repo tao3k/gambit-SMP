@@ -36,7 +36,7 @@ WorkObligations module; a changed import is denied rather than silently reused.
 
 All listed process artifacts are under `.data`; they are local observations,
 not Git-persistent admission. Historical raw model campaigns remain under
-`evidence/model-results/gc-parallel-contracts`. No execution budget was raised.
+`.cache/research/legacy-evidence/evidence/model-results/gc-parallel-contracts`. No execution budget was raised.
 
 ## Still open
 

@@ -1,0 +1,46 @@
+#+TITLE: Existing CI prerequisite repair
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never-export
+
+* Scope :delivery:ci:
+:PROPERTIES:
+:AUTHORITY: GambitCIToolingDelivery
+:SOURCE: models/sysml/ci-tooling-delivery.sysml
+:END:
+
+[[https://github.com/tao3k/gambit/actions/runs/40344683796][The original failed CI run]] reported an unresolved =PKG_PROG_PKG_CONFIG=
+in Linux configure and an unavailable MinGW32 make dependency during package
+installation. Linux now installs the macro prerequisites and invokes standard
+=aclocal= and =autoconf= in its existing dependency step. MSYS already installs
+the =make= command that the jobs use; the extra target-specific
+=mingw32-make= package was not invoked and is removed from the install list.
+
+All existing Build/Test commands, job identities, platform architectures and
+push-only modes remain byte-identical to the prior workflow. There is no
+bootstrap chain, timeout change, new execution layer or loss of platform
+coverage. Checked-in generated C is a separate already-qualified REV.
+
+* Benefit and new work :assurance:
+
+| Change | Work removed | New work | Qualification boundary |
+|--------+--------------+----------+------------------------|
+| Remove unused target make package | Failing prerequisite unrelated to invoked MSYS make | None | Remote package resolution must succeed |
+| Supply pkg-config m4 macros | Literal shell attempt to execute an undefined Autoconf macro | Two standard configure-generation commands in existing Linux setup step | Remote Linux configure/build/check remains authoritative |
+| Preserve original core | No repeated Scheme generation in normal core job | Existing generated-product publication duty | Local Darwin core/check passed; remote platforms recorded separately |
+
+The workflow comparison uses a real YAML parser, checks every Build/Test command
+against the committed workflow, and rejects controls that change core or drop
+the required macro setup. The existing native receipt identifies the same
+canonical runtime source and preserved executables. This is local preflight,
+not a claim that GitHub has already passed. The five SysML/ASCENT gates govern
+the publication scope; no new QNT protocol or Lean representation proof is
+needed for this dependency-only cut.
+
+* Review questions :review:
+
+The public Scheme/C namespaces and continuation/GC contracts do not change.
+This cut is necessary CI infrastructure for testing those existing contracts,
+not a modern-SMP acceptance result. Existing upstream integration hooks and
+push-only C++ modes have not been redesigned under a prerequisite repair.
+Later runtime/C23 changes must establish their own support boundaries.

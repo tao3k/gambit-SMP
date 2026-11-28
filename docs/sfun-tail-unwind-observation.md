@@ -20,7 +20,7 @@ has passed complete correctness. No native stale-marker exploit is claimed.
 
 The exact fixture, source-core identity/lock binding, compiler version, output,
 budgets and portable archive hashes are in
-`evidence/source-results/fixtures/callback-return-owned-result/sfun-tail-unwind`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/callback-return-owned-result/sfun-tail-unwind`.
 The generated header is reproduced by the bound source-core recipe rather
 than taken as an authority from a cache directory.
 

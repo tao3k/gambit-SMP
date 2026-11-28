@@ -55,7 +55,7 @@ and signaler controls independently preserve the corresponding outstanding
 resource users. The rollback trace retains an initialized mutex after failed
 condition initialization.
 
-The receipt is `evidence/model-results/sync-resource-users.json`; portable
+The receipt is `.cache/research/legacy-evidence/evidence/model-results/sync-resource-users.json`; portable
 negative traces are `models/gambit/counterexamples/sync_resource_users-*.json`.
 The three earlier DENY receipts are retained beside it, separately classified
 below. Raw verifier logs remain in local `.data/sync-resource-users-model-004/`

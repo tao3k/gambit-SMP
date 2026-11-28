@@ -1,0 +1,129 @@
+#+TITLE: Participating Park, Root View, Benefits and Peak-Memory Matrix
+#+PROPERTY: header-args :eval never
+
+* Execution scope
+Repository Evidence/ASCENT queries completed for the exact selected source bundle; source and C-memory obligations remain open. No runtime admission.
+
+* Inherited native layout arithmetic
+These are aligned-wrapper requests, not backend pages, usable size or RSS.
+| Word bytes | Candidate subtype | SCMOBJ slots | Raw key bytes | Body bytes | Object bytes | Wrapper request | Delta from SMP |
+|---+---+---+---+---+---+---+---|
+| 4 | 16 | 2 | 24 | 32 | 56 | 67 | 24 |
+| 8 | 16 | 2 | 24 | 40 | 88 | 103 | 24 |
+
+* Source caller matrix
+#+NAME: root-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| synchronous-tcl-native-frame | examples/tcltk/tcltk.scm:124-175,221-228 | scheme_call_cmd -> tcltk_call(data_rc,argv+1) -> Scheme apply -> result C string installed in Tcl | Deferral/replay loses synchronous result, borrowed native args and original return stack | Retain same native activation/input/result/code leases; park only at admitted Scheme/generated boundary |
+| sfun-conversion-before-call | include/gambit.h.in:10043-10064;gsc/_ptree2.scm:2902-3030,3145-3187 | SFUN fetches PSTATE, allocates marker, converts and calls ___call; conversion errors can call Scheme handler | An entry gate in ___call is after marker allocation and raw root effects | Scheme generator emits origin/safe-point/exit plan; modern C ingress owns full conversion activation and root census |
+| gvm-materialization | gsc/_t-c-1.scm:2132-2168;include/gambit.h.in:6801-6803,6983-6991,7058-7091;lib/_kernel.c:9017-9020,12117-12120 | W_ALL selects generated M/P macros; supplied kernel output writes selected heap/fp/registers; R macros reload | Materializes specific GVM locals, not all arbitrary C roots or complete object initialization | SafePointSpec records actual required fields and maps; prove generated spill coverage and post-GC reload |
+| heap-and-stack-safepoints | lib/_kernel.scm:270-285,306-338,1960-1978;include/gambit.h.in:8514-8554 | Stack/heap checks save RA and GVM regs, W_ALL, run limit/GC, R_ALL and restore RA | Reaching POLL/limit request is not itself completion of spill/root/initialization duties | Receipt cut after completion plan, not check predicate; use FrameSpec and exact resume PointId |
+| sync-op-participation | lib/_kernel.scm:1428-1444;lib/setup.c:1049-1149,1182-1200 | sync interrupt saves RA/W_ALL -> service_sync_op -> barrier/combined operation loop; result delivered before R_ALL | Current processor is both execution context and collector participant; interrupt request alone cannot authorize independent worker | Split context freeze, participant acknowledgment and worker scan authority; preserve merged operation result/round identity |
+| partial-rest-frame | lib/_kernel.scm:536-575,908-942 | Rest/keyword CONS loop W_ALL -> heap_limit -> R_ALL, then explicitly builds complete frames before GC | W_ALL before frame repair is a real inadmissible receipt location | Carry constructor progress/root plan through complete-frame cut or scan-safe shell; do not park at every W_ALL |
+| still-and-marker-construction | lib/mem.c:1487-1500,1677-1693,1778-1821;lib/c_intf.c:6509-6564 | Still allocation links storage before caller field init; make marker allocates before copying input procedure with root TODO | Unknown initialization or unrooted moving input cannot be cured by park flag | Generated InitSpec with scan-safe fields and root-before-allocation; retain construction escrow until complete |
+| continuation-stack-scanner | lib/mem.c:3898-3966 | mark_continuation reads ps.fp, return-specific frame size/link/gcmap and captured continuation | Native C stack is not this scanner; stale frame map/cursor or changed stack break loses roots | Frozen FrameSpec-backed topology and live native frame; collector updates described stack/heap root cells |
+| register-saved-and-processor-roots | lib/mem.c:6511-6574,6844-6867 | mark_registers/saved/type_cache/processor scan actual PSTATE arrays after continuation | Freeze snapshot of SCMOBJ values becomes stale after relocation; descriptions and backing must survive | Exclusive updateable cells plus post-scan R_ALL/handle reload; participant-independent root adapter |
+| rc-all-domain-root-gap | lib/mem.c:684-825,3969-3987,6844-6850 | RC data cells in per-PSTATE list are passed by address to mark_array; mark_rc selected in P0 branch | Nonzero RC coverage and raw data_rc setters/borrowers not solved by current P0 scan | All-domain RootRegistry enumerates stable RC backing and controlled access; freeze link topology and release old readers |
+| queue-native-issue-cut | lib/setup.c:170-204,365-393,396-419 | Publisher spans queue unlock to PSTATE wakeup; service removes task before native execute_fn | Empty queue/closed entry misses claimed callback, late postlude and nested cleanup work | Import early ingress, publisher lease and dequeue-to-claim protocol; nested activation debt stays counted |
+| device-wait-not-universal-park | lib/_kernel.scm:4503-4519;lib/os_io.c:1472-1503,1532-1549 | condvar select wrapper W_ALL before os select, R_ALL after return; select-abort writes wakeup pipe | Blocking syscall and wakeup do not establish root-view acceptance or arbitrary syscall interruption | Qualify native wait lock/effect/borrow profile; return to participating boundary or explicit no-managed-access native wait |
+| native-catcher-and-return | lib/setup.c:3276-3391;include/gambit.h.in:9981-9987;lib/_kernel.scm:1020-1072 | ___call saves marker/frame and installs stack catcher; return checks processor and live marker then unwinds | Moving to helper thread, repeated entry or destroying stack invalidates native return rights | Preserve same native thread/catcher lease, original call count and exception guard; no collector longjmp |
+| nested-exit-and-cleanup | include/gambit.h.in:10043-10064;lib/setup.c:3393-3420,4665-4672;examples/tcltk/tcltk.scm:178-194 | SFUN kill/propagate path, ___run catcher and Tcl delete release resources across native boundaries | Parked activation is not completed; deletion or inner return cannot retire outer root/catcher backing | Activation stack census, exit-vs-scan arbitration, deferred resource disposition and outer native-frame retention |
+| round-completion-and-reload | lib/mem.c:4525-4567,7003-7085;lib/os_thread.c:697-710 | GC barriers, cleanup/resize/fudge then notify GC before prepare fp/hp/limits; binding function sets TLS/affinity | Notification or TLS pointer is not fresh context/root authorization | Whole-round/context/binding/root reload then atomic fresh permit; scanned root alone not complete round |
+| owner-teardown-and-join | lib/setup.c:924-980,4834-4875;lib/mem.c:4928-4964;lib/os_thread.c:546-592 | PSTATE cleanup frees RC/still/OS state; thread join comes later and errors do not preserve canonical envelope | Death/failed join cannot prove arbitrary in-flight store stopped or native stack recoverable | Retain VM root/resource debt; known stop may allow cleanup but never resurrect dead native invocation; unknown refuses receipt/resume |
+
+* Benefit and peak-memory matrix
+#+NAME: root-costs-native
+| Capability | Removed work | Quantified bound | Added cost | Condition or falsifier |
+|---+---+---+---+---|
+| Same-call GC progress | Avoid adding callback-completion wait when separating collector workers | One admitted current invocation -> one park accept + one resume; extra native invocations=0 | SafePointSpec, root view, canonical park/scan/resume state | Current Gambit already collects inside callbacks; this preserves that ability during worker separation, not a new measured speedup |
+| Safe-point precision | Replace blanket W_ALL assumption with generated completion cut | One complete spill/root/constructor map per park; no park at known incomplete rest frame | Scheme completion plans, verifier and descriptor/code lifetime | Actual generated spill and constructor coverage must close before old macro logic can retire |
+| Root storage | Use described canonical cells instead of duplicating every root value | Metadata O(A+R+D); root visit O(R); no mandatory O(reachable heap) snapshot | A activations, R distinct root slots, D active native/effect obligations | Alias census must be complete; caller-held copies require handles/reload, not an invented immutable value snapshot |
+| Native-call exclusion | Drain only relevant issued effects, not require original native call return | Native invocation stays live; GC-relevant effects/borrowers/nested writers must be0 | Effect/origin registry, completion evidence and lock dependency profile | Native-only outstanding work requires separate isolation proof; unknown relevant work cannot become zero on timeout |
+| Canonical receipt | Avoid retrying native operation after lost park acceptance ACK | One canonical accept per park identity; query adds0 invocations | Protected attempt/result lookup and retained source pins until resolution | Failed preaccept retains source; accepted unknown response remains VM duty; no receipt reuse across attempts |
+| Collector authority | Permit root rewriting while mutator is parked | At most one modeled scan claim; no simultaneous mutator permit | Release/acquire view, exclusive scan/resume state and reader drainage | Full C order proof and independent-worker integration still open; no relaxed load shortcut |
+| Fresh reentry | Avoid stale registers/handles after relocation | One context prepare/bind/reload sequence per resumed park; starts stays1 | Whole-round result, root generation and exact owner incarnation | Same native stack must remain alive; moving raw C catcher to different worker is refused |
+| Nested callbacks / exceptions | Retain full activation chain instead of treating inner return as outer quiescence | O(A) live activation/exit records; all relevant nested debts settle before park | LIFO marker/catcher roots and exit-vs-scan arbitration | Continuation escape uses generated exit guard; arbitrary native longjmp/unregistered roots reject profile |
+| Wait-cycle removal | GC waits for park handoff rather than synchronous result completion | Removes edge GC -> callback-finish when qualified park exists | No GC-critical lock held by parked owner; cleanup/root dependencies explicit | No universal latency or liveness bound; cleanup requiring owner entry must be delayed or rejected |
+| Peak memory | No task payload duplication merely to park same call | Peak=max_t(H+P+N+Q); delta inherited marker 24*M(t) plus park/view/log pools and longer retention | Native stack, roots, code, borrowed inputs and unresolved resources stay charged | No measured/proved peak decrease; unknown debt can retain backing indefinitely |
+| Retirement | Replace direct managed entry / blanket park flag / unqualified PSTATE lifetime | 0 production paths retired; admitted cohort only after source/order/ABI obligations | Scheme-generated safe-point/exit plans and typed modern C RootRegistry/AdmissionDomain | Keep C portable backend; low-level W/R instructions may be generated internally, not falsely claimed eliminated |
+| Modern C versus Zig | Share semantic plans and typed lifetime protocol without second runtime language | 0 Zig-only runtime work elimination shown for park/root/native safety | Both need same safepoint, borrow/scan, native stack, atomic and exception proofs | Choose modern C mainline; CPU benefit needs actual removed baseline work > added protocol work; wait-cycle removal is a separate graph property, current cooperative GC already resumes in-call |
+
+* Obligations and imported open premises
+#+NAME: root-needs-native
+| Need | Kind | Exact scope | Premise |
+|---+---+---+---|
+| PP-H | interleaving | participating_park_root_view:36-named-histories;admitted;clean+debts;epochs0and1;seed=17;each100x100 | One live native invocation and root-cell view, bounded one effect/writer/borrow/nested debt, root relocation and two epochs; safe-point completeness, construction maps, native frame survival, coherent atomics and complete adapter census are premises; nonexhaustive finite simulation, not C source or liveness proof |
+| PP-I | induction | GambitSMP.ParticipatingParkRootView:safePointRequired;constructionRequired;materializationRequired;inFlightRejects;writerRejects;borrowRejects;nestedRejects;unknownRejects;deadFrameRejects;offerPreserves;acceptPreserves;claimPreserves;movePreserves;releasePreserves;reloadPreserves;resumePreserves;resumeDoesNotReinvoke;freezePermitsCollectorMutation;relocatedCacheNeedsReload;lostResponseKeepsAcceptance;lostResponseKeepsBacking;lostResponsePreserves;roundRequired;scannerBlocksResume;staleEpochRejects;stepPreserves;tracePreserves | 27 conditional declarations: Eligible boundary exclusions, exclusive mutator/collector root-cell authority, relocation/cache refresh, same-invocation resume and View Step/Trace preservation; separate Ready and Boundary premises; no complete QNT/C/ABI simulation or native weak-memory proof |
+| PP-SAFE | source-refinement | PP-SAFE:actual-source-refinement | ParticipatingParkReceipt requires a generated SafePointSpec with return PointId, FrameSpec and initialized-field map after all relevant writes, complete continuation frame and register/saved/native root materialization; ___W_ALL is module/procedure-specific GVM state transfer, not arbitrary C stack scanning; rest/keyword construction calls W_ALL before complete frames are built, so that location cannot issue a receipt; retain Scheme completion plan or reject until scan-safe |
+| PP-ROOT | source-refinement | PP-ROOT:actual-source-refinement | Freeze root topology, writer admission and backing lifetime, not immutable SCMOBJ values; collector owns updateable canonical root cells while owner is parked; include continuation/frame map, registers, saved/type-cache/processor roots, all RC domains, generated native handles, marker and construction roots; publish after last writer and permit release, scan only after canonical VM acceptance; nonzero RC scan and raw cached SCMOBJ aliases remain open source obligations |
+| PP-EXCLUDE | source-refinement | PP-EXCLUDE:actual-source-refinement | Retain the existing native invocation stack/catcher/code/result/input envelope, but reconcile every GC-relevant effect, raw root borrower, helper and nested activation before park; closing entry cannot revoke issued stores; native-only external operation may remain active only under separately proved no-managed-access and no-GC-critical-wait profile, not by renaming its count zero; unqualified or unknown relevant operation retains source debt and blocks receipt |
+| PP-RECEIPT | source-refinement | PP-RECEIPT:actual-source-refinement | Source retains root/native/pool custody through Prepare and Offer; canonical VM accept under scan/resume exclusion transfers control responsibility and signs identity-bound ParticipatingParkReceipt for same live activation, park attempt, epoch, SafePointSpec, root view, borrow census and native-frame lease; release/acquire publication precedes scanning; lost acceptance ACK is resolved by protected canonical query, never permit restoration, task replay or disposal |
+| PP-RESUME | source-refinement | PP-RESUME:actual-source-refinement | Resume same native invocation only after scan claim/release, whole strong/weak/cleanup/capacity result, context preparation, exact same live native owner/VM incarnation binding and relocated-root reload; scan claim and resume claim share atomic state arbitration; acquire fresh next-epoch write permit before resumed managed access, retire old scan capability and root view only after readers drain; notification, receipt ACK or GC request alone does not authorize reentry |
+| PP-SEMANTICS | source-refinement | PP-SEMANTICS:actual-source-refinement | Preserve synchronous Tcl char-string result and borrowed argv while Scheme body reaches a real safe point, not callback replay or invented pending return; nested callbacks need complete activation-stack census and LIFO native/catcher roots; exception/continuation escape is a separate same-owner exit path whose guard settles park/result/marker debt before native stack destruction; helper longjmp, arbitrary thread death and uninstrumented foreign stack movement cannot qualify same-call resume |
+| PP-ORDER | native-memory-order | PP-ORDER:actual-C-memory-and-adapter-refinement | Owner closes new admission under shared registry exclusion; last relevant effect/borrow completion and generated materialization precede release-published root-view offer, canonical park acceptance and acquire scan claim; collector root updates precede release scan completion and owner acquire reload; whole-round context/binding precede fresh epoch permit and resume claim; scan claim, cancellation/exit and resume arbitrate on one canonical state, no mutex held while awaiting owner/GC callback; actual C layout, lock order, weak-memory and raw adapter coverage remain open |
+| FG-ISSUE | source-refinement | FG-ISSUE:actual-source-refinement | No existing future-epoch execution-gate issuer; introduce VM-owned AdmissionDomain keyed by VM/domain/epoch/incarnation, with early native ingress covering every callback origin before data_rc, marker allocation, PSTATE reads or closure-self mutation; stop current publication admission, reconcile publication postludes and all claim reservations, then sign FutureEpochGate for retained unstarted async tasks only after canonical VM root/resource/code custody and manifest/exclusion evidence |
+| FG-QUEUE | source-refinement | FG-QUEUE:actual-source-refinement | Owned procedural interrupt queue needs one ordered dequeue-to-claim and close-to-detach cut under compatible exclusion; register claim before removing head/unlocking, count publisher from header initialization through queue insertion and post-unlock raise_interrupt_pstate; queued task may move to VM future queue with exact execution/release operation semantics, borrowed argument snapshot and custody; preserve accepted enqueue order and per-origin result causality, including canceled claim position unless reordering separately admitted; empty old queue or interrupt masking is not zero in-flight work |
+| FG-CUSTODY | source-refinement | FG-CUSTODY:actual-source-refinement | Future task and parked current invocation retain GC-visible roots, immutable input snapshots or qualified borrowed storage, native payload/code/catcher leases and exact result identity; VM transfer is not disposal, nonzero processor roots require all-domain scanner integration, native deletion/refcount decrement cannot reclaim before old invocation borrowers drain; unknown native or claim outcome retains custody and cannot authorize replay/refund |
+| FG-SEMANTICS | source-refinement | FG-SEMANTICS:actual-source-refinement | Defer only an origin whose request/result contract permits retained asynchronous task and whose pre-entry transport has no unknown issued invocation; direct synchronous Tcl scheme_call_cmd needs immediate char-string result and borrowed argv, so deferring inside it or returning invented success/pending is not equivalent; gate upstream initiation, qualify participating wait on original invocation, or refuse future-task admission; no synchronous GC wait for a callback whose entry waits for that same GC |
+| FG-REENTRY | source-refinement | FG-REENTRY:actual-source-refinement | After full strong/weak/cleanup/capacity result and selected context preparation, bind exact live owner/VM context, reload relocated root handles, then publish next epoch authority; GC interrupt notification alone precedes prepare_mem_pstate and is not WholeRoundResumeSeal; claimFuture atomically joins next epoch before marker allocation and Scheme entry, parked resume obtains fresh write authority for same native activation; stale old epoch/context/root/owner rejects without guessed rebind |
+| FG-ORDER | native-memory-order | FG-ORDER:actual-C-memory-and-adapter-refinement | Close/claim/cancel/native-issue publish under one canonical atomic/exclusion protocol; release certificate follows last current writer and publisher postlude, acquire certifier sees roots and parked views; next epoch release follows capacity/context/binding/root reload and acquire claimant joins matching epoch; all raw callbacks use compatible lifetime-protected ingress before first managed effect; counter generation alone cannot revoke issued stores or cached function pointers, actual C atomic layout and native ABI remain open |
+
+#+NAME: root-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| PP-SAFE | PP-H |
+| PP-SAFE | PP-I |
+| PP-SAFE | PP-ORDER |
+| PP-ROOT | PP-H |
+| PP-ROOT | PP-I |
+| PP-ROOT | PP-ORDER |
+| PP-EXCLUDE | PP-H |
+| PP-EXCLUDE | PP-I |
+| PP-EXCLUDE | PP-ORDER |
+| PP-RECEIPT | PP-H |
+| PP-RECEIPT | PP-I |
+| PP-RECEIPT | PP-ORDER |
+| PP-RESUME | PP-H |
+| PP-RESUME | PP-I |
+| PP-RESUME | PP-ORDER |
+| PP-SEMANTICS | PP-H |
+| PP-SEMANTICS | PP-I |
+| PP-SEMANTICS | PP-ORDER |
+| PP-ORDER | PP-H |
+| PP-ORDER | PP-I |
+| PP-ORDER | FG-ORDER |
+| PP-SAFE | FG-ISSUE |
+| PP-SAFE | PP-EXCLUDE |
+| PP-ROOT | FG-CUSTODY |
+| PP-EXCLUDE | FG-QUEUE |
+| PP-RECEIPT | PP-ROOT |
+| PP-RECEIPT | PP-EXCLUDE |
+| PP-RESUME | FG-REENTRY |
+| PP-RESUME | PP-RECEIPT |
+| PP-SEMANTICS | FG-SEMANTICS |
+| PP-SEMANTICS | PP-SAFE |
+| PP-RESUME | PP-SEMANTICS |
+| PP-ROOT | PP-SAFE |
+| PP-EXCLUDE | FG-ISSUE |
+| PP-RECEIPT | FG-CUSTODY |
+
+* Scoped closure observations
+#+NAME: root-closure-observed
+| Need | Current evidence | Source/runtime boundary |
+|---+---+---|
+| PP-H | Checked task-local formal slice | Conditional model only; no C simulation |
+| PP-I | Checked task-local formal slice | Conditional model only; no C simulation |
+| PP-SAFE | Unresolved source or native-order obligation | No source-simulation root |
+| PP-ROOT | Unresolved source or native-order obligation | No source-simulation root |
+| PP-EXCLUDE | Unresolved source or native-order obligation | No source-simulation root |
+| PP-RECEIPT | Unresolved source or native-order obligation | No source-simulation root |
+| PP-RESUME | Unresolved source or native-order obligation | No source-simulation root |
+| PP-SEMANTICS | Unresolved source or native-order obligation | No source-simulation root |
+| PP-ORDER | Unresolved source or native-order obligation | No C-memory/platform refinement root |
+| FG-ISSUE | Unresolved source or native-order obligation | No source-simulation root |
+| FG-QUEUE | Unresolved source or native-order obligation | No source-simulation root |
+| FG-CUSTODY | Unresolved source or native-order obligation | No source-simulation root |
+| FG-SEMANTICS | Unresolved source or native-order obligation | No source-simulation root |
+| FG-REENTRY | Unresolved source or native-order obligation | No source-simulation root |
+| FG-ORDER | Unresolved source or native-order obligation | No source-simulation root |

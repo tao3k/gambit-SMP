@@ -21,7 +21,7 @@ Context source hashes, source-unit status, all eight schedule observations,
 compiler success and native-admission restrictions remain checked.
 
 The restored file is
-`evidence/source-results/fixtures/sync-retirement-source-history/recipes.py`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sync-retirement-source-history/recipes.py`.
 Its SHA-256 is
 `28aa3e3d60e538205fcfe9909992a73e81db70e134b04cea773ff7f0c23fa012`, exactly
 the original receipt input. It is archival evidence, not an imported runtime

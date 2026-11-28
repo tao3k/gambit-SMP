@@ -1,0 +1,164 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-structure-freeze-progress",
+  "scope": "Quint controls for one structure-type lifetime, one RC freeze publication, and one cross-VM registry progress: a read without the type root is refused, a stale generation cannot pin after close, and a deferred request is replayed only while the lease still drains. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 220,
+  "inputs": [
+    "models/gambit/structure_type_lifetime.qnt",
+    "models/gambit/rc_freeze_publication.qnt",
+    "models/gambit/vm_registry_cross_vm_progress.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-structure-freeze-progress/binding.json",
+    "evidence/fixtures/dev-structure-freeze-progress/observations.json",
+    "evidence/fixtures/dev-structure-freeze-progress/progress.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "life-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/structure_type_lifetime.qnt"
+      }
+    },
+    {
+      "id": "life",
+      "capability": "quint.test",
+      "dependsOn": [
+        "life-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/structure_type_lifetime.qnt",
+        "parsed": "life-parse",
+        "main": "structure_type_lifetime",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "safeRootsInitialTest",
+          "safeInitPublishReadTest",
+          "objectOnlyRelocateRefreshReadTest",
+          "typeOnlyRelocateRefreshReadTest",
+          "bothRelocateRefreshReadTest",
+          "legalReadThenRelocateTest",
+          "prematurePublishReadTest",
+          "missingObjectRootReadTest",
+          "missingTypeRootReadTest",
+          "overwriteReadTest",
+          "reuseReadTest",
+          "unknownPathTest"
+        ]
+      }
+    },
+    {
+      "id": "freeze-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/rc_freeze_publication.qnt"
+      }
+    },
+    {
+      "id": "freeze",
+      "capability": "quint.test",
+      "dependsOn": [
+        "freeze-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/rc_freeze_publication.qnt",
+        "parsed": "freeze-parse",
+        "main": "rc_freeze_publication",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "callbackCanParkThroughGCTest",
+          "nestedDeleteDrainsTest",
+          "finalWriterBeforeIssueTest",
+          "earlyPublicationControlTest",
+          "earlyRemovalControlTest",
+          "rawBorrowControlTest",
+          "writerControlTest",
+          "unknownWriterControlTest",
+          "staleGenerationControlTest",
+          "pinFreeControlTest",
+          "cleanupWaitCycleControlTest",
+          "selfDeleteWaitControlTest",
+          "lateManagedPayloadControlTest"
+        ]
+      }
+    },
+    {
+      "id": "cross-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/vm_registry_cross_vm_progress.qnt"
+      }
+    },
+    {
+      "id": "cross",
+      "capability": "quint.test",
+      "dependsOn": [
+        "cross-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/vm_registry_cross_vm_progress.qnt",
+        "parsed": "cross-parse",
+        "main": "vm_registry_cross_vm_progress",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "writerBypassControlTest",
+          "readerDrainTest",
+          "deferredReplayTest",
+          "replayDrainControlTest",
+          "replayLeaseDrainTest",
+          "earlyReclaimControlTest",
+          "withdrawalControlTest",
+          "postPublicationRetirementTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "life-parse",
+        "life",
+        "freeze-parse",
+        "freeze",
+        "cross-parse",
+        "cross"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-structure-freeze-progress/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

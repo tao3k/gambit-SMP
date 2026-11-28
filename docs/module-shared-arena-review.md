@@ -22,7 +22,7 @@ benefit is estimated and no runtime locking patch is selected.
 The initial attempt used an unsupported Quint `isEmpty` spelling and was denied
 at parse time. Its exact model/log archive remains under `shared-arena-syntax-denial`;
 it is not admitted. The corrected typed model and counterexamples are under
-`evidence/model-results/fixtures/checked-cleanup-retained-error/shared-arena/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/checked-cleanup-retained-error/shared-arena/`.
 
 The model is registered in the global Datalog bundle inventory. Previous actual
 consumer qualification remains historical at its exact 79-bundle input; adding

@@ -1,0 +1,27 @@
+direction: down
+classes: {
+  input: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  proposed: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+  gate: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+  runtime: {style.fill: "#E7F4E8"; style.stroke: "#397344"}
+}
+image: "S0 / S1: receive and validate ModuleImage\nStructural preflight + post-relocation facts\nABI / required-tail / frame / effect capabilities\nPlatform loading effects declared separately" {class: input}
+reject: "Reject before runtime binding\nUnknown cohort/capability or malformed image\nNo C0 compatibility shim or implicit fallback" {class: gate}
+image -> reject: "invalid"
+anchor: "S2: anchor attempt-owned resources\nImage code/maps versus VM-instance roots/state\nRegister well-formed roots before collection\nUse existing Gambit module/lifetime owner" {class: runtime}
+image -> anchor: "validated"
+materialize: "S3: materialize complete graph\nAlign labels / constants / descriptors\nResolve hosts, globals and point mappings\nNever enter a host with pc=0" {class: proposed}
+anchor -> materialize
+bound: "S4 / S5: bound then callable\nAll required module graphs fixed first\nPrimitive setup bindings and publication complete\nCallable for initialization is not fully initialized" {class: gate}
+materialize -> bound
+initialize: "S6: preserve initialization stages\nC init before generated global assignments\nKernel init_mod stage, then Scheme thunks\nRecord entered / completed / error separately" {class: proposed}
+bound -> initialize
+ready: "S7: ready for this VM instance\nCode and frame interpretation remain retained\nCurrent frames / captures / scanners / host consumers\nNo cross-VM ready reuse or new hot-unload policy" {class: runtime}
+initialize -> ready
+failed: "SF: failed-owned\nNo false-ready or automatic effectful replay\nNo generic rollback of intern/init effects\nKeep every reachable code/map/resource alive" {class: gate}
+anchor -> failed: "allocation / ownership failure"
+materialize -> failed: "partial fixup failure"
+initialize -> failed: "throw / failed stage"
+owner: "Cleanup and publication compose with existing owners\nActual roots + payload-specific publication + reader drainage\nAn active-host count of zero does not drain continuations\nSource/native mapping remains unresolved" {class: runtime}
+failed -> owner
+ready -> owner

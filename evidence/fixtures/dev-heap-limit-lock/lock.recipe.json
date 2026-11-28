@@ -1,0 +1,77 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-heap-limit-lock-order",
+  "scope": "Finite abstraction of heap-limit unlock-before-refusal; no live mutex, collective or runtime admission.",
+  "budgetSeconds": 60,
+  "inputs": [
+    "dev/refactoring/modern-c/models/quint/smp_heap_limit_lock_release.qnt",
+    "evidence/fixtures/dev-resume-limit-568e/source.lock.json",
+    "patches/fixtures/dev-resume-limit-568e.patch",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-heap-limit-lock/binding.json",
+    "evidence/fixtures/dev-heap-limit-lock/observations.json"
+  ],
+  "steps": [
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/smp_heap_limit_lock_release.qnt"
+      }
+    },
+    {
+      "id": "qnt",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/smp_heap_limit_lock_release.qnt",
+        "parsed": "parse",
+        "main": "smp_heap_limit_lock_release",
+        "seed": "0x51",
+        "maxSamples": 100,
+        "expectedTests": [
+          "invalidUnlockTest",
+          "validUnlockTest",
+          "fatalWhileHeldControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "parse",
+        "qnt"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-heap-limit-lock/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

@@ -24,7 +24,15 @@ class CompilerProbeTransportTests(unittest.TestCase):
         return compiler_probe_failure(self.receipt if receipt is None else receipt, path, file, mode)
 
     def test_actual_canonical_failure_projects_without_synthetic_results(self):
-        receipt = json.loads((ROOT / "evidence/model-results/native-compiler-cost-num-021-deny.json").read_text())
+        receipt = {
+            "schema": "gambit-compiler-cost.v1", "diagnosticOnly": True,
+            "status": "DENY", "sourceStable": True, "selection": "03-number/_num.scm",
+            "wholeProbeBudget": 90,
+            "stages": [
+                {"name": "scheme-to-c", "exit": 0, "timeout": False, "accepted": True},
+                {"name": "c-to-dynamic-module", "exit": -9, "timeout": True, "accepted": False},
+            ],
+        }
         self.assertNotIn("results", receipt)
         self.assertEqual("c-to-dynamic-module",
                          self.phase(receipt, file="03-number/_num.scm"))

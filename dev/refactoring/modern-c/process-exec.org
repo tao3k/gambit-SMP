@@ -1,0 +1,154 @@
+#+TITLE: Darwin child descriptor ownership and bounded validation cost
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: QUALIFYING | PUBLISHED
+#+PROPERTY: header-args :eval never
+
+* PUBLISHED Child descriptor closure :darwin:refactoring:audit:
+:PROPERTIES:
+:CUSTOM_ID: PROCESS-EXEC
+:AUTHORITY: GambitProcessExec
+:SOURCE: models/sysml/process-exec.sysml
+:AUDIT_NUMBER: 12.2.1
+:BASE: e6a80bcbd3c07e5b548759cbd924855a0e40ab6e
+:END:
+
+** Actual cost and source cause
+
+The unchanged default root-task Make recipe costs67.071s: compile10.802s,
+original task/continuation histories53.402s, RC writes2.635s, moving bank/globals
+0.157s. A temporary native Scheme clock probe retains every history and shrunk
+candidate, and restores source afterward:53.829s total, input file0.120s,
+=open-input-process=49.739s, result read2.944s, status0.148s, close0.002s.
+This observation is not a complete original Make pass or an uninstrumented speedup.
+
+Source: =os_io.c:___device_stream_setup_from_process= forks, performs cleanup,
+fd relocation/redirection, then calls =___closefrom=. =os_setup.c:___closefrom=
+falls back to =sysconf(_SC_OPEN_MAX)= and a close loop. The actual configured
+Darwin headers have no closefrom/close_range/F_CLOSEM route; OPEN_MAX1048575.
+The source work bound is limit minus retained low descriptors per admitted child.
+No syscall trace or blanket claim that every launch took that route is invented.
+
+** Responsibility replacement and semantic boundary
+
+Prepare opaque spawn attributes/actions in the parent before fork; allocation
+failure keeps the existing path. Keep the existing forked child and all signal,
+affinity, pipe relocation/redirection and errno-pipe preparation. In that child,
+check real stdio flags after relocation: closed or CLOEXEC stdio retain the old
+path. After the unchanged child chdir/environment handling, for explicit paths, =POSIX_SPAWN_SETEXEC= and
+=POSIX_SPAWN_CLOEXEC_DEFAULT= move descriptor closure to the kernel. Three stdio
+self-dup actions retain only the intended streams. Successful SETEXEC replaces
+the same PID and never returns. The existing parent EOF/error and registration
+protocol remains; no child is published twice and no new launcher is introduced.
+Failed SETEXEC falls through the original close/exec branch; no second child was
+created. Non-explicit PATH lookup, PTY and refused standard streams keep the old branch.
+Explicit cwd and environment semantics remain in the existing child; their
+resolved values precede SETEXEC. Arbitrary foreign interference is not admitted
+by pipe tests.
+
+Primary platform evidence:
+- [[https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exec.c][Apple XNU kern_exec.c]]: SETEXEC and file-action execution, failure handling,
+  PSFA_DUP2 and final inheritance marking.
+- [[https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_descrip.c][Apple XNU kern_descrip.c]]: fdt_exec closes non-inherited entries in the actual
+  descriptor table; file-action policy differs from a user loop up to OPEN_MAX.
+- [[https://github.com/apple-oss-distributions/Libc/blob/main/sys/posix_spawn.c][Apple Libc posix_spawnp source]]: distinguish libc PATH/shell policy from the
+  deliberately explicit-path posix_spawn operation selected here.
+- Local public SDK =spawn.h= / =sys/spawn.h= declare the operation and flags.
+  Public source is architectural evidence, not a binary version identity claim.
+
+** Conditional argument and falsifiers
+
+| Obligation | Source mechanism | Required actual counterexample/control |
+|------------+------------------+----------------------------------------|
+| Same child identity | Fork retained; SETEXEC never starts another child | process-pid equals child getpid |
+| Descriptor custody | Parent retains own fd; kernel excludes non-inherited child fds | Descriptor above FD_SETSIZE closed only in child |
+| Bytes and status | Existing output/error pipes and existing process status | All256 byte values on each stream, exact512 bytes and zero status |
+| Refusal preserves semantics | Child reads stdio flags; old path retained | Closed stdin and CLOEXEC stdin remain closed |
+| Alternate requests | Existing child cwd/env handling precedes SETEXEC; PATH/PTY stay original | Actual cwd/env and failed exec plus source order |
+| Error ownership | Existing CLOEXEC errno pipe, parent publication after EOF | Failed exec raises; unknown results never become success |
+| Test completeness | No history/GC/action/shrink removal or execution caching | Original complete GSI/Make and native replay/minimality markers |
+
+No new QNT or Lean model is added: the existing competing root histories and
+conditional root laws are different duties. Native SysML owns this exact boundary;
+ASCENT must refuse missing original consumers or unsupported whole-SMP claims.
+
+** Submission order and remaining work
+
+Submit this five-file source responsibility only after five gates. Then submit
+its exact default generated distribution separately, attached to the producing
+source. Do not hand-edit generated C, rename official commands, reduce fd limits,
+raise heaps/timeouts, add PBT concurrency or cache native execution. The13-item
+programme stays at item3, ROOTS4 scoped-closed/2 open, SMP12 independently1/11.
+Pending prototypes keep their existing15-unit dependency plan; generated outputs
+may retire only through their actual qualified producer.
+
+** Rejected intermediate observations
+
+The first candidate incorrectly required a NULL directory. Source caller closure
+shows =##open-process-generic= always supplies =##current-directory= when omitted;
+that condition did not cover the measured PBT chain. Its bootstrap202.562s is not
+a speedup qualification. The corrected boundary preserves actual child chdir/env
+handling before kernel closure. PTY remains excluded. An initial fixture syntax
+error and a closed-stdin observer failure are retained; runtime startup can open
+fd0 again, so final controls observe stdin at native module construction before
+Gambit initialization. No failed observation is promoted to a final pass.
+
+** Quantitative mechanism and cost boundary
+
+Let L be the configured open-fd upper bound and E the retained errno fd. The
+legacy upper-range loop attempts max(0,L-max(E,2)-1) closes, plus the unchanged
+low-range exclusions. Kernel default closure uses the actual descriptor-table
+extent, not a claim of O(number-of-open-fds) or O(1) total exec. The admitted
+branch adds one attribute-object/action-list lifecycle, three self-dup actions,
+three child F_GETFD checks and one SETEXEC attempt. Fork count and Scheme heap
+limits are unchanged; native allocation/reallocation and kernel copy cost remain.
+No positive speedup at every smaller fd limit, RSS or whole-bootstrap causal
+attribution is claimed from a single cohort timing.
+
+The current Apple libsyscall [[https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/spawn/posix_spawn.c][posix_spawn wrapper]] assembles a stack descriptor
+for already prepared attributes/actions and calls the kernel; its parent-side
+init/destroy routines allocate/free storage. Optional internal spawn filtering
+is a separate platform capability: public source says its hooks are normally
+NULL on customer systems. This source audit does not certify arbitrary injected
+hooks, private Apple builds or exact binary/source version identity.
+
+The public Scheme process API forces a bidirectional process device, and default
+stdin redirection can replace an otherwise closed parent fd0. Closed/CLOEXEC
+controls explicitly disable stdin redirection and use a child-only environment
+marker for an early native constructor to emit fd state and PID before Gambit
+initialization. They do not infer exec-time fd state from a later Scheme view.
+The marker is test-local, not a runtime profile or new launcher. All byte values
+are read through the existing API with its supported ISO-8859-1 setting.
+
+** Qualified results and benefit matrix
+
+[[file:../../../evidence/research/retained/modern-c/process-exec/receipt.json][The source-bound receipt]] retains both modes, the full408-test inventory,
+actual commands, phases, artifact identities, negative controls and earlier failures.
+[[file:../../../evidence/research/retained/modern-c/process-exec/source.json][The five-file source cut]] and
+[[file:../../../evidence/research/retained/modern-c/process-exec/source-custody.json][prior prototype versions]] keep audit and restoration independent of task cache.
+
+| Observation | Before | Qualified result | Meaning / remaining cost |
+|-------------+--------+------------------+--------------------------|
+| Existing default root target | 67.071s | 11.467s | Same recipe plus descriptor contract; one cohort, not statistical throughput |
+| Original task/continuation histories | 53.402s | 4.129s | Byte-identical stdout; every fresh child/history/replay/shrink retained |
+| RC-write histories | 2.635s | 0.257s | Byte-identical stdout, no sample reduction |
+| Default bootstrap / stock core | Not a matched baseline | 187.516s /12.026s | Real production source; later test-only changes reuse generation with exact identity, actual refined core recorded |
+| Default original consumers | Earlier120s Make timeout | GSI408/40831.017s; remaining Make59.299s | Fixed300s/120s gates complete, not whole-SMP admission |
+| SMP bootstrap / stock core | Not a matched baseline | 287.734s /27.035s | Two actual phase1--4 passes, same persistent workspace/profile |
+| SMP original consumers | Earlier support held | GSI408/40813.333s; remaining Make41.951s | Nonzero RC/bank owner, map multi-shot/GC, mutex and descriptor cases included |
+| Native support | OPEN_MAX-bounded close attempts per admitted launch | One opaque attr/action lifecycle,3 self-dup actions,3 F_GETFD checks | Kernel table-extent closure and metadata allocation remain; no measured RSS/peak claim |
+| Models | No extra temporal/theorem model | Native SysML23 inputs/11 ordered source anchors; ASCENT28 negative controls | Existing QNT/Lean unchanged/not rerun; source review and native evidence have distinct duties |
+
+The source selected for both complete consumers is a36bbf132e77c838aaf405ad3cf6b693059f1c3b.
+Default producing source ed9804d2 differs only in later test observations; its
+production C, generator/configuration and emitted cohort identities are retained,
+not inferred from timestamps. Failed exec is observed as a raised Scheme
+exception, not an exact errno-class native qualification. PTY/PATH fallback,
+arbitrary injected hooks and every historical kernel remain outside this admission.
+No old failure or remote CI state is relabeled green.
+
+** Publication
+
+[[file:process-exec-result.org][Published REV and current remaining boundaries]]; frozen pre-commit source/model/audit
+snapshots remain in the corresponding publication packet. Current prose does not
+rewrite the historical admission hashes.

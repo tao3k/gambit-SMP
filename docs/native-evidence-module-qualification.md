@@ -144,8 +144,8 @@ DSL asset contract; this record does not claim a Recipe-level module selector.
 Fresh Agent context graphs were not generated during concurrent research drift.
 
 The global research Catalog has a separate launch blocker:
-`evidence/research/retired-memory-owned-transfer/source-core.recipe.json`
-includes an archived producer observation under `evidence/source-results/` as
+`.cache/research/legacy-evidence/evidence/research/retired-memory-owned-transfer/source-core.recipe.json`
+includes an archived producer observation under `.cache/research/legacy-evidence/evidence/source-results/` as
 an input. Recipe discovery rejects it before any native execution. The earlier
 `kernel-vm-log-evidence-026.log` and `kernel-sync-evidence-026.log` exit-2 records
 remain DENY. This unowned asset needs repair by its working session; neither

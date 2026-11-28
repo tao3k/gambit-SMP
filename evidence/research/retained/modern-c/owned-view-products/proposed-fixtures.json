@@ -1,0 +1,14 @@
+{
+  "base": "e6a80bcbd3c07e5b548759cbd924855a0e40ab6e",
+  "candidateTree": "9ef70ea039349e535fd0cb0ae38bc59eaf218aa7",
+  "published": false,
+  "paths": [
+    "tests/mutex-suspension.scm",
+    "tests/rc-root-origin.scm",
+    "tests/root-task.scm"
+  ],
+  "diff": "diff --git a/tests/mutex-suspension.scm b/tests/mutex-suspension.scm\nindex e13b706e..74f6ef0f 100644\n--- a/tests/mutex-suspension.scm\n+++ b/tests/mutex-suspension.scm\n@@ -11,10 +11,22 @@\n \n (define (slow-lock mutex timeout owner)\n   (##declare (not interrupts-enabled))\n-  (##check-heap-limit)\n-  (##primitive-lock! mutex 1 9)\n-  (if owner (##primitive-lock! owner 1 9))\n-  (##mutex-lock-out-of-line! mutex timeout owner))\n+  ;; Only the SMP implementation has this three-argument private protocol.\n+  ;; The single-context build checks the same decisions through its public\n+  ;; interface; it does not qualify the SMP slow-path ownership change.\n+  (if (##c-code \"\n+#ifdef ___SINGLE_THREADED_VMS\n+___RESULT = ___TRU;\n+#else\n+___RESULT = ___FAL;\n+#endif\n+\")\n+      (mutex-lock! mutex timeout owner)\n+      (begin\n+        (##check-heap-limit)\n+        (##primitive-lock! mutex 1 9)\n+        (if owner (##primitive-lock! owner 1 9))\n+        (##mutex-lock-out-of-line! mutex timeout owner))))\n \n (define (await-mutex thread mutex)\n   (let loop ()\ndiff --git a/tests/rc-root-origin.scm b/tests/rc-root-origin.scm\nindex 1e31ab9a..d4571d66 100644\n--- a/tests/rc-root-origin.scm\n+++ b/tests/rc-root-origin.scm\n@@ -127,9 +127,12 @@ c-end\n \n (define (on-owner owner thunk)\n   (let ((thread (make-thread thunk)))\n-    (##thread-pin! thread (##processor owner))\n+    (if (> (##current-vm-processor-count) 1)\n+        (##thread-pin! thread (##processor owner)))\n     (thread-start! thread) (thread-join! thread)))\n-(##thread-pin! (current-thread) (##processor 0))\n+;; A single execution context has no affinity choice or SMP pin primitive.\n+(if (> (##current-vm-processor-count) 1)\n+    (##thread-pin! (current-thread) (##processor 0)))\n (thread-yield!)\n (define rc-initial-members (##current-vm-processor-count))\n (for-each\ndiff --git a/tests/root-task.scm b/tests/root-task.scm\nindex b35a2df9..82128460 100644\n--- a/tests/root-task.scm\n+++ b/tests/root-task.scm\n@@ -1405,7 +1405,8 @@ c-end\n                         (error \"bank moving root lost\" owner)))\n                   (write (list 'BANK-ROOT-MOVING-PASS 'owner owner)) (newline))\n                 bank-clear)))))\n-       (##thread-pin! thread (##processor owner))\n+       (if (> (##current-vm-processor-count) 1)\n+           (##thread-pin! thread (##processor owner)))\n        (thread-start! thread) (thread-join! thread)))\n    (if (> (##current-vm-processor-count) 1) '(0 1) '(0))))\n \n",
+  "canonicalSchemaChanged": false,
+  "assertionsRemoved": 0,
+  "historyCountsReduced": false
+}

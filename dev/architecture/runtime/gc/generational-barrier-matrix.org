@@ -1,0 +1,63 @@
+#+TITLE: Generational barrier writer and capability matrices
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: gc
+#+PROPERTY: header-args :eval never :exports code
+
+* RESEARCH Native-derived writer contracts
+:PROPERTIES:
+:CUSTOM_ID: barrier-writer-matrix
+:AUTHORITY: GambitGenerationalBarrier
+:EVIDENCE_CLASS: native-evaluated-projection
+:END:
+
+This is a view of models/sysml/generational-barrier.sysml. Edit the native model, then regenerate; rows are not source-closure proofs.
+
+#+NAME: barrier-actual-writers
+| Family | Current source anchors | Actual selected chain | Target store contract | Boundary |
+|---+---+---+---+---|
+| FRAME | _kernel.scm:3439-3558; _io.scm:11706-11727 | reader frame dispatch -> implode-frame -> make-frame -> frame-set; continuation-set has heap and stack branches | Mature heap slot: MutateStore/range card; active stack slot: root/frame write permit | Interrupt masking is not no-GC proof; frame-link structural edits require FrameSpec validity |
+| SHELL | _kernel.scm:3154-3162,3595-3727; gambit.h.in:5908-5931; _t-c-2.scm:4263-4273 | frame/denv setters; make/copy shell and continuation-next cursor update | InitStore before safe publication or ordinary mature MutateStore; preserve shared aliases | Shallow shell copy does not duplicate reachable mutable Scheme state |
+| SMP-DENV | _thread.scm:340-565; _thread#.scm:735-886; _gambit#.scm:638-643 | dynamic-ref cache2/cache3/miss -> cache writes; dynamic-set -> pair cdr/default/cache; dynamic-let -> persistent env construction | Thread/denv/vector/pair managed stores; proven private young init may elide | SMP env-insert! is reader-commented; cache1 hit alone is not the whole lookup path |
+| OTHER-DENV | _thread.scm:9-44,5351-5368,5654-5874; _thread#.scm:2990-3039 | Conditional non-SMP dynamic lookup/set/let and active destructive env insertion | Profile-specific generic field/pair/card writes | Source branch inventory only; configured/loaded selection not executed |
+| CONTROL | _kernel.scm:1354-1378,1115-1346; gambit.h.in:6314-6330,6377-6387,6654-6665,6716-6736 | dynamic-env-bind install/restore; scheduler save/restore; graft/return denv and cache assignments | Managed thread/shell stores plus exact active-root handoff; collector/control relocation authority distinct | Current thread being active does not imply its managed object is young; nonlocal exits need winding cleanup |
+| DECODE | _io.scm:11756-11824,12726-12845,12883-12908,13729-13798 | reader deserialization and delayed closure/list/vector fixups -> real setters | BulkWrite/MutateStore after rooted valid initialization; all touched card and pointer-slot ranges | General cyclic/forward frame repair is not established; do not invent a frame fixup callback |
+| GENERIC | gambit.h.in:5328-5329,5482-5485,6764-6771; _t-c-2.scm:3356-3365 | pair/vector/global writes and vector CAS; inactive SSB reservation hook | Premark before store/CAS; failed CAS may leave harmless dirty card; globals are roots | Successful-CAS-only logging needs separate race proof; unused hook is not an active barrier |
+| FFI-ROOT | mem.c:703-829,3969-3986; os_dyn.c:744-795; examples/tcltk/tcltk.scm:125-195,288-342 | RC allocation/register/data write; dynamic C closure and Tcl ClientData producers/readers/delete | RootRegistry RootWrite and final-value freeze; C writes into managed payload require validated owner/range barrier | Raw RC data is not a heap card; unknown native aliases/threads cannot be repaired just by scanning cards |
+| FFI-ENTRY | c_intf.c:6511-6562; setup.c:3275-3422; gambit.h.in:10040-10138,10325-10480 | SFUN and run marker allocation; CFUN conversions/writeback/reentry and cleanup | Protected handles before declared allocating points; barrier primitive cannot call back; reacquire/reload after GC | Existing cumulative patch protects some paths; full generated/embedded C and nonlocal exit closure remains open |
+| COLLECTOR | mem.c:3490-3665,3667-3966,4210-4245 | forwarding CAS before payload copy; captured-stack expansion; chunk publication and tail scan | Collector-exclusive relocation and explicit initialization/scan custody, not a recursive mutator barrier | Root redirection may precede copy completion; payload consumption and phase completion may not |
+
+* RESEARCH Capability amplification and net-benefit conditions
+:PROPERTIES:
+:CUSTOM_ID: barrier-amplification-matrix
+:AUTHORITY: GambitGenerationalBarrier
+:END:
+
+#+NAME: barrier-capability-amplification
+| Capability | Mechanism | Removable work | Added work | Positive condition | Falsifier |
+|---+---+---+---+---+---|
+| Scheme semantic leverage | Generator carries source-age/value/escape and checkpoint evidence into semantic stores | E proved-unnecessary generational barrier operations out of W pointer stores | Analysis/contract validation and remaining W-E barriers; major barriers separate | Elision receipt valid for actual source/value and publication lifetime | Captured alias, callback escape or allocating constructor invalidates young/private premise |
+| Reusable multi-shot continuations | FrameSpec scan ranges plus all frame/denv writes recorded | Repeated scan/copy of unchanged mature captured frames across eligible minor epochs | Dirty frame/card ranges, alias rewrites, active roots and activation work | Every setter/decoder/FFI/control writer covered; sharing and eq? identity retained | One omitted mature write or structural frame edit invalidates skip |
+| Tail-call and high-order execution | Semantic call/checkpoint plan separates poll/allocation from noncollecting stores | Hidden GC/root-spill path from a barrier; redundant barriers only when proved | Explicit poll latency bound, roots at declared safepoints and mandatory stores | Finite barrier region and correct allocation/poll placement; tail-call semantics retained | Unbounded no-poll tail loop, callback in barrier, or hidden log allocation |
+| C-friendly multicore embedding | RootRegistry park/reload plus fixed-size card metadata and no surprise store safepoint | Repeated whole-mature scan when complete dirty precision is available | Atomic card operations, writer acknowledgements, root scan and rejected raw escapes | All native writers enrolled; DRF/atomic field access and VM binding specified | Unmediated C store or copying an unsafe volatile pattern from another runtime |
+| Overflow without lost coverage | Durable cards plus bounded context hints; sticky overflow selects bitmap walk | On normal epochs enumeration of all C card entries; no per-store log growth | Hint appends, duplicate filtering, overflow O(C) metadata walk plus dirty-range scan | Every relevant write marks card; snapshot has complete per-context overflow/hints | Lost dirty bit, concurrent reset or missing range/region identity |
+| Parallel promotion with custody | No-fail reserve before forwarding and explicit partial-copy owner | Whole-epoch restart/duplicate canonical copying can be avoided under the contract | Worst-case destination/task reserve, worker slack and failure retention | Physical reservation bound covers layout expansion, stack capture and all simultaneous claims | Reserve covers only likely survivors; premature refund or discarded initialization task |
+
+[[file:generational-barrier-design.org][Source argument, failure custody, mathematical scopes and cost units]]. No native performance result or staffing estimate is encoded.
+
+* Native diagram edge meanings
+#+NAME: barrier-diagram-edges
+| Source | Consumer | Full contract |
+|---+---+---|
+| semantic | writeOp | generated semantic contract |
+| writeOp | cards | premark before heap write |
+| writeOp | hints | optional acceleration |
+| cards | cut | overflow: enumerate dirty-card metadata |
+| hints | cut | normal: deduplicate hinted cards |
+| cut | capacity | no unfinished mutator store |
+| capacity | pendingCopy | all required capacity reserved |
+| capacity | retry | reject before any forwarding |
+| pendingCopy | readyCopy | initialize before payload read |
+| pendingCopy | quarantine | no rollback or mutator resume |
+| readyCopy | complete | all root/field aliases updated |
+| complete | writeOp | next epoch |
+| retry | writeOp | safe checkpoint retry / error |

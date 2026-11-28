@@ -1,0 +1,287 @@
+#+TITLE: T0 Execution, Participation and Collector Work Contracts
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+#+PROPERTY: COLUMNS %ITEM %OWNER %STATUS %REFINEMENT_STATUS
+
+* RESEARCH Three authorizations over a shared VM :t0:modern_c:
+:PROPERTIES:
+:ID: 05f318e0-2793-4a97-970a-3a7d581b4fa2
+:CUSTOM_ID: t0-role-contracts
+:OWNER: execution, GC and shared-interface owners
+:AUTHORITY: GambitRuntime; GambitGc; GambitRuntimeRoles
+:STATUS: target-contracts-native-structure-checked-refinement-open
+:REFINEMENT_STATUS: source-to-target-simulation-open
+:EVIDENCE_CLASS: source-driven-refactoring-design
+:DEPENDS_ON: ROOT-HANDOFF; CONTROL-ORIGIN; RETIRE-WINDOW; GC-WORK-CLOSURE
+:END:
+
+This is part of the [[file:../../../refactoring/modern-c/t0-foundation-design.org][modern C T0 redesign]]. Existing root QNT/Lean remain the
+unique formal sources, with their original scopes. DEV owns the target roles,
+shared contracts and replacement obligations. This study adds no runtime,
+collector, scheduler or contract-generator implementation and no native test.
+
+[[file:../execution/models/sysml/architecture.sysml][Execution]] owns ContextIdentity and ExecutionGrant. [[file:../gc/models/sysml/architecture.sysml][GC]] owns CollectorWorkContext.
+[[file:models/sysml/role-contracts.sysml][The shared interface]] owns EpochParticipant, RoleHandoff and native reference
+bindings to the existing formal registry. [[file:diagrams/role-contracts.svg][Its D2 view]] is produced by ~sysml~
+from actual parts/connections, without a Python graph builder. Its edges denote
+shared obligations, not message order, automatic scheduling or a checked proof.
+
+** The selected source chain already includes parallel collection
+Gambit has processor-cooperative collection, chunk stealing and phase termination.
+The modernization problem is their ownership and lifecycle coupling. It would be
+incorrect to describe current Gambit as having no parallel collector or to count
+its existing mechanisms as newly created benefits.
+
+#+NAME: t0-role-source-chain
+| Source / actual consumer | Current responsibility | Target decision and evidence boundary |
+|---+---+---|
+| [[file:../../../../vendor/gambit/include/gambit.h.in::11607][gambit.h.in:11607–11727 processor state]] | Stack, heap pointer, GVM registers, saved roots, OS thread, memory and synchronization state share PSTATE | Separate logical ownership; no mandatory allocation or physical indirection per role |
+| [[file:../../../../vendor/gambit/lib/_thread.scm::2825][_thread.scm:2825–2847 scheduler]] | A locked runnable Scheme thread is restored and its execution resumed | Scheme-thread identity, execution context, processor slot and OS thread are distinct; no one-to-one mapping is assumed |
+| [[file:../../../../vendor/gambit/lib/_kernel.scm::1428][_kernel.scm:1428–1446 sync interrupt]] | Stores RA, performs W_ALL, services collective work, performs R_ALL and restores RA | Retain existing flush/reload work; qualify its generalization to every admitted entry and wait |
+| [[file:../../../../vendor/gambit/lib/setup.c::1141][setup.c:1141–1202 request entrance]] | GC raises a VM interrupt and enters the shared operation loop | Publish an epoch-scoped request and complete participant census; a pending interrupt is not an acknowledgement |
+| [[file:../../../../vendor/gambit/lib/setup.c::471][setup.c:471–642 combining/barrier]] | Tree over processor_count; GC requests combine by addition and operation priority selects work | Preserve request identity, still-word aggregation and exactly which requests a common result completes |
+| [[file:../../../../vendor/gambit/lib/setup.c::1013][setup.c:1013–1110 dispatcher/loop]] | Both resize and GC execute through PSTATE; winner/combined operations deliver local results | Replace with explicit admission/completion protocol, not only new structure names |
+| [[file:../../../../vendor/gambit/lib/mem.c::276][mem.c:276–311 access macros]] | Allocation, private cursor, chunk FIFO, RC and weak lists are selected through PSTATE | Classify each field as context storage, root ownership, work custody or VM coordination before moving it |
+| [[file:../../../../vendor/gambit/lib/mem.c::6830][mem.c:6830–6870 strong roots]] | Processor zero visits VM/symbol/RC roots; participants visit continuation/register/saved/cache/processor roots | Establish an owner-indexed root census; worker identity cannot decide root ownership |
+| [[file:../../../../vendor/gambit/lib/mem.c::3260][mem.c:3260–3307 chunk publication]] and [[file:../../../../vendor/gambit/lib/mem.c::4321][4321–4385 dequeue/scan]] | Complete chunks are published with ordering; dequeue moves the head before scanning | Accepted work and its copy/frontier/Tail debt survive queue removal and worker reassignment |
+| [[file:../../../../vendor/gambit/lib/mem.c::6667][mem.c:6667–6770 scan workers]] | Scans local work, steals, then decrements a VM phase worker count under a mutex | Reuse the existing parallel work; prove any new work-count mapping and withdrawal protocol |
+| [[file:../../../../vendor/gambit/lib/mem.c::6938][mem.c:6938–7080 GC boundary]] | Imports fp/hp, runs phased barriers, processor-zero resize and local allocation preparation | Keep root participants, worker team, common capacity result and context reload separately scoped |
+| [[file:../../../../vendor/gambit/lib/setup.c::870][setup.c:870–1010 resize]] | May collect, set processor count, clean/exit or join/start processors | Worker-pool changes must not silently remove root participants or release context storage |
+| [[file:../../../../vendor/gambit/lib/mem.c::4410][mem.c:4410–4440 foreign cleanup]] | Still-object cleanup can invoke a foreign release procedure | A collector task grant does not authorize every native destructor on that worker |
+
+This closes a selected request/dispatch/root/work/result source slice, not the
+universe of dynamically loaded C writers, callbacks, platform waits or all
+possible collector producers. Current source coupling alone is not a reproduced
+race or evidence that every supported SMP configuration fails.
+
+* RESEARCH Ownership and mathematical domains
+:PROPERTIES:
+:CUSTOM_ID: t0-role-ownership
+:END:
+
+#+NAME: t0-role-ownership-matrix
+| Role | Owns / guarantees | Does not authorize | Important identity |
+|---+---+---+---|
+| Execution context and grant | Coherent GVM/control state and exclusive managed entry; park/reentry and relocated-root reload | Scanning because its thread blocked; reclaim because TLS was cleared | VM incarnation, context incarnation, owner-thread incarnation, grant serial |
+| Epoch participant | A declared contribution to a sealed collection census; stable locations and final-value handoff or a separately admitted inactive contribution | Scheme execution; arbitrary heap scanning; removing another contribution | VM incarnation, participant incarnation, membership generation, request/root epoch, carrier generation |
+| Collector work context | Phase/team-scoped task, copy initialization, private cursor, Tail and dequeued work custody | Running Scheme, migrating a native callback or invoking arbitrary foreign cleanup | VM incarnation, request/phase/round, team identity/generation, worker incarnation and accepted task |
+| Coordinator | Membership cut, producer closure, accepted request set, common completion/capacity and resource-specific drain | Treating worker count as the participant census | Request/result identity and the exact cohort it completes |
+
+Let E be context incarnations, P(e,g) the participant set admitted for request e
+and membership generation g, and W(e,p,r) the worker team for phase p and round r.
+There is no requirement that their cardinalities are equal. A VM/global root
+contribution is not a suspended Scheme context; a parked foreign root contributor
+need not be an available worker. One OS thread may execute different roles in
+sequence, but each transition must hold the appropriate authorization.
+
+~owner : E ⇀ Grant~ must be a partial function. ExclusiveContextGrantLaw is a
+pairwise necessary condition: duplicated references to the same grant are allowed;
+distinct live owners of one context incarnation are not. A global theorem also
+needs the complete grant inventory and serialized acquire/revoke transitions.
+A pair of arbitrary records does not establish that theorem.
+
+For every required live root location there must be a supported contribution and
+an admitted scanner update/reload path. This is coverage, not a claim that every
+contribution has disjoint slots. Aliases, current/saved/heap continuation origins,
+denv, RC payloads and external roots retain their own writer and lifetime duties.
+Incarnations are logical identities, not unbounded native counters: integer width,
+wrap/ABA exclusion and storage reuse still need a concrete C refinement.
+
+WorkContextDomainLaw also matches the worker's scope against the coordinator's
+active root cut, phase, round, producer generation and team. Matching a collection
+epoch alone cannot admit delayed strong-phase work during a later weak round.
+The coordinator reference must be an authoritative coherent snapshot, not another
+worker-local cached record; its publication and grant revocation remain C/QNT
+refinement duties. CollectorWorkContext currently scopes strong/weak scan and
+copy work; legal cleanup delivery remains a separate phase/service obligation.
+
+* RESEARCH Shared protocol, custody and error delivery
+:PROPERTIES:
+:CUSTOM_ID: t0-role-protocol
+:END:
+
+#+NAME: t0-role-protocol-cuts
+| Cut | Required before crossing | Responsibility after crossing / failure |
+|---+---+---|
+| Admit request and member | Stable VM/member incarnation; enrollment serialized with the membership cut; accepted request inputs known | Coordinator retains unknown or losing request dispositions; no completion inferred from a higher-priority operation |
+| Freeze context contribution | Final root stores and complete writer/location census; exclude further managed aliases/mutation | Execution rights cease before scan; participant and carrier keep final values and metadata alive |
+| Publish acknowledgement | Match request, membership, participant incarnation, carrier generation and acknowledged final-value version | A published owner pointer or equal value by accident is insufficient; release/acquire or collective ordering must be established |
+| Grant scan | Sealed membership, matching active VM/phase/team, task/descriptor leases, established scanner acquire | Scanner owns accepted work; no dependence on worker ID equalling the originating processor |
+| Transfer work / withdraw | Accept complete copy/frontier/Tail/dequeued-chunk state and phase debt before releasing sender custody | Rejected or unknown transfer retains sender responsibility; a forwarding identity does not settle initialization debt |
+| Complete collection | All required root contributions, producers and private/queued/claimed/descendant/weak/cleanup duties closed | Publish one coherent result and capacity/accounting view for the accepted request cohort |
+| Resume managed context | Coherent committed relocation, scanner/writer drain, accepted result, live exclusive grant, reload and pending-request reconciliation | Capacity failure may be delivered as a Scheme error after coherent GC; it is not permission to resume through unknown layout state |
+| Remove participant / release storage | Close ingress; settle required epoch or commit replacement membership/root custodian; drain readers | Participant removal, work-grant release, OS-thread join and backing reclamation remain separate events |
+
+RoleResumeLaw deliberately does not require ~capacitySatisfied~. The source GC
+can complete relocation yet report insufficient requested capacity. Conflating
+capacity success with coherent root state would suppress legal error delivery.
+Rollback after partial relocation, cancelled collection and unknown completion
+remain separate open protocols; no resume is granted merely to force progress.
+
+The eight new necessary laws must be used together with the existing root,
+control, phase-closure and target-reclaim laws. Defining a requirement neither
+asserts it satisfied nor makes its booleans trustworthy. In particular, native
+locks/atomics must establish both descriptor publication and final-value handoff.
+Existing W_ALL/R_ALL, queue barriers and synchronization must be reused or replaced
+under a correspondence proof, not charged again as automatically new fences.
+
+The participant model admits VM and foreign contributions without inventing a
+dummy executing context. A blocked native call is eligible only after its actual
+roots and aliases are governed. Nested callbacks reacquire execution separately;
+they cannot reuse a parked parent's authorization. Native stack, dynamic-wind,
+continuation and destructor-thread restrictions are not relaxed by worker migration.
+
+** Source-specific open root and cleanup duties
+RC registration uses the selected PSTATE chain at [[file:../../../../vendor/gambit/lib/mem.c::723][mem.c:723–738]], mark_rc traverses
+that chain at [[file:../../../../vendor/gambit/lib/mem.c::3969][3969–3990]], and the common-root branch calls it for processor zero.
+The target must close actual registration owners and every admitted chain; these
+lines alone do not prove a currently reachable nonzero-owner failure. Neither
+zero workers nor an empty queue proves that RC/root carriers may be reclaimed.
+
+The marker allocation TODO at [[file:../../../../vendor/gambit/lib/c_intf.c::6511][c_intf.c:6511–6547]] remains a real source obligation:
+protect managed input before allocation, retain nested invocation bindings and
+deliver exception cleanup under the correct native owner. An independent collector
+cannot fix that by taking over an unprotected pointer. Foreign release admission
+must reuse the existing release-coordination research and actual callback census.
+
+* RESEARCH Formal reuse and ASCENT association boundary
+:PROPERTIES:
+:CUSTOM_ID: t0-role-refinement
+:END:
+
+RoleContractGraph contains reference parts bound directly to the four records in
+[[file:models/sysml/model-relations.sysml][the existing ContractBinding registry]]. Native ~sysml -e~ resolves their IDs,
+selected QNT/Lean paths and scoped status. The argument below adds target duties;
+it does not copy the paths/statuses into a second authoritative model registry.
+
+#+NAME: t0-role-formal-obligations
+| Existing binding | Actual reusable scope | Target refinement still required |
+|---+---+---|
+| ROOT-HANDOFF | Frozen final-value handoff, scanner eligibility and conditional relocation algebra | All real contributors/writers, native acquire/release, nesting, incarnation and complete membership |
+| CONTROL-ORIGIN | Current/saved origin and last-raw-use conditions; historical report covers Lean companion, not the selected QNT input | Actual scheduling/capture/restore, multi-shot and all raw origin inventory |
+| RETIRE-WINDOW | Producer/queue/strong/weak/cleanup and final-use conditions under its stated premises | Membership/worker withdrawal, platform joins and actual backing reuse |
+| GC-WORK-CLOSURE | Registry selects CollectionContract.qnt plus WorkAccounting.lean; no admitted scoped validation report | Concrete tasks/fragments/leases, all producers, phase/team completion and C memory ordering |
+
+The separate gc_work_closure.qnt is supporting bounded work/phase research, not
+the primary selected QNT of GC-WORK-CLOSURE. Its two workers are not a proof that
+the real worker set equals the participant set. Preserve the withdrawn direct
+terminal-reopen trace classification: current guards exclude that trace; the
+remaining gap is source producer/phase/permit refinement.
+
+#+NAME: t0-role-new-law-matrix
+| New necessary law | Proposed owning QNT obligation | Required Lean relation / missing premise |
+|---+---+---|
+| ContextGrantLaw | admit/park/reconcile/reenter with distinct context/grant incarnations | Coherent GVM root/control image and native checkpoint correspondence |
+| ExclusiveContextGrantLaw | serialized acquire/revoke, duplicate reads, nested callback | Partial-function owner map; complete inventory, no ABA and source lock/atomic refinement |
+| WorkContextDomainLaw | accepted task under active VM/phase/round/team | Scope-preserving task projection; queue publication and scan-read readiness |
+| WorkCustodyReleaseLaw | accept/reject/unknown migration with copy/frontier/Tail/dequeued debt | Exactly retained sender or committed receiver custody; layout and phase-accounting conservation |
+| ParticipantAcknowledgementLaw | register/freeze/final-store/ack/seal under incarnation and membership change | Complete root/writer census, final value observation and native ordering |
+| ParticipantRemovalLaw | close/replace/settle/drain with late scan or callback | Removal preserves coverage; actual last-reader and storage lifetime |
+| RoleScanHandoffLaw | context participant versus VM/foreign contributor; independent worker selection | All acknowledgement/work laws conjoined; root/frame/metadata and scanner grant correspondence |
+| RoleResumeLaw | common completion, capacity error, pending next request and reentry | Reload/alias invalidation and coherent error delivery; no unknown-layout resume |
+
+These are planned states/steps and theorem obligations, not new authored QNT
+actions or checked Lean theorems. A future target model must relate initial
+states, every real step/stutter and complete failure histories. Progress needs
+fairness, enabled work and finite retained-resource assumptions separately.
+
+ASCENT joins the four native-resolved QNT/Lean pairs to the unchanged existing
+component association hypotheses under their exact source/bundle identity. A
+small JSON/record transport carries native values; it evaluates no model rules.
+The target-model and native-output digests are explicit caller-verified bindings,
+not tool-attested proof observations. The fine-grained FL adapter remains OPEN.
+ASCENT cannot turn a source association, historical theorem or structural pass
+into collector correctness, native acceptance or an LLM execution permission.
+
+* RESEARCH Counterexamples and closure status
+:PROPERTIES:
+:CUSTOM_ID: t0-role-counterexamples
+:END:
+
+#+NAME: t0-role-counterexample-matrix
+| Sketch | Failure | Required closure / current status |
+|---+---+---|
+| A root record publishes, host changes the payload, scanner reads old/final value inconsistently | Registration is mistaken for participation | Final handoff and acquire; existing bounded root research supports the distinction, full native mapping OPEN |
+| A processor slot is reused while its old acknowledgement is retained | Equal numeric IDs/epoch admit another incarnation | VM/participant/carrier generations and no-ABA discipline; target/native refinement OPEN |
+| A waiting OS thread still has an ungoverned managed alias or reenters Scheme | Blocking is mistaken for stopped mutation | Writer/alias closure and fresh execution admission; caller census OPEN |
+| A worker leaves after a chunk has been dequeued or forwarding published, with unfinished copy/Tail debt | Queue-empty becomes false completion and ownership disappears | Accepted complete restore state before sender release; source-to-QNT refinement OPEN |
+| Resize changes processor_count and destroys a synchronization object while an epoch reader still uses it | Worker, member and storage lifetime are equated | Separate membership cuts, worker withdrawal and resource-specific drain; platform refinement OPEN |
+| A late request arrives after relocation, while a stale result authorizes reentry | Equal old loaded/result epochs miss the active request | Current request reconciliation and serialized resume admission; progress/refinement OPEN |
+| Delayed strong-phase work still has the current collection epoch during a weak round | Collection-epoch equality hides an obsolete phase/team grant | Match the authoritative root cut, phase, round, producer generation and team; native revocation/refinement OPEN |
+| GC relocates successfully but requested capacity is unavailable | A success-only resume rule loses supported Scheme error delivery | Separate coherent relocation and capacity result; error/continuation proof OPEN |
+| A worker invokes foreign cleanup with native-thread affinity or a nonlocal exit | Task grant is mistaken for host execution ownership | ReleaseCoordinator/host boundary qualification; actual foreign producer closure OPEN |
+
+These are classified design histories, not newly executed counterexamples or
+native reproductions. Structural reference resolution is checked; all eight
+new source-to-target refinement obligations remain OPEN.
+
+* RESEARCH Net benefit and incremental cost
+:PROPERTIES:
+:CUSTOM_ID: t0-role-benefit-matrix
+:END:
+
+For matched semantic work let T0 be current runtime cost. The theoretical target
+delta is new grant/registry/handoff/drain and changed contention cost minus
+provably removed coordination, repeated policy work and avoidable waiting.
+Positive gain requires that signed delta to be negative while preserving all
+supported outcomes, progress and bounded retention. Role separation alone
+eliminates zero required live-root visits and zero necessary copied payload words.
+
+#+NAME: t0-role-net-benefit-matrix
+| Mechanism | Eligible removal | Required baseline | Added delta / quantification | Positive condition and refutation |
+|---+---+---+---+---|
+| Explicit execution grant | Repeated implicit owner-selection/reentry policy | Root stores, reload, Scheme/control effects | Per entry/park/reentry grant checks; track transitions and actual synchronization | Generated/inlined adapters retire old policy; wrapping PSTATE without retirement is negative support gain |
+| Epoch contribution census | Requiring every blocked contributor to act as a collector solely for root ownership | Visit every required root location and govern aliases | O(number of admitted contributions) metadata and logical acknowledgements; batching may add zero distinct fences | Governed inactive contributors permit progress; unbounded FFI mutation defeats admission |
+| Independent work context | Provably avoidable scan imbalance or waits tied to mutator ownership | Existing parallel scan, chunk stealing, copied/scanned bytes | O(worker team + in-flight transfers) storage; grant/transfer/queue/idle events | Saved idle/coordination cost exceeds new events under equal work; extra threads or bandwidth contention can reverse it |
+| Common result/coordinator | Repeated request/branch/capacity policy and divergent completion ownership | Current priority and still-word aggregation semantics | Membership/producer closure and one accepted result disposition per request cohort | Reuse collective edges; extra coordinator serialization or polling can lose the benefit |
+| Participant/worker/resource separation | Lifetime coupling and unnecessary whole-context retention, when last users close | Supported roots, native returns, metadata last use and joins | Reader leases, unknown-outcome retention and drain operations; bound retained bytes and wait obligations | Required custody actually transfers and old storage roles retire; permanent retention is a refutation |
+| Later generational policy | Eligible repeated mature-object traversal after writer/barrier closure | All necessary live roots, young traversal and retained strong/weak semantics | Remembered edges, barrier events, promotion and capacity reserve | Avoided mature traversal exceeds added work; this is a separate collector decision, not a reward automatically caused by role separation |
+
+E contexts, P contributions and W workers describe logical records; no physical
+heap allocation, atomic counter per object, or OS thread per record is prescribed.
+Modern generated C can supply direct role-specific field access. Zig is not
+needed to express these contracts, and adding a second runtime language has no
+automatic net benefit. No guessed speedup, processor count or person-day estimate
+substitutes for this work/space/synchronization vector.
+
+* RESEARCH Migration and learning
+:PROPERTIES:
+:CUSTOM_ID: t0-role-migration
+:END:
+
+#+NAME: t0-role-retirement-matrix
+| Dependency cut | Replace | Old responsibility may retire only when |
+|---+---+---|
+| schema | Complete FrameSpec/PointId/root and request/result identities | All producers and consumers agree; old macro/implicit offsets are no longer authoritative |
+| entryPark | Managed entry, interrupt checkpoint, wait and nested host reentry | Every admitted root/control writer and restoration path obeys the grant/handoff contract |
+| workCore | PSTATE-selected scan/copy/queue/Tail and associated allocation accounting | Every actual work consumer uses accepted task/phase custody; legacy accessors are absent from those roles |
+| request/result integration | GC/resize combining, cohort completion and capacity publication | All accepted requests have coherent result/error delivery; no old sync loop remains the hidden owner |
+| exitLifecycle | Membership removal, worker withdrawal, native joins and backing reclamation | Complete last-user/producer closure under failures, cancellation and unknown outcomes |
+| collector policy | Context allocation and eligible generational scanning | Complete writer/barrier/promotion/weak/FFI proof and a positive work/space tradeoff |
+
+Study [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][Retrofitting Parallelism onto OCaml]], especially §1 and §4: its C API
+and serial performance requirements constrain collector selection, and its
+parallel minor design introduces safepoints while retaining local allocation.
+For Gambit, the lesson is to derive collector and participation choices from its
+own C-facing, continuation and scheduling invariants. The paper does not prove
+this independent-worker design or transfer its performance results to Gambit.
+
+Follow the [[file:../../../modeling/standards.org::#native-sysml-tool-boundary][native-tool boundary]]. Run strict native validation and native D2
+rendering; use native expression results only through an explicit, fail-closed
+format bridge. Org owns these arguments and cost/disproof analyses. No Python
+model loader, graph interpreter or alternate contract evaluator is added.
+
+#+NAME: t0-role-native-view
+#+BEGIN_SRC sh :eval never
+sysml -strict -validate -json dev
+sysml -strict -render '#interconnection:GambitRuntimeRoles::RoleContractGraph' -render-form d2 -o dev/architecture/runtime/interfaces/diagrams/role-contracts.d2 dev
+sysml -strict -e 'GambitRuntimeRoles::formalBridge.rootHandoff.contractId' dev
+#+END_SRC
+
+#+NAME: t0-role-sysml-source
+#+INCLUDE: "models/sysml/role-contracts.sysml" src sysml
+
+#+BEGIN: columnview :id local :format "%ITEM %OWNER %STATUS %REFINEMENT_STATUS"
+#+END:

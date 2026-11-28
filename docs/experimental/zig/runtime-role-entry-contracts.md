@@ -1,0 +1,296 @@
+# Fifteen Runtime Roles: Anchors, Entry State and Frame Contracts
+
+Date: 2026-10-20. Source-derived architecture, not an implemented export table
+or native ABI qualification. See [semantic operations](semantic-completion-operations.md),
+[source evidence SC01-SC20](semantic-completion-evidence.md) and
+[queryable research chains](zig-research-chains.md).
+
+## 1. Anchor and Frame Interpretation
+
+This is the exact 15-assignment domain of `setup_kernel_handlers`: 14 entries
+in `##kernel-handlers` and the post-thunk return of `##dynamic-env-bind`.
+It is not the full Gambit runtime-entry census. `K.*` / `D.*` below are proposed
+semantic anchor keys, not existing exported identifiers. The source body and
+first meaningful action locate each proposed declaration. Old `LBL` values are
+cross-checks only and never new generation inputs.
+
+For K roles 1-13, the dummy `(0)` expression appears as an **argument** to the
+corresponding `##c-code`, so its return point precedes execution of that C body.
+It is not a return point after the handler has run. K0 begins at the container's
+initial handler region. Arbitrary compiler-generated IDs/descriptor bytes are
+not recovered here; the new declarations attach directly to the semantic body
+or resume, and the G3/G4 producer issues PointIds. The dummy calls must disappear
+after explicit addressable anchors replace their layout-construction purpose.
+
+Separate three concepts: handler's own source-created label metadata, actual
+incoming Scheme frame/state, and frames that the handler constructs. They are
+not interchangeable. Most handlers are entered with state unlike an ordinary
+return to their dummy-call frame. Only R12 deliberately uses the dummy-return
+frame format as a runtime ___call layout contract; R15 is a genuine post-thunk
+continuation. The proposed contract does not declare all 15 entries RETI.
+
+Notation: `A(n)` is the profile's argument register/stack arrangement for n
+arguments; `R0` is Scheme continuation, `R1` the conventional result; `t1..t4`
+are temp1..temp4. `ra:I` is a private internal return label with a RETI descriptor.
+CALL/IPRE/IFULL/FOREIGN/BREAK/DENV are defined in the operation document. Every
+entry uses the selected host/pstate writeback and tail-transfer protocol.
+
+Signatures are keyed by source-overlay/profile identity. The retained cumulative
+patch has concrete R03/R12 variants described below; it is historical patch
+evidence, not a claim that this vendor tree or current repaired binary includes
+those variants. A consumer must not mix a patched producer with a baseline
+handler signature merely because the symbolic role name is unchanged.
+
+![Runtime roles by incoming-state family](runtime-role-state-families.svg)
+[D2 source](runtime-role-state-families.d2).
+
+## 2. Conversion and Call Failure Roles
+
+### R01: sfun-conv-error
+
+- **Anchor:** `K.sfun-conv-error.entry`, kernel:150-176, old K/0; immediately
+  before constructing three error arguments from t1/t2/marker[0].
+- **Producer and state:** SFUN error macros call `___call(0, handler, marker)`
+  with t1=tagged error code, t2=error data, t3=SFUN marker, t4=#f/custom Scheme
+  error handler. This is C calling Scheme, not a CFUN failure (SC07).
+- **Frame/root contract:** FOREIGN marker/catcher frame created by ___call;
+  original procedure comes from marker[0]. Move the payload into A(3) before
+  Scheme entry; scratch fields alone are not a persistent GC-root declaration.
+  The marker's construction/root TODO remains unresolved, not certified safe.
+- **Success/exception:** tail-transfer to raise-sfun-conversion-exception or
+  custom t4, na=3. Preserve the SFUN error loop's status/unwind and marker cleanup
+  behavior if control returns. OP08/OP15/OP18/OP19; SC07/SC13.
+
+### R02: cfun-conv-error
+
+- **Anchor:** `K.cfun-conv-error.entry`, kernel:179-218, old K/1; before reading
+  na and reshaping the CFUN frame/arguments.
+- **Producer and state:** inline conversion failure sets t1=error, t2=data,
+  t3=CFUN procedure label, t4=error handler, na=original arity; OOL conversion
+  returns through CFUN_OOL and dispatches the same role (SC06/SC07).
+- **Frame/root contract:** CFUN wrapper has saved all arguments and original
+  RA; source extracts RA from STK(-2) after its specified fp adjustment, restores
+  R0, shifts original arguments and prepends error/data/procedure. This source
+  coordinate must be derived from the wrapper FrameLayout, not copied into Zig
+  as a universal offset. Its wrapper return descriptor is arity+1, all-live,
+  link=arity; the role's own dummy frame is not that wrapper (SC06).
+- **Success/exception:** A(na+3) -> raise-cfun-conversion-exception-nary/custom
+  t4 with original continuation. UNWIND_C_STACK has a distinct macro path.
+  OP15/OP18/OP19; no ordinary C result substitution.
+
+### R05: not-proc
+
+- **Anchor:** `K.not-proc.entry`, kernel:342-374, old K/4; before reading na.
+- **Producer/state:** safe dynamic call failed procedure test; t1=bad operator,
+  SELF=attempted callee, A(na) and R0=original call continuation (SC08).
+- **Frame/root:** CALL; save argument registers, extend/shuffle argument area,
+  prepend bad operator. Do not poll/collect while arguments are incomplete.
+- **Exit:** tail-call apply-with-procedure-check-nary, A(na+1), unchanged
+  continuation; this callee owns the eventual error behavior. OP02/OP08/OP15.
+
+### R06: not-proc-glo
+
+- **Anchor:** `K.not-proc-glo.entry`, kernel:380-447, old K/5; before reading na.
+- **Producer/state:** safe global call failure; t4 is a **raw glo_struct pointer**,
+  A(na), R0 and SELF are call state. t1 is not initialized by this dispatch.
+- **Frame/root:** CALL; reread GLOCELL(t4->val), prepend that operator value,
+  retain original arguments/continuation. t4 must not be scanned as a Scheme
+  object or kept across a collecting call without an admitted cell lifetime.
+- **Exit:** baseline tail-calls apply-with-procedure-check-nary. The global-name
+  lookup and apply-global branch is inside `#if 0`; prose comments do not make
+  it live behavior. OP08/OP15; SC08.
+
+### R07: wrong-nargs
+
+- **Anchor:** `K.wrong-nargs.entry`, kernel:453-496, old K/6; before reading na.
+- **Producer/state:** WRONG_NARGS supplies t1=procedure entry label, A(na),
+  SELF and original R0. It does not supply an internal RETI resume (SC08).
+- **Frame/root:** CALL; save/shuffle args, prepend t1 for a permanent procedure
+  entry or SELF for a closure, preserving closure identity and continuation.
+- **Exit:** A(na+1) -> raise-wrong-number-of-arguments-exception-nary, tail.
+  OP01/OP15; no fabricated returning failure status.
+
+## 3. Internal Check and Promise Roles
+
+### R03: stack-limit
+
+- **Anchor:** `K.stack-limit.entry`, kernel:224-296, old K/2; before heartbeat
+  countdown servicing and internal-frame construction.
+- **Producer/state:** POLL slow edge supplies t1=ra:I; fp is caller extent,
+  hp/GVM registers valid per plan. Poll may mean interrupt/heartbeat or actual
+  stack limit. New stack-only extraction uses the retained patch's separate
+  policy, not permission to service masked interrupts (SC04/SC18).
+- **Retained overlay variant:** POLL sets stack_check_only=0; CHECK_STACK tests
+  fp against stack_limit, sets stack_check_only=1 and passes the same t1 type.
+  Handler snapshots and clears the flag, suppresses heartbeat handling for
+  stack-only entry and resumes through R0/internal-return instead of calling
+  interrupt-handler. New typed `check_origin` must preserve these branches;
+  resetting the scratch flag is part of the state transition (SC18).
+- **Frame/root:** IPRE -> align(CFS) -> push all GVM registers -> push ra ->
+  adjust by -RETI_RA -> R0=internal-return. Before stack_limit/possible GC:
+  FRAME_STORE_RA, W_ALL; afterwards R_ALL and FRAME_FETCH_RA. All saved registers
+  are mandatory roots in the private resume FrameSpec, independent of source
+  live-variable optimization. `___stack_limit` relies on this complete top frame
+  when moving stack sections (SC05/SC17).
+- **Exit:** overflow -> raise-stack-overflow-exception; otherwise Scheme
+  interrupt-handler (which can invoke Scheme handlers). Normal return runs R14
+  then the private resume. OP04-OP13; the role label is not the private RETI map.
+
+### R04: heap-limit
+
+- **Anchor:** `K.heap-limit.entry`, kernel:302-336, old K/3; before reading t1.
+- **Producer/state:** CHECK_HEAP slow edge supplies t1=ra:I, caller extent and
+  materialized values; FLOAT/NAN_BOXING profile affects which check exists.
+- **Frame/root:** same internal-frame construction as R03; tail-call check-heap
+  over IFULL. check-heap publishes RA/state before heap_limit/possible GC and
+  reloads afterwards. Descriptor is supplied by the private point, not K/3.
+- **Exit:** normal Scheme return -> R14 -> private point; overflow -> Scheme
+  raise and retry if that raise returns. OP03-OP13; SC04/SC05/SC19.
+
+### R11: force
+
+- **Anchor:** `K.force.entry`, kernel:982-1015, old K/10; before loading
+  ra=t1 and promise=t2.
+- **Producer/state:** FORCE1 enters only for an undetermined promise;
+  t1=ra:I, t2=promise, caller frame plus GVM registers. Nonpromise/determined
+  paths remain distinct in the enclosing force operation (SC12).
+- **Frame/root:** complete internal frame as R03/R04, then pass promise in A(1)
+  to force-out-of-line. The promise local may not cross a newly inserted
+  collecting operation before becoming an argument/root. All saved registers
+  and actual RA must survive thunk reentry/capture/GC.
+- **Exit:** Scheme promise algorithm may call an interrupts-enabled thunk,
+  reenter, raise, or choose a value determined by reentry. On normal return R14
+  copies result R1 to t2 before restoring registers; private force continuation
+  consumes t2 through FORCE2/3. OP06/OP09/OP13/OP14; SC12/SC15.
+
+### R14: internal-return
+
+- **Anchor:** `K.internal-return.entry`, kernel:1281-1346, old K/13; before
+  preserving R1 in t2.
+- **Producer/state:** Scheme return to the **runtime marker** internal_return;
+  fp points to an expanded internal continuation frame; R1 may hold force result.
+- **Frame/root:** IFULL shape includes saved GVM regs and actual ra:I at the
+  RETI_RA coordinate. No collection while restoring: save result, adjust to RA,
+  pop actual RA and all regs, read caller CFS, undo alignment. R0 is restored
+  among the saved registers. The marker's own label metadata is not a RETI map.
+- **Exit:** tail-transfer to actual ra:I, with restored caller state and t2
+  result carrier. Other force paths do not make t2 a universally live root.
+  OP13; SC15/SC17.
+
+## 4. Rest and Keyword Roles
+
+### R08: get-rest
+
+- **Anchor:** `K.get-rest.entry`, kernel:502-598, old K/7; before loading
+  formal count np from t1's procedure descriptor.
+- **Producer/state:** GET_REST when na>=0, t1=procedure entry, A(na), SELF/R0
+  original call state. np is the total formal count including rest.
+- **Frame/root:** save args, enter ARGPART. If too few, prepend procedure and
+  tail-raise wrong arity. Otherwise cons excess args, calling only the admitted
+  noncollecting section helper heap_limit under W_ALL/R_ALL as needed.
+- **Slow exit:** when collection is requested, finish list/parameter vector,
+  consume partial args, pass (procedure, vector) to rest-param-check-heap.
+  Direct exit pushes rest result, reloads A(np), na=-1 -> original entry.
+  OP01/OP16/OP17; emergency reserve bounds remain unqualified (SC09/SC19).
+
+### R09: get-key
+
+- **Anchor:** `K.get-key.entry`, kernel:604-731, old K/8; before loading np/na.
+- **Producer/state:** GET_KEY supplies t1=entry, t2=raw required+optional count,
+  t3=keyword/default descriptor, A(na), R0/SELF. t2 is not a tagged Scheme root.
+- **Frame/root:** ARGPART after argument save; local key_vals array, descriptor
+  and arguments cannot cross an added collection/reentry. Defaults and repeated
+  keyword handling follow the inspected scan order (first supplied duplicate
+  wins in this algorithm's last-to-first assignment); don't replace with an
+  unordered map. No rest allocation loop is present in this role.
+- **Exit:** wrong arity/unknown keyword/odd pairs/nonkeyword prefix each keep
+  source-specific error precedence and original arguments; success removes key
+  args, pushes formal values, na=-1 -> entry. OP01/OP16; SC10.
+
+### R10: get-key-rest
+
+- **Anchor:** `K.get-key-rest.entry`, kernel:737-976, old K/9; before loading np.
+- **Producer/state:** t1=entry, t2=raw required+optional count, t3=key descriptor,
+  t4=raw 1 for DSSSL GET_REST_KEY or 0 for GET_KEY_REST, A(na), R0/SELF.
+- **Frame/root:** ARGPART includes key_vals, rest list and original args. Unknown
+  keyword rejection differs with t4; strict DSSSL rejection is controlled by
+  REJECT_ILLEGAL_DSSSL_PARAMETER_LIST. Preserve configuration and error order.
+- **Exit:** direct processed args with rest last, na=-1 -> entry; collection
+  request finishes rest, discards the remaining key region, appends key values
+  and packages all np parameters before rest-param-check-heap. No GC with local
+  key_vals or partial frames live. OP16/OP17; SC11/SC19.
+
+## 5. Foreign Return, Break and Dynamic Environment
+
+### R12: return-to-c
+
+- **Anchor:** `K.return-to-c.entry`, kernel:1019-1071, old K/11; inside the
+  stack-marker lexical scope, before reading STK(2-FRAME_SPACE(2)).
+- **Producer/state:** ___call constructs a **two-slot** Scheme frame holding
+  saved incoming RA and stack marker, then sets R0=handler_return_to_c. The dummy
+  call in this handler deliberately preserves the same frame format (SC13).
+- **Frame/root:** FOREIGN marker must remain rooted/addressable and frame must
+  remain in place for ___call. Entry reads marker at the profile-derived slot;
+  it does not remove that frame before checking processor/validity.
+- **Exit:** wrong processor -> c-return-on-other-processor, invalid marker ->
+  raise-multiple-c-return-exception, both with R0 reset to this role. Valid return
+  stores RA, writes state, throws UNWIND_C_STACK. ___call validates destination
+  marker, then removes the frame/restores RA. No normal host-return replacement.
+  OP18/OP20; marker constructor's baseline rooting TODO remains open.
+- **Retained overlay variant:** wrong-processor dispatch preserves result R1 in
+  R2 before replacing R1 with the destination processor and passes two arguments
+  rather than baseline's one. Handler and c-return-on-other-processor/hook
+  signature must migrate together; full overlay endpoint closure remains a
+  separate requirement (SC18).
+
+### R13: break
+
+- **Anchor:** `K.break.entry`, kernel:1075-1275, old K/12; before loading
+  call-frame pointer from STK(-BREAK_FRAME_NEXT).
+- **Producer/state:** Scheme return/capture/stack-section paths leave fp at a
+  BREAK frame. Its next pointer is either stack frame pointer or tagged heap
+  frame. Result register(s) and continuation environment retain runtime meaning.
+- **Frame/root:** stack branch can undo stack overflow, or copy the caller;
+  heap branch copies a captured frame. Detect internal_return marker and decode
+  the actual RETI RA, otherwise RETN. Rewrite return-link and break next fields;
+  never create chains of break frames that accumulate on tail calls.
+- **Exit:** tail-transfer to ra1 in restored caller state. Do not introduce a
+  collecting helper during raw frame copy/local pointer use without an amended
+  protocol. OP21; source-scope helper effects are not blanket GC qualification
+  (SC14/SC17).
+
+### R15: dynamic-env-bind-return
+
+- **Anchor:** `D.dynamic-env-bind.after-thunk`, kernel:1367-1371, old D/1;
+  return from `(thunk)`, **before reacquiring macro-current-thread**.
+- **Producer/state:** bind saves old-denv, installs denv and its three caches,
+  and makes a non-tail thunk call. Return supplies results, possibly a multiple-
+  values object; the current thread must be reacquired after that call (SC16).
+- **Frame/root:** DENV ordinary return frame must retain old-denv and return
+  link. Continuation-next identifies this exact RA and reads saved denv at
+  fp[-2] in both its normalized stack/heap frame coordinate systems. New
+  FrameSpec declares `saved_dynamic_environment`; FrameLayout publishes its
+  coordinate. Initially preserve the inspected slot, or change both producer
+  and walker together. Named PointId alone does not remove this layout coupling.
+- **Exit:** normal path restores old-denv and three caches, returns results.
+  Nonlocal exits do not execute this block as a universal finally. Captured
+  continuation/environment traversal must retain the saved-field contract.
+  OP22; SC16/SC17.
+
+## 6. Explicit Frame Features and Remaining Gates
+
+The producer needs named features in addition to root bitmaps:
+`internal_saved_registers`, `actual_internal_ra`, `foreign_stack_marker`,
+`foreign_saved_ra`, `break_next`, `saved_dynamic_environment`, and processed
+parameter retry convention. Counts, coordinates, tag interpretation and feature
+applicability are profile-bound. Zig realizes them once; runtime consumers use
+the same admitted layout contract. Replacing label ordinals while preserving
+undocumented hardcoded field offsets would leave the C-layer refactor incomplete.
+
+Static research now locates all 15 bodies and their principal producers,
+payloads, continuation obligations and exceptional branches. Remaining gates:
+exact compiler anchor insertion/transform preservation; complete producer and
+consumer census beyond the named macro sites; selected-profile descriptor bytes
+and denv/foreign coordinate witness; allocation reserve bounds; helper effects
+and foreign marker root safety; independently qualified mixed edges/capture/
+GC/exception execution. No table row is a native admission result.

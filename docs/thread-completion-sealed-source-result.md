@@ -16,7 +16,7 @@ remained stable and actual regeneration was established. Independent
 remain false. Exact runtime/source hashes were checked again during archival.
 
 Portable summary, actual identity and checked Recipe snapshot are under
-`evidence/source-results/fixtures/thread-completion-contract/sealed-source-core`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/sealed-source-core`.
 The observed failure histories and source lock remain separate authorities;
 the newly built runtime is not an archived binary dependency.
 

@@ -1,0 +1,199 @@
+#+TITLE: Global Image Owner and Unload Permission Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitGlobalModuleUnload
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| image-list | vendor/gambit/lib/os_dyn.c | ___dyn_module ___dyn_mod = | Global image-handle owner, not per-VM registry |
+| entry-shape | vendor/gambit/lib/os_dyn.h | ___DL_DESCR descr; | Entry has next/handle, no module generation or VM owner manifest |
+| linker-recursion | vendor/gambit/lib/setup.c | e = for_each_module (ctx, p->mol, proc); | One linker can recursively name multiple modules |
+| image-publish | vendor/gambit/lib/os_dyn.c | p->next = ___dyn_mod.dl_list; | Successful handle published in process list |
+| setup-once | vendor/gambit/lib/setup.c | mol->linkfile.version = -1; | Already-setup sentinel is not an owner receipt |
+| native-fields | vendor/gambit/include/gambit.h.in | ___label_struct *lbltbl; int lblcount; | Descriptor owns labels, OFD, data and native setup/init pointers |
+| ofd-field | vendor/gambit/include/gambit.h.in | ___WORD *ofdtbl; int ofd_length; | OFD lifetime must cover scanners and inactive captured frames |
+| label-copy | vendor/gambit/lib/setup.c | module->lbltbl = new_lbltbl; | Aligned/copied label storage does not detach native host code |
+| ofd-relocate | vendor/gambit/lib/setup.c | ___LABEL_DESCR_SET(lbl, ___CAST(___SCMOBJ,ofd_alloc)); | Return label may point into relocated OFD allocation |
+| label-host | vendor/gambit/lib/setup.c | current_host (___ps); | Module setup calls host code to derive goto labels |
+| module-pointer | vendor/gambit/lib/setup.c | ___VECTORELEM(descr, ___MODULE_DESCR_MODULE_STRUCT) = module_scmobj; | Permanent foreign wrapper exposes native module pointer with null release callback |
+| program-array | vendor/gambit/lib/setup.c | ___VECTORELEM(___VECTORELEM(ctx->program_descr, 0), ctx->module_count) = descr; | Program descriptor keeps module descriptor aliases |
+| setup-call | vendor/gambit/lib/setup.c | return module->setup_mod (); | Native setup hook is an executable user |
+| init-call | vendor/gambit/lib/_kernel.scm | ->init_mod (___PSPNC); | Real Scheme init path calls module-owned native entry |
+| program-alias | vendor/gambit/lib/_kernel.scm | ___RESULT = ___GSTATE->program_descr; | Scheme sees process program descriptor alias |
+| vm-reference | vendor/gambit/lib/_kernel.scm | ___VMSTATE_FROM_PSTATE(___ps)->main_module_ref; | VM identity and module reference are separate from process handle |
+| registry-add | vendor/gambit/lib/_kernel.scm | ;; TODO: make manipulation of ##registered-modules atomic | Current registry TODO; no concurrent retirement protocol |
+| registry-remove | vendor/gambit/lib/_kernel.scm | (and x (##set-car! x #f)) | Registry removal clears one list cell, not all descriptor aliases |
+| descriptor-accessor | vendor/gambit/lib/_kernel#.scm | (##define-macro (macro-module-descr-module-struct module-descr) | Module descriptor native pointer is observable through accessor |
+| scheme-init | vendor/gambit/lib/_kernel.scm | ((macro-module-descr-thunk module-descr)) | Scheme initializer also retains module procedure code |
+| captured-frame | vendor/gambit/lib/mem.c | ___RETN_GET_FS_LINK(ra1,fs,link) | Captured frame traversal dereferences old return descriptor |
+| maintenance-frame | vendor/gambit/lib/mem.c | descriptor = ___decode_frame_descriptor (___LABEL_DESCR_GET(ra1), 0); | GC scan needs descriptor while executing maintenance |
+| restore-frame | vendor/gambit/lib/_kernel.scm | ___RETI_GET_FS_LINK(actual_ra,fs,link) | Continuation restore requires RETI/RETN metadata independently of active execution |
+| frame-decode | vendor/gambit/include/gambit.h.in | #define ___RETN_GET_FS_LINK_GCMAP | Root map adapter dereferences frame/OFD representation |
+| ffi-static | vendor/gambit/lib/c_intf.c | body[-___LABEL_SIZE+___LABEL_HOST] | c-define may export static native function pointer |
+| ffi-closure | vendor/gambit/lib/c_intf.c | ___make_c_closure (obj, converter) | Dynamic closure captures both procedure and converter code owner |
+| closure-root | vendor/gambit/lib/os_dyn.c | ___set_data_rc (c_closure, proc); | RC roots Scheme proc, not a proof of converter image lifetime |
+| foreign-create | vendor/gambit/lib/c_intf.c | ___FOREIGN_RELEASE_FN_FIELD(r) = ___CAST(___SCMOBJ,release_fn); | Foreign object stores raw release_fn address |
+| foreign-execute | vendor/gambit/lib/c_intf.c | if ((e = release_fn (ptr)) != ___FIX(___NO_ERR)) | Callback executes after fields are cleared; completion still needs a code lease |
+| foreign-sweep | vendor/gambit/lib/mem.c | ___HIDDEN void free_unmarked_still_objs | GC can call foreign release for unreachable still objects |
+| foreign-cleanup | vendor/gambit/lib/mem.c | ___HIDDEN void free_still_objs | Processor cleanup also executes foreign release code |
+| tcl-call | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Real Tcl callback enters Scheme from retained RC payload |
+| tcl-delete | vendor/gambit/examples/tcltk/tcltk.scm | ___HIDDEN void scheme_delete_cmd | Native registry retains deletion callback code independently of Scheme payload |
+| tcl-register | vendor/gambit/examples/tcltk/tcltk.scm | Tcl_CreateCommand | Native callback installation producer |
+| vm-list | vendor/gambit/include/gambit.h.in | ___MUTEX_DECL(vm_list_mut) | VM list synchronization is not per-image borrow admission |
+| vm-cleanup | vendor/gambit/lib/setup.c | ___cleanup_vmstate (___vms); | Process cleanup iterates VM owners before global OS cleanup |
+| global-cleanup | vendor/gambit/lib/os_setup.c | ___cleanup_dyn_module (); | Both setup-error unwind and global shutdown call dynamic cleanup |
+| image-release | vendor/gambit/lib/os_dyn.c | dlclose (p->descr); | Failed-load and global-list cleanup sites; no return outcome recorded at cleanup site |
+| unload-policy | vendor/gambit/lib/os_dyn.c | #ifndef ___DONT_UNLOAD_DYN_CODE | Existing compile-time no-unload policy remains a required scope input |
+| profile-callback | vendor/gambit/lib/os_dyn.c | gcov_exit | Existing profiling teardown caveat demonstrates lifetime outside Scheme roots |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| foreign-release-sites | vendor/gambit/lib/mem.c | \b___release_foreign\s*\( | 2 | Bounded lexical alias inventory; not native preprocessed whole-program closure |
+| native-dlclose-sites | vendor/gambit/lib/os_dyn.c | \bdlclose \(p->descr\); | 2 | Bounded lexical alias inventory; not native preprocessed whole-program closure |
+| cleanup-callers | vendor/gambit/lib/os_setup.c | ___cleanup_dyn_module \(\); | 2 | Bounded lexical alias inventory; not native preprocessed whole-program closure |
+| c-closure-proc-store | vendor/gambit/lib/os_dyn.c | ___set_data_rc \(c_closure, proc\); | 1 | Bounded lexical alias inventory; not native preprocessed whole-program closure |
+| foreign-release-store | vendor/gambit/lib/c_intf.c | ___FOREIGN_RELEASE_FN_FIELD\(r\) = ___CAST\(___SCMOBJ,release_fn\); | 1 | Bounded lexical alias inventory; not native preprocessed whole-program closure |
+| registry-mutation-todo | vendor/gambit/lib/_kernel.scm | TODO: make manipulation of ##registered-modules atomic | 1 | Bounded lexical alias inventory; not native preprocessed whole-program closure |
+
+** Consumer
+
+| key | callers | custody | gap |
+|---+---+---+---|
+| image-and-linkers | dynamic_load / linker_to_mod_or_lnk / for_each_module | OS handle -> linker graph -> multiple module structs | New ImageId plus module membership; not one-module-one-handle |
+| program-and-registry | setup_module_collect_moddescrs / registered-modules | Permanent program arrays native foreign pointer and Scheme module wrappers | Removal must detach all known aliases; old raw representation remains image-pinned |
+| cross-VM | GSTATE program_descr / VM main ref / init-mod | Process code/data can be entered through VM-specific cells and context | Every VM incarnation must register before executable publication; build flags limit current paths |
+| captured-frames | mark_captured_continuation / kernel restoration | Inactive and multi-shot frames hold return point/OFD usage | No detach merely from inactive state; stable owner mapping and last reachability receipt required |
+| GC-maintenance | mark_continuation / stack transfer / free still | Descriptor scans and foreign cleanup can outlive the initiating activation | Transfer child lease before parent last use; unknown delivery retains parent |
+| native-functions | SCMOBJ_to_FUNCTION / make_c_closure | Static host pointer or trampoline with converter and rooted proc | Proc root alone omits converter code owner and native exports |
+| foreign-destructors | POINTER_to_SCMOBJ / release_foreign | Unreachable payload can still require executable release_fn | Keep callback image until invocation AND derived work known finished |
+| Tcl-callbacks | Tcl_CreateCommand / scheme_call_cmd / scheme_delete_cmd | Third-party registry stores both invocation and deletion addresses | Close external registration and drain callbacks; deleting Scheme payload alone insufficient |
+| loader-teardown | cleanup_dynamic_load / dlclose | OS loader may invoke finalizers and retain its own image references | Prequalify teardown effects; known handle release is not proof of unmapped bytes |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| identity | Image group owns all member module generations and executable dependencies | ModuleSpec/loader adapter supplies complete frozen membership | A local receipt identifies VM incarnation generation close epoch and scope digest | No existing dl_entry membership/owner ledger |
+| aggregation | Owner-keyed receipts form an idempotent mask rather than message count | Complete closed manifest and exact receipt tag match | Duplicate same-owner receipt cannot replace another VM or module receipt | All-VM and raw native closure not established |
+| admission | Borrow reservation and close serialize under the same image authority | Stable non-image control storage and no overflow/ABA reuse | Earlier observers remain debt; later borrowers fail before dereference | Actual C11 gate composition and native alias enrollment OPEN |
+| derived-work | Known child acceptance transfers existing parent credit | No parent last use until child owns descriptor and payload dependencies | Post-close task handoff keeps same group alive without reopening public admission | Source-to-atomic-transfer refinement, executor affinity and unknown completion OPEN |
+| unload | Permit precedes pinned loader transaction under qualified teardown | No users observers pending transfers unknown outcomes; all owner receipts current | Known result only releases owned loader reference; unknown result quarantines identity | Finalizers platform unload policy actual bytes reclaimed not proved |
+
+** Memory
+
+| key | publication | consumer | gap |
+|---+---+---+---|
+| register-close | Reserve descriptor credit before reading image payload under stable authority | Closing snapshots all accepted owner records; preclose reservations cannot disappear | vm_list traversal alone is not an image lifetime or native observer proof |
+| local-global | Local release-published receipt after owner admission closure and known drain | Aggregator acquire checks ImageId module gen VM incarnation close epoch coverage | A zero count or duplicate acknowledgment is not an all-owner receipt |
+| handoff | Release publish rooted child task; acquire acceptance before parent return | Use single atomic ledger transfer or prove two-step parent retention | Known failure returns custody; unknown acceptance retains parent and cannot refund |
+| final-zero | Close authority and credit updates serialize; acq_rel returns and acquire drain | No new owner can enter after permission; stable metadata survives observers | Separate flag checks and counter loads require a real C11 proof |
+| loader | Register rooted pinned loader transaction before dropping runtime locks | Call dlclose outside VM/GC/registry locks; reconcile once by operation identity | Destructor reentry escaping asynchronous work or unknown OS result blocks qualification |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| code-lifetime | Future safe retirement of obsolete code/data generations | Owner registry image membership summary and descriptor dependencies | Reclaimed bytes must exceed metadata and quarantined memory; handle release may reclaim zero |
+| parallel-VM | Independent VM local drains avoid process-wide stop as a default | O(O) owner manifest and receipt aggregation; per-borrow admission bookkeeping | No benefit if all callers remain raw or global shutdown is the only release point |
+| GC-maintenance | Explicit child custody avoids forgotten descriptor readers | Task admission acceptance and exception reconciliation overhead | Does not eliminate captured frame/root scanning |
+| incremental-code | Reusable immutable module/image summaries allow old/new generation coexistence | Invalidation on ABI label/OFD constructor and image membership changes | No old generation may be dropped merely because a new artifact exists |
+| native-FFI | Separate proc payload root from converter/destructor image ownership | Native callback registry drain and raw escape fallback | All required support is expressible in modern C; no incremental Zig benefit proved |
+| retirement | Eventually replace global-only loader list as sole lifetime authority on qualified routes | Stable image records and side-effect-aware loader transaction adapter | Legacy raw permanent module pointers require retention; no current path retired |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| module-and-image-manifest | closed-owner-roster | All linker members and native dependencies classified |
+| VM-frame-and-registry-users | local-detachment | Close module entry and detach every VM alias |
+| FFI-and-external-registries | native-code-leases | Proc root does not pin converter or delete callback |
+| GC-maintenance-parent | accepted-child-task | Child acceptance before parent credit return |
+| accepted-child-task | local-detachment | Transferred debt remains with image owner |
+| local-detachment | keyed-receipt-aggregation | VM incarnation module gen close epoch scope match |
+| closed-owner-roster | keyed-receipt-aggregation | Freeze enrollment and retain prior observers |
+| native-code-leases | global-drain | Known callback completion only |
+| keyed-receipt-aggregation | global-drain | Every distinct required owner represented once |
+| global-drain | unload-permit | No pending transfer observer or unknown debt |
+| unload-permit | pinned-loader-transaction | Qualified finalizers and no runtime locks held |
+| pinned-loader-transaction | known-handle-release | Exactly one reconciled OS-reference operation |
+| pinned-loader-transaction | unknown-quarantine | No old-code reentry and no blind retry |
+| known-handle-release | platform-memory-observation | OS policy may still retain image mappings |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| global_module_unload.borrow0 | GlobalUnload.borrow0Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.borrow1 | GlobalUnload.borrow1Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.observe | GlobalUnload.observePreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.closeGlobal | GlobalUnload.closeGlobalPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.closeLocal0 | GlobalUnload.closeLocal0Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.closeLocal1 | GlobalUnload.closeLocal1Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.return0 | GlobalUnload.return0Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.return1 | GlobalUnload.return1Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.issueLocal0 | GlobalUnload.issueLocal0Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.issueLocal1 | GlobalUnload.issueLocal1Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.deliver0 | GlobalUnload.deliver0Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.deliver1 | GlobalUnload.deliver1Preserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.rejectStale | GlobalUnload.rejectStalePreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.rejectLate | GlobalUnload.rejectLatePreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.nativeBorrow | GlobalUnload.nativeBorrowPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.nativeReturn | GlobalUnload.nativeReturnPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.unknownNative | GlobalUnload.unknownNativePreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.observerRetire | GlobalUnload.observerRetirePreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.beginChild | GlobalUnload.beginChildPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.commitChild | GlobalUnload.commitChildPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.rejectChild | GlobalUnload.rejectChildPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.unknownChild | GlobalUnload.unknownChildPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.taskDone | GlobalUnload.taskDonePreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.permit | GlobalUnload.permitPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.beginUnload | GlobalUnload.beginUnloadPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.closeKnown | GlobalUnload.closeKnownPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.closeUnknown | GlobalUnload.closeUnknownPreserves | Actual typed IR action; caller and C11 realization remain obligations |
+| global_module_unload.rejectIncomplete | GlobalUnload.rejectIncompletePreserves | Actual typed IR action; caller and C11 realization remain obligations |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| all-step | GlobalUnload.stepPreserves |
+| reachable | GlobalUnload.reachableSafe |
+| all-receipts | GlobalUnload.permitNeedsAllReceipts |
+| duplicate | GlobalUnload.duplicateDeliveryIdempotent |
+| child-credit | GlobalUnload.childTransferConserves |
+| closed | GlobalUnload.knownCloseKeepsAdmissionsClosed |
+| union | GlobalUnloadComposition.allDetachedUnion |
+| owner-key | GlobalUnloadComposition.duplicateOwnerDoesNotSupplyAnotherReceipt |
+| prior-ready | GlobalUnloadComposition.permitRefinesPriorGlobalReadiness |
+| quotient | GlobalUnloadComposition.pairCoverage |
+| actual-user-debt-zero | GlobalUnload.permitOwnersQuiescent |
+
+** Seam
+
+| producer.componentId | consumer.componentId | contract | actionName | lemma |
+|---+---+---+---+---|
+| build-publisher | resource-exit | image-module-membership | global_module_unload.permit | GlobalUnloadComposition.pairCoverage |
+| gc-work | resource-exit | GC-child-credit-transfer | global_module_unload.commitChild | GlobalUnload.childTransferConserves |
+| host-roots | resource-exit | native-owner-drain | global_module_unload.nativeReturn | GlobalUnload.nativeReturnPreserves |
+| continuation | resource-exit | captured-frame-detachment | global_module_unload.issueLocal0 | GlobalUnload.issueLocal0Preserves |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| GU-history | interleaving | dev/refactoring/modern-c/models/quint/global_module_unload.qnt | Two-owner aggregation late borrow child custody and loader outcome histories |
+| GU-induction | induction | dev/refactoring/modern-c/models/lean/GlobalUnload.lean | All extracted abstract-ledger steps not C11 weak memory |
+| GU-composition | induction | dev/refactoring/modern-c/models/lean/GlobalUnloadComposition.lean | Owner union and explicit quotient plus preceding global-readiness contract |
+| GU-projection | restricted-projection | dev/refactoring/modern-c/models/lean/GlobalUnloadAst.lean | Bound typed JSON state identity fields and complete action roster |
+| GU-source | source-refinement | dev/refactoring/modern-c/global-module-unload-design.org | All VM image member frame FFI teardown producer/consumer closure OPEN |
+| GU-platform | native-memory-order | dev/refactoring/modern-c/global-module-unload-design.org | Actual C11 authority loader outcome and finalizer refinement OPEN |

@@ -33,7 +33,7 @@ The new VM-only control produces an invariant counterexample with actual exit 1.
 The original composition finished safety and temporal checking with exit 0:
 614 generated states, 430 distinct states, zero queued. Both checks used the
 unchanged 90-second budget; inputs remained stable. Portable artifacts are in
-`evidence/model-results/pstate-log-rollback-composition/`.
+`.cache/research/legacy-evidence/evidence/model-results/pstate-log-rollback-composition/`.
 
 That original proof only constrained final resource emptiness. The owned-log Fixture's
 inner failure helper instead releases initialized P0 log buffers before error
@@ -46,7 +46,7 @@ The historical return-handoff campaign checks both negative controls and complet
 bounded safety/progress: 617 generated states, 428 distinct states, zero queued.
 Inputs stayed stable, the positive parent exit was 0, and both negatives exited
 1. Current portable material is in
-`evidence/model-results/pstate-log-return-handoff-source032/` (an immutable historical
+`.cache/research/legacy-evidence/evidence/model-results/pstate-log-return-handoff-source032/` (an immutable historical
 receipt path, not an active Fixture identity). The active source identity is
 `evidence/fixtures/pstate-log-owned-rollback/source.lock.json`. Earlier proofs
 remain historical and do not qualify the stronger model. Destructor return,

@@ -56,4 +56,4 @@ bootstrap or release admission follows. The signal is a new actual failure,
 not proof of one particular queue, layout or GC cause. Preserve this input
 identity and do not repeat the unchanged crash to seek a favorable schedule.
 Native evidence is retained at
-`evidence/source-results/fixtures/thread-migration-shared-regeneration-budget/migration-regressions.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-migration-shared-regeneration-budget/migration-regressions.json`.

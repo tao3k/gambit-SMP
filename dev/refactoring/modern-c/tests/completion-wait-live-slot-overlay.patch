@@ -1,0 +1,157 @@
+--- a/completion-wait-restore.scm
++++ b/completion-wait-restore.scm
+@@ -70,21 +70,101 @@
+ (define target-scan-epoch (c-lambda () unsigned-long
+   "___return(joint_wait_scan_epoch);"))
+ 
+-;; The frozen original image supplies this descriptor-specific expectation.
+-;; The ordinary wait replay can capture a different label. This is an
+-;; acceptance-oracle mutation and does not change the live heap descriptor.
+-(define (reject-missing-saved-r0 generation)
+-  (let* ((saved-r0 '(9 9 saved-r0))
+-         (chain '(1 17 chain))
+-         (complete (list chain saved-r0))
+-         (omitted (list chain)))
+-    (ensure (and (memq saved-r0 complete)
+-                 (not (memq saved-r0 omitted))
+-                 (= 3 (transfer-query generation)))
+-            "omitted saved R0 accepted")
+-    (write (list 'JOINT-WAIT-SLOT9-ORACLE generation 'omission-rejected
+-                 'original-descriptor-only))
++(define internal-wait-frame? (c-lambda (scheme-object) bool
++  "___return(___FIELD(FRAME, ___arg1, 0) == ___ps->internal_return);"))
++
++(define (project-live-wait-slot9 continuation generation)
++  (define (matches? row label word value)
++    (and (= (vector-ref row 0) 9) (= (vector-ref row 1) word)
++         (eq? (vector-ref row 2) label) (eq? (vector-ref row 3) value)))
++  (let search ((p continuation) (fallback #f) (fuel 256))
++    (ensure (> fuel 0) "finite waiting frame walk")
++    (let* ((fs (and p (##continuation-fs p)))
++           (link (and p (##continuation-link p)))
++           (eligible? (and p (>= fs 9) (not (= link 9))
++                           (##continuation-slot-live? p 9)))
++           (frame (and eligible? (##continuation-frame p)))
++           (value (and eligible? (##continuation-ref p 9)))
++           (exact? (and eligible? (= fs 17) (= link 1)
++                        (internal-wait-frame? frame) (##return? value)
++                        (= (##subprocedure-id value) 1)
++                        (eq? (##subprocedure-parent-name value)
++                             '##thread-execute-and-end!)))
++           (selected (cond (exact? p) (p #f) (else fallback))))
++      (cond
++       (selected
++        (let* ((actual-frame (##continuation-frame selected))
++               (size (##continuation-fs selected))
++               (word (+ (- size 9) 1))
++               (label (##continuation-ret selected))
++               ;; Independent strong root for the actual raw slot value.
++               (root (vector (##continuation-ref selected 9)))
++               (projection
++                (let collect ((i 1) (rows '()))
++                  (cond ((> i size) rows)
++                        ((and (not (= i (##continuation-link selected)))
++                              (##continuation-slot-live? selected i))
++                         (collect (+ i 1)
++                                  (cons (vector i (+ (- size i) 1) label
++                                                (##continuation-ref selected i))
++                                        rows)))
++                        (else (collect (+ i 1) rows)))))
++               (omitted (let remove-slot ((rows projection))
++                          (cond ((null? rows) '())
++                                ((= 9 (vector-ref (car rows) 0)) (cdr rows))
++                                (else (cons (car rows) (remove-slot (cdr rows))))))))
++          (##gc)
++          (let ((live (vector-ref root 0)))
++            (ensure (eq? (##frame-ref actual-frame 9) live) "slot9 raw value after GC")
++            (ensure (let find ((rows projection))
++                      (and (pair? rows)
++                           (or (matches? (car rows) label word live)
++                               (find (cdr rows))))) "complete live projection")
++            (ensure (not (let find ((rows omitted))
++                           (and (pair? rows)
++                                (or (matches? (car rows) label word live)
++                                    (find (cdr rows)))))) "live slot9 omission accepted")
++            (write (list 'JOINT-WAIT-LIVE-SLOT9 generation size word
++                         (if exact? 'saved-thread-return 'other-live-slot)
++                         'reachable 'omission-rejected))
++            (newline))))
++       (p (search (##continuation-next p)
++                  (or fallback (and eligible? p)) (- fuel 1)))
++       (else
++        (write (list 'JOINT-WAIT-LIVE-SLOT9-UNAVAILABLE generation))
++        (newline))))))
++
++(define borrow-wait-generation! (c-lambda (int) bool #<<c-end
++if (___arg1 <= 0 || (unsigned)___arg1 != wait_transfer.generation ||
++    wait_transfer.state != 3)
++  ___return(0);
++___return(___borrow_rc_root(___ps, wait_transfer.target) != NULL);
++c-end
++))
++
++(define (check-wait-reuse generation)
++  (let ((next (transfer-init (vector 'reuse-source))))
++    (ensure (> next generation) "fixed record reused with fresh generation")
++    (ensure (transfer-prepare (vector 'reuse-target)) "replacement root install")
++    (ensure (= 2 (transfer-commit next #f)) "replacement install commit")
++    (ensure (= 3 (transfer-ack next #f)) "replacement ACK")
++    (ensure (not (borrow-wait-generation! generation)) "stale reader after reuse")
++    (ensure (borrow-wait-generation! next) "fresh reader after reuse")
++    (ensure (eq? 'reuse-target (vector-ref (transfer-target) 0)) "replacement identity")
++    (return-wait-target!)
++    (ensure (transfer-retire next #f) "replacement retirement")
++    (ensure (transfer-releases) "replacement exactly-once release")
++    (write (list 'JOINT-WAIT-STALE-READ generation next 'rejected 'fresh-admitted))
+     (newline)))
++
++(define (capture-with-live-slots capture a b c d e f g h i j k l)
++  (declare (not inline))
++  (let ((answer (capture)))
++    (ensure (equal? (map (lambda (cell) (vector-ref cell 0))
++                         (list a b c d e f g h i j k l))
++                    '(0 1 2 3 4 5 6 7 8 9 10 11))
++            "wide wait frame roots after capture")
++    answer))
+ 
+ (define (restore-wait-case converted?)
+   (let ((controller (current-thread)) (m (make-mutex))
+@@ -107,8 +187,17 @@
+           (lambda () (set! winds (cons 'before winds)))
+           (lambda ()
+             (let* ((cell (vector 'wait-cell 7))
+-                   (answer (continuation-capture
+-                            (lambda (k) (thread-send controller k) 'initial))))
++                   (answer
++                    (if converted?
++                        (capture-with-live-slots
++                         (lambda ()
++                           (continuation-capture
++                            (lambda (k) (thread-send controller k) 'initial)))
++                         (vector 0) (vector 1) (vector 2) (vector 3)
++                         (vector 4) (vector 5) (vector 6) (vector 7)
++                         (vector 8) (vector 9) (vector 10) (vector 11))
++                        (continuation-capture
++                         (lambda (k) (thread-send controller k) 'initial)))))
+               (if (eq? answer 'initial)
+                   (begin
+                     (mutex-lock! gate)
+@@ -159,7 +248,7 @@
+                 (ensure (> epoch 0) "missing post-join target domain scan")
+                 (write (list 'JOINT-WAIT-TARGET-SCAN generation epoch 'R=3 'W=2))
+                 (newline)
+-                (reject-missing-saved-r0 generation)))
++                (project-live-wait-slot9 (vector-ref (active-graph #t) 1) generation)))
+           (let* ((slot (wait-frame-slot (vector-ref (active-graph converted?) 1)))
+                  (frame (vector-ref slot 0)) (index (vector-ref slot 1))
+                  (old-alias (vector-ref slot 2)) (replacement (vector 'wait-cell 9))
+@@ -203,7 +292,8 @@
+                 (write (list 'JOINT-WAIT-REPLAY-PASS generation 'shots=2
+                              'ack=queried+repeated 'rc-borrow=across-scheme-join
+                              'release=once-each))
+-                (newline))))))))
++                (newline)
++                (check-wait-reuse generation))))))))
+ (restore-wait-case #f)
+ (restore-wait-case #t)
+ 

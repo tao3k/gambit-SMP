@@ -1,0 +1,156 @@
+#+TITLE: Collector Reference Repair and Hash Index Ownership
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: OPEN OBSERVED | CHECKED BLOCKED
+
+* OPEN Architectural replacement and current Process :modern_c:gc:index:
+:PROPERTIES:
+:CUSTOM_ID: hash-index-ownership
+:AUTHORITY: GambitHashIndexOwnership
+:SOURCE_BRANCH: vendor/gambit modern-c
+:COMMIT_ADMITTED: false
+:END:
+
+The collector's authority to repair references does not give it authority to
+replace the mutator's hash algorithm. This is an explicit native semantic
+contract across the Scheme producer, C metadata, collector and Scheme table
+accessor. It applies to all active C-target Scheme tables, not a GSC exception.
+Native identity indexes now separate reference repair, read-only lookup and
+writer-owned reconstruction as well. See [[file:hash-layout-results.org][the current layout result matrix]]
+for the duplicate-visit counterexample and current qualification boundaries.
+
+[[file:models/sysml/hash-index-ownership.sysml][Native SysML]] owns seven components, their edges and four proof obligations.
+[[file:hash-index-ownership-matrix.org][The cost/obligation matrix]] and [[file:diagrams/hash-index-ownership.d2][D2]] are projections.
+[[file:models/quint/hash_index_owner.qnt][QNT]] and [[file:models/lean/HashIndexOwner.lean][conditional Lean]] specify relocation/index preservation and owner guards.
+The original native bootstrap evidence below is historical. Current incremental
+recipes and source identities are listed in the layout result matrix.
+No commit is permitted until all five submission gates close.
+
+#+BEGIN: sysml-view :kind hash-index-owner :source models/sysml/hash-index-ownership.sysml
+The matrix gives each component its source route, invariant, net work and proof
+method. The diagram shows collector repair branching to different index owners.
+#+END:
+
+* OBSERVED Failure discrimination before changing source
+
+The [[file:bootstrap-cohort.org][retained cohort history]] records successful first target linkage followed
+by failed default-heap target startup/self-generation. All diagnostics below
+bind target GSC
+=59e022c4d973b378b436786c79375c35560a21d9f1940b88caa378511470946b=.
+The old AOT host is not the tested target. Large initial heap is diagnostic
+only and is absent from the target build/acceptance profile.
+
+| Independent observation | Before GC | After explicit GC | Interpretation |
+|---+---+---+---|
+| Primitive-spec queries | 0 missing | 1574 missing | A complete initialized database loses query agreement |
+| Declared/enumerated table length | 1588 / 1588 | 1588 / 1588 | Enumeration alone does not prove lookup preservation |
+| Same-key lookup failures | 0 | 1582 | The failure does not require constructing a different key |
+| Different canonical symbol identities | 0 | 0 | Symbol re-interning identity is not the demonstrated cause |
+| Manually setting KEY_MOVED=4 | Flags 16 | Missing 1583; flag remains 20 | This is not the Scheme reconstruction protocol |
+| Manually setting NEED_REHASH=32 | Missing 1576 | Missing 0 after Scheme rebuild | Correct Scheme reconstruction restores agreement |
+
+Counts after GC vary with addresses; rows are separate processes and not one
+combined history. The interventions are diagnostics, not candidate repairs.
+They do not prove all table payloads, all hashers, or arbitrary FFI identity.
+
+* Historical source mechanism and the responsibility being retired
+
+The predecessor =mem.c= selected =___GC_HASH_TABLE_REHASH_EAGERLY= by default for threaded VMs.
+Its GC cleanup marked memory-allocated keys as KEY_MOVED, then invoked
+=gc_hash_table_rehash_in_situ=. That algorithm uses
+=___GCHASHTABLE_HASH_STEP=, a hash of physical object representation/address.
+
+The C-target =_system.scm:make-table-aux= defaults to =##equal?= and
+=##equal?-hash=. A true table test/hash field selects =##table-access=, which
+computes =hash(key) modulo size= and probes that index. It is a different
+algorithm from the C identity hash. The old metadata distinguishes weak and
+moved keys but does not identify which algorithm owns the index. C eager
+reordering can therefore preserve every entry while destroying Scheme lookup.
+A matched predecessor build remains necessary before attributing the defect
+specifically to the modern-c role split rather than the inherited SMP design.
+
+The original Scheme-owner replacement retired that implicit permission for C
+to apply its algorithm to every memory-key index. The current layout replacement
+also removes collector-side eager and reader-side lazy permutation for native
+identity indexes. An exclusive mutator owns rebuilding; no GSC exception or
+PSTATE restoration is used.
+
+* Native data and transition contract
+
+| Endpoint | Responsibility |
+|---+---|
+| =include/gambit.h.in= and =lib/_gambit#.scm= | Shared SCHEME_INDEX=128 bit in the existing flags word; independent of KEY_MOVED=4 and NEED_REHASH=32 |
+| =_system.scm:checks-done= | True Scheme test/hash records SCHEME_INDEX; false test field retains native identity indexing |
+| =table-get-gcht / gc-hash-table-allocate= | Carry the producer's persistent flags into the underlying GC table |
+| =mem.c:scan / process_gc_hash_tables= | Repair keys/values and weak references; for Scheme indexes clear only address-driven KEY_MOVED; preserve explicit NEED_REHASH debt |
+| Native identity indexes / union-find | Pure read preserves physical slots and uses a linear fallback for KEY_MOVED; set/delete and path-compressing union/find rebuild before mutation |
+| =_system.scm:table-access= | Use the recorded Scheme hash. Explicit pre-existing reconstruction debt uses the existing Scheme resize/reinsert path |
+| =gc-hash-table-resize!, table-copy, serialization= | Preserve or reconstruct the algorithm-owner bit with the actual constructor/flags path |
+
+A Scheme hash must be stable for an unchanged semantic key across GC. A hasher
+that depends on a physical movable address is outside this qualified contract;
+ordinary mutable-key/hash-function invalidation is not solved here. Existing
+built-in symbol hashing uses semantic symbol hash values; the conditional Lean
+law still requires stability rather than assuming every callback is pure.
+
+An earlier considered design would have set NEED_REHASH after every Scheme-key
+move. That would create an O(n) rebuild and a new first-reader write race on
+otherwise read-only tables. The selected design preserves the Scheme index,
+so ordinary GC creates neither new rebuild debt nor a new first-reader
+mutation. Explicit deserialization debt remains separate. No Scheme callback
+executes inside the collector.
+
+* Producer and lifetime inventory, with explicit limits
+
+The active C-target constructor is =_system.scm:checks-done=. The second
+=macro-make-table= implementation in that file belongs to the non-C branch.
+=table-copy= re-enters =make-table-aux= with the original test/hash. Native
+=gc-hash-table-resize!= masks KEY_MOVED, ENTRY_DELETED and NEED_REHASH while
+retaining the owner bit. Current-format serialization stores flags and restores
+them with explicit reconstruction debt. Legacy =lib/sys.scm= is not selected
+by the native module inventory; its separate backend qualification is open.
+
+These source paths do not establish arbitrary raw GC-table flag writers,
+old serialized images without owner metadata, partial reconstruction under GC,
+same-table mutating hash callbacks, or simultaneous explicit reconstruction.
+The existing deserializer temporarily uses zero flags while filling entries;
+its intermediate root/scan coverage is a separate unresolved construction
+contract. No new compatibility or concurrent-mutation claim is inferred.
+
+* Model obligations and native acceptance
+
+QNT distinguishes a stable semantic hash from a movable address, native versus
+Scheme owners, frozen collection, explicit reconstruction debt and guarded
+lookup. Three histories, sampled safety and four negative transitions cover
+wrong C rehash, Scheme callback inside GC, reading with unresolved debt and lost
+owner metadata. The finite model abstracts actual table capacity and C memory.
+
+Lean proves semantic-index transport under a hash-stability premise, native
+rebuild correctness for its own hash, incompatibility of substituting a
+different algorithm, and the explicit-debt lookup guard. It does not prove the
+real pointer relocation, arbitrary callback stability or whole-runtime progress.
+
+=tests/frame-continuation.scm= now checks native identity and Scheme custom-hash
+indexes across real GC, verifies that GC invokes no Scheme hasher, and checks
+both indexes' actual values. The existing repeated map/continuation test stays
+in the same executable. The wide-root fixture separately requires 80 roots,
+two restores and 11 completed forced collections. Full default-profile official
+bootstrap precedes those compiled cases; a diagnostic heap setting cannot
+replace it. Current status must come from the new source-bound receipt.
+
+* Net work and added costs
+
+| Dimension | Mechanism / work reduction | Added cost | Positive condition / falsifier |
+|---+---+---+---|
+| Correctness | Preserve Scheme index instead of reordering it with C address hash | One persistent owner bit | Semantic key hashes stable under relocation; falsified by lookup/enumeration disagreement after GC |
+| Collector work | Remove C full-table rehash for each reached Scheme-owned memory-key table | One owner branch per reached table | Removed work is at least one entry/bucket traversal; no elapsed speedup inferred |
+| Mutator work | Ordinary GC causes no extra Scheme rebuild | Existing hash callback per ordinary lookup remains | No GC-only NEED_REHASH; explicit serialization debt still reconstructs |
+| Memory | Reuse existing flags word | 0 new table words, 0 root words | Exact layout/ABI qualification still profile-bound |
+| C identity tables | Retain eager repair appropriate to address hashing | Existing rehash remains | Native eq?/union-find tests must still pass |
+| Progress | Collector never calls user Scheme hash procedures | Requires explicit algorithm ownership at every producer | Arbitrary raw or foreign producers cannot be assumed covered |
+| Whole-runtime benefit | Makes generated C and GC consumers obey the same semantic authority | New producer/lifetime/proof inventory | Native bootstrap/map success is necessary but not SMP 12/12 or generational-GC acceptance |
+
+#+NAME: hash-index-owner-authority
+#+INCLUDE: "models/sysml/hash-index-ownership.sysml" src sysml

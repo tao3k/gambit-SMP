@@ -2,6 +2,7 @@
 
 Only new protocol checks run; no native candidate or known failed route runs.
 """
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ from gambit_smp.quint_backend import check as check_model, isolated_endpoint, su
 from gambit_smp.research_audit import local
 from gambit_smp.model_schedule import batches, physical_memory, resources, run_batch
 from gambit_smp.framework import positive_int
+from gambit_smp.output_observations import recorded, check_model as check_observation, binding
 
 
 def load_manifest(path):
@@ -48,6 +50,23 @@ def load_manifest(path):
     return manifest
 
 
+def retain_reused_artifacts(source, destination, row):
+    """A resumed verdict retains its checked compiler artifacts, not just logs."""
+    inputs = {}
+    for name, expected in row.get("checker", {}).get("artifacts", {}).items():
+        original, target = local(source, name), local(destination, name)
+        if digest(original) != expected:
+            raise ValueError("resumed checker artifact changed")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and digest(target) != expected:
+            raise ValueError("resumed checker artifact collision")
+        target.write_bytes(original.read_bytes())
+        if digest(original) != expected or digest(target) != expected:
+            raise ValueError("resumed checker artifact changed during retention")
+        inputs[str(original)] = expected
+    return inputs
+
+
 def reusable_check(directory, manifest, case, variant, invariant, initializer, sha):
     saved = json.loads((directory / "receipt.json").read_text())
     if saved.get("quintVersion") != manifest["quintVersion"] or saved.get("contextStable") is not True:
@@ -70,17 +89,24 @@ def reusable_check(directory, manifest, case, variant, invariant, initializer, s
             or row.get("sourceStable") is not True):
         raise ValueError("resume model/initializer differs")
     log = local(directory, row["log"])
-    output = log.read_text()
+    output = log.read_text() if log.is_file() else recorded(ROOT, log, row.get('logSha256'),
+        outputs=saved.get('outputs') or ({row['log']: row['outputObservation']} if 'outputObservation' in row else None))
     old = variant == "old"
-    if not admitted_model(row["exit"], output, row["timeout"], old):
+    try:
+        if isinstance(output, dict):
+            check_observation(output, row, temporal=None if old else case['temporal'])
+        elif not admitted_model(row['exit'], output, row['timeout'], old):
+            raise ValueError('resume log contradicts verdict')
+    except ValueError:
         if recovering:
             return None
         raise ValueError("resume log contradicts verdict")
     trace = None
     if old:
-        trace = counterexample(output)
+        trace = (json.loads(local(directory, row.get('trace', Path(row['log']).with_suffix('.trace.json').as_posix())).read_text())
+                 if isinstance(output, dict) else counterexample(output))
         trace.update({"case": case["id"], "invariant": invariant, "modelSha256": sha})
-    elif row.get("temporal") != case["temporal"] or "Finished checking temporal properties" not in output:
+    elif not isinstance(output, dict) and (row.get("temporal") != case["temporal"] or "Finished checking temporal properties" not in output):
         raise ValueError("resume requires temporal evidence")
     recovered = dict(row)
     if recovering:
@@ -117,7 +143,7 @@ def main():
         parser.error("unknown case")
     if any(case.get("registrationOnly") is True for case in cases):
         parser.error("registration-only metadata is not executable protocol acceptance; use its declared safety recipe")
-    version = subprocess.check_output(["quint", "--version"], text=True, timeout=10).strip()
+    version = _task_check_output(["quint", "--version"], text=True, timeout=10).strip()
     if version != manifest["quintVersion"]:
         raise ValueError("Quint version differs from reviewed version")
     plan = resources(available_processors(), physical_memory(), args.jobs)
@@ -175,8 +201,13 @@ def main():
             if reused:
                 row, output, trace = reused
                 old_log = args.resume_from / row["log"]
-                inputs[str(old_log.relative_to(ROOT))] = digest(old_log)
-                (args.out / (name + ".log")).write_text(output)
+                inputs.update(binding(ROOT, old_log, output['sha256']) if isinstance(output, dict)
+                              else {str(old_log.relative_to(ROOT)): digest(old_log)})
+                inputs.update({str(Path(path).relative_to(ROOT)): expected
+                    for path, expected in retain_reused_artifacts(
+                        args.resume_from, args.out, row).items()})
+                if isinstance(output, dict): row['outputObservation'] = output
+                else: (args.out / (name + ".log")).write_text(output)
                 row.update(log=name + ".log", reusedFromReceiptSha256=digest(args.resume_from / "receipt.json"))
                 if trace:
                     (args.out / (name + ".trace.json")).write_text(json.dumps(trace, indent=2) + "\n")
@@ -226,5 +257,9 @@ def main():
     return 0 if ok and stable else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('verify')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('verify', main))

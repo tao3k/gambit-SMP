@@ -1,0 +1,299 @@
+#+TITLE: TFIB interpreter candidate: source algorithm and counterexamples
+#+LANGUAGE: en
+
+This note records why the RTE-vector fast path is not implemented. It is not a
+measurement, not a speedup, and not an edit of =_eval.scm= or
+=tests/unit-tests/06-thread/tfib_stress.scm=. The original =go 15 5000= workload
+and its delays stay unchanged. The conditional count
+=1973*5000*(6000+2) = 59209730000= remains arithmetic from the recurrence, not
+a profile of this workload.
+
+* Original budget and candidate selection
+
+The 9,865,000 calls of =short-delay= imply 59,199,865,000 entries to
+=busy-sleep= if every delay descends through zero. A candidate that retains
+one interpreted entry dispatch for each descent step would need at least
+200,677,509 dispatches per second to fit one population into the full
+295-second inner window. Both populations actually share that window, and
+the window also includes thread creation, joins, the other stress cases and
+process overhead. This is a conditional throughput requirement for an
+implementation that retains those dispatches.
+
+The separate [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-dispatch-count.json][instrumented reduced-delay experiment]]
+observed 6,002,000 one-argument entries per population. The
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-constant-perf.json][matched uninstrumented experiment]]
+recorded p2 baseline samples of 3.524 and 2.837 seconds and candidate samples of
+4.279 and 3.288 seconds. The
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-inline-poll-prototype.json][inline-poll experiment]]
+has two samples per image and topology and no compiler-source counterpart.
+Neither experiment establishes the cost of each dispatch in full TFIB.
+The next candidate needs a path that removes repeated general application
+dispatch while preserving logical steps, including the original poll and a
+materialized frame at the first observable interrupt, capture or stepper
+transition. The original workload and each topology's cost remain native
+verification obligations.
+
+** Critical path of the retained whole-family attempt
+
+The p2 workload used three concurrent shards. Its two completed interrupt
+shards took 97.067 and 188.383 seconds. The second shard had 290.993 seconds
+left at launch. If that launch offset and duration held on a new image,
+even making the TFIB/terminate shard instantaneous would leave about
+102.61 seconds for all p1 work before accounting for teardown and p1 setup.
+That conditional window would require about 577 million unary entries per
+second in p1 if every original delay completes and each descent still uses
+an ordinary entry. The original run never started p1, so it supplies no
+p1 timing. An optimization that also changes interrupt cost needs a fresh
+whole-family observation to establish its critical path.
+
+The Quint cost model checks parallel p2 accounting and rejects granting p1
+the entire envelope. The bound is carried by the SysML interpreter contract
+and the Python Evidence receipt alongside the original process timing.
+[[file:models/quint/smp_tfib_cost_recurrence.qnt][Cost model]]
+[[file:../../../.cache/tasks/modern-c-frame-contract/cohort/dev-original-family-current-objects/evidence.json][Python Evidence and original process timing]]
+
+* Algorithm
+
+=macro-make-rte= in =lib/_eval#.scm= expands to =##vector=. =##cprc-prc-req1=
+in =lib/_eval.scm= reads the entry hook before =execute=. =execute= is a local
+macro. On a wrong-arity call it keeps the parent =rte= in the environment map
+and raises; it does not build a new vector. On a matching one-argument call it
+builds =(macro-make-rte rte proc arg1)= and then runs the body.
+
+A semantics-preserving skip would have to follow that order:
+
+1. If the code object has an entry hook, build the zero-argument =exec= closure
+   and call the hook. Do not allocate the new vector before the hook calls
+   =exec=. Zero calls allocate nothing. Each call allocates its own vector.
+2. If there is no hook, enter =execute= once.
+3. On an arity mismatch, raise with the parent =rte= still reachable. Do not
+   invent a child vector.
+4. On a match, allocate a fresh vector, then check the heap, then run the body.
+5. Leave =##cprc-app1-red=, =##cprc-app2-sub=, and the other application
+   dispatches in place. They are separate code procedures. =macro-code-run=
+   calls the child code procedure with the current =rte=.
+6. Leave =macro-make-cprc= interrupt bracketing and =macro-step!= in place.
+   The stepper handler receives the current =rte= and a continuation of the
+   body. =macro-force-vars= still forces operands when auto-forcing is enabled.
+
+The skip is admissible for one call only when that call has no entry hook, runs
+=execute= once, has no stepper handler, cannot be interrupted or captured, does
+not escape a lexical location, and is not reentered. None of those absences is
+established for the original TFIB program.
+
+* Counterexamples
+
+- Entry hook, zero calls. The hook is consulted before =execute=. A path that
+  allocates the vector before the hook returns creates a frame the source does
+  not create.
+- Entry hook, two calls. =exec= closes over the original arguments and each
+  =execute= evaluates =macro-make-rte= again. Two calls are two vectors. A
+  reused vector lets a =set!= in the first call appear in the second.
+- Reentry. TFIB calls itself. Each entry needs its own frame. One cached vector
+  aliases those frames.
+- Continuation. A captured continuation must keep the lexical vector that
+  =macro-rte-ref= and =macro-rte-set!= use. Dropping the vector drops those
+  locations unless a capture path materializes them. No such adapter is in
+  this source.
+- Arity. The mismatch branch names the parent =rte= and does not execute
+  =macro-make-rte=. Removing the parent binding changes the exception frame.
+  The matching branch still allocates.
+- Exceptions. =##cprc-app1-red= and =##cprc-app2-sub= raise a nonprocedure
+  exception with the current =rte= when the operator is not a procedure.
+  Deleting the procedure vector does not delete those dispatches, and a fast
+  path that skipped them would drop the exception.
+- Interrupts and debugging. =macro-make-cprc= enables interrupts around the
+  body. =macro-step!= calls a handler with =rte= when the code stepper slot is
+  set. The original family attempt timed out inside TFIB, so an interrupt is
+  part of that workload. A guard that disables the fast path whenever an
+  interrupt or stepper is possible does not run on that workload.
+- Escape. A closure or continuation can retain the vector after the call
+  returns. There is no escape census for this program. The no-observer reuse
+  step in the earlier finite model is a premise, not this proof.
+
+The source-order Quint controls already passed as model obligations. They say
+vector removal is not equivalence because the application dispatches remain,
+and that a hook can build zero vectors or more than one. Those controls are not
+a native differential and they are not rerun here. No interpreter edit is
+justified, and no speedup is claimed.
+
+* Binary numeric candidate
+
+Every complete =busy-sleep= descent executes 6001 public comparisons and
+6000 public subtractions at the original delay. For 9,865,000 descents
+this gives 118,389,865,000 conditional numeric applications. This count
+isolates the public-wrapper-to-kernel edge from evaluator entry, lexical
+allocation and scheduler costs. It is a workload count, not a time profile.
+
+The live candidate specializes exactly two fixnum operands inside the public
+=>= and =-= implementations. The interpreter still reads and invokes the
+actual operator. No binding identity is inferred from two mutable cells.
+Forcing and wrong arity stay at the existing primitive boundary. Overflow,
+nonfixnum and variadic operations retain the existing numeric implementation.
+The C backend lowers the explicit =##poll-point= through its existing check
+and internal-return descriptor construction. The earlier C experiment
+established neither this source correspondence nor equivalence of the
+interrupted continuation. Check the live code-generated poll, root
+description and original post-poll result before treating this as a native
+optimization. General interpreter dispatch and RTE allocation remain.
+
+** Matched native semantics and measured attribution
+
+Two isolated GSI images were relinked against the same retained archive,
+configuration and startup objects. They use identical numeric linker
+metadata and differ in the compiled numeric implementation. The original
+cache was read-only. In p1 and p2, both images returned the expected exact
+and inexact results, promoted fixnum overflow, preserved variadic and arity
+behavior, and invoked the replacement operators. The interrupt differential
+captured the exact binary =greater= and =subtract= return labels, forced GC,
+and checked the resumed countdown against an independent step invariant.
+
+The reduced ABBA comparison used 1,000 executions of the unmodified
+=short-delay= and =busy-sleep= definitions. The table reports medians from two
+observations per image and topology, in seconds, except for bytes.
+
+| Topology | Base wall | Candidate wall | Base CPU | Candidate CPU | Allocated bytes, both |
+|-
+| p1 | 0.730852 | 0.692470 | 0.728415 | 0.690931 | 384171872 |
+| p2 | 0.791452 | 0.740580 | 0.832730 | 0.781153 | 384171936 |
+
+The measured reduction is about 5.25 percent in p1 and 6.43 percent in p2.
+In p1, both images performed 193 collections. The median GC wall time rose
+from 0.042745 to 0.044910 seconds while total CPU time fell. This separates
+the measured numeric-edge saving from allocation reduction. In p2, median
+GC wall time fell from 0.094722 to 0.082853 seconds, so that timing difference
+also includes collector variation.
+
+If the reduced candidate rate held, the delay-only population would take
+about 6,831 seconds in p1 and 7,306 seconds in p2. The same projection
+reports about 3.79 TB per population under the runtime's two-semispace
+accounting. It assumes a constant
+rate and excludes scheduling, thread creation, joins and the other cases.
+Even that projection exceeds the shared 295-second budget by more than
+an order of magnitude. The remaining interpreter work must remove
+repeated entry and code-node dispatch and reduce lexical allocation while
+preserving the exact observable activation at a real poll.
+
+* Unary entry branch order
+
+An isolated C backend tried the one-argument case before zero-argument
+defaulting for a procedure with one optional and one rest parameter.
+The resulting interpreter C differed in exactly one place. Only the
+two disjoint argument-count branches of =##cprc-prc-req1= exchanged
+places. The rest handler, entry hook, frame allocation and polls were
+byte-identical. Both interpreter images used the same retained runtime
+archive and GSI link inputs.
+
+Native p1 and p2 controls on both images passed zero, one and many
+arguments, hook suppression and procedure identity, and two hook
+executions with an intervening GC and fresh lexical state.
+
+| Topology | Baseline wall (s) | Candidate wall (s) | Allocated bytes, both |
+|-
+| p1 | 0.748872 | 0.747118 | 384171872 |
+| p2 | 0.830292 | 0.830208 | 384171936 |
+
+The paired run used the same 1,000 delay forms and 145-second diagnostic
+cap as the numeric experiment. Both changes in median wall time were
+smaller than the spread between repeats. The p2 CPU median increased.
+The branch reorder was withdrawn and its source, logs and Python run
+receipts were retained in the task cohort. It leaves the recursive
+application dispatches and lexical allocation costs in place.
+
+* Linked numeric replay and allocation units
+
+The replay combines the current linked collector and break-handler objects
+with the previously qualified pair of numeric modules. Both numeric
+modules use the same C generation and compilation profile. Each of the
+four semantic runs captures both exact numeric return labels, collects, and
+checks the continued countdown. The timing runner retains the 145-second
+diagnostic deadline. It completed p1 ABBA and the first p2 baseline sample
+before that deadline left no time for the remaining p2 samples.
+
+| Topology | Baseline wall (s) | Candidate wall (s) | Baseline CPU (s) | Candidate CPU (s) |
+|-
+| p1 median | 3.859779 | 4.127890 | 1.173721 | 1.150997 |
+| p2 first baseline only | 7.118339 | unstarted | 1.643527 | unstarted |
+
+The p1 wall samples do not establish a gain. The p2 sequence is censored,
+and no samples from the earlier image complete it.
+
+=words_movable_objs= includes stack occupancy and counts two semispaces.
+=___bytes_allocated= feeds that value into the reported byte metric, along
+with still-object accounting. An ordinary unary RTE has three fields and
+a header, so one vector physically writes 32 bytes on this profile and
+contributes 64 bytes to that metric. The conditional full-delay recurrence
+has 59,199,865,000 =busy-sleep= entries and therefore about 1.89 TB of RTE
+payload alone if each entry materializes a vector. This is cumulative
+payload, separate from live heap size and time spent allocating.
+
+The independent allocation-counter image records the real normal and hook
+RTE vector sites. Subtracting the zero-delay run from the 1,000-delay run
+gives 192,064,000 physical RTE bytes and zero hook bytes in both p1 and p2.
+The normal vectors account for 384,128,000 bytes in the reported metric.
+The measured total deltas are 384,171,568 and 384,171,632 bytes, leaving
+43,568 and 43,632 accounted bytes outside those vectors. Thus the normal
+RTE explains more than 99.98 percent of the measured byte delta for this
+workload slice. The atomic counters do not supply timing samples.
+
+* Asynchronous observation of unary RTE identity
+
+A reduced interpreted countdown ran on the linked candidate GSI identified
+in the allocation receipt. A real asynchronous interrupt captured a numeric
+internal return and located the exact countdown procedure's
+=##subproblem-apply2= frame. The p1 observations reached greater and
+subtraction. The p2 observations both reached greater. Both runs completed
+naturally and retained two activations across GC. Reading each continuation's
+=rte= through =##interp-continuation-rte= returned its original vector.
+Writing the first argument location was visible through the first
+continuation and left the second vector's argument intact.
+
+The unary entry publishes =rte= in its environment map before
+=##check-heap-limit=. A binary subproblem also carries =rte= into a numeric
+poll. Absence of an explicit capture in the interpreted function and an
+inactive stepper therefore do not establish private ownership of its frame.
+A compact activation must keep its original locations rooted at both
+boundaries. Before a captured continuation becomes observable, materialize
+a stable lexical environment, preserve all aliases to it, and keep the next
+activation's storage separate. If a capture boundary cannot support that
+handoff, use the existing vector path there.
+
+The Quint positive history keeps two observed locations across collection
+and mutation. Its alias control rejects assigning the same identity to
+both. This diagnostic establishes the observer constraint for the proposed
+optimization. Native materialization, multishot semantics on the new
+representation, allocation savings and the original stress run remain open.
+
+[[file:models/sysml/smp-interpreter-tail-deopt.sysml][SysML contract]]
+[[file:models/quint/smp_interpreter_tail_deopt.qnt][Quint histories]]
+[[file:../../../.cache/tasks/modern-c-frame-contract/cohort/dev-tfib-async-rte-observer/async-rte-observer.json][Python ASCENT evidence and supervisor receipts]]
+
+* Direct return after proved binary results
+
+An isolated follow-up separated the exact-two success from the checked
+numeric fallback. A proved comparison boolean and successful fixnum
+subtraction returned directly after their existing polls. The fallback
+retained the original type and overflow result checks. The generated
+fast poll labels changed from greater 3 and subtraction 5 to greater 6
+and subtraction 9. The two linked images shared the same nonnumeric
+objects. Eight p1/p2 controls covered the exact polls, resume across GC,
+numeric fallbacks, and independently writable escaped RTE locations.
+
+A separate replication completed six alternating ABBA and BAAB blocks per
+topology in 72.10 seconds of the 145-second diagnostic budget. Each
+sample ran the same 1,000 original delay forms. The table reports the
+median of paired block percentage changes.
+
+| Topology | Wall change | CPU change | Allocated bytes in every run |
+|-
+| p1 | +1.30% | +0.75% | 384171872 |
+| p2 | -4.63% | -3.52% | 384171936 |
+
+Five of six p1 blocks regressed on wall time. The p2 wall changes ranged
+from -22.65% to +28.40%. The paired results do not support promotion across
+the two topologies. The direct-return change was withdrawn. The previous
+numeric candidate remains, and the new candidate's exact Scheme, generated
+C, process receipts and samples are retained for comparison. The experiment
+did not change ordinary unary RTE allocation.
+
+[[file:../../../.cache/tasks/modern-c-frame-contract/cohort/dev-tfib-binary-result-fast-return/binary-result-fast-return.json][Source-bound candidate and matched measurements]]

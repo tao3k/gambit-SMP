@@ -1,0 +1,144 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-build-contracts",
+  "scope": "Quint controls over the existing incremental build: a planner does not execute on an unchanged slice, a publisher discards a changed input instead of committing it, and a scheduler does not refund a still-running job. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 180,
+  "inputs": [
+    "models/build/planner_contract.qnt",
+    "models/build/publisher_contract.qnt",
+    "models/build/scheduler_contract.qnt",
+    "models/build/incremental_build.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-build-contracts/binding.json",
+    "evidence/fixtures/dev-build-contracts/observations.json",
+    "evidence/fixtures/dev-build-contracts/contracts.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "plan-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/build/planner_contract.qnt"
+      }
+    },
+    {
+      "id": "plan",
+      "capability": "quint.test",
+      "dependsOn": [
+        "plan-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/build/planner_contract.qnt",
+        "parsed": "plan-parse",
+        "main": "planner_contract",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "forgedReuseControlTest",
+          "leafCutTest",
+          "macroFanoutTest",
+          "noChangeTest"
+        ]
+      }
+    },
+    {
+      "id": "pub-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/build/publisher_contract.qnt"
+      }
+    },
+    {
+      "id": "pub",
+      "capability": "quint.test",
+      "dependsOn": [
+        "pub-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/build/publisher_contract.qnt",
+        "parsed": "pub-parse",
+        "main": "publisher_contract",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "cancelledDiscardTest",
+          "changedInputDiscardTest",
+          "currentPublicationTest",
+          "staleCommitControlTest"
+        ]
+      }
+    },
+    {
+      "id": "sched-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/build/scheduler_contract.qnt"
+      }
+    },
+    {
+      "id": "sched",
+      "capability": "quint.test",
+      "dependsOn": [
+        "sched-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/build/scheduler_contract.qnt",
+        "parsed": "sched-parse",
+        "main": "scheduler_contract",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "cancelDoesNotRefundRunningTest",
+          "settledCancelRefundTest",
+          "thirdJobControlTest",
+          "twoReadyJobsTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "plan-parse",
+        "plan",
+        "pub-parse",
+        "pub",
+        "sched-parse",
+        "sched"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-build-contracts/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

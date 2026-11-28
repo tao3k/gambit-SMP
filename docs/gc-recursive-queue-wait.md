@@ -18,7 +18,7 @@ not observed bugs in Gambit C.
 The first positive source-policy check timed out at 90.014 seconds; the combined
 policy was not launched. Intermediate temporal/state-space output is not an
 exhausted proof. The unchanged timeout and DENY are preserved in
-`evidence/model-results/gc-recursive-queue-wait-deny/`. No complete positive
+`.cache/research/legacy-evidence/evidence/model-results/gc-recursive-queue-wait-deny/`. No complete positive
 receipt exists, and Datalog exports this model as pending, not checked.
 
 ## Campaign 001 Source Refinements
@@ -53,7 +53,7 @@ unexported regions. Six controls found their intended counterexamples, including
 incorrect origin-queue publication and re-export of a locally scanning region.
 Its positive source-policy check timed out at 90.012 seconds; the complete
 attempt is retained in `gc-recursive-queue-wait-processor-local-deny/` under
-`evidence/model-results/`.
+`.cache/research/legacy-evidence/evidence/model-results/`.
 
 Campaign 003 then corrected the root-only eager-head abstraction. Every copied
 object now has a copier-owned first field and scanner-owned disjoint tail.
@@ -66,7 +66,7 @@ child in each finite two-object cycle, not arbitrary object graphs.
 Seven controls found intended counterexamples. The added control makes a tail
 scanner write the copier-owned first field. Typechecking passed, but the positive
 source-policy check still timed out at 90.012 seconds. Its DENY is retained in
-`evidence/model-results/gc-recursive-queue-wait-eager-fields-deny/`.
+`.cache/research/legacy-evidence/evidence/model-results/gc-recursive-queue-wait-eager-fields-deny/`.
 
 The following final-scheduling attempt reused those seven controls, retained the
 same model and still reached its total watchdog at 90.141 seconds. See

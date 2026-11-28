@@ -124,7 +124,7 @@ regressions, real stress, Gerbil and performance gates remain required. Portable
 identity: `evidence/fixtures/darwin-allocator-acquire/object-observation.json`.
 
 The original audit document consumed by that run is retained byte-for-byte in
-`evidence/source-results/allocator-acquire-input-history/`. The subsequent
+`.cache/research/legacy-evidence/evidence/source-results/allocator-acquire-input-history/`. The subsequent
 write-up therefore does not require recompilation to reconstruct its input.
 Framework inspection with the exact archive reports **HISTORICAL_BOUND** and
 all artifacts AVAILABLE, not a new CURRENT execution. The archive is tied to

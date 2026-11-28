@@ -21,7 +21,7 @@ The corrected checkpoint bootstrap passed in 155.726185875 outer seconds;
 the bootstrap stage took 137.015630875 seconds. All four phases executed twice.
 The two attempts total 234.193148917 seconds, below the explicitly approved
 600-second build scope. The checked producer is
-`evidence/research/current-source-full-bootstrap/fdset-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/fdset-completed-producer.json`.
 Its outer receipt hash is
 `bcee582978eda0773c06b1d36546101a1c6c8dd7559601ee39c6260ad02e93a5`.
 
@@ -90,7 +90,7 @@ The QNT completed-work watchdog model explored 2,444 states with no remaining
 queue, checked temporal completion, and retained two negative controls for
 false wall-quota termination and noise-based renewal. Its four checks were
 published through the existing ASCENT-backed protocol evidence interface at
-`evidence/model-results/fixtures/stage-watchdog-retry/completed-work`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/stage-watchdog-retry/completed-work`.
 This is model/framework evidence, not an additional native milestone.
 
 The current frozen producer also passed the original numerical test assertions
@@ -103,7 +103,7 @@ through the existing compiler-observation capability:
 | Compiled module execution | 0.804 |
 | Whole diagnostic attempt, including preparation/review | 110.897 |
 
-Recipe: `evidence/research/current-source-full-bootstrap/fdset-numeric-progress-diagnostic.recipe.json`.
+Recipe: `.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/fdset-numeric-progress-diagnostic.recipe.json`.
 The outer receipt SHA-256 is
 `b09cbfd2275dd12496f870451e213543f5f5fd7e0ff7d51b341933afdb1dafcd`;
 the child receipt SHA-256 is
@@ -128,7 +128,7 @@ completed-file event (exit -9, timeout true). No other group failed. The
 can legitimately exceed the old 300-second wall limit. The raw overall result
 is DENY and the suite step is TIMEOUT, not full GSC PASS or a proven deadlock.
 
-Recipe: `evidence/research/current-source-full-bootstrap/fdset-progress-compiled.recipe.json`
+Recipe: `.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/fdset-progress-compiled.recipe.json`
 (SHA-256 `610b07f70a4cdc5a4e78ed72b5f9b32614873e9f3e59b743e212b88fb4fb7c15`).
 The recipe preserves the previous stage graph, inventory, source, default GNU
 flags and file/group windows; only the timeout policy migrated. Its prior

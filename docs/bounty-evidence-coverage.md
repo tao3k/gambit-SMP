@@ -95,7 +95,7 @@ apply only to the declared finite bounds. Fault controls are not all alleged
 upstream bugs. Mailbox topology/timeouts/GC, general promise recursion and
 delay-force chains, C weak memory, arbitrary collector movement and full
 runtime progress remain separate obligations. Receipts are under
-`evidence/model-results/` and scope is in each QNT/case manifest.
+`.cache/research/legacy-evidence/evidence/model-results/` and scope is in each QNT/case manifest.
 
 Current-source native `make -C tests test12` passed using GNU GCC 16.2.0 with
 inherited SDK/library overrides removed. Output:

@@ -14,7 +14,7 @@
   before matched real measurements.
 
 The published source-context model receipt is
-`evidence/model-results/fixtures/startup-sync-flag-handoff/migration-resume-gate-contract/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/startup-sync-flag-handoff/migration-resume-gate-contract/receipt.json`.
 The model has five unresolved obligations and is not native or source admission.
 
 ## Source candidate
@@ -81,7 +81,7 @@ Their elapsed times are not a performance A/B claim because the parent aborted
 in the first iteration while the candidate completed all iterations.
 
 Durable component receipts and runtime identity are in
-`evidence/source-results/fixtures/thread-migration-resume-gate`. Complete native,
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-migration-resume-gate`. Complete native,
 cancellation/exception/retirement, bootstrap and Gerbil acceptance remain open.
 
 The parent's unchanged interpreted slot-reuse/forced-GC control also passes in

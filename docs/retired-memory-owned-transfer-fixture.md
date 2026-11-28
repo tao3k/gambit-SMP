@@ -35,7 +35,7 @@ listed above retain their parent hashes.
 
 The source-core recipe consumes source authority and execution rules, not
 archived producer observations. The historical motivating control remains
-`evidence/source-results/fixtures/sync-message-atomic-publication/still-survival-observation.json`;
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sync-message-atomic-publication/still-survival-observation.json`;
 it is a reference, not a runtime input to materialization or compilation.
 Removing it from the recipe input list does not admit the old result as a new
 execution or weaken the archived-producer policy.
@@ -69,7 +69,7 @@ to the execution cache rather than retained beside canonical Scheme fixtures.
 Native cases used the host-selected VM population (12 on this host), retained
 their 30-second budgets and had quiescent process groups. Source/artifact hashes
 were checked before and after. Portable summary:
-`evidence/source-results/fixtures/retired-memory-owned-transfer/observation.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/retired-memory-owned-transfer/observation.json`.
 
 ## Remaining Gates
 

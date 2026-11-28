@@ -1,0 +1,25 @@
+direction: down
+classes: {
+  source: {style.fill: "#e8f1fb"; style.stroke: "#346a98"}
+  proposed: {style.fill: "#eee8fb"; style.stroke: "#7053a1"}
+  gate: {style.fill: "#fff0d9"; style.stroke: "#ad7629"}
+}
+title: "Scan facilities: close transfers, preserve required GC, then retire\nRoot / VM lifetime and old epoch / mutex lifetime are distinct" {shape: text}
+serving: "RFS01 / Serving\nValidate identities and pin before use\nEpochs / transfers admitted by one authority" {class: proposed}
+closing: "RFS02 / ClosingTransfers\nReject new independent handoffs\nDrain enrolled preparation / issued permits\nCONTINUE GC required by existing managed users" {class: proposed}
+serving -> closing
+route: "RFS03 / valid successor for SAME heap\nRoot discovery / driver / worker route qualified\nNo stale direct mutex address in future users" {class: gate}
+shutdown: "RFS03 / no successor: actual VM use closure\nCallbacks / parked roots / reentry / producers resolved\nNo remaining legitimate future GC issuer" {class: gate}
+closing -> route: "facility replacement"
+closing -> shutdown: "VM shutdown"
+seal: "RFS04 / seal old independent collector entry\nAll handoff reservations resolved\nAlready admitted epochs may still derive scan work\nDo not close their queue publication early" {class: proposed}
+route -> seal
+shutdown -> seal
+users: "RFS05 / physical drain\nAll old phases terminal; no queue / cursor users\nNo waiter / signaller / writer / resolver / late borrower\nCount zero and empty queue are insufficient" {class: proposed}
+seal -> users
+retire: "RFS06 / Retired\nWithdraw resolution; destroy old scan condvar / mutex\nOutside metadata locks, only after actual user cut\nAllocation locks and heap free need separate cuts" {class: proposed}
+users -> retire
+failure: "Failed / unknown drain\nKeep actual facilities / root / VM custody live\nTimeout is not successful retirement" {class: gate}
+users -> failure
+source: "Actual cleanup_mem_vmstate destroys scan facilities\nBEFORE residual pstate cleanup / heap free\nSplit or guard destructive source path\nNo opaque wait under vm_list_mut" {class: source}
+retire -> source: "must consume proven preconditions"

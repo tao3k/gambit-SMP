@@ -1,0 +1,184 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-tail-seal-interrupt",
+  "scope": "Quint controls for one guaranteed tail placement, one resume seal, and one procedural interrupt retirement: a preflight refusal is not forwarded, a query does not replay the native call, and an empty queue is not quiescence. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 240,
+  "inputs": [
+    "models/gambit/guaranteed_tail_placement.qnt",
+    "models/gambit/resume_seal_cleanup.qnt",
+    "models/gambit/procedural_interrupt_retirement.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-tail-seal-interrupt/binding.json",
+    "evidence/fixtures/dev-tail-seal-interrupt/observations.json",
+    "evidence/fixtures/dev-tail-seal-interrupt/seal.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "tail-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/guaranteed_tail_placement.qnt"
+      }
+    },
+    {
+      "id": "tail",
+      "capability": "quint.test",
+      "dependsOn": [
+        "tail-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/guaranteed_tail_placement.qnt",
+        "parsed": "tail-parse",
+        "main": "guaranteed_tail_placement",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "guaranteedPeakTest",
+          "lateRefundNoPeakGainTest",
+          "otherPhaseDefeatsQgTest",
+          "guardAtEqualityTest",
+          "slowReloadTest",
+          "preflightRefusalTest",
+          "knownPrivateRefundTest",
+          "futureSuffixExclusionControlTest",
+          "unbackedCreditControlTest",
+          "doubleCreditControlTest",
+          "insufficientGuardControlTest",
+          "staleBindingControlTest",
+          "unknownCommitCustodyTest",
+          "unknownCommitEntryControlTest",
+          "forwardedRefundControlTest",
+          "postForwardFailureTest",
+          "lateRefundPeakRewriteControlTest"
+        ]
+      }
+    },
+    {
+      "id": "seal-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/resume_seal_cleanup.qnt"
+      }
+    },
+    {
+      "id": "seal",
+      "capability": "quint.test",
+      "dependsOn": [
+        "seal-parse"
+      ],
+      "budgetSeconds": 80,
+      "arguments": {
+        "source": "models/gambit/resume_seal_cleanup.qnt",
+        "parsed": "seal-parse",
+        "main": "resume_seal_cleanup",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "unqualifiedCannotHandoffWitnessTest",
+          "explicitOriginNotBlanketDeferredTest",
+          "reserveKeepsSourceTest",
+          "nativeTaskAcceptanceTest",
+          "lostAcceptanceReplyQueriesRecordTest",
+          "observerCancelKeepsCustodyTest",
+          "wrapperRetiresAfterHandoffTest",
+          "queuedDestructorDoesNotBlockSealTest",
+          "nativeExecutionMayOverlapRoundCompletionTest",
+          "isolatedUnknownOutcomeDoesNotBlockGcTest",
+          "managedRootsRequireRescanTest",
+          "managedCallbackRunsAfterPermitTest",
+          "queuedManagedTaskDoesNotWaitInsideCleanupTest",
+          "handoffUnknownRefusesSealTest",
+          "capacityUnknownRefusesSealTest",
+          "capacityErrorNeedsPreparedErrorPathTest",
+          "missingResultRefusesSealTest",
+          "unknownWriterRefusesSealTest",
+          "unknownBindingRefusesSealTest",
+          "heldGateRefusesSealTest",
+          "staleTargetRejectsPermitTest",
+          "failedDestructorKeepsBackingTest",
+          "knownSuccessCanReleaseNativeBackingTest",
+          "errorCanAlreadyHaveFreedStorageTest",
+          "queryDoesNotReplayTest",
+          "earlySealCounterexampleTest",
+          "enqueueMeansFreeCounterexampleTest",
+          "callbackBeforePermitCounterexampleTest",
+          "cleanupOwnerCycleCounterexampleTest",
+          "wrapperWithoutCustodyCounterexampleTest",
+          "lostNativeResultReplayCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "intr-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/procedural_interrupt_retirement.qnt"
+      }
+    },
+    {
+      "id": "intr",
+      "capability": "quint.test",
+      "dependsOn": [
+        "intr-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/procedural_interrupt_retirement.qnt",
+        "parsed": "intr-parse",
+        "main": "procedural_interrupt_retirement",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "emptyQueueIsNotQuiescenceTest",
+          "closedAdmissionDrainTest",
+          "lateDirectControlTest",
+          "wakeTailControlTest",
+          "detachedCallbackControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "tail-parse",
+        "tail",
+        "seal-parse",
+        "seal",
+        "intr-parse",
+        "intr"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-tail-seal-interrupt/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

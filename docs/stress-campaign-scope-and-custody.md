@@ -47,7 +47,7 @@ Changing review policy correctly made the original bootstrap's live input
 comparison stale. The old sealed engine retains the exact original policy:
 SHA-256 `7c8de105cdeb10ae3598442d8353e62503625a30588a2d05ee0570cd1580eb90`.
 It was copied unchanged to the versioned archive under
-`evidence/source-results/compiled-campaign-scope-history` and bound to the
+`.cache/research/legacy-evidence/evidence/source-results/compiled-campaign-scope-history` and bound to the
 original outer receipt, without rewriting either receipt or workspace state.
 
 The same validated historical-input mapping now reaches retained workspace
@@ -56,7 +56,7 @@ runtime bytes. Archive drift, absent binding, mismatched state inventory and
 changed products still fail. The real bootstrap revalidated as
 `HISTORICAL_BOUND`, with source/configuration/seed epochs retained and final
 runtime available. Its new explicit reference is
-`evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json`.
 Historical-input/artifact/inspection/custody regression coverage passed 40/40.
 
 ## Explicit Plan Before Partial Receipt
@@ -105,7 +105,7 @@ reported signal 11 and `thread_interrupt_stress.scm` reached the unchanged
 300-second inactivity watchdog. The latter is censored, not a proven deadlock.
 
 Portable summary and original small stdout logs:
-`evidence/source-results/compiled-stress-failure/campaign.json`.
+`.cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/campaign.json`.
 The macOS interpreter incident binds the exact candidate GSI hash and image
 UUID. The upstream runner does not record its grandchild PID, so the normalized
 report explicitly does not claim PID attribution. Personal paths and unrelated

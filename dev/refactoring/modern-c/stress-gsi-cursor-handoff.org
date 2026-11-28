@@ -1,0 +1,92 @@
+#+TITLE: TFIB cursor handoff and old-reader obligation
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* REVIEW Source correspondence; family remains open
+
+This is a source reading of the current dirty DEV tree, not a frozen producer or
+a diagnosis of the historical fault. Repair 9's invalid header and the later
+compiled TFIB invalid allocation write remain distinct observations. The retained
+section candidate still failed compiled p2 TFIB, and its slow-path cursor probe
+did not witness an out-of-semispace cursor. That probe cannot exclude an in-range
+stale cursor or establish ownership of the allocation interval.
+
+| Boundary | Actual source | Obligation |
+|---+---+---|
+| Closure emission | =gsc/_t-c-2.scm= reserves the sum of closure spaces and emits =ALLOC_CLO=; the reserve/check mechanism aggregates space against the msection fudge. | Match the generated fixture and its actual basic-block checks before asserting a particular check immediately precedes this write. |
+| Fast allocation | =include/_gambit/module_generation.h.in= expands =ALLOC_CLO= into a subtyped header write, cursor advance and object reference. =object_access.h.in= writes =___hp[0]= and increments local =___hp=. | The writable interval must be exclusively owned and sufficiently large; an in-range pointer is not an ownership witness. |
+| Collector transfer | =collection-round.inc= checks drained local scan transport and transfers an arena tail, or a disjoint resume loan. =collector.h= installs the selected physical section, cursor and limit into the resume owner's memory. | Its comments explicitly leave weak-descendant drain and exclusive resume-plan ownership to the caller. Epoch equality alone is insufficient. |
+| Restore and publish | The round calls =move_continuation=, marks restored, passes cleanup barriers and retires old claims; after possible fudge refill, =prepare_mem_pstate= publishes =alloc_heap_ptr= to =context->hp=. =stack_operations.h.in= defines the heap register read/write projections. | Establish the actual generated exit/reentry path and that it reloads the published cursor before the next allocation. =move_continuation= copies the stack and does not itself publish the heap cursor. |
+| Old reader | Old parity is retired after weak work, frame move and cleanup barriers, before resize. | Map every physical reader to its barrier or lease, then demonstrate a real delayed old reader prevents reuse. The existing two-parity test is not that demonstration. |
+
+The current generated =lib/_thread.c= makes this path concrete: in
+=##thread-join-wait!=, the continuation capture returns to label 1, which
+executes =ALLOC_CLO(4)= and its field stores before =CHECK_HEAP(2,4096)=.
+This ordering is consistent with reserved fudge; it is not an immediate
+pre-write bounds check. The procedure's generated =PR_ALL= and =PW_ALL= both
+include the heap register, and the shared host entry/exit macros define the
+corresponding context read and write. This is a current source observation;
+the generated file and host transition still need to be bound to the exact
+combined executable before it can establish that executable's reload path.
+
+The [[file:models/quint/stress_gsi_reader_cut.qnt][bounded reader-cut specification]]
+has a positive delayed-reader history and a premature-retirement negative. It
+assumes the drain transition prevents new readers; it neither proves the native
+barrier implements that transition nor constitutes a native delayed-reader
+control. The [[file:models/sysml/stress-gsi-cursor-handoff.sysml][SysML bridge]]
+links this obligation to the existing section owner; the existing restore and
+capacity histories retain their own scope. OpenSysML 0.10.1 strict parsing and
+conformance returned no diagnostics for the bridge and its declared inputs.
+Quint typechecking, both explicit histories and 10,000 sampled traces of 12
+steps passed. These finite checks do not prove native refinement. Python/ASCENT
+source-bound projection remains open.
+
+* REVIEW Admission and retained evidence
+
+The arity candidate currently present in =vendor/gambit/lib/gambit/vector/vector.scm=
+and its vector test have the same hashes as the independently qualified arity
+observation. A later [[file:../../../.cache/tasks/modern-c-frame-contract/runs/stress-gsi-composed-qualified-family/result.json][combined-producer family receipt]]
+includes that arity source and generated products with the section changes. It
+uses profile SHA-256 =884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69=
+and the original shared 295-second inner / 300-second outer budget. All three p2
+shards timed out, with no completed original file; p1 was not started. Processes
+were reaped and the producer workspace restored. This newer receipt is separate
+from the earlier section-only receipt; neither is a pass. A future corrected
+producer must rerun p2 then p1 as one unspliced family under the same budget.
+Its source freeze, alias/slot repair,
+control/native boundary, whole native/PBT acceptance and matched cost/peak gates
+all require separate evidence. Retain the existing failures and 5/12 until then.
+
+* REVIEW Family 6 receipt checklist for Grok
+
+The Repair 9 header read and the modern compiled TFIB closure write have
+different bound images and fault sites. Reuse the historical counterexample
+to ask who first admitted the invalid word. The first refactory supplies
+distinct owners for frozen roots, collector work, resume intervals, and
+request completion. Family 6 tests their composition with the existing
+interpreter and generated C under the original workload.
+
+#+NAME: stress-gsi-cursor-receipt
+| Cut | Required receipt fields | Classification when a witness fails |
+|-----+-------------------------+--------------------------------------|
+| Subject admission | Source and generated C identity, linked image, profile, topology, original workload, 295s inner and 300s shared outer budget | Unmatched identity is unresolved. Retain old runs under their own identity. |
+| Release and publication | VM lifetime, owner/context, GC epoch, last-reader drain, section/parity, interval, published hp, sequence | Early release or invalid published interval is an ownership failure before generated reload. |
+| Generated reload | Actual return label, host, reload site, same publication key, local hp | Correct publication followed by stale, missing, or foreign reload is a consumer failure. |
+| First complete write | First allocation class, header and final field extent, interval owner and epoch, post-write observation | A current reload with an out-of-grant write is a reserve or emission failure. Missing alloc_scmobj or alloc_rc coverage leaves first-allocation attribution open. |
+| Progress at censor | Unmodified TFIB population, completed work per shard, phase times for interpretation, runnable/blocked scheduling, GC, and wait | Timeout with adequate progress evidence supports cost investigation. Timeout with incomplete coverage remains unclassified. |
+| Family acceptance | Natural p2 and p1 completion for the original unspliced stress family under the shared deadline | A reduced fixture, compiled diagnostic, or p2-only run gives zero family credit. |
+
+Python's existing =gambit_smp.sysml_flow.drive_flow= is the entry point.
+Load the modular shared-heap SysML catalog with OpenSysML and retain the model
+and source hashes. Its =family6CursorReceipt= source site binds the cursor
+contract into the existing ASCENT =shSourceGap= and =shOpen= queries. The
+existing QNT publication module owns conditional admission and its stale
+owner, epoch, interval, reload and write-extent counterexamples. C source and
+the native receipt supply those premises. This checklist interprets the
+result for the reviewer. Later families can use the same identity and
+receipt rules while retaining their own workloads and obligations.
+
+For the current producer, require a causal first-failure record or an
+adequately observed timeout before recommending a mechanism change. Record
+whether the data supports correctness, cost, both, or neither. Family 6
+remains open and the independent numerator remains 5/12.

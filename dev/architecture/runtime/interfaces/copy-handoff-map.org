@@ -1,0 +1,109 @@
+#+TITLE: Copy Handoff Routes, Failure Custody and Preservation
+#+SETUPFILE: ../../../modeling/org/setup.org
+
+* SysML-owned copy and fragment transfer map
+:PROPERTIES:
+:CUSTOM_ID: copy-handoff-map
+:AUTHORITY: GambitCopyHandoff
+:EVIDENCE_CLASS: derived-partial-order-design
+:END:
+
+Routes are scoped to copy/batch identity; they are not one mandatory global function sequence. Source facts do not establish worker-loss recovery or native visibility. Full amended action guards remain in child-discovery-map.org; dispositions stay in the shared obligation ledger.
+
+** Partial-order routes
+#+BEGIN: sysml-view :kind copy-routes :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: copy-handoff-routes
+| Route | Scope | Cuts | Acceptance | Failure custodian | Obligation |
+|---+---+---+---+---+---|
+| EarlierPrefix | Batch contains prior completed copies, not the upcoming target | Save alloc cursor -> end_heap_chunk -> next/prepare msection -> target header/CAS -> reserve its fragments | Only prefix members transfer to queue; no obligation claimed for not-yet-copied target | Existing root/resolver keeps upcoming target; published prefix has queue/local owners | WC-COPY-HANDOFF-ORDER |
+| BoundaryCopy | One admitted ordinary movable copy in the closing chunk | Canonical claim -> cell selects Tail if required -> reserve fragments -> complete payload/padding -> initializeCopy -> publishBatch -> finishCopy after known acceptance | Body moves to queue; Tail remains with counted source activation until separately started/settled | Unknown publication keeps source/transfer ownership; no undo after visible forwarding | WC-TAIL-ESCROW |
+| PrivateSuffix | Initialized object not yet at chunk threshold | reserveFragments -> initializeCopy -> accept Body under private cursor -> finishCopy -> later cursor flush/publication/local scan | Live private owner retains exact local alloc range, descriptor and future scan path; Tail separately retained | If private cursor cannot survive interruption, copy cannot settle or interruptible profile is rejected | WC-COPY-LOCAL-ACCEPT |
+| CurrentScanBypass | end_heap_chunk sees current scanning interval | Initialize members -> marker/link boundary -> retain local scanner/cursor custody; no FIFO insertion -> copy settlement only with receipt | Existing counted scanner/local producer owns unscanned suffix; no fictitious queue token | Source/scanner retains unknown descriptor or handoff; empty FIFO is not completion | WC-COPY-LOCAL-ACCEPT |
+| AlreadySettledChild | Child fragment can finish before source copy ghost settlement | Initialize/reserve -> accepted fragment work -> valid fragment settlement -> finishCopy | Known settled receipt substitutes for live child owner; canonical identity remains | Lost or stale receipt is not proof of completion; block affected copy settlement | WC-COPY-BALANCE |
+| NoTail | words == 0 or subtype excludes ordinary Tail role | Reserve only required Body/visit roles -> initialize -> qualified private/queue acceptance -> finishCopy | No dummy Tail task; special descriptors and leaf visits still apply | Do not apply movable Tail split to still/frame/weak special adapters without evidence | WC-TAIL-ESCROW |
+#+END:
+
+** Failure cuts
+#+BEGIN: sysml-view :kind copy-failures :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: copy-handoff-failures
+| Failure | Cut | Retained custody | Forbidden shortcut | Evidence boundary | Obligation |
+|---+---+---+---+---+---|
+| BeforeClaim | Before winning forwarding CAS | Attempt/resolver retains required source edge; unused reservation may settle | No canonical issue or physical padding refund inferred from cancellation | Proposed failure policy; native mark_array is void | WC-COPY-FAILURE |
+| AfterClaim | CAS visible before fragment enrollment or bytes complete | Winning initializer remains counted with canonical copy debt; repair/help only after accepted custody | Do not restore old header or erase redirected references | No existing recoverable metadata-allocation failure path established | WC-COPY-FAILURE |
+| TailReservation | Tail selected/reserved but not initialized or started | Counted activation owns cell, region and Tail obligation; copy remains until acceptance is known | Preparing cannot be treated as absent or already scanned | Source automatic variables, not a new runtime registration API | WC-TAIL-ESCROW |
+| PartialPublish | Link written, tail/barrier/unlock outcome unknown in proposed executor | Keep transfer and source obligation until exact membership and destination acceptance reconciled | No speculative re-enqueue, source free or second canonical task | Current function has no partial-publish error return; profile proof still owed | WC-COPY-FAILURE |
+| PrivateOwnerLoss | Copy settled to private Body then owner may exit/migrate | Body/Tail obligations and cursor descriptor need accepted replacement before loss | Do not count old copy settlement as permission to forget private suffix | If this cannot be guaranteed, exclude such interruption rather than invent recovery | WC-COPY-LOCAL-ACCEPT |
+| RetryAndLate | Receipt lost, replayed or delivered after a phase cut | Resolve exact existing TaskId/BatchId; keep valid old lease and pending custody if needed | No new same-phase work after closure; no stale raw-pointer relabeling | Safety may remain blocked without liveness; no new model execution | WC-COPY-FAILURE |
+#+END:
+
+** Lean preservation premises
+#+BEGIN: sysml-view :kind copy-preservation :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: copy-handoff-preservation
+| Case | Premises | Postcondition | Existing support / gap | Obligation |
+|---+---+---+---+---|
+| Reserve | Tail eligibility and subtype/length fixed; active source, unique role IDs, exact slot/region | Enroll each required fragment once while canonical copy/root debt still exists | ChildTaskBalanceLaw needs real identity partition and no duplicate issue | WC-TAIL-ESCROW |
+| Initialize | All selected bytes/padding initialized; descriptor valid; fragment reservations retained | Payload readiness changes without any publication or fragment settlement | Existing copied count abstracts initialization, not cross-worker visibility | WC-COPY-HANDOFF-ORDER |
+| Prefix | Published manifest equals actual end cursor and object boundaries | Earlier prefix excludes a target not yet claimed; members keep correct canonical IDs | Current QNT publish has one item and no prefix membership identity | WC-COPY-HANDOFF-ORDER |
+| Publish | Actual profile barriers/locks; initialized range; all delegated Tail owners; queued or local destination | Exact Body custody transfers; Tail and parent/root debts unchanged | publicationSafe assumes atomic visibility; full source refinement still open | WC-TAIL-ESCROW |
+| PrivateAcceptance | Private cursor and descriptor remain live, counted and discoverable by eventual scan path | Copy can settle without cross-worker visibility while Body/Tail unfinished work remains | WorkAccounting privateWork premise must cover local alloc beyond public cursor | WC-COPY-LOCAL-ACCEPT |
+| SettleCopy | Matching Body/Tail live or settled receipts; no unresolved copy effect; initialized copy | Only copy debt decrements; no mutation of canonical map or child/parent debts | ChildTaskBalanceLaw plus CopySettlementFrameLaw, not native atomicity from arithmetic | WC-COPY-BALANCE |
+| Failure | Known effect class and source/transfer owner, no ABA, accepted replacement before retirement | Required work retains custody; visible forwarding not rolled back; no false success | Existing QNT has no unknown-effect states or worker-loss recovery proof | WC-COPY-FAILURE |
+| ActivationFrame | Complete alloc/limit/cell/start/n plus region/descriptor inventory and admitted special-role adapters | Every private word/edge represented by a live counted custodian; synchronous tail chain maps to explicit tasks | Existing privateWork Bool lacks frame/range completeness | WC-PRIVATE-LIFETIME |
+| TailAdvance | Exact eligible first-field identity; current cell traced before caller may return; child issue retained | Discharge only traced edge and preserve newly derived copy/fragment debts | No Body/Tail states in current QNT | WC-TAIL-LIFETIME |
+| FlushAndPublish | Exact initialized prefix; local cursor flush distinguished from remote visibility and queue container pin | Same task identities advance custody; Tail unaffected | Current publish is one atomic item; local scan lacks private/public cursor split | WC-TAIL-LIFETIME |
+| TransferCommit | Freeze execution, source counted, destination accepted and counted/qualified queue, fresh generation, unknown-effect resolution | No zero-custody gap and no duplicate execution; map updates exact unfinished domain | No migration/transfer actions in current QNT or concrete Lean map | WC-OWNER-TRANSFER |
+| ReceiptConsumption | Current successor closure or valid settled receipt, one settlement right, descriptor and phase match | Copy settles once; historical event remains true while authority evolves | Current Lean generation lemma only covers scalar identity invalidation | WC-RECEIPT-CURRENCY |
+| IdleAndRetire | No owner-private/Tail/initializer/transit obligations; all container/raw-pointer users drained before destruction | ProducerLifetimeSafe remains invariant; idle does not imply reclaim permission | Existing idle guard conflates queue globally; no PSTATE lifetime model | WC-OWNER-RETIRE |
+| ProjectionProgress | Exact state/step mapping; native impossible mid-call migration not silently added to old source; finite internal stutter for liveness | History witnesses do not change original observations or assume future acceptance | Safety simulation and progress require separate proof; no new execution | WC-LIFETIME-SOURCE |
+| FrontierCover | Exact local/complete/still/caller frame at each admitted cut; next-slot semantics fixed | Unfinished scan-edge inventory conserved across restore without double advance | Current QNT has no frontier/claimed-chunk state | WC-MIGRATION-FRONTIER |
+| PublicationFreeze | Per-context publisher/freeze authority, immutable op manifest, exact revision, qualified memory visibility | Either publish commits before freeze or remains pending under source; no rollback of effects | Native FIFO lock alone is not a migration transaction | WC-MIGRATION-SERIAL |
+| ContextBinding | Execution worker distinct from original context; no live destination alias; same containment and phase roles | Allocation and local scan restore preserve classification and other contexts state | No wholesale PSTATE copy or ___ps retarget theorem established | WC-MIGRATION-RESTORE |
+| DecisionCommit | Single Pending to Committed/Rejected decision; prepared counted destination; exclusive execution grant | Same exact tasks change custody once; terminal reject excludes late commit | Future QNT atomic registry update requires concrete refinement | WC-MIGRATION-DECISION |
+| RejectResume | Known terminal rejection, no unknown publication, source state pinned and complete | Source resumes exact next work once; target cannot later acquire execution | Timeout is insufficient; rejection must be durable and generation-bound | WC-MIGRATION-RESTORE |
+| UnknownRetain | Actual decision and observer knowledge distinguished; source frozen, counted/support inventory pinned | Unknown reply cannot erase debt, recreate Copy or authorize source execution | Existing QNT has no uncertain observation or decision history | WC-MIGRATION-DECISION |
+| ReleaseFrame | Current successor/settled receipts and no remaining local obligations; queue/scanner users pinned | Count release keeps coverage; storage retirement remains independent; historical receipt stays true | Aggregate Lean lifetime predicate is a preserved invariant obligation, not premise proved by itself | WC-MIGRATION-RESTORE |
+| PairRolePartition | Native field constants and exact fast-header match; admitted parent copy/Tail inventory | Body visit resolves CAR only; parent CDR and newly copied Q CDR stay distinct | Per-object scan count cannot express per-role identity | WC-PAIR-PARTITION |
+| PairClaimFrame | Actual origin dequeue linearization, counted thief, pinned node and exact claimed range/marker | Dequeued work remains in custody while FIFO may be empty; queue users survive claim completion | Existing QNT acquire lacks claimed cursor and origin sentinel lifetime | WC-PAIR-CLAIM |
+| PairArraySelection | Entry start=H+2,n=1; selection once; logical exhausted/loop-exited state represented | Again changes current Tail cell without consuming another array input or caller advance | Raw n alone cannot distinguish exit tag from pending condition | WC-PAIR-RESUME |
+| PairTailGrant | Canonical winner reserved Tail before publication; initialized payload; same transfer generation | Only current exclusive grant executes ready Tail; loser redirects without reminting winner work | Composes with existing reserve/init/publish/decision obligations, not new atomic source instruction | WC-PAIR-RESUME |
+| PairFlushAdvance | No active mark loop, known flush, cursor H and unique PairVisit advance token | Exactly one H to H+3 progression; prior CAR never reentered and next header never skipped | Requires visit-indexed frame/map preservation, not just advance count arithmetic | WC-PAIR-ADVANCE |
+| PairReturnMode | Marker valid and all local continuation debt cleared; exact RemoteContinueLocal or LocalReacquire mode | Return to actual caller without replaying claim, FIFO snapshot or root stages | Context and region lifetime remain independent of completed chunk scan | WC-PAIR-FRAME |
+| PairMigrationFrame | Full pair-role frame and existing freeze/publication/terminal-decision protocol | Selected source grant freezes before destination resumes same next operation; other contexts/tasks unchanged | Current source has no migration hook; safety simulation and liveness separate | WC-PAIR-FRAME |
+#+END:
+
+** Source evidence
+#+BEGIN: sysml-view :kind copy-sources :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: copy-handoff-source-facts
+| Fact | Source | Behavior | Limit |
+|---+---+---+---|
+| SpaceCut | [[file:../../../../vendor/gambit/lib/mem.c::3537][vendor/gambit/lib/mem.c:3537-3555]] | Space shortage flushes prior alloc cursor and closes old chunk before target header/CAS | Earlier batch is not the upcoming target copy |
+| Claim | [[file:../../../../vendor/gambit/lib/mem.c::3572][vendor/gambit/lib/mem.c:3572-3598]] | Forwarding becomes visible and root slot redirects before body copy | Does not establish body readiness or recoverable failure |
+| TailEscrow | [[file:../../../../vendor/gambit/lib/mem.c::3599][vendor/gambit/lib/mem.c:3599-3603]] | cell = alloc retains the first-field location for eligible Tail role before copying/publishing | Must bind active activation, descriptor, exact slot and region lifetime |
+| Payload | [[file:../../../../vendor/gambit/lib/mem.c::3604][vendor/gambit/lib/mem.c:3604-3626]] | Whole object bytes/padding copied before threshold closure; goto again follows possible publication | Copy completion is not outgoing-edge completion |
+| PrivateCursor | [[file:../../../../vendor/gambit/lib/mem.c::3659][vendor/gambit/lib/mem.c:3659-3664]] | Final alloc_heap_ptr update exposes local alloc cursor after nested/tail traversal | Private suffix can exist before public cursor refresh |
+| Publication | [[file:../../../../vendor/gambit/lib/mem.c::3254][vendor/gambit/lib/mem.c:3254-3306]] | End marker, conditional FIFO branch, ordered link/tail/barriers, then signal | Currently scanned chunk stays local; notification not task acceptance by itself |
+| LocalScan | [[file:../../../../vendor/gambit/lib/mem.c::4323][vendor/gambit/lib/mem.c:4323-4381]] | Local scanning compares against alloc_heap_ptr and later scans incomplete chunk | Separate private cursor must remain represented before this path can see it |
+| CountedLifetime | [[file:../../../../vendor/gambit/lib/mem.c::6686][vendor/gambit/lib/mem.c:6686-6772]] | Worker scans local/queued work and decrements phase count only after its scan/steal path | Producer census and actual memory-order proof still required |
+| CapturedBoundary | [[file:../../../../vendor/gambit/lib/mem.c::3741][vendor/gambit/lib/mem.c:3741-3806]] | Captured frames have MISC_MEM_LOCK, frame links and their own publication condition | Do not transplant ordinary first-field cut or local-variable guard unchanged |
+| AbstractGap | [[file:../../../../models/gambit/gc_work_closure.qnt::25][models/gambit/gc_work_closure.qnt:25-53]] | Current copyWord/publish/scanLocal/acquire use one work state and bounded copied progress | No private acceptance receipt, separate copy settlement or multi-member batch contract |
+| EntryCursor | [[file:../../../../vendor/gambit/lib/mem.c::3502][vendor/gambit/lib/mem.c:3502-3518]] | alloc/limit and cell/start/n are local activation state; goto again stays in this call | OS scheduling suspension that retains stack is not ownership transfer |
+| PhaseEnrollment | [[file:../../../../vendor/gambit/lib/mem.c::3417][vendor/gambit/lib/mem.c:3417-3459]] | All participant heaps/FIFOs are initialized and both scan counts set to np before root scans | Participant stability and barrier profile remain proof premises |
+| RootBeforeScan | [[file:../../../../vendor/gambit/lib/mem.c::6835][vendor/gambit/lib/mem.c:6835-6870]] | Root marking precedes mark_reachable_from_marked on same synchronous path | Root producers are counted before scan-loop entry; no independent worker protocol |
+| ResizeExit | [[file:../../../../vendor/gambit/lib/setup.c::900][vendor/gambit/lib/setup.c:900-936]] | Optional GC returns before barrier and processor cleanup/thread exit in resize path | No evidence of legal asynchronous migration of active mark_array locals |
+| PhaseBarriers | [[file:../../../../vendor/gambit/lib/mem.c::7000][vendor/gambit/lib/mem.c:7000-7042]] | Setup, strong, weak and cleanup calls are separated by barriers before heap resize | Not proof of all callers or recovery from killed OS thread |
+| CleanupNoCursorTransfer | [[file:../../../../vendor/gambit/lib/mem.c::4928][vendor/gambit/lib/mem.c:4928-4935]] | cleanup_mem_pstate invokes free_still_objs and cleanup_rc | This function is not a private alloc/cell handoff API |
+| ScanAdvance | [[file:../../../../vendor/gambit/lib/mem.c::4184][vendor/gambit/lib/mem.c:4184-4205]] | Local ptr advances after nested scan/mark_array returns | Nested cut must retain pending caller increment and role state |
+| CompleteChunkCursor | [[file:../../../../vendor/gambit/lib/mem.c::4252][vendor/gambit/lib/mem.c:4252-4275]] | scan_complete_heap_chunk has independent local ptr/start/head | Not recoverable from PSTATE scan_ptr alone |
+| LocalFrontierAndClaim | [[file:../../../../vendor/gambit/lib/mem.c::4321][vendor/gambit/lib/mem.c:4321-4382]] | Local ptr, checkpointed scan_ptr, dequeue/head removal and incomplete-chunk transition are distinct | Queue snapshot omits claimed work and local in-progress frontier |
+| StillPopBeforeScan | [[file:../../../../vendor/gambit/lib/mem.c::4235][vendor/gambit/lib/mem.c:4235-4248]] | still list head changes before scan(body,head) | Popped in-flight object/caller requires separate adapter |
+| StealClaim | [[file:../../../../vendor/gambit/lib/mem.c::6709][vendor/gambit/lib/mem.c:6709-6727]] | Thief advances origin head under lock then unlocks before scan_complete | Origin queue lifetime and claimed destination work are distinct |
+| ContextFields | [[file:../../../../vendor/gambit/lib/mem.c::282][vendor/gambit/lib/mem.c:282-300]] | Allocation pointers, chunk fields, FIFO and scan_ptr are PSTATE-relative macros | Retargeting execution PSTATE can change end_heap_chunk containment meaning |
+| PairLayout | [[file:../../../../vendor/gambit/include/gambit.h.in::5309][vendor/gambit/include/gambit.h.in:5309-5314]] | PAIR_SIZE=2, CDR=0 and CAR=1 fix physical field order | Fast movable body scan and parent Tail inventory still need profile qualification |
+| PairFastCar | [[file:../../../../vendor/gambit/lib/mem.c::4196][vendor/gambit/lib/mem.c:4196-4205]] | Exact PAIR header calls mark_array(ptr+2,PAIR_SIZE-1), then increments ptr by PAIR_SIZE+1 | Does not scan original first CDR field |
+| PairArrayEntry | [[file:../../../../vendor/gambit/lib/mem.c::3502][vendor/gambit/lib/mem.c:3502-3517]] | One outer postdecrement/start selection precedes again label | Tail again does not repeat array prologue |
+| PairCasLoser | [[file:../../../../vendor/gambit/lib/mem.c::3580][vendor/gambit/lib/mem.c:3580-3595]] | CAS loser decrements speculative header, redirects current cell and continues outer loop | No new canonical Tail and no inferred padding refund |
+| PairTailArm | [[file:../../../../vendor/gambit/lib/mem.c::3600][vendor/gambit/lib/mem.c:3600-3624]] | Winner selects first-field cell before copy, then possible publish, then goto again | Ready label after known copy/publication is not late Tail reservation |
+| PairReturnFlush | [[file:../../../../vendor/gambit/lib/mem.c::3659][vendor/gambit/lib/mem.c:3659-3664]] | Outer loop exits before final alloc_heap_ptr=alloc and C return | One logical mark return does not finish every descendant |
+| PairLocalReturn | [[file:../../../../vendor/gambit/lib/mem.c::4348][vendor/gambit/lib/mem.c:4348-4376]] | Local dequeue advances origin head, scans chunk after unlock, then reacquires FIFO lock | Local return differs from remote thief and cannot restore stale head |
+| PairRemoteReturn | [[file:../../../../vendor/gambit/lib/mem.c::6717][vendor/gambit/lib/mem.c:6717-6727]] | Thief advances origin queue head, unlocks, scans ptr+1, then goto continue_local_scan | Claim node can remain origin FIFO head after scan returns |
+#+END:

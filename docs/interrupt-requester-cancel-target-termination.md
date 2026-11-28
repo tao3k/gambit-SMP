@@ -28,7 +28,7 @@ processors per process. Both compile and whole batch retained 60-second caps.
 
 Portable fixture, assertion helper, exact process observations, identity and
 hash-bound receipt are archived at
-`evidence/source-results/fixtures/interrupt-requester-cancel/target-termination`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-requester-cancel/target-termination`.
 Previous return/throw archives and registered model receipts are unchanged.
 
 ## Remaining Boundary

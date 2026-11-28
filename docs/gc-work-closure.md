@@ -51,7 +51,7 @@ The positive protocol exhausted 254 distinct / 379 generated states, search
 depth 34, with zero states remaining on the queue. All five verifier checks
 were admitted and the model source remained unchanged. The four portable
 counterexamples are frozen under `models/gambit/counterexamples/`; the receipt
-is `evidence/model-results/gc-work-closure.json`. Original verifier logs remain
+is `.cache/research/legacy-evidence/evidence/model-results/gc-work-closure.json`. Original verifier logs remain
 in `.data/gc-work-closure-model-001/` because they contain machine-local paths.
 
 These are bounded safety results. They do not prove scheduling fairness,
@@ -80,6 +80,6 @@ Scheme-to-C success in 30.818 seconds followed by C-module compilation budget
 denial. That is prior evidence, not proof of runtime026's exact timeout cause.
 Do not repeat the unchanged route or treat this budget failure as a GC model
 counterexample. The terminal receipt and failed-shard log are retained under
-`evidence/model-results/native-upstream-compiled-atomic-026-deny.*` and indexed
+`.cache/research/legacy-evidence/evidence/model-results/native-upstream-compiled-atomic-026-deny.*` and indexed
 as a budget denial. This campaign tests existing code; it is not admission of
 a repair derived from the new composition model.

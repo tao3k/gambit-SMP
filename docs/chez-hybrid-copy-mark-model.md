@@ -33,7 +33,7 @@ publication, bitmap-driven mode selection, wrong-owner processing and early
 completion. No rule depends on a test name, CPU count or expected outcome.
 
 The existing sealed v2 Recipe is
-`evidence/research/chez-hybrid-copy-mark/control.recipe.json`. Its locked Gambit
+`.cache/research/legacy-evidence/evidence/research/chez-hybrid-copy-mark/control.recipe.json`. Its locked Gambit
 source step binds the actual foreign-origin/public-cleanup comparison candidate.
 That step is existing lane scaffolding, not execution of Chez or Gambit GC.
 No Python feature producer, loader or inference engine was added.

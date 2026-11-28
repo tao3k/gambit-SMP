@@ -8,7 +8,7 @@ with child processor populations derived from available host capacity.
 All source/artifact identities remained stable and child groups were reaped.
 
 Portable receipts and logs are in
-`evidence/source-results/fixtures/abandoned-result-state/remaining-thread-native`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/remaining-thread-native`.
 The exact inventory, previous coverage and pending routes are recorded in
 `evidence/fixtures/abandoned-result-state/remaining-thread-plan.json`.
 

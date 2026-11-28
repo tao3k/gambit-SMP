@@ -1,0 +1,133 @@
+#+TITLE: Axis 1 (DEV Refactory) Formal Convergence Architecture for Checklist 10-12 and Families 6-12
+
+* Scope and Evidence Posture
+
+This specification records the formal Axis 1 (=DEV Refactory=) convergence
+decisions connecting Family 6 Checklist 10--12 (=modern-c-frame-contract=) to
+the remaining outer SMP runtime families (Families 6 through 12).
+
+Every architectural cut in this document is anchored to live repository
+verifiers --- Quint (=.qnt=), Lean 4 (=.lean=), CBMC 6.11 + Z3 5.3, GenMC 0.20
+(=rc11= AArch64), OpenSysML v2, and ASCENT Datalog --- without claiming
+=runtimeAdmitted = true= ahead of native campaign execution.
+
+* Defect D-MEM-1: Retirement of Unowned File-Static Section Caches
+
+** Discovery via Source-Bound CBMC and GenMC
+
+Bounded C verification (=c-resize=) and static-state auditing across
+=vendor/gambit/lib/_mem/= isolated three unowned mutable caches introduced to
+accelerate single-threaded bootstrap compilation:
+
+1. =vendor/gambit/lib/_mem/copy-reservations.inc= (=scan_state_section=,
+   =scan_state_base=, =scan_state_offset=, =scan_state_epoch= inside
+   =change_object_scan_state=):
+   Concurrent collector workers (=W >= 2=) racing on =Section A= and =Section B=
+   overwrite =scan_state_section= between the half-range check and the section
+   load, claiming =GC_SCAN_OWNED= in the wrong section's scan bitmap and
+   aborting at scan completion with =GC scan owner lost before completion=.
+   Witnessed mechanically under GenMC =rc11= (=axis1_convergence_contracts.qnt=
+   and =WorkerOwnedCacheRefinement.lean=).
+2. =vendor/gambit/lib/_mem/movable-sections.inc= (=msection_find_cache[4096]=,
+   =msection_find_gen= inside =find_msection=):
+   - Unsynchronized struct reads/writes across collector workers;
+   - Same-thread stale-index hazard inside =adjust_msections=: bumping
+     =msection_find_gen= once before =while (ns < n)= leaves cached =pos=
+     entries stale on the *same* thread when inserting two or more sections
+     (=statelessOrPerInsertShiftSafeTest= in
+     =dev/refactoring/modern-c/models/quint/axis1_convergence_contracts.qnt=);
+   - Breaks the =find-section.inc= verbatim projection in =c-resize= and drifts
+     =evidence/scenarios/tool-reasoning/c-contracts.view.json=.
+3. =vendor/gambit/lib/_mem/copy-planning.inc= (=census_section=, =census_base=,
+   =census_offset=, =census_epoch= inside =census_claim=):
+   Comparing =epoch= without VM identity collides when two VMs share an epoch
+   number on a host thread (=workerScopedCensusCrossVmSafeTest=).
+
+** Unified Axis 1 Resolution
+
+- Retire =msection_find_cache= and =msection_find_bump= from
+  =movable-sections.inc=, restoring =find_msection= to a pure read-only binary
+  search over =ms->sections= (restoring exact SHA-256 parity with
+  =c-contracts.view.json=).
+- Move =scan_state_section_= and =census_section_= into
+  =struct ___collector_worker_struct= (=vendor/gambit/lib/collector.h=), which
+  is already passed as =___collector_worker *work= to =change_object_scan_state=
+  and =census_claim= and is intrinsically owned by one collector worker within
+  one =work->vm=.
+- Proved sound and non-interfering in
+  =dev/refactoring/modern-c/models/lean/WorkerOwnedCacheRefinement.lean=.
+
+* Decision C2: Single-Acquire =copy_gate= Fast-Path Admission
+
+- *Observation*: In =vendor/gambit/lib/_mem/allocation-limits.inc=,
+  =___group_demand_enter= previously invoked =___group_demand_local_admit=
+  followed by =group_demand_local_room=, and =group_demand_local_room= invoked
+  =___owned_stack_span= (which acquires =section->copy_gate=) twice --- once for
+  containment and a second time inside =mutator_stack_adjust_fits= --- yielding
+  up to 4 spinlock acquisitions per write-group when =*hp= advances ahead of
+  =ps->context->hp=.
+- *Resolution*: Synchronize =ps->context->hp = *hp= and =ps->context->fp = *fp=
+  once on fast-path entry when =phase != 2=, verify pointer-local heap bounds
+  first, acquire =___owned_stack_span(ps, &lo, &hi)= once, and evaluate
+  =stack_span_adjust_fits(lo, hi, fp, stack_words)= on that single =(lo, hi)=
+  snapshot.
+- *Verification*: Proved equivalent with <= 1 fast-path gate acquisition by
+  CBMC (=2120= + =1624= checks) and
+  =singleAcquireCopyGateEquivalenceTest= in =axis1_convergence_contracts.qnt=,
+  matching =DefaultLeaseComposition.lean=.
+
+* Decision C1: Structured =WriteGroupPlan= and =emitSpec= Coverage Gate
+
+- *Observation*: =vendor/gambit/gsc/_t-c-2.scm= currently represents an open
+  write-group via an untyped 8-slot vector and mutates emitted AST strings via
+  =set-car!= in =targ-expand-pending-write-group=, without emitting a sidecar
+  specification (=emitSpec=) or running =verifyCoverage= as modeled in
+  =EmissionView.lean= and =emission_view_correspondence.qnt=.
+- *Resolution*: Introduce the explicit =WriteGroupPlan= algebraic lifecycle
+  (=openPhase -> committedPhase=) proved in
+  =dev/refactoring/modern-c/models/lean/WriteGroupPlanRefinement.lean=, delaying
+  dimension formatting until =commitPlan= and emitting a structured
+  =write-group-spec= record per group so =verifyCoverage= mechanically checks
+  =obsStack <= stackWords= and =obsHeap <= heapWords= before module close.
+
+* Stage-Synchronized Convergence Order: Live Checklist 10-12 Through 12/12
+
+Axis 1 (=DEV Refactory=) cuts are not deferred until after Family 6 completes;
+each cut is synchronized directly with the live bottleneck of Family 6 Checklist
+=10-12= (=5/12 -> 6/12=) and subsequent outer families (=7/12 -> 12/12=):
+
+1. *Live Gate A — Family 6 Checklist 10-12 (=5/12 -> 6/12=)*:
+   - *S2 Bootstrap (< 8 GiB Runner Ceiling)*: Pre-coalesced seed C units
+     (=500c0819=) inflated =lib/_num.c= to =11.91 MiB= (=21,739= =SLBL=,
+     =16,417= =___group_demand_enter=), =lib/_io.c= to =11.44 MiB= (=20,065=
+     =SLBL=), and =lib/_std.c= to =13.43 MiB= (=22,617= =SLBL=), driving
+     =gcc-16 -O1= past =20 GiB= RSS under =--enable-single-host=0=. Promoting
+     coalesced =_t-c-2= (=bf1e3ff9=: =5.64 / 5.66 / 8.24 MiB=, =2,605 / 2,082 /
+     3,288= =___group_demand_enter=) plus =C1-a= incremental per-group heap
+     delta accounting (eliminating the remaining =13= empty groups and =19=
+     zero-allocation =heap=6= groups in =_num.c=) keeps single-job compilation
+     within the =< 8 GiB= GitHub Actions ceiling.
+   - *S3 Framework & Contract Gates*: Land =D-MEM-1= (retiring
+     =msection_find_cache= to restore =movable-sections.inc= SHA-256
+     =0b6dfddfbc42...= in =c-contracts.view.json=, and moving =scan_state_*= and
+     =census_*= onto =___collector_worker_struct= in =collector.h=), keeping
+     both =c-resize= and =concurrency.view.json= green.
+   - *S4 Family A Regression & S5 Checklist 10-11 SMP Stress (295/300s Cap)*:
+     Land =C2= (=allocation-limits.inc= =4x -> 1x= =copy_gate= fast path)
+     together with =D-MEM-1= to eliminate concurrent collector cache races
+     (=nw == 2=), same-thread multi-section =adjust_msections= stale =pos=
+     lookups, and mutator spinlock overhead inside the =300s= stress budget.
+   - *S6 Family 6 Admission (-> 6/12)*: Seal Family 6 runtime evidence alongside
+     =axis1-formal-assurance.recipe.json= (=22/22 PASS=).
+2. *Gate B — Family 7 (=stress-gsc=, 6/12 -> 7/12)*: Complete =C1-b=
+   (=WriteGroupPlan= sidecar =emitSpec= + =verifyCoverage= across parallel
+   compiler stress modules, backed by =EmissionView.lean=).
+3. *Gate C — Families 8 & 9 (=registry=, =lifecycle=, 7/12 -> 9/12)*: Rely on
+   =D-MEM-1= =(work->vm, work->id)= worker-cache isolation across concurrent VMs
+   (=workerScopedCensusCrossVmSafeTest=, =WorkerOwnedCacheRefinement.lean=) plus
+   modular =execution_context= publication and membership drains.
+4. *Gate D — Family 10 (=gc-ffi=, 9/12 -> 10/12)*: Close =ROOT-WRITERS (3.5)= /
+   =ROOT-CENSUS (3.6)= and =C3= nonescaping stack-allocated RTEs.
+5. *Gate E — Families 11 & 12 (=gerbil= + =release=, 10/12 -> 12/12)*: Land =C5=
+   =HostGraph= C-unit sharding and strict child-group =< 8 GiB= RSS enforcement
+   across full Gerbil SMP qualification and release acceptance.

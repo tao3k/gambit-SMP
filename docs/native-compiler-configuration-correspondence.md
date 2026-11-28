@@ -31,7 +31,7 @@ Ambiguous strings, unknown/duplicated optimization, conflicting concurrency
 flags, compiler mismatch, changed image and existing output are rejected.
 
 The versioned observation is
-`evidence/source-results/fixtures/thread-completion-contract/balanced-compiled-suite-history/compiler-configuration.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/balanced-compiled-suite-history/compiler-configuration.json`.
 The original configure-string hash is
 `153f93fceafd5d3f9133f355a06688a37ac40f8453ca45ba41cec1785a1b6c56`.
 It explicitly retains `historicalDriverSha256=null` and

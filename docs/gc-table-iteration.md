@@ -21,7 +21,7 @@ A GC can physically rearrange entries without changing the logical table.
 The new rooted 32-key fixture calls GC and table-ref in each callback. Original
 candidate 018 visits 33 entries, with omissions and duplicates, in 1.384 seconds.
 The original source is not edited; the fixture resides in the isolated suite.
-Receipt/log: `native-table-iteration-018-deny.*` under `evidence/model-results`.
+Receipt/log: `native-table-iteration-018-deny.*` under `.cache/research/legacy-evidence/evidence/model-results`.
 
 Other controls narrow but do not settle historical failures: in explicit p1,
 thread-interrupt and table-search pass, while write_shared still fails. A
@@ -82,7 +82,7 @@ The first attempt is retained as denied: the additional serialization fixture
 was missing its unchanged local `#.scm` support file. The corrected snapshot
 adds that support file, without changing assertions. Portable receipts are
 `native-snapshot-core-019-build.json` and
-`native-snapshot-core-019-twelve-files.json` under `evidence/model-results`.
+`native-snapshot-core-019-twelve-files.json` under `.cache/research/legacy-evidence/evidence/model-results`.
 
 ## Remaining Gates
 

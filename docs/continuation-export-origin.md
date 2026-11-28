@@ -42,7 +42,7 @@ traversal/nonlocal. `readiness` is deliberately not an accepted invariant.
 There is no `fixed` initializer and no native or release admission.
 
 Evidence: `evidence/continuation-origin-model.json` and
-`evidence/model-results/continuation-origin-model/receipt.json` bind source,
+`.cache/research/legacy-evidence/evidence/model-results/continuation-origin-model/receipt.json` bind source,
 model, logs and tool identity. The prior link-handoff counterexamples remain
 conditional downstream obligations, not evidence of historical native origin.
 

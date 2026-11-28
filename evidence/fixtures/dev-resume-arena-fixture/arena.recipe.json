@@ -1,0 +1,160 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-resume-arena-header-contract",
+  "scope": "Locked production collector header and separately bound current generated header; standalone transition controls only. No physical GC, barrier, post-GC allocation, production profile or runtime admission.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "evidence/fixtures/dev-resume-selected-568e/source.lock.json",
+    "patches/fixtures/dev-resume-selected-568e.patch",
+    "vendor/gambit/include/gambit.h",
+    "evidence/fixtures/dev-resume-arena-fixture/arena.c",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-resume-arena-fixture/binding.json",
+    "evidence/fixtures/dev-resume-arena-fixture/observations.json"
+  ],
+  "steps": [
+    {
+      "id": "materialize",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-resume-selected-568e/source.lock.json"
+      }
+    },
+    {
+      "id": "project",
+      "capability": "source.project",
+      "dependsOn": [
+        "materialize"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": {
+          "step": "materialize",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "arena.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "evidence/fixtures/dev-resume-arena-fixture/arena.c"
+            },
+            "sha256": "1765b45c4b6aeb61dfee6041585f2a50d5198a22ed40efde48fb9f1cf95edfec"
+          },
+          {
+            "target": "gambit.h",
+            "origin": {
+              "kind": "research-asset",
+              "path": "vendor/gambit/include/gambit.h"
+            },
+            "sha256": "670ff0b9cacb01b3e2ce8ec0eb39781817b031e03fceaf3de90565dbcdbf7e36"
+          },
+          {
+            "target": "collector.h",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/collector.h"
+            },
+            "sha256": "12e78bd766cff63fc645185b04060b8b059dfb57de0dc0fb362cba61c74497b0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "bind",
+      "capability": "source.bind",
+      "dependsOn": [
+        "project"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "project",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "project",
+        "bind"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "workspace": {
+          "step": "project",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "bind",
+          "output": "binding"
+        },
+        "translationUnit": "arena.c",
+        "standard": "c23",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable"
+      }
+    },
+    {
+      "id": "test",
+      "capability": "native.test",
+      "dependsOn": [
+        "build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "arena-handoff",
+            "integers": [],
+            "stdout": "GC-RESUME-ARENA-CONTRACT-PASS\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "materialize",
+        "project",
+        "bind",
+        "build",
+        "test"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-resume-arena-fixture/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

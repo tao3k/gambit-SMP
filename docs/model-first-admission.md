@@ -62,11 +62,11 @@ The focused framework checks passed 36/36 in 0.813 seconds; these are not native
 Gambit tests.
 
 The portable summary is
-`evidence/model-results/pstate-setup-transaction-context-bound.json`. Its log
+`.cache/research/legacy-evidence/evidence/model-results/pstate-setup-transaction-context-bound.json`. Its log
 names resolve in the original `.data/pstate-setup-model-003` run directory; this
 summary alone is not a reusable log-complete model admission. The unchanged
 checks were reused after adding source/composition metadata, then published with
-portable logs and counterexamples to `evidence/model-results/pstate-setup-model/`.
+portable logs and counterexamples to `.cache/research/legacy-evidence/evidence/model-results/pstate-setup-model/`.
 The Datalog index checks those logs, model, source context and temporal completion
 before marking this protocol checked. Drift leaves the obligation pending.
 Both forms deliberately record `runtimeAdmitted: false` and `releaseAdmitted: false`.
@@ -77,7 +77,7 @@ not assigned solely from the control selector. Its replacement campaign
 `pstate-setup-model-005` passed all five negative controls and positive safety plus
 temporal progress (68 distinct states, 80 generated, zero queued, 20.641 seconds
 for the positive check). Portable proof material is now in
-`evidence/model-results/pstate-setup-resource-derived/`; old logs remain historical,
+`.cache/research/legacy-evidence/evidence/model-results/pstate-setup-resource-derived/`; old logs remain historical,
 not current proof. The index binds this replacement and the 109-state resize
 composition separately, preserving their source-refinement gaps.
 
@@ -87,7 +87,7 @@ completed OS cleanup. Two additional controls detect double cleanup of that OS
 resource and freeing OS while memory remains live. Seven negative controls and
 positive safety plus temporal progress completed in `pstate-setup-model-006`:
 91 distinct states, 103 generated, zero queued; positive check 35.802 seconds.
-Current portable material is `evidence/model-results/pstate-setup-helper-owned/`.
+Current portable material is `.cache/research/legacy-evidence/evidence/model-results/pstate-setup-helper-owned/`.
 The preceding resource-derived receipt is explicitly invalidated for current
 admission and preserved as historical evidence.
 

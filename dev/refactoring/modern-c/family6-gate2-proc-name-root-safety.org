@@ -1,0 +1,102 @@
+#+TITLE: Gate 2 Procedure-Name Global Root Representation Safety
+#+PROPERTY: TASK modern-c-frame-contract
+
+* Observed Native Failure in Pass-1 Self-Hosted Bootstrap
+
+Managed run =.cache/tasks/modern-c-frame-contract/family6-local-admit-successor-run-s2b=
+completed =candidate=, =configure=, =seed=, and =source-core= (=2345.3 s=, exit 0)
+under the locked candidate =evidence/fixtures/dev-family6-engineering/family6-local-admit.lock.json=
+(patch =9b3f1ef2023b2dafb34f79e471dda433fe9d0e34e0c6dc5151213e51cd6f675e=).
+Continuation run =.cache/tasks/modern-c-frame-contract/family6-local-admit-successor-run-s2c=
+reused those four stages by checkpoint, passed =review=, and entered two-pass
+=bootstrap= (=make from-scratch= with =makeLineage: true=).
+
+During Pass 1 of =from-scratch=, the newly self-compiled compiler
+=emitter-1/gsc-boot= exited with =Error 138= (=SIGBUS=, signal 10 on Darwin arm64)
+after =86.37 s= while compiling =lib/_io.scm= at =##open-process-generic=
+(and deterministically at =##fail-check-datum-parsing-exception= in isolated
+single-unit invocation).
+
+** Machine-Level Evidence Chain
+
+| Boundary | Observation | Identity / Coordinates |
+|----------+-------------+------------------------|
+| Enclosing run | =family6-local-admit-successor-run-s2c= | Child receipt =fa8d70dc5b6ab27741098d775b5670c62680ed601a5f424d06bf93aba0efa20b=, =from-scratch.log= =36a892008eb008e45c83fb988495d3e154fea533ee428b56ea19480cf6ed10ae= |
+| Faulting frame | =census_array.constprop.0 + 28= <- =mark_global_variables + 116= <- =___garbage_collect_pstate + 8200= | =copy-planning.inc:112= (=head = body[-1]=) |
+| Faulting value | =x12 = 0x0000002300000023=, =far = x3 = 0x0000002300000020= | Two 32-bit UTF-32 code units ='#'= (=U+0023=) whose low two bits equal =___tPAIR = 3= |
+| Corrupted global cell | =___global_slot_page= key =129=, ordinary slot =15= (=id = 8271=) | Symbol =___G_c_23_targ_2d_proc_2d_gate2_2d_name= (=c#targ-proc-gate2-name=) |
+| Asymmetric stage exposure | Pass-0 =seed= succeeded; Pass-1 =emitter-1/gsc-boot= faulted | Pre-generated =vendor/gambit/gsc/_t-c-2.c= predated =targ-proc-gate2-name=; =source-core= compiled =gsc/_t-c-2.scm= into =emitter-1/gsc-boot=, and =bootstrap= executed it for the first time |
+
+* Root Cause
+
+In =vendor/gambit/gsc/_gvm.scm= (=proc-obj-name=), procedure names are stored
+as tagged Scheme strings (=___sSTRING=), never symbols; every existing caller
+in =gsc/_t-c-2.scm= (=string->canonical-symbol=, =string->symbol=) consumes a
+string.
+
+The Gate 2 observation instrumentation in =vendor/gambit/gsc/_t-c-2.scm= wrote:
+
+#+begin_src scheme
+(set! targ-proc-gate2-name (symbol->string (proc-obj-name proc)))
+#+end_src
+
+Because =gsc/_t-c-2.scm= is compiled under =(declare (not safe))=, the C backend
+inlines =(symbol->string x)= to unchecked =___SYMBOLNAME(x)= (=___BODY0_AS(x, ___tSUBTYPED)[0]=).
+When =x= is a Scheme string starting with ="##"= (such as ="##open-process-generic"=),
+=body[0]= contains the two 32-bit UTF-32 characters =0x0000002300000023=. Storing
+that untyped payload word into the GC-scanned global variable =c#targ-proc-gate2-name=
+violates the collector's root-tag invariant: =0x23 & 3 = 3= (=___tPAIR=), so
+=mark_global_variables -> census_array= untags =0x0000002300000023= and reads
+=*(0x0000002300000020)=, raising =SIGBUS=.
+
+Even without an intervening GC, storing the raw character word instead of the
+procedure-name string also prevented =targ-note-group-site= from emitting valid
+=___GATE2_OPEN= / =___GATE2_ENTER= procedure-name literals in Pass 2.
+
+* Formal Model and Theorem Coverage
+
+1. *Quint* (=dev/refactoring/modern-c/models/quint/bootstrap_cohort.qnt=):
+   - =Gate2NameCell=, =gcSafeGlobalRoot=, =uncheckedSymbolNameProjection=, and
+     =checkedGate2ProcName=.
+   - =gate2UncheckedSymbolToStringOnStringCorruptsGlobalRootTest= reproduces the
+     exact ="string"= + ="##"= projection to =raw-utf32-word= with =lowTagBits = 3=
+     and refutes =gcSafeGlobalRoot=.
+   - =gate2CheckedProcNamePreservesStringGlobalRootTest= checks that guarded
+     capture preserves tagged ="string"= storage across both string and symbol
+     inputs.
+   - Declared in =evidence/fixtures/dev-family6-engineering/models.recipe.json=.
+
+2. *Lean 4* (=dev/refactoring/modern-c/models/lean/BootstrapCohort.lean=):
+   - =Gate2ValueKind=, =GcSafeGlobalRoot=, =uncheckedStringCorruptsGlobalRoot=,
+     =checkedGate2ProcNameAlwaysGcSafe=, and
+     =checkedGate2ProcNameStringOnStringOrSymbol=.
+
+* Source Repair
+
+In =vendor/gambit/gsc/_t-c-2.scm= (=targ-scan-procedure=), guard the representation
+with safe tag predicates before projecting a symbol name:
+
+#+begin_src scheme
+(let ((name (proc-obj-name proc)))
+  (set! targ-proc-gate2-name
+        (cond ((string? name) name)
+              ((symbol? name) (symbol->string name))
+              (else ""))))
+#+end_src
+
+Under =(declare (not safe))=, =string?= and =symbol?= still emit full tag and
+subtype checks (=___STRINGP= / =___SYMBOLP=), so =c#targ-proc-gate2-name=
+always holds a valid =___sSTRING= root and Pass-2 generated C receives exact
+procedure-name strings at every =___GATE2_OPEN= / =___GATE2_ENTER= site.
+
+* Verified Framework Receipts and Repaired Source Lock
+
+| Artifact / Run | Outcome | SHA-256 / Identity |
+|----------------+---------+--------------------|
+| =family6-goal-10-12-engine-s2= | Sealed framework engine (=gcc-16=, =cbmc=, =z3=, =quint=, =node=, =lean=, =make -j4=) | =f916f6acc0629ea6e123e29d8c406a91f5011df3de0caa67c61f5aab4bca5709= |
+| =group-demand-local-admission-20261119-v4= | =PASS= (=VERIFIED=, =1,711 / 1,711= CBMC properties) | Receipt =6387854b130def3d48fde90be3a63b3d86d729aacc738c93e40ded97635c65f4= |
+| =dev-family6-engineering-models-20261119-v3= | =PASS= (Quint + Lean 4 engineering models including =gate2UncheckedSymbolToStringOnStringCorruptsGlobalRootTest=, =gate2CheckedProcNamePreservesStringGlobalRootTest=, =checkedGate2ProcNameAlwaysGcSafe=) | Receipt =ca96489dfce3f136d9eee9b53a8d0a50f7610d98a7a218f96bfdd76b19ed5942= (child =87df7c542ebf227f35ac02d40592fa87c23437fafa52b03d87416e0744f40515=) |
+| =family6-gate2-audit-models-20261119-v2= | =PASS= (Gate 2 publication & Lean =FrameContract= models) | Receipt =44e3f81b19a941b30db1eb0c2c5eeb63e40eb022e3ae81afa2a2b03072371af0= (child =44108366106b72d5cbd7a13a237adf1155fe4a01dc708e53334c7fedf7d011ad=) |
+| =patches/fixtures/dev-family6-engineering/family6-local-admit-v2.patch= | Repaired candidate patch (=vendor/gambit/gsc/_t-c-2.scm= =f991ab0b4dcc819f30aa7b90c8dddf011ca9c897a249436eb74fbba191807406=) | =c229ab34662079194b582ee20f2ff31e3e8f1f43565fcffb9bb362e212fe7241= |
+| =evidence/fixtures/dev-family6-engineering/family6-local-admit-v2.lock.json= | Validated 85-file source lock | =0a7e8c7d7fdfb48b76fd64596885ca4d7ad1e4644b12834bd475b2bdd08bb417= |
+

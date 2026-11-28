@@ -8,7 +8,7 @@ Composition and admission run in the Rust Library. Python transports values
 and owns leases; independently opened sessions survive graph-handle closure.
 
 The execution Evidence entry now binds `evidence/dsl/execution.ss` through
-`evidence/research/execution/entry.json`. Active recipes declare both files.
+`tests/recipes/execution/entry.json`. Active recipes declare both files.
 Old receipts and historical entry files retain their original identities.
 The `module` capability, compiled Scheme source registry, and `open_module`
 consumer route have been removed, not adapted into compatibility layers.
@@ -33,7 +33,7 @@ composition/session withdrawal, no Plan alias, source archive verification,
 entry drift, negative source binding, graph-valued answers, and explanations.
 
 Raw successful and failed process receipts are in
-`evidence/library/rust-consumer-051/`. The initial nested-sandbox initialization
+`.cache/research/legacy-evidence/evidence/library/rust-consumer-051/`. The initial nested-sandbox initialization
 failure and subsequent two-error/one-failure control run remain recorded.
 
 This is not complete consumer qualification, sealed-review qualification,

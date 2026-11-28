@@ -59,7 +59,7 @@ def main():
     args = parser.parse_args()
     source, header = args.source.resolve(strict=True), args.header.resolve(strict=True)
     manifest_path = ROOT / "evidence/gc-wait-notification.json"
-    proof = ROOT / "evidence/model-results/gc-wait-notification/receipt.json"
+    proof = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-wait-notification/receipt.json"
     manifest = json.loads(manifest_path.read_text())
     checked_rows(ROOT, manifest, proof)
     for path in (source, header):
@@ -131,5 +131,9 @@ def main():
     return 0 if ok else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('gc-wait-schedule')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('gc-wait-schedule', main))

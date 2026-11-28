@@ -43,4 +43,4 @@ failed native assertions still deny the exact ASCENT inventory.
 
 References: [retained root observations](root-cleanup-sticky-retention.md),
 [model](../models/gambit/process_group_terminal_observation.qnt),
-[recipe](../evidence/research/vm-registry-reader-lease/vector-arity-root-terminal-observation.recipe.json).
+recipe (local execution locator: `../.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/vector-arity-root-terminal-observation.recipe.json`; unavailable in a clean checkout).

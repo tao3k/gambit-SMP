@@ -42,7 +42,7 @@ Engine: `03ebd972aaabc622edb2ab899f17ed2f6b336bc23ddaceb4c5249bc37a1918a3`.
 Bootstrap identity:
 `7dc39609792279599d149d5b8dce2d61f347c0e33add30646305c0484e2edb6d`.
 Completed producer reference:
-`evidence/research/vm-registry-reader-lease/bazel-profile-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/bazel-profile-completed-producer.json`.
 All three concurrency switches were observed in the actual configure argv.
 This is bootstrap qualification, not complete native Grid, parallel GC, Gerbil
 or performance admission. Existing O0 compiler-cost retry reviews are not

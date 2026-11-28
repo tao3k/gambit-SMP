@@ -1,0 +1,107 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "c-witnessed-shortage",
+  "scope": "Bounded source-level contract for the witnessed 6/9/14 copy-plan shortage. No core build, no native admission; Family 6 remains 5/12 and 295/300 is unchanged.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "evidence/dsl/c-bounded-contract.ss",
+    "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+    "tests/contracts/allocation-grant/copy-capacity/witnessed-shortage/check.recipe.json",
+    "tests/contracts/allocation-grant/copy-capacity/witnessed-shortage/harness.c",
+    "tests/contracts/allocation-grant/support/capacity-environment.h",
+    "tests/contracts/allocation-grant/support/lp64.h",
+    "vendor/gambit/include/_gambit/memory_state.h.in",
+    "vendor/gambit/include/_gambit/object_access.h.in",
+    "vendor/gambit/lib/_mem/copy-planning.inc",
+    "vendor/gambit/lib/collector.h",
+    "vendor/gambit/lib/mem.h"
+  ],
+  "steps": [
+    {
+      "id": "shortage",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/copy-capacity/witnessed-shortage/harness.c",
+        "function": "shortage_contract",
+        "sources": [
+          "vendor/gambit/lib/mem.h",
+          "vendor/gambit/include/_gambit/memory_state.h.in",
+          "vendor/gambit/lib/collector.h",
+          "vendor/gambit/lib/_mem/copy-planning.inc",
+          "tests/contracts/allocation-grant/copy-capacity/witnessed-shortage/harness.c",
+          "tests/contracts/allocation-grant/support/lp64.h",
+          "tests/contracts/allocation-grant/support/capacity-environment.h",
+          "vendor/gambit/include/_gambit/object_access.h.in"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/include/_gambit/object_access.h.in",
+            "target": "word-rounding.inc",
+            "begin": "#define ___WORDS(bytes)",
+            "end": "#define ___MAKE_HD_BYTES"
+          },
+          {
+            "source": "vendor/gambit/lib/mem.h",
+            "target": "section-size.inc",
+            "begin": "#define ___MSECTION_SIZE",
+            "end": "/* A native rest handler"
+          },
+          {
+            "source": "vendor/gambit/include/_gambit/memory_state.h.in",
+            "target": "section-layout.inc",
+            "begin": "typedef struct ___msect",
+            "end": "/*\n * Header structure of reference counted blocks of memory."
+          },
+          {
+            "source": "vendor/gambit/lib/collector.h",
+            "target": "fits.inc",
+            "begin": "static inline int ___gc_copy_plan_fits",
+            "end": "typedef struct ___collector_worker_struct"
+          },
+          {
+            "source": "vendor/gambit/lib/_mem/copy-planning.inc",
+            "target": "capacity.inc",
+            "begin": "        if (need > 0 && max_heap == 0)",
+            "end": "    if (g->is_minor &&"
+          }
+        ],
+        "unwind": 4,
+        "scope": "Witnessed roots=6, copies=9, pool=14. Unlimited heap requests 15. A full byte cap refuses without growth.",
+        "assumptions": [
+          "LP64. The witnessed counts are constants, not a widened domain.",
+          "Resize is the existing callee summary: it may stop at the old count or reach the requested count.",
+          "The tight cap equals fourteen sections and still usage fills that cap, so no remaining section exists."
+        ],
+        "contract": "allocation-grant/copy-capacity",
+        "branch": "witnessed-shortage",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "shortage.fourteen-does-not-fit",
+          "shortage.unlimited-requests-fifteen",
+          "shortage.granted-need-fits",
+          "shortage.tight-must-refuse",
+          "shortage.tight-no-growth"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["shortage"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+        "queries": {
+          "missing": "missing_boundary",
+          "repairs": "repair_needed",
+          "verified": "verified",
+          "unresolved": "unresolved"
+        },
+        "expected": {"missing": []},
+        "recordedQueries": ["repairs", "verified", "unresolved"]
+      }
+    }
+  ]
+}

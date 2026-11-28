@@ -1,4 +1,5 @@
 """Reproducible lexical model composition using Quint's resolved IR and map."""
+from gambit_smp.task_processes import run as _task_run
 import argparse
 import hashlib
 import json
@@ -85,7 +86,7 @@ def project_body(source, source_path, module_name, prefix, parsed, positions):
 def render(root, contract, quint="quint"):
     if contract.get("schema") != "quint-model-projection.v1":
         raise ValueError("unknown model projection schema")
-    version = subprocess.run([quint, "--version"], capture_output=True, text=True,
+    version = _task_run([quint, "--version"], capture_output=True, text=True,
                              timeout=10, check=True).stdout.strip()
     if version != contract["quintVersion"]:
         raise ValueError("projection Quint version differs")
@@ -93,7 +94,7 @@ def render(root, contract, quint="quint"):
     template = bound_path(root, contract["template"], contract["templateSha256"])
     with tempfile.TemporaryDirectory(prefix="quint-projection-") as directory:
         ir, mapping = Path(directory) / "ir.json", Path(directory) / "map.json"
-        subprocess.run([quint, "parse", str(source), "--out", str(ir),
+        _task_run([quint, "parse", str(source), "--out", str(ir),
                         "--source-map", str(mapping)], capture_output=True,
                        text=True, timeout=10, check=True)
         body = project_body(source.read_text(), source, contract["module"],
@@ -131,5 +132,9 @@ def main():
         print("MODEL-PROJECTION-OK")
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('model-projection')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('model-projection',main))

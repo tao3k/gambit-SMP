@@ -6,14 +6,15 @@ import shutil
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.native_review import historical_observation
 from gambit_smp.ascent_program import engine_api, load_catalog, query
 
 
-ARCHIVE = "evidence/source-results/fixtures/thread-completion-contract/bootstrap-second-core-history"
-ORIGINAL = "evidence/model-results/bootstrap-018-deny.json"
+ARCHIVE = "tests/fixtures/historical-bootstrap/bootstrap-second-core-history"
+ORIGINAL = "tests/fixtures/historical-bootstrap/bootstrap-018-deny.json"
 PAIRS = [("status", "/status", "/status"), ("exit", "/exit", "/steps/0/exit"),
          ("timeout", "/timeout", "/steps/0/timeout"),
          ("duration", "/seconds", "/steps/0/seconds"),
@@ -27,7 +28,7 @@ class HistoricalObservationTransportTests(unittest.TestCase):
         self.root = Path(temp.name)
         shutil.copytree(ROOT / ARCHIVE, self.root / ARCHIVE)
         original = self.root / ORIGINAL
-        original.parent.mkdir(parents=True)
+        original.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / ORIGINAL, original)
         self.original = json.loads(original.read_text())
         self.original_bytes = original.read_bytes()
@@ -59,6 +60,24 @@ class HistoricalObservationTransportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reference drift"):
             self.observe()
 
+    def test_published_log_membership_is_not_an_ordinary_input_path(self):
+        from gambit_smp.native_archive import validate
+        def published(root, name):
+            result = validate(root, name)
+            result.pop(ARCHIVE + "/bootstrap.log", None)
+            return result
+        with patch("gambit_smp.native_archive.validate", side_effect=published):
+            _, recovered, _, facts = self.observe()
+        self.assertEqual(-9, recovered["steps"][0]["exit"])
+        self.assertEqual(5, len(facts["observation_equal_pointer"]))
+
+    def test_same_log_bytes_outside_archive_cannot_fake_membership(self):
+        other = self.root / "outside.log"
+        shutil.copyfile(self.root / ARCHIVE / "bootstrap.log", other)
+        self.version["log"]["path"] = "outside.log"
+        with self.assertRaisesRegex(ValueError, "belong to the verified archive"):
+            self.observe()
+
     def test_archive_member_drift_is_rejected(self):
         (self.root / ARCHIVE / "identity.json").write_text("{}")
         with self.assertRaises(ValueError):
@@ -79,7 +98,7 @@ class HistoricalObservationPolicyTests(unittest.TestCase):
     validation_domain = {"kind": "sealed-research", "budgetSeconds": 60, "workers": "auto", "processesPerWorker": 2}
 
     def setUp(self):
-        self.catalog = load_catalog(ROOT / "evidence/research/suite-review-rules.ss")
+        self.catalog = load_catalog(ROOT / "evidence/dsl/suite-review-rules.ss")
         self.facts = {
             "retry_marker": [[True]], "known_failure": [["old", "bootstrap"]], "selected_failure": [["old"]],
             "failure_category": [["old", "budget"]], "review_present": [["old"]], "campaign_bound": [["old"]],

@@ -1,0 +1,729 @@
+                                           A Parallel Virtual Machine for
+                                           Ecient Scheme Compilation
+                                                Marc Feeley and James S. Miller
+                                                     Brandeis University
+                                                  Waltham, MA 02254-9110
+
+
+
+Abstract                                                                    Architecture (HPPA), MIPS R2000, Motorola 88K,
+                                                                            BBN Monarch). For our purposes it was important
+Programs compiled by Gambit, our Scheme compiler, achieve                   that retargetting the compiler be simple and yet still
+performance as much as twice that of the fastest available                  yield a high performance system. We rejected exist-
+Scheme compilers. Gambit is easily ported, while retaining                  ing compiler-based Scheme systems (T with Orbit[11],
+its high performance, through the use of a simple virtual                   CScheme with Liar[12]) mainly because of the di-
+machine (PVM). PVM allows a wide variety of machine-                        culty of retargetting and modifying the compilation
+independent optimizations and it supports parallel computa-                 strategy of these large systems.
+tion based on the future construct. PVM conveys high-level
+information bidirectionally between the machine-indepen-                 2. High performance of output programs. We are not
+dent front end of the compiler and the machine-dependent                    concerned with program development features. For ex-
+back end, making it easy to implement a number of common                    ample we do not allow the user to interrupt execution
+back end optimizations that are dicult to achieve for other                of a program other than by aborting it.
+virtual machines.                                                        3. Support for task creation and synchronization through
+    PVM is similar to many real computer architectures and                  implicit data operations, possibly augmented by con-
+has an option to eciently gather dynamic measurements of                   trol constructs. The future construct provides these
+virtual machine usage. These measurements can be used in                    features compatibly with most other features of the
+performance prediction for ports to other architectures as                  Scheme language and was, therefore, our initial focus.
+well as design decisions related to proposed optimizations                  We are also interested in exploring other parallel con-
+and object representations.                                                 trol and data constructs.
+1 Introduction                                                            While the rst and second goals are somewhat at odds
+                                                                      with one another, we believe that architectural comparisons
+Our primary interest is in ecient mechanisms for imple-              and architecture independent implementation techniques will
+menting future-based symbolic computation on currently                be among the important results from our research. We have
+available MIMD machines. Having already done work in this             therefore chosen to build a compiler based on an easily re-
+area using the Scheme language (augmented with the future             targetted virtual machine even though it may result in less
+mechanism[8][13]) we are now extending our interpreter-               ecient compiled code. Fortunately, our experience with
+based results into the realm of compiled Scheme code. For             Gambit indicates that a well chosen virtual machine does
+this purpose we undertook the implementation of a new                 not result in any noticeable performance penalties.
+Scheme compiler, Gambit, with the intention of creating
+a simple environment for experiments across a wide range              2 PVM: A Parallel Virtual Machine
+of hardware platforms and over a range of implementation
+techniques. The major design goals for Gambit, from the               In designing our virtual machine we tried to avoid a pair of
+outset, were:                                                         twin hazards that we have seen in other virtual machines
+   1. Code generation for multiple target machines, span-             used for compilation. On the one hand, there are virtual
+      ning both common CISC computers (DEC Vax, Mo-                   machines (like MIT's scode[3], or the code objects of UMB
+      torola MC68000) and RISC computers (HP Precision                Scheme[4]) that are so close to the source language that the
+                                                                      machine independent front end of the compiler is unable to
+    This research was supported in part by the Open Software Foun-   express important optimizations in the virtual machine's in-
+dation, the Hewlett{Packard Corporation, and NSF equipment grant      struction set. This places a major burden on the back end,
+CDA{8715228. Marc Feeley is on study leave from the Universite de    which becomes responsible for analysis of the virtual ma-
+Montreal.
+                                                                      chine code { a task very nearly as dicult as the original
+                                                                      compilation task. On the other hand, there are virtual ma-
+                                                                      chines (like Multilisp's mcode[8] or Scheme 311's byte code)
+                                                                      that match neither the actual target machine nor the source
+                                                                      language. The result is either a complex back end that again
+                                                                      attempts to recover data and control ow information from
+the virtual machine, or a simple back end that produces             Operand              Meaning
+poor code.
+    Our Parallel Virtual Machine, or PVM, is intended to            reg(n)               General purpose register n
+fall in between these kinds of machines. We allow each back         stk(n)               N th slot of the current stack frame
+end to specify a wide range of \architectural details" of the       glob(name)           Global variable
+virtual machine, including a description of primitive proce-        mem(base, o set)     Indexed reference (base is an
+dures available on the target machine and the number of                                  operand, o set is a constant)
+general purpose registers. As a result, we can think of PVM
+as a set of virtual machines, depending on the back end de-         obj(object)          Constant
+scription that is used. Each speci c virtual machine is close       lbl(n)               Program label
+to its target machine, yet the common abstraction hides the         ?loc                 Parallelism support, see Section 2.7
+precise details from the front end. PVM also remains close
+to the source language since its small instruction set closely
+matches the Scheme language itself.                                                 Figure 1: PVM Operands
+    PVM can be viewed as a bidirectional communication
+medium between the front and back ends of the compiler.
+The traditional role of a virtual machine, of course, is to con-   we leave other data structure accesses to the more general
+vey information from the front end to the back end. PVM,           APPLY instruction. As a result, the ability to nest other
+however, conveys information in the reverse direction as well:     operands within mem is not actually in use, although the
+    The number of general registers.                              back ends support it.
+    The procedure calling convention.                                Finally, we note that all operands can be used as the
+    The format of closures.                                       source of values. However values cannot be stored into obj,
+    Enumeration and description of primitive procedures.          lbl, or ? operands.
+    Machine-speci c declarations.
+                                                                   2.2 Instructions for Sequential Computation
+    We view this bidirectional communication as an impor-          The PVM instruction set provides a small set of general
+tant component of Gambit's organization. The communica-            instructions to eciently encode the operation of Scheme
+tion is supported by a language for describing implementa-         programs. Like many compilers, Gambit represents the pro-
+tion-level objects, which is the basis of the PVM abstraction.     gram as a set of basic blocks. This representation is ap-
+Four types of objects are manipulated using this language:         parent in the PVM code. Each basic block is headed by a
+primitive procedures, data objects, stack frames, and argu-        code label, followed by the code for the data operations in
+ment/parameter blocks. Corresponding to each of these is           the block, and ends with a branch instruction. Our current
+a means of reference: the name of the primitive procedure,         instruction set for sequential computation consists of four
+slots within a data structure, slots within a stack frame,         kinds of code labels, three data manipulating instructions,
+and argument/parameter number. This particular level of            and three branch instructions.
+abstraction is convenient for both the front and back ends.            An important part of Gambit's communication mecha-
+For example, both the back and front ends agree to discuss         nism is the description of a set of procedures, known as prim-
+stack slots as positive integers, in units of Scheme objects,      itives, that are supported by the back end. All primitives
+increasing as objects are pushed on the stack. This is clearly     are available through the general procedure call mechanism,
+convenient for the front end, and the back end can easily          but some can also be open coded by the APPLY and COND
+translate this into appropriate o sets from a base register,       instructions. The front end requires the back end to supply
+taking into account the number of bytes per argument, the          a speci c minimal set of (about 35) primitive operations;
+direction of stack growth, and the choice of stack discipline      but the back end can, in fact, specify any procedure as a
+on the target machine.                                             primitive. The description of each primitive indicates its ar-
+                                                                   ity and strictness. It also indicates whether it can be open
+2.1 Operands                                                       coded, and whether it can return a placeholder as a value.
+PVM has seven classes of operands, as shown in Figure 1,           Thus, list has unbounded arity, is not strict in any argu-
+which naturally divide storage into disjoint areas: registers,     ment, and never returns a placeholder, while set-car! has
+current stack frame, global variables, heap storage, constant      arity two, is strict in its rst argument but not its second,
+area, and code area. This makes it easy to track values and        and never returns a placeholder.
+(with the exception of mem operands) removes the traditional           PVM's handling of stack frames is unusual, and is de-
+aliasing problem.                                                  scribed in Section 2.3. The size parameter to the label and
+    Neither the stack nor the heap pointer is directly visible.    branch instructions is used to support this mechanism, and
+Instead, the stack is accessible by indexing o of a virtual        is described in detail in that section.
+frame base pointer that is modi ed as part of the proce-               The description of the sequential PMV instructions fol-
+dure call mechanism. The heap is accessed implicitly when          lows. Figure 2 shows a simple program (iterative factorial),
+allocating objects and explicitly by indexing relative to ex-      along with its PVM code and the code generated for the
+isting heap-allocated objects. By making the stack pointer         MC68020. A comparison to code from other compilers is
+and heap pointer invisible, we allow the back end to make a        included in Appendix A.
+number of optimizations based on the target architecture.                 n size)
+    The mem operand, which gives access to heap storage,           LABEL( ,
+                                                                        A simple label, n, which may appear only in JUMP
+allows nesting of other operands in its base component. Our             and COND instructions.
+front end, however, uses it only for access to closed variables;
+                                          (##declare (standard-bindings) (fixnum))
+
+                                          (define (fact n) ; Iterative factorial
+                                            (let loop ((i n) (ans 1))
+                                               (if (= i 0)
+                                                   ans
+                                                   (loop (- i 1) (* ans i)))))
+
+
+
+                            Virtual Machine Code                               MC68020 Code
+                  LABEL(1,0,PROC,1)                              L1:     bmi      L7        ; Entry point
+                                                                         jsr      20(a6)    ; Arity error
+                                                                 L7:
+                    COPY(obj(1),reg(2))                                  moveq    #8,d2
+                    COND(##fixnum.=,reg(1),obj(0),5,6,0)                 move.l   d1,d0
+                                                                         beq      L5
+                  LABEL(6,0)                                     L6:
+                    APPLY(##fixnum.*,reg(2),reg(1),reg(2))               asr.l    #3,d2
+                                                                         muls.l   d1,d2
+                    APPLY(##fixnum.-,reg(1),obj(1),reg(1))               subq.l   #8,d1
+                    COND(##fixnum.=,reg(1),obj(0),5,6,0)                 move.l   d1,d0
+                                                                         bne      L6
+                  LABEL(5,0)                                     L5:
+                    COPY(reg(2),reg(1))                                  move.l   d2,d1
+                    JUMP(reg(0),0)                                       jmp      (a0)
+
+
+                                       Figure 2: Sample Program with Gambit Output
+
+LABEL( , n size, CONT)                                               that closure, and operands to be stored in the closure's
+     A continuation label, similar to a return address in            data slots.
+     other architectures. These are not the objects returned
+     to a Scheme program that calls call-with-current-          COND(prim, operand1 , . . ., t lbl, f lbl, size)
+     continuation, but are an architectural feature to sup-          A conditional branch based on the value of prim ap-
+     port fully tail-recursive behavior[15][18].                     plied to the operands (on false branch to f lbl, other-
+                                                                     wise to t lbl, both of which must specify simple labels).
+LABEL( , n size, PROC, desc)
+     A procedure label with desc de ning the number             JUMP(  operand, size)
+     (or range) of arguments expected. This instruction                Jump to the simple or continuation label speci ed by
+     modi es the stack and registers to account for any dis-           the value of operand.
+     crepancy between desc and the number of arguments          JUMP(   operand, size, nargs)
+     actually passed (as speci ed by the JUMP instruction              Jump to the address speci ed by operand. This in-
+     used to arrive here).                                             struction also states that nargs have been placed in
+LABEL( , n size, PROC, desc, CLOSED)                                   the appropriate argument passing locations. The value
+     A closure label, similar to a procedure label, but                of operand must be either a procedure label, a closure
+     the label n may appear only within a closure object               object, or a primitive procedure object.
+     created by MAKE CLOSURES.
+APPLY(prim, operand1 , . . ., [loc])
+                                                                2.3 Stack Frames
+     Apply the primitive procedure prim to the operands         PVM deals with the stack frame in a novel manner, sup-
+     and store the result in loc (or discard it if loc is not   plying the current stack frame size in the LABEL, COND, and
+     speci ed).                                                 JUMP instructions. Our approach avoids the problems inher-
+                                                                ent in using virtual machines either based purely around a
+COPY(   operand, loc)                                           top of stack pointer or based purely upon a frame pointer.
+     Copy the value of operand to the location speci ed by      Using a stack pointer leads to varying o sets for a given
+     loc.                                                       stack slot and inecient code on machines lacking explicit
+MAKE CLOSURES(description1/. . ./descriptionn )                 stack instructions. Using only a frame base leaves the top
+     Create n closure objects. A closure object con-            of stack unknown at garbage collection time and requires
+     tains a code label and a number of data slots. Each        update instructions on entry and exit of every basic block.
+     description speci es a location into which a closure           While the actual instruction set of PVM makes use of a
+     object will be stored, the closure label for the code of   frame pointer and frame size information, we prefer to think
+of the machine as having both a stack pointer and a frame               speci es where values are located after this reorgani-
+pointer. Since the frame size always speci es the distance              zation has taken place. For a closure label, the back
+between the stack pointer and the frame pointer, either                 end also speci es the location of the pointer to the clo-
+pointer can be recomputed from the other. JUMP and COND                 sure object so that the front end can generate PVM
+instructions cause the stack pointer to be recalculated, while          instructions to access its data slots. Our front end also
+LABEL instructions recalculate the frame pointer. Within a              restricts these to be registers or stack slots.
+basic block, the stack pointer is updated based on the o -
+sets of stk operands encountered so that it always covers             The back end also decides how the argument count is
+the active part of the stack frame.                                passed from the JUMP instruction to the destination proce-
+    The choice between stack pointer and frame pointer dis-        dure or closure label. This decision is internal to the back
+cipline is speci c to the back end (see Section 3.3). We take      end since it is needed only to accomplish moving arguments
+advantage of the fact that our front end produces the PVM          from the locations where they are passed by the caller to the
+code for an entire basic block before beginning native code        locations where they are expected by the destination code.
+generation. For each instruction, the front end calculates a       All of this code is included in the back end's expansion of
+tight bound on the size of the stack frame using knowledge         the JUMP and LABEL instructions.
+of which slots are referenced between the current instruc-
+tion and the end of the block. It supplies this information        2.5 First-Class Procedures
+to the back end, which can then easily implement any one of
+four mechanisms: the two pointer model above, or a single          Since Scheme programs often make use of rst-class proce-
+pointer model (frame base, frame top, or stack). The single        dures, we take a short digression to discuss the mechanism
+pointer models are derived from the two pointer model by           Gambit uses to implement them. In general, procedures
+realizing that:                                                    carry with them the values of any free variables that they
+                                                                   reference, and we use the traditional name, closure, to re-
+     Both the frame's current size and its size at entry to       fer to the representation used when a procedure references
+       the current basic block are known at code generation        one or more free variables. Procedures with no references to
+       time.                                                       free variables can be represented simply by the address of
+     These frame sizes along with any single pointer specify      the code that implements them: in PVM, either a primitive
+       the other two pointers.                                     procedure object or a procedure label.
+                                                                       Gambit allocates closures on the heap. They consist of
+2.4 Calling Convention                                             a back-end dependent header region (typically instructions
+                                                                   executed when the closure is invoked) followed by storage
+A second novel aspect of our virtual machine design is the         for the values of the free variables needed by the procedure.
+implementation of the calling convention. PVM itself im-           Each entry in the storage area contains either the value of
+poses no speci c mechanism, but allows the back end to             a free variable (if it is known to be immutable) or a pointer
+choose an appropriate mechanism for general procedure calls.       to the variable's storage location. Figure 4 shows the clo-
+The front end will generate PVM instructions for procedure         sure object created from the code shown in Figure 3 (see
+calls that load argument values into registers or stack loca-      Appendix A for further implementation details).
+tions as speci ed by the back end. At procedure and closure            The runtime storage allocation required by closures is
+labels, the back end is responsible for emitting code, if neces-   expensive compared to other procedure representations, and
+sary, to move arguments from their placement by the caller         Gambit attempts to minimize the number of closures that
+to the location required by the callee. This is based on the       are created. The front end performs a combined data and
+number of arguments actually passed at runtime compared            control ow analysis to discover all procedure calls that in-
+with the number of parameters required by the procedure.           voke a given procedure. If all calls can be located, standard
+    In cases where the front end can analyze a procedure call      lambda lifting is performed; the net e ect is to add the free
+suciently to avoid the general mechanism, it can produce          variables to the parameter list of the procedure and to mod-
+optimized code by using simple labels (rather than proce-          ify all of the procedure calls to pass these values as argu-
+dure or closure labels) as the target address. Unlike a pro-       ments. The procedure then has no free variable references
+cedure label, a simple label implies no stack reformatting         and is represented as a procedure label.
+operations. Thus, the calling convention used for jumps to             A second technique used to minimize the size of closures,
+simple labels is essentially under the control of the front end,   and possibly eliminate them entirely, is to subdivide the free
+while for jumps to procedure or closure labels it is under the     variables that are referenced. References to global variables
+control of the back end.                                           do not need to be stored in the closure since their values are
+    The back end speci es, in particular:                          directly accessible at runtime (Gambit supports only one
+                                                                   top level environment). Similarly, variables that are known
+   1. Where arguments are passed, based on the number              to have constant values (either because of a declaration or
+       of arguments in the call. This is used by the front         from data ow analysis) can be eliminated from the list of
+       end to generate the code prior to a JUMP instruction.       free variables that must be stored in the closure. Thus,
+       Our front end restricts the choices to combinations of      the storage area of a closure contains values for the formal
+       registers and stack slots.                                  parameters of lexical parents, which are referenced by the
+   2. Which register contains the value returned by proce-         body of the procedure, and which the compiler cannot infer
+       dures.                                                      to have constant values.
+                                                                       Closures are created by the MAKE CLOSURES instruction.
+   3. Where the parameters are located after a LABEL in-           This instruction allows multiple closures to be made \si-
+       struction is executed. Since procedure and closure          multaneously" to provide for mutually recursive procedures.
+       labels modify the stack and registers, the back end         Considering the creation of the closures to occur atomically
+                                                           (with respect, in particular, to garbage collection) allows for
+                                                           ecient implementation in some back ends. To make this
+(define (make-adder x)
+                                                           more concrete, consider the Scheme program make-adder
+  (lambda (y) (+ y x)))                                    shown, with its PVM code, in Figure 3. The PVM code for
+                                                           the body of make-adder includes the instruction
+The following code (PVM and corresponding MC68000) is
+the body of make-adder. It is responsible for creating a                MAKE CLOSURES(stk(1),3,reg(1))
+closure to represent the value of the lambda expression:   which creates one closure object (shown in Figure 4) and
+                                                           stores it on the stack at stk(1). The closure contains space
+; PVM -- LABEL(1,0,PROC,1)
+                                                           for one value, initialized from the contents of reg(1) (where
+L1:     bmi     L5                                         the value of x happens to be), and the closure label for the
+        jsr     20(a6)
+                                                           body of the lambda expression is label 3.
+; PVM -- MAKE_CLOSURES(stk(1),3,reg(1))                        The second form of the JUMP instruction is used for call-
+L5:     lea     -16(a3),a3    ; allocate
+                                                           ing procedures and speci es the number of arguments being
+        move.l a3,a2                                       passed. The back end is responsible for emitting code that
+        move.l #0x10f8,(a2)+ ; length and type
+                                                           stores this argument count and arrives at the appropriate
+        addq.l #2,a2          ; unused word                destination address. In the case of a closure, the destina-
+        move.l a2,-(sp)       ; store in stk(1)
+                                                           tion is encoded in the closure object itself in a back-end de-
+        move.w #0x4eb9,(a2)+ ; store JSR opcode
+                                                           pendent manner by the MAKE CLOSURES instruction. Thus,
+        lea     L3,a1
+                                                           the back end must arrange for a jump to a closure to be
+        move.l a1,(a2)+       ; destination
+                                                           indirect, whereas a jump to a simple procedure is direct.
+        move.l d1,(a2)+       ; data slot
+                                                           Furthermore, the address of the closure itself must be made
+; PVM -- COPY(stk(1),reg(1))
+                                                           available to the code at the closure label, since it is needed
+        move.l (sp)+,d1
+                                                           to reference the values of the free variables stored in the
+; PVM -- JUMP(reg(0),0)
+                                                           closure.
+        cmp.l   64(a5),a3     ; GC check
+                                                               While PVM does not further specify the interface be-
+        bcc     L6
+                                                           tween the JUMP instruction and the destination LABEL, all of
+        jsr     32(a6)
+                                                           our back ends have made the same implementation decision.
+L6:     jmp     (a0)
+                                                           As shown in Figure 4, the header of our closure objects is
+                                                           a short instruction sequence that jumps to the destination
+The following code is the body of the lambda expression:   label and stores the address of the closure's data area into
+                                                           a known register using the target machine's jump-and-link
+                                                           instruction (JSR on the MC68000).
+; PVM -- LABEL(3,0,PROC,1,CLOSED)
+L3:     move.l (sp)+,d4
+        subq.l #6,d4
+                              ; reg(4) <--
+                              ; closure pointer
+                                                           2.6 Declarations
+        move.w d0,d0          ; arity test                 Like most other Scheme implementations, Gambit provides
+        bmi     L7                                         a declaration mechanism that allows programmers to tell
+        jsr     24(a6)                                     the compiler that it may violate certain assumptions of the
+; PVM -- COPY(mem(reg(4),6),reg(5))                        basic language. For example, in Gambit, the declaration
+L7:     move.l d4,a1          ; load x from                standard-bindings allows the compiler to assume that ref-
+        move.l 6(a1),d5       ;   data slot                erences to global variables with the names of the primitive
+; PVM -- APPLY(##fixnum.+,reg(1),reg(5),reg(1))            operations are, in fact, references to those primitives. This
+        add.l   d5,d1                                      allows the front end to generate an APPLY, COND, or JUMP in-
+; PVM -- JUMP(reg(0),0)                                    struction that references the primitive directly rather than
+        jmp     (a0)                                       referencing a global variable as required by the language
+                                                           de nition. Similarly, the fixnum declaration allows the com-
+                                                           piler to generate code for the standard numeric operations
+        Figure 3: Make-adder: A closure generator          that assumes all numbers are small integers and suppresses
+                                                           over ow detection.
+                                                               Some of these declarations, like standard-bindings, are
+                                                           relevant only to the front end, and are available with all
+                                                           back ends. Other declarations, like fixnum, are meaningful
+                                                           to only some back ends. In Gambit, we permit the back
+                    length and type                        end to a ect the code emitted by the front end based on the
+                    unused JSR                             current set of declarations as maintained by the front end.
+                      code address                         For example, the primitive + might be usable in an APPLY
+                    slot 1: value of x                     instruction if either the declaration fixnum or flonum is in
+                                                           e ect. In this case, the front end asks the back end what
+                                                           primitive could be used instead of +, specifying the decla-
+   Figure 4: Closure for make-adder (for the MC68000)      rations that are currently in e ect. The back end responds
+                                                           with either ##flonum.+ or ##fixnum.+ (or simply + if no
+                                                           other operation is available).
+2.7 Parallelism in PVM                                            3 Optimization Techniques
+We have introduced, so far, the sequential subset of PVM.         Gambit employs a number of standard optimizations, in
+One of our major goals, however, is to eciently support the      both the front and back ends. This section enumerates the
+future mechanism for parallel computing. In this mecha-           current set of optimizations (without further discussion) pri-
+nism, a parent spawns a child task and uses a placeholder[14]     marily for completeness. We expect to add additional opti-
+to allow the parent task to refer to the value being computed     mizations in the future.
+by the child. In earlier systems supporting futures ([8], [9],
+[13]) there is a major cost associated with spawning a task,      3.1 Front End Optimizations
+arising from the need to create a separate thread of con-
+trol and a placeholder at the time the child task is spawned.         Preferentially allocating temporary values to registers.
+PVM has three additional instructions and one operand type            Using a direct JUMP to a simple label for calling known
+to make future-based parallel computation ecient. Our                 procedures.
+model is inspired by conversations with Halstead based on             Tracking multiple homes for variables.
+a brief mention in [9].                                               Keeping values in registers as long as possible by track-
+LABEL( ,t size, TASK, w)                                               ing register contents and saving them on the stack
+       De ne a task label, t that marks the beginning of a             `lazily.' This entails merging variable home informa-
+       task. A task label can be used in place of a simple             tion around conditional branches.
+       label. A jump to a task label, however, spawns a new           Lambda-lifting.
+       (possibly parallel) task to execute the code between
+       the task label and its corresponding DONE instruction.     3.2 Optimizing the PVM Code
+       The label w is where the parent task continues execu-      These optimizations are performed on the PVM code itself,
+       tion after the new task is spawned.                        and are completely independent of both the source language
+LABEL( ,w size, WORK)                                             and the target machine.
+       De ne a work label, w, that speci es where a task
+       should resume execution after it spawns a new task.            Branch cascade removal by replacing a branch with
+                                                                       the instruction at the destination.
+DONE                                                                  Reordering basic blocks to maximize the number of
+      End the current task and deliver the result.                     fall-throughs.
+    These three instructions can be translated by the back            Dead code removal.
+end to provide the same future mechanism used by earlier              Common code elimination.
+systems or to provide lazy futures. Lazy futures treat task
+spawning as a special kind of procedure call. When a task         3.3 Back End Optimizations
+is \called" it leaves a marker on the stack so that another       In addition to the traditional back end optimizations (e.g.
+processor can recreate the parent task (in PVM, this is per-      branch tensioning), Gambit makes use of its stack discipline
+formed by the task label). The processor is now e ectively        abstraction to optimize the allocation and deallocation of
+executing on behalf of the child task and the parent task is      stack frames. It is easy for the front end to use stk operands
+suspended.                                                        in an exclusively stack-like manner (i.e. it only stores into
+    Should another processor decide to resume the parent          slots into which it has already stored or into the next higher
+task, that processor splits the stack at the marker, allocates    slot). The front end does this, and consequently on machines
+a placeholder and begins executing the code of the parent         with \push and pop" instructions (like the MC68000), the
+task, using the placeholder to represent the value computed       back end incrementally allocates the frame by pushing values
+by the child task. PVM provides no direct support for this        on the stack as the slot number in stk operands increases.
+operation. Instead, a procedure is supplied by the runtime        Similarly, the frame is incrementally deallocated by popping
+system that understands the format of stack markers and           values when the frame size decreases.
+the code supporting task termination.                                 On machines lacking these instructions, such as the MIPS
+    When control in the child task returns to the stack marker    and HPPA, the back end uses a frame top pointer implemen-
+created by a task label, the child will either return as a nor-   tation. This allows the frame to be allocated or deallocated
+mal procedure (if no other processor resumed the parent           with a single instruction at the end of each basic block (con-
+task) or store its result in the placeholder and look for some    veniently lling the branch delay slot on these machines).
+other processor's parent task to resume. In PVM, this oc-
+curs when a DONE instruction is executed.
+    In addition to this support for spawning and terminat-        4 Other approaches
+ing tasks, PVM provides support for the underlying place-         We have examined three kinds of virtual machines typi-
+holder data type through the use of the ? operand annota-         cally used in implementing Lisp systems: byte codes, syntax
+tion. When Gambit compiles code for a parallel back end it        trees, and register transfer languages. PVM belongs to this
+places a ? around appropriate operands that are potentially       last class, and represents a particular engineering approach
+placeholders. \Appropriate operands" includes the strict          to the design of such an intermediate language. This sec-
+operands (as speci ed by the back end) in APPLY and COND          tion compares PVM to other virtual machines used by the
+instructions, as well as the destination operand of JUMP in-      Scheme community.
+structions. By using information supplied by the back end,
+the front end can determine whether the result of a primitive
+procedure can be a placeholder; this information is then used
+to suppress generation of the ? in references to the value.
+4.1 Byte Codes                                                    Presently, RTL consists primarily of ASSIGN commands sim-
+There are a number of well known Scheme implementa-               ilar to the COPY and APPLY commands of PVM, TEST com-
+tions based on a byte code interpreter: Indiana University's      mands similar to the COND of PVM, special purpose instruc-
+Scheme 311 (and its descendants MacScheme and Texas In-           tions to call compiler support routines in the runtime sys-
+struments PC Scheme) and Halstead's Multilisp. In the in-         tem, frame adjust commands, and commands to generate
+terpreted systems for which they were developed, byte cod-        procedure headers.
+ing provides two important features: speed of dispatch on              Internally, Liar (like Gambit) has a back end module that
+most hardware platforms, and code space compression (if           provides a description of the target machine to the front
+the opcodes are based on static instruction frequency statis-     end of the compiler. Liar's front end is responsible for more
+tics).                                                            compilation decisions than Gambit's, and consequently the
+    As an intermediate representation for compilation, how-       description is at a much lower level of detail. It consists
+ever, byte code leaves much to be desired. First, all of the      of information about the addressing granularity of the ma-
+byte code systems mentioned above are based on a pure             chine, the number of bits used for type codes and data, and
+stack machine. Since many important hardware platforms            mappings from the front end's special purpose registers to
+are not stack based, the process of compiling native code         the target machine's physical registers. The front end of
+from the byte code requires recovering the higher-level in-       Liar relies on and directly manipulates four virtual machine
+formation about intermediate values that was removed in           registers: the dynamic link register (for return addresses),
+generating the byte code. Furthermore, the creation of the        a stack pointer, free pointer into the heap, and a pointer to
+byte code program does not produce information about vari-        a set of memory locations (C variables) shared with the in-
+able referencing patterns, and this is essential to permit ef-    terpreter. In addition, the front end supports the notion of
+  cient use of hardware registers in the equivalent compiled      register sets by providing the back end with general purpose
+code.                                                             procedures for allocating, deallocating, and liveness track-
+                                                                  ing for groups of registers speci ed by the back end. This
+                                                                  is used, for example, to allow the back end to separate the
+4.2 Code Trees                                                    use of general purpose and oating point (co-processor) reg-
+In interpreted Scheme systems that implement much of the          isters.
+system code in Scheme, byte coding is problematic since the            The primary interface between the front and back ends
+byte coded programs have no natural representation within         of Liar is through a rule-based language. The front end
+Scheme itself (aside, of course, from byte strings). An ap-       generates RTL instructions that are matched against the
+pealing alternative is to represent a program as a syntax         rules provided by the back end. This permits the precise
+tree, whose components are very similar to the pairs and vec-     nature of Liar's virtual machine to remain unde ned while
+tors of standard Scheme. This approach is taken in MIT's          still enabling a variety of back ends to be written. Unfor-
+CScheme scode[12] (derived from the actual instruction set        tunately, as the front end changes, the RTL instructions it
+of the Scheme '79 VLSI chip[10]) and the University Mas-          emits change and the rule sets of each back end must be
+sachusetts Boston UMB Scheme system[4]. The type code             examined and modi ed individually. PVM's regular struc-
+of each node in the tree is derived from the syntactic ex-        ture, on the other hand, allows the construction of a back
+pression (special form or combination) it represents in the       end that handles the complete virtual machine and is thus
+program. The leaves of the tree are constants and variable        isolated from many changes to Gambit's front end. PVM
+references.                                                       implementations (i.e. back ends for Gambit) have similar
+    This representation is easier to deal with in a Scheme pro-   structures, since they are case dispatches on the PVM in-
+gram than the byte codes, and faster to interpret than the        struction and operand types; thus, updating a back end to
+original list structure of the program as provided by read.       accommodate changes in PVM itself is straightforward.
+One of the major advantages of a code tree representation              The register transfer language LLM3, developed at IN-
+is that it can be easily converted back into a program equiv-     RIA for the language LeLisp, is a much larger language than
+alent to the original Scheme program from which it was de-        either PVM or RTL. It has over 100 instructions (including
+rived. Systems can, and do, use this equivalence for a variety    a number of redundant ones), providing control over aspects
+of debugging tools such as code inspectors and pretty print-      as diverse as garbage collection and le system operations.
+ers. This very fact, however, argues against the syntax tree      Implementing such a machine is a major undertaking and
+as a good intermediate code for compilation: the represen-        not suitable for our environment where a quick port to a
+tation provides no information about commonly referenced          new architecture or operating system is essential. Further-
+variables, nor any results of data or control ow analysis.        more, the low level of control speci ed by LLM3 requires
+                                                                  the front end to be more elaborate than we would like, and
+                                                                  leaves little room for optimizations by the back end.
+4.3 Register Transfer Languages
+Neither of the earlier representations were envisioned as in-     5 Current Status
+termediate representations for compilation, and so it is not
+surprising that they serve this purpose rather poorly. We are     At the time of writing, we have completed the Gambit imple-
+familiar with three intermediate languages designed speci -       mentation for the MC68000 and are in the nal debugging
+cally for this purpose, however: MIT's RTL (register trans-       stages of a port to the MIPS machines. A port to the HPPA
+fer language), LeLisp's LLM3[5], and PSL's c-macros[7].           is also nearing completion. Preliminary performance gures
+    MIT's RTL is an ad hoc language evolved from the ma-          comparing Gambit to T's Orbit and MIT's Liar compiler are
+chine description language in [1], through a version used in      shown in Figure 5. As that table indicates, the MC68000
+an early compiler[17], and now part of the Liar compiler.         implementation achieves very good performance over a wide
+                                                                  range of benchmarks. This implementation also includes an
+option for eciently gathering dynamic usage statistics, as      [3] John Batali, Edmund Goodhue, Chris Hanson, Howie
+discussed in Appendix B.                                             Shrobe, Richard M. Stallman, and Gerald Jay Suss-
+    In addition, we have a preliminary version of a Scheme           man. The Scheme-81 architecture { system and chip.
+to C compiler, inspired by the work of Bartlett[2]. This back        In Paul Pen eld Jr., editor, Proc. of the MIT Confer-
+end generates portable C code with good performance char-            ence on Advanced Research in VLSI, Dedham, Mass.,
+acteristics, but is not yet capable of producing separately          1982. Artech House.
+compilable modules. As a result, it can currently only be
+used for compiling rather small Scheme programs.                 [4] William Campbell. A C interpreter for Scheme | an
+                                                                     exercise in object-oriented design. Submitted to the
+6 Future Plans                                                       Software Engineering journal of the British Computer
+                                                                     Society, 1989.
+Our next major goal is to create a back end for a stock          [5] Jer^ome Chailloux. La machine LLM3. Rapport in-
+MIMD parallel machine. We have made several early pro-               terne du projet vlsi, INRIA, May 1984. Corresponds to
+totype versions and are encouraged by the results. Gam-              LeLisp version 15.
+bit's control and data ow analysis appear to be suciently
+general to allow us to explore a number of mechanisms for        [6] Richard P. Gabriel. Performance and Evaluation of
+reducing the cost of the touch and future operations that            LISP Systems. Research Reports and Notes, Computer
+dominate the performance of our own and other parallel               Systems Series. MIT Press, Cambridge, MA, 1985.
+Scheme systems[8][9][13].                                        [7] Martin L. Griss and Anthony C. Hearn. A portable
+    As part of this work, we plan to complete our work on the        LISP compiler. Software Practice and Experience,
+Gambit C back end. This involves the implementation of a             11:541{605, 1981.
+separate compilation facility that has already been designed.
+Measurements on the single module system indicate that the       [8] R. Halstead. Multilisp: A language for concurrent sym-
+performance is about half that of the native code produced           bolic computation. In ACM Trans. on Prog. Languages
+by Gambit, and we consider the advantage of having a single          and Systems, pages 501{538, October 1985.
+back end that supports a number of hosts to outweigh this
+performance degradation. The separate compilation design,        [9] Robert H. Halstead, David A. Kranz, and Eric Mohr.
+however, has a number of areas in which performance may              Mul-T: A high-performance parallel Lisp. In SIGPLAN
+degrade and we plan to examine these in detail.                      89 Symposium on Porgramming Language Design and
+    Finally, some very preliminary results indicate that it          Implementation, June 1989.
+may be interesting to consider compiling imperative lan-
+guages such as C and Pascal into PVM. We are particu-           [10] Jack Holloway, Guy Lewis Steele Jr., Gerald Jay Suss-
+larly interested in combining a C to PVM compiler with the           man, and Alan Bell. The Scheme{79 chip. Technical
+PVM to C back end. An early experiment indicated that                Report AI Memo 559, Mass. Inst. of Technology, Arti-
+PVM's optimization of procedure calls generated C code                 cial Intelligence Laboratory, 1980.
+which, when compiled by a C compiler, outperformed the          [11] D. A. Kranz et al. Orbit: An optimizing compiler
+equivalent hand-coded C program compiled by that com-                for Scheme. In Symposium on Compiler Construction,
+piler! We plan to see whether this holds up under closer             pages 219{233. ACM SIGPLAN, June 1986.
+investigation.
+                                                                [12] Mass. Inst. of Technology, Cambridge, MA. MIT
+7 Acknowledgements                                                   Scheme Reference, Scheme Release 7, 1988.
+The authors would like to thank the other Scheme imple-         [13] James Miller. MultiScheme: A Parallel Processing
+mentors who have helped us understand both their own sys-            System Based on MIT Scheme. PhD thesis, Mass.
+tems and Gambit: David Kranz, Chris Hanson, Bill Rozas,              Inst. of Technology, August 1987. Available as MIT
+Joel Bartlett, and Will Clinger. Bert Halstead also con-             LCS/TR/402.
+tributed useful ideas and comments with respect to the par-     [14] James Miller. Implementing a Scheme-based parallel
+allel implementation of Gambit. We are especially grateful           processing system. International Journal of Parallel
+to Chris Hanson and Bill Rozas of the MIT Scheme Team                Processing, 17(5), October 1988.
+for their help in comparing the code from various compilers
+as well as their help in our e orts to port CScheme to the      [15] James Miller and Christopher Hanson. IEEE Draft
+MIPS. Their e orts allowed us to gather the performance              Standard for the Programming Language Scheme.
+ gures included in Figure 5.                                         IEEE. forthcoming.
+References                                                      [16] James Miller and Guillermo Rozas. Free variables and
+                                                                       rst-class environments. Journal of Lisp and Symbolic
+ [1] Harold Abelson, Gerald Jay Sussman, and Julie Suss-             Computation, to appear.
+     man. Structure and Interpretation of Computer Pro-         [17] Guillermo Rozas. Liar, an Algol-like compiler for
+     grams. MIT Press, 1985.                                         Scheme. Bachelor's thesis, Mass. Inst. of Technology,
+ [2] Joel Bartlett. Scheme->C a portable Scheme-to-C                 1984.
+     compiler. Technical Report 89/1, Digital Equipment         [18] Guy Lewis Steele Jr. Rabbit: A compiler for Scheme.
+     Corp. Western Research Lab., 1989.                              Master's thesis, Mass. Inst. of Technology, 1978.
+A Performance Measurements and Code Comparison                        The column labeled \cc" contains measurements for
+                                                                      some of the benchmarks that were hand coded in C
+A detailed analysis and explanation of Gambit's performance           and compiled (with the {O switch for optimization)
+is beyond the scope of this paper. This appendix provides             using the vendor-supplied C compiler, \cc."
+a brief sketch of our performance results and compares the
+code generated by Gambit to that of MIT's Liar compiler            4. All of the benchmarks are executed ve times and the
+and T's Orbit compiler. Figure 5 shows the results of run-            mean is reported. In our experience, the measured
+ning Clinger's version of the Gabriel benchmark programs[6].          times are repeatable to within a few percent.
+For the most part the gures need no explanation. The fol-          5. All benchmarks were run as supplied by Clinger but
+lowing points may help the reader to better interpret them:           with two di erences. On all systems, a (compiler-
+                                                                      dependent) declaration was supplied that caused arith-
+                                                                      metic to be performed in xnum mode (exact integers
+                     Motorola MC68000                                 with no over ow detection) only. In addition, each
+                                                                      benchmark was compiled both as written and enclosed
+                   Gambit    Orbit      Liar         cc               in a let expression to allow each compiler to take ad-
+       boyer          4.74   2.09     1.96                          vantage of any ow analysis it performs. The best tim-
+       browse         1.04   1.65     6.12                          ings for a given compiler are recorded here. We are
+       cpstak          .56   1.93     1.57                          unable to nd a consistent pattern to explain which
+       dderiv         2.29   2.04     1.99                          form of the program will perform better for a given
+       deriv          2.10   1.76     1.82                          compiler.
+       destruct        .65   1.49     3.71                       6. A number of procedures are used routinely by the
+       div-iter        .41   2.29     1.39                          benchmarks and their performance can dominate the
+       div-rec         .58   2.14     1.57                          performance of the entire benchmark. This is particu-
+       puzzle         3.51   1.39     3.59         .61             larly noticeable in the case of the get and put opera-
+       tak             .14   1.30     3.15        1.71             tions in the Boyer benchmark. In order to compensate
+       takl           1.18   1.53     1.86        1.80             for this we wrote specialized version of the procedures
+       traverse      32.01    .80     1.68                          symbol->string, gensym, get and put. While the de-
+       triangle      67.83    .89     1.96         .83             tails of the code are system dependent (since they re-
+                         MIPS R2000
+                                                                      quire non-standard procedures) the algorithms used
+                                                                      are the same on all systems.
+               Gambit    Orbit   Liar          cc         scc       We now turn to a more detailed look at the actual code
+   tak             .06   1.17 2.83 1.17 2.00                produced by the three compilers. Figure 6 shows the results
+   takl            .28   1.14 2.75 1.79 2.36                of compiling (for the MC68000) the following Scheme pro-
+   triangle      15.41   1.02 2.60  .85 1.77                gram by Gambit (version 1.3), Orbit (version 3.1), and Liar
+Note: Timings for Gambit are absolute, in seconds. All          (Beta release of 7.0):
+others times are relative to Gambit.                            (define (reverse-map f l)
+                                                                  (define (loop l x)
+              Figure 5: Performance Comparison                      (if (pair? l)
+                                                                        (loop (cdr l) (cons (f (car l)) x))
+                                                                        '()))
+                                                                  (loop l '()))
+  1. The measurements for the MC68000 family were taken
+     on a Hewlett-Packard 9000/340 system with a 16Mhz          The code in Figure 6 has been slightly modi ed for presenta-
+     MC68020 CPU, 16 megabytes of memory, and a lo-             tion purposes. We have converted the instruction sequences
+     cal disk. The measurements are based on the HP/UX          from each system's private assembler notation into \stan-
+     time functions which deliver an estimate of user CPU       dard" Motorola syntax. In addition, the code from all three
+     time in units of 20 milliseconds. System time and          compilers actually includes interspersed words used by the
+     time for garbage collection (if any) are not included      garbage collector and interrupt handlers. These have been
+     in these numbers. All measurements were taken in full      removed to make the code easier to read. They do not a ect
+     (multi-user) operating mode, but with only a single        performance, since they are not executed in the usual case.
+     user logged in.                                                We do not pretend to have undertaken a detailed study
+  2. The measurements for the MIPS R2000 CPU were               of the code from these three compilers. However, from ex-
+     taken on a Digital Equipment Corporation DECsta-           amination of a number of programs and after discussions
+     tion 3100 with 16 megabytes of memory and medium-          with several of the implementors (David Kranz for Orbit,
+     speed local disks, running under a preliminary release     Chris Hanson and Guillermo Rozas for Liar) we can supply
+     of the CMU Mach 2.1 operating system. Again, mea-          the following observations that account for a large part of
+     surements are based on the Mach timing functions,          the di erences in output code. These comments apply to
+     omit system and garbage collection time, and were          Gambit used with the MC68000 and MIPS back ends:
+     taken under multi-user conditions.
+                                                                Object Representation
+  3. The column labeled \scc" contains timings from Joel             Gambit use the three low bits of a data item for the
+     Bartlett's Scheme to C compiler [2] of August 25, 1989.         type tag, with 0 representing xnums and other type
+                                         Gambit                                  Orbit                                          Liar
+                            ; L1 is entry point                     ; D15 is entry point                     ; reverse map is entry point
+                            ; on entry:                             ; on entry:                              ; on entry:
+                            ; d1=F, d2=L, a0=CONT (return adr)      ; a1=F, a2=L, (sp)=CONT (return adr)     ; 4(sp)=F, (sp)=L, 8(sp)=CONT (return adr)
+
+                            L1:                                     D15:                                     reverse map:
+                              beq    L8        ; arg count = 2 ?      move.l a1,-(sp) ; save F                 cmp.l (a6),a5          ; interrupt check
+                              jsr    20(a6)    ; arity error          move.l #65649,-(sp)                      bge     interrupt
+                            L8:                                       move.l a2,a1     ; ARG1 <-- L            clr.l -(a7)            ; ARG2 <-- ()
+                              move.l d6,d3     ; X <-- ()             move.l d7,a2     ; ARG2 <-- ()           move.l 8(a7),-(a7)     ; ARG1 <-- L
+                              btst   d2,d7     ; (pair? L)            bra    LOOP 12   ; jump to LOOP          bra     loop 5
+                              bne    L6                             C 27:                                    loop 5:
+                              bra    L5        ; jump to LOOP         move.l a2,a1     ; RESULT <-- X          cmp.l (a6),a5          ; interrupt check
+                            L7:                                       lea    8(sp),sp ; deallocate frame       bge     interrupt
+                              move.l d1,-(a3) ; ARG3 <--              moveq #-2,d5     ; return with 1 arg     move.l (a7),d0         ; (pair? L)
+                              move.l a3,d1     ; (cons RESULT X)      move.l (sp),a5                                    f   g
+                                                                                                               bfextu d0 0:6 ,d1
+
+
+
+
+Figure 6: Code Comparison
+                              move.l (sp)+,-(a3)                      jmp    (a5)                              cmp.b #1,d1
+                              move.l d1,d3                          C 38:                                      beq     label 14
+                              move.l (sp)+,a1 ; ARG2 <-- (cdr L)      cmp.l d7,a1      ; (null? L)             move.l 4(a7),8(a6)     ; RESULT <-- X
+                              move.l -(a1),d1                         bne    C 15                              lea     16(a7),a7      ; deallocate frame
+                              move.l d1,d2                            bra    C 27                              and.l d7,(a7)          ; return
+                              move.l (sp)+,d1 ; ARG1 <-- F          C 15:                                      rts
+                              move.l (sp)+,a0 ; restore CONT          move.l a2,-(sp) ; save X               label 14:
+                              cmp.l 64(a5),a3 ; heap overflow?        move.l a1,-(sp) ; save L                 pea     continuation 2 ; setup CONT
+                              bcc    L9                               pea    D20       ; setup CONT            or.b    #-0x60,(a7)
+                              jsr    32(a6)    ; heap overflow        move.l 1(a1),a1 ; ARG1 <-- (car L)       and.l d7,d0            ; ARG1 <-- (car L)
+                            L9:                                       move.l 16(sp),a0 ; jump to F             move.l d0,a0
+                              btst   d2,d7     ; (pair? L)            moveq #2,d5      ; with 1 arg            move.l (a0),-(a7)
+                              bne    L6                               jmp    *21(d7)                           move.l 16(a7),-(a7)    ; jump to F
+                            L5:                                     D20:                                       jmp     0x68(a6)       ; with 1 arg
+                              move.l a0,-(sp) ; save CONT             jsr    *9(d7)    ; TEMP <--            continuation 2:
+                              move.l d1,-(sp) ; save F                move.l a1,1(a4) ; (cons RESULT X)        cmp.l (a6),a5          ; interrupt check
+                              move.l d2,-(sp) ; save L                move.l 8(sp),-3(a4)                      bge     interrupt
+                              move.l d3,-(sp) ; save X                move.l 4(sp),a0 ; ARG1 <-- (cdr L)       move.l a5,d0           ; ARG2 <--
+                              move.l d2,a1     ; ARG1 <-- (car L)     move.l -3(a0),a1                         or.l    #0x4000000,d0 ; (cons RESULT X)
+                              move.l (a1),d1                          move.l a4,a2     ; ARG2 <-- TEMP         move.l 8(a6),(a5)+
+                              lea    L7,a0     ; setup CONT           lea    12(sp),sp ; deallocate frame      move.l 4(a7),(a5)+
+                              move.l 8(sp),a1 ; jump to F           LOOP 12:                                   move.l d0,4(a7)
+                              moveq #-1,d0     ; with 1 arg           move.l a1,d6     ; (list? L)             move.l (a7),d0         ; ARG1 <-- (cdr L)
+                              jmp    (a1)                             and.b #3,d6                              and.l d7,d0
+                            L6:                                       cmp.b #3,d6                              move.l d0,a0
+                              move.l d3,d1     ; RESULT <-- X         bne    C 27                              move.l 4(a0),(a7)
+                              jmp    (a0)      ; return               bra    C 38                              bra     loop 5         ; jump to LOOP
+    tags chosen to optimize references to the car and cdr           T, that is closely related to Scheme. All of the bench-
+    of pairs and direct jumps to procedures. Orbit uses the         marks were run in Scheme compatibility mode, whose
+    two low bits for the type tag, and also chooses 0 for           performance cost is not clearly understood. We rewrote
+     xnums. Liar uses the top six bits for a type tag, with         tak and takl in T and compared the actual code and
+    0 representing #F. Orbit and Liar use a single object to        found no di erences between the native T version and
+    represent the empty list and #F. Gambit distinguishes           the Scheme compatibility mode version.
+    between these two objects and only #F counts as false.          There was one very noticeable cost in the T implemen-
+Free Pointer Alignment                                              tation that is not shared by Gambit or Liar. This is
+    Gambit keeps the free pointer octa-byte aligned at all          the coding of the primitive procedure pair?. Orbit's
+    times, potentially wasting space when large numbers             two bit type tags do not distinguish pairs from the
+    of small objects are created. Orbit and Liar maintain           empty list (so as to optimize T's list? operation).
+    only quad-byte alignment.                                       Thus pair? is expensive with Orbit when compared
+                                                                    to the other compilers.
+Consing
+    Gambit performs consing by in-line code expansion,         B PVM Usage Statistics
+    as does Liar. Orbit performs this with a call to an
+    external procedure in order to allow GC checking to        The MC68000 back end allows programs to be compiled in
+    be done when the allocation occurs.                        a way that gathers measurements of dynamic usage of each
+GC Detection                                                   of the PVM instructions and the types of operands used.
+    Gambit detects the need for garbage collection by per-     This information can be used for performance analysis, and
+    forming a test at the end of any basic block in which      has been used to allow us to choose what parts of the actual
+    allocation occurs. Orbit places this test in the code      implementation of PVM deserve careful optimization. The
+    that performs the allocation itself, while Liar tests at   mechanism is both simple and very ecient: as each basic
+    both the entry to a procedure and the entry to every       block is constructed, the front end counts the number of
+    continuation point. Gambit's garbage collector is not      each kind of PVM instruction and operand class used in the
+    yet fully functional on all of the back ends. The code     basic block. The back end creates a counter for each basic
+    and measurements re ect the full cost of detecting the     block and generates code to increment that counter when
+    need for GC, but none of the benchmarks actually in-       the block is entered at runtime. At the end of a run, these
+    voked the garbage collector.                               counters are used to recreate the statistics.
+                                                                   The resulting code runs 30 to 40% slower than unmea-
+Interrupt Testing                                              sured code, allowing sizable programs to be measured and
+    Gambit does not test for interrupts, since it assumes      analyzed. See Figure 7 for a synopsis of the dynamic mea-
+    a stand-alone environment rather than a program de-        surements taken from running Gabriel's[6] version of the
+    velopment environment. This will be changed for the        Boyer-Moore theorem prover benchmark.
+    parallel implementations in order to allow timer in-
+    terrupts to produce a fair scheduler. Liar combines
+    the garbage collection and interrupt check into a sin-
+    gle short code sequence executed at the start of every                        Operand Usage Frequency
+    procedure and continuation. We do not know how this
+    is handled in Orbit.                                               reg       stk       obj   lbl      glob    mem
+                                                                       66.4% 24.4% 4.5% 4.0% 0.4% 0.0%
+\Unknown" Procedure Call
+    When calling a procedure that can't be identi ed at
+    compile time, Gambit loads 3 arguments, the continu-
+    ation and the argument count into registers (the stack                       Instruction Usage Frequency
+    is used to hold the other arguments if there are any).
+    Any procedure that may be called in this manner will        COPY     LABEL     APPLY     COND      JUMP    MAKE CLOSURES
+    begin with a procedure label and the code will compare      42.9% 20.4% 16.1% 11.9% 8.5%                       0.0%
+    the number of arguments passed with the number of
+    parameters expected and will move the arguments or
+    trap as appropriate. Liar passes the arguments and the
+    continuation on the stack. It uses an elaborate mech-
+    anism that distinguishes calls to procedures named by                     Detailed Instruction Breakdown
+    variables at the top level of a compilation unit from
+    other procedure calls, and the interpreter supplies a               LABEL                  APPLY              COND
+    number of trampolines that are used to combine a link-            simple: 61.2%          car: 45.0%       pair?: 38.8%
+    time arity test with runtime argument motion. An ex-        continuation: 28.1%          cdr: 25.4%       null?: 28.9%
+    planation of one part of this mechanism can be found          procedure: 10.5%          cons: 11.1%         eq?: 13.0%
+    in [16]. Orbit passes the arguments in registers and
+    the continuation on the stack. A mechanism similar
+    to, but somewhat simpler than, that of Liar is used for     Figure 7: Dynamic Measurements for Boyer Benchmark
+    arity checking.
+T Compatibility                                                   In gathering these measurements, we used a version of
+    Orbit is actually the compiler for a distinct language,    Boyer that is enclosed in a let expression. This accounts for
+the lack of global variable references. The procedures put
+and get (which dominate the performance of the bench-
+mark) were implemented using assq.
+    There are only a few comments to be made on these re-
+sults. First, label operands can appear either directly in a
+JUMP instruction or as a source operand to another instruc-
+tion (for example, it may be stored into a local variable for
+later use). In this benchmark, labels appeared almost ex-
+clusively (99.9% of the time) in this latter context. The
+primary use of direct jumps is to branch around other arms
+of a conditional when the conditional isn't in the tail posi-
+tion of an expression. Most conditionals in Boyer appear in
+tail position; we don't know how common this is in general
+Scheme code.
+    The breakdown of the label code is interesting, since it
+shows the dynamic execution frequency of the various types
+of label. Recall that simple labels and continuations actually
+generate no code, so there is no runtime associated with their
+use. A procedure label, however, requires an arity check
+and may require moving values from argument locations to
+parameter locations.
+    The APPLY instruction is used by the front end to request
+open coding of a primitive that the back end supports. Fig-
+ure 7 shows the breakdown by primitive procedure of these
+operations that occur when Boyer runs. The table shows
+only those open coded primitives that account for more than
+10% of the run time, although the actual statistics contain
+numbers for all primitives. In fact, a good deal of detail has
+been omitted from all of these tables to make the presenta-
+tion more tractable.
+    COND is used for all conditionals. In the case of Boyer,
+80.7% of the predicates encountered were open coded ver-
+sions of pair?, null?, or eq?. Of the remaining 19.3% of
+the predicates, 18.8% are not open coded and the remaining
+open coded predicates occur under 0.1% of the time.
+

@@ -29,7 +29,7 @@ the compiled coverage runs, strict-interrupt runs and lifecycle runs; they are
 candidate. No bootstrap, sealed producer or runtime admission follows.
 
 Original observations and exact runtime identity are preserved in
-`evidence/source-results/fixtures/processor-lock-sync-participation/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/processor-lock-sync-participation/`.
 The unchanged failed native input is not repeated.
 
 ## Model Feedback

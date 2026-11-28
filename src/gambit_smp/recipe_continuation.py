@@ -113,7 +113,7 @@ def initialize_budget_ledger(root, limit, receipts):
     record = {"schema": "continuation-budget-genesis.v1", **observations}
     from gambit_smp.artifact_storage import cache_path
     first = observations["observations"][0]["sha256"]
-    if (root.resolve() / "evidence/research/budget-ledgers" / first).exists():
+    if (root.resolve() / ".cache/research/legacy-evidence/evidence/research/budget-ledgers" / first).exists():
         raise ValueError("existing historical ledger cannot be reset in a new cache directory")
     directory = cache_path(root, "research/budget-ledgers/" + first)
     directory.mkdir(parents=True, exist_ok=True)
@@ -140,7 +140,7 @@ def _ledger_lock(root, reference):
     first = genesis["observations"][0]["sha256"]
     from gambit_smp.artifact_storage import cache_path
     expected = (cache_path(root, "research/budget-ledgers/" + first) / "genesis.json",
-                root / "evidence/research/budget-ledgers" / first / "genesis.json")
+                root / ".cache/research/legacy-evidence/evidence/research/budget-ledgers" / first / "genesis.json")
     if path not in expected or genesis.get("schema") != "continuation-budget-genesis.v1":
         raise ValueError("canonical original-budget ledger required")
     fd = os.open(path.parent / ".ledger.lock", os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)

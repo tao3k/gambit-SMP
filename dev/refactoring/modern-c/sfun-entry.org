@@ -1,0 +1,235 @@
+#+TITLE: Generated SFUN activation owns roots through physical C exit
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:2 num:nil
+#+PROPERTY: header-args :eval never-export
+#+COLUMNS: %42ITEM(Responsibility) %STATUS(Status) %AUTHORITY(Source)
+
+* DELIVERED Complete entry owner :modern_c:ffi:roots:
+:PROPERTIES:
+:CUSTOM_ID: generated-sfun-activation
+:AUTHORITY: GambitSfunEntry
+:BASELINE: a9b896c46dc781b4967e2d826e5cd29bb910bd6a
+:COUNTING_UNIT: one generated entry/root/write/frame/physical-exit owner
+:END:
+
+[[file:models/sysml/sfun-entry.sysml][SysML]] owns this unit. Dormant role-record rename, raw RC writer APIs,
+foreign-thread entry, Tcl resources, scheduler changes and whole-round capacity
+remain separate. This implementation consumes the existing RC domain and
+RootOrigin/RootTask rather than introducing a parallel registry or namespace.
+Foundation4/4 and independent SMP1/12 remain distinct historical checkpoints.
+
+** Source/model reconciliation
+
+The earlier [[file:native-entry-admission-design.org][entry design]] already proposed a bank and pre-marker root prefix,
+but its source descriptions do not all match the published a9b896c4 runtime.
+That runtime allocates one RC block per raw Scheme argument, registers marker
+ownership separately and emits final argument stores directly on the stack.
+The new =_c_intf/sfun-entry.inc= makes the complete proposal concrete without
+silently treating the historical document as native evidence.
+
+| Boundary | Replacement | Retirement |
+|----------+-------------+------------|
+| Admission | Existing lifecycle activation retains actual owner before any collecting operation | No second activation/identity table |
+| Root storage | One initialized span; known-PERM zero arguments need no bank | Per-raw-argument allocations and redundant permanent zero roots |
+| Raw arguments | Existing generator prefix writes span before marker; byte flags identify raw inputs | Pointer array and stale post-GC raw C-local reads |
+| Conversion/call | Converted arguments fill span; one noncollecting copy precedes the existing call frame | Exposing intermediate argument stores across future collection |
+| GC capacity/scan | Existing RC census and RootTask scan enumerate identical primary/span cells | Single-data-cell assumption for typed root spans |
+| Exit | Existing activation owns marker, borrow and bank until actual last C use | Conflating logical Scheme restoration with physical C quiescence |
+
+The existing startup word becomes a tagged activation kind, without adding a
+second state record: legacy/startup, rooted/permanent preparation, active and
+revoked. During permanent preparation the marker slot holds an immovable
+procedure. Cleanup checks kind before interpreting it as a vector; only exact
+STARTUP grants the existing terminal handoff. A compiler error identified the
+still-sweep consumer, which is included in the complete cut.
+
+The generator's =root-arguments= prefix and Scheme names remain unchanged;
+the current generated C cohort can be recompiled against the new header.
+Native modules with the old global-state layout must be rejected/recompiled.
+The generated arity and existing call-frame reserve remain an explicit premise;
+this unit does not solve arbitrary unbounded native argument injection.
+
+** Memory-order and failure custody
+
+1. All payload cells start as false and =root_count= is immutable before the
+   existing RC gate publishes membership. Byte-only RC has count zero.
+2. The registered cooperative owner holds the lifecycle entry. Native metadata
+   allocation and the prefix neither collect nor invoke Scheme. User allocator
+   hooks that abandon/reenter this interval do not satisfy this profile.
+3. Raw inputs precede marker allocation. Borrowed C-closure self is read under
+   its existing stable-root ownership and copied before the source borrow ends.
+4. Census and scan use the same frozen source gate and task lease; GC can move
+   span values, while resumed C code consumes canonical span cells.
+5. Constructor refusal releases only acquired resources. Unknown native owner
+   abandonment retains the activation; timeout/failed join cannot free it.
+6. Logical marker kill only revokes the return destination; it retains the
+   bank, borrow and entry. Physical marker cleanup, bank borrow return, bank
+   reference release and lifecycle leave occur at the last generated C use. Terminal cleanup uses existing proven
+   owner authority; no generic asynchronous-stop recovery is invented.
+
+* Conditional benefit and explicit costs :matrix:
+
+Let =n= be total arguments and =r= raw Scheme arguments. The baseline has =r=
+root nodes; the candidate has one node with =n= payload cells and the procedure
+cell. Both retain one existing activation record and one Scheme marker.
+
+| Quantity | Baseline | Candidate | Claim boundary |
+|----------+----------+-----------+----------------|
+| Argument-root native allocations |r|1, or0 for known-PERM zero arguments|Moving zero-argument procedures still need a bank |
+| RC headers |r per activation|1 per activation|Every RC header gains one count word |
+| Payload scanning |r primary cells|n+1 cells|Extra cells and procedure-root scan are real costs |
+| Activation native record |existing record|one bank pointer added|Actual sizeof/peak evidence required |
+| Generated input files |existing cohort|reuse unchanged cohort|No cold-build acceleration inferred |
+| Whole-workload time/peak |reference|pending final cohort|No runtime speedup claim before matched samples |
+
+Memory benefit requires saved repeated headers to exceed span slots, the added
+record pointer and the count word on all other live RC blocks. Allocation-count
+savings alone do not establish latency or VM peak improvement. Zero/one/many
+raw-input populations must remain separate; no invented scalar ROI or human-day
+estimate is used.
+
+The first matched cohort found fixed zero-argument +45.7%, one-input +6.75%
+and eight-input -48.3% body medians. This identified redundant zero-root
+allocation, not a universal benefit. The final implementation reuses Gambit's
+existing PERM predicate; seven constructor controls include failure/GC in this
+zero-bank preparation. These initial numbers do not transfer to final code.
+
+* Native history and refinement ownership :evidence:
+
+The first native C23 compile passed with51 generated C artifacts reused and no
+Scheme generation phase. The first test compile exposed a Scheme delimiter
+error. The next constructor controls passed all four initial paths, but a production
+PBT history shrank to one exception: its original oracle incorrectly required
+immediate root-borrow decrement when a Scheme handler resumed.
+
+The corrected joint obligation is stronger: inside an outer real native
+activation the handler must retain the inner bank across moving GC; returning
+through the outer marker must drain both banks. Actual production PBT then
+passed12 histories/192 actions, with serialized observation-mutation replay
+shrunk13 to1. Constructor controls separately compile the actual =c_intf.c=
+with only bank/vector callouts substituted. They are not an alternative entry
+implementation and cannot substitute for the production-image property run.
+
+[[file:models/quint/native_entry_admission.qnt][Existing QNT]] owns publication/freeze/outcome/retirement interleavings.
+=recordOutcome= does not mean physical exit; =settleKnown= maps only to the
+actual catcher/last-use landing. The disjoint [[file:models/lean/RootSpan.lean][five Lean layout lemmas]] cover arbitrary-count allocation
+bounds, payload extent/injectivity, primary separation and root count. They
+contain no lifecycle actions; existing state-machine proofs are not rerun or
+counted as another ownership proof. Source loops and C memory orders remain reviewed conditional
+refinement, not a new machine-checked C theorem. OpenSysML/ASCENT bind these
+premises to source and actual observations; model labels alone never admit REV.
+
+* CLOSED Five gates :audit:
+
+- [X] Tests: constructors, production PBT/nonzero, continuation/layout/ABI,
+  original population and matched zero/one/many cost consumers. Complete current
+  candidate393/408 in92.157s; known failures retained, not whole-SMP acceptance.
+- [X] Learning: physical retention counterexample and failed source history.
+- [X] Process: one complete source cut; other staged changes excluded.
+- [X] Models: native SDK/ASCENT plus existing QNT, distinct Lean duties.
+- [X] Questions: actual layout/scan/memory cost and conditional benefit.
+
+* Joint acceptance and reproducible evidence :audit:matrix:
+:PROPERTIES:
+:CUSTOM_ID: sfun-joint-acceptance
+:EVIDENCE: evidence/research/retained/modern-c/sfun-entry/qualification.json
+:END:
+
+[[file:../../../evidence/research/retained/modern-c/sfun-entry/qualification.json][The retained qualification packet]] binds all observations to the source
+manifest. [[file:../../../evidence/research/retained/modern-c/sfun-entry/runs/sfun-entry-accept-8.json][The final native Make receipt]] includes the actual conversion-error
+handler, not only an explicit Scheme throw. It records7 constructor controls,
+12 production histories/192 actions, processor1 with8 actions, and rooted plus
+permanent revocation/GC/drain. The C-closure result is an accessor-control
+source-transfer test; it does not qualify an unsupported ARM native trampoline.
+
+[[file:../../../evidence/research/retained/modern-c/sfun-entry/runs/sfun-entry-consumers-final.json][The exact-runtime consumer receipt]] preserves continuation/wide roots,
+2387 generator checks/306 fixtures/290 layout assertions/15 plans,102 C cases,
+12 existing-model QNT tests, and actual old-module rejection. Its baseline
+original-population timeout remains a failure. [[file:../../../evidence/research/retained/modern-c/sfun-entry/runs/sfun-entry-final-population.json][The subsequent receipt]] contains
+5 checked Lean arithmetic lemmas and a candidate population timeout. Those
+scoped positives do not turn either timeout into acceptance.
+
+| Whole responsibility | Delivered source | Native observation | Admission |
+|----------------------+------------------+--------------------+-----------|
+| Entry through physical exit |19-file selected production/test cut|Final constructors/PBT/nonzero/revocation pass|Current source, not yet committed |
+| Shared RC scanner/census |One immutable count and the existing source gate/RootTask lease|Moving GC plus frame/root consumers|Conditional cooperative-owner refinement |
+| Representation arithmetic |5 Lean theorems, no lifecycle state machine|Actual installed Lean checked|No machine-checked C memory-model claim |
+| Protocol transitions |Existing QNT plus marker revocation/converted-write actions|12 scenarios including bad-drop negative|No unbounded exhaustive model-check claim |
+| Official GSI population |Original Make ut, unchanged120s|Final candidate393/408 in92.157s; baseline/historical attribution retained|Scoped observation complete; no whole-SMP acceptance |
+| Publication |Existing branches/PRs only|No five-gate commit yet|No progress promotion |
+
+** Matched cost and accounting
+
+[[file:../../../evidence/research/retained/modern-c/sfun-entry/runs/sfun-entry-cost-final.json][The final24-sample ABBA receipt]] uses4096 actual native-to-Scheme calls
+per sample, four observations per role/arity, identical Scheme source and each
+role's exact own compiler/header/archive. These sub-millisecond to millisecond
+body measurements are noisy. Medians do not establish statistical significance;
+rounded external wall-clock zeros cannot be used as ratios.
+
+| Raw arguments | Baseline body median ms | Candidate ms | Change | Baseline peak-footprint median bytes | Candidate bytes |
+|---------------+-------------------------+--------------+--------+--------------------------------------+-----------------|
+|0 known-PERM|0.557899|0.550508|-1.325%|4555088|4522320|
+|1|0.780582|0.861526|+10.370%|4571472|4563292|
+|8|2.334476|1.643062|-29.618%|4587856|4604240|
+
+| Native quantity | Baseline bytes | Candidate bytes | Cost boundary |
+|-----------------+----------------+-----------------+---------------|
+|RC header|48|56|+8 on every live RC node, including unrelated byte nodes |
+|Activation record|32|40|+8 per live record; tagged kind replaces existing startup word |
+|GSTATE|87048|87088|Five runtime service pointers; native module recompilation required |
+|Execution context|320|320|No additional context-slot storage |
+
+For =r=n>=1= raw arguments, retained bank/header/record bytes change by
+=64 - 40n= under this measured layout: +24 bytes at1 argument, -256 bytes at8.
+This excludes allocator rounding, Scheme marker storage, unrelated RC nodes and
+whole-round peak overlap. The eight-input footprint median actually increases
+16384 bytes; header savings are not a VM peak-memory theorem. Known-PERM zero
+requires no bank, while moving zero procedures still do and are not covered by
+the zero-PERM timing row. The new uniform census/scan adds the procedure cell
+and any converted payload cells. The unambiguous gain is complete root/lifetime
+ownership plus fewer allocations for wide raw inputs; universal runtime or
+cold-build acceleration is not established.
+
+** One complete source cut, not another unrelated repair campaign
+
+All19 source paths belong to one activation/root/exit replacement.69 currently
+dirty vendor paths comprise the51-path prior queue and18 newly dirty paths;
+one shared tests/makefile.in already belonged to that prior queue. A future
+whole cut must select only its new Make target, leaving other prototypes intact.
+Completing this unit does not consume the original51 responsibilities or move
+independent SMP1/12. Foundation4/4 remains historical.
+
+The official-population evidence is a joint-gate issue, not permission to repair
+all scheduler, vector or arithmetic failures here. Same observed failing names
+do not prove the same causes; missing cases remain unqualified. CPU contention
+was observed externally during this turn, but has not been proved to cause the
+timeouts. No heap, configured capacity, workload or time limit changed.
+
+The final unchanged-population repeat completes all408 cases in92.157s with
+393 passes and15 failures. [[file:../../../evidence/research/retained/modern-c/sfun-entry/official-attribution.json][The comparative record]] preserves each current exit
+form, the historical complete exact-baseline393/408 result and the fresh baseline
+prefix. No observed failing case name is new to that baseline evidence union.
+This is scoped regression attribution, not a causal equivalence proof or a full
+SMP pass. It supersedes only the missing completion observation, not either
+retained timeout. The complete gate still requires shared ASCENT submission.
+
+* DELIVERED Complete runtime REV :delivery:audit:
+:PROPERTIES:
+:CUSTOM_ID: sfun-runtime-rev
+:REVISION: 13104c8a6e99dd5e474fa08b7ab329b7a800fbd1
+:SOURCE_TREE: f427762630983e1caaeced64c9a8e7015a8da74e
+:END:
+
+[[file:../../../evidence/research/retained/modern-c/sfun-entry/submission/admission.json][All five shared gates and47 rejection controls]] admit the complete19-file
+runtime source. The [[file:../../../evidence/research/retained/modern-c/sfun-entry/submission/comment.json][commit audit matrix]] retains actual numeric origins and
+explicit remaining boundaries. [[file:../../../evidence/research/retained/modern-c/sfun-entry/submission/revision.json][The immutable publication receipt]] binds the
+actual tested tree; the earlier qualification packet is the pre-commit subject,
+not a self-referential claim that it already knew its future commit hash.
+
+The pending vendor queue is51 paths, the same prior queue as before this new
+owner. Eighteen newly dirty paths and one shared Make path were selected as one
+complete19-file cut. No old pending prototype was silently admitted or deleted.
+Current global counters remain foundation4/4 and independent SMP1/12,11 open.
+The next complete entry/write owner must first reconcile dormant role records,
+raw writer declarations and actual consumers; a rename by itself is no delivery.

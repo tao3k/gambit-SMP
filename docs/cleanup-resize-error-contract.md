@@ -42,7 +42,7 @@ functions, not observed native frees or a reproduced use-after-free.
 The source lock is independently materialized for this check. The receipt binds
 materializer inputs, full candidate setup source, exact extracted function and
 fixture hashes. No execution-cache path is a source authority. Evidence is under
-`evidence/source-results/fixtures/scheduler-retry-sync-participation/cleanup-error/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/scheduler-retry-sync-participation/cleanup-error/`.
 
 ## Model And Repair Boundary
 

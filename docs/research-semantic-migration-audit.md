@@ -23,7 +23,7 @@ Scheme Evidence evaluation. Its source-derived mock boundary must be preserved.
 
 ## Actual Action Execution
 
-`evidence/research/observation-contract/actions.json` declares two v2 Recipes:
+`.cache/research/legacy-evidence/evidence/research/observation-contract/actions.json` declares two v2 Recipes:
 source-bound synchronization schedules and VM activity-log resource controls.
 Both use the same generic contract and exact prior-step JSON pointers; neither
 adds a mechanism-specific Python capability. `evidence.evaluate` accepts the

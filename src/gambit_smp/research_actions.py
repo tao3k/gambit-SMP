@@ -3,6 +3,7 @@ import argparse
 from contextlib import closing
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -17,10 +18,52 @@ def identity(value):
                                      allow_nan=False).encode()).hexdigest()
 
 
+def view_evidence_identity(view, query):
+    """Identify the exact source-bound answer a view action would read."""
+    return identity({"view": view["id"], "inputs": view["inputs"],
+                     "query": query, "answers": view["answers"][query]})
+
+
+def _reusable_view_result(snapshot, selected):
+    if selected.get("operation") != "evidence-view":
+        return None
+    current_actions = {action["id"]: action for action in snapshot["actions"]}
+    for encoded_body, encoded_result in snapshot["recordedOutcomes"]:
+        body, result = json.loads(encoded_body), json.loads(encoded_result)
+        prior = current_actions.get(body.get("action"))
+        if (body.get("sourceIdentity") != snapshot["sourceIdentity"] or prior is None
+                or prior.get("selectedEvidenceIdentity") != selected["selectedEvidenceIdentity"]
+                or result.get("status") != "COMPLETED" or result.get("outcome") != "RECORDED"
+                or not result.get("receipt") or not result.get("receiptSHA")):
+            continue
+        path = Path(result["receipt"])
+        if digest(path) != result["receiptSHA"]:
+            raise ValueError("reusable Evidence view receipt changed")
+        receipt = json.loads(path.read_text())
+        if (receipt.get("schema") != "research-action-observation.v1"
+                or receipt.get("operation") != "evidence-view"
+                or receipt.get("outcome") != "RECORDED"
+                or receipt.get("sourceIdentity") != snapshot["sourceIdentity"]
+                or receipt.get("inputs") != snapshot["inputs"]
+                or receipt.get("backend") != snapshot["backend"]
+                or receipt.get("selectedEvidenceIdentity") != selected["selectedEvidenceIdentity"]):
+            raise ValueError("reusable Evidence view receipt differs from current source")
+        origin = result.get("reusedFromAction", body["action"])
+        if (origin not in current_actions or
+                current_actions[origin].get("selectedEvidenceIdentity")
+                != selected["selectedEvidenceIdentity"]):
+            raise ValueError("reusable Evidence view origin differs from current source")
+        return {"status": "COMPLETED", "outcome": "RECORDED",
+                "receipt": result["receipt"], "receiptSHA": result["receiptSHA"],
+                "reusedFromAction": origin,
+                "runtimeAdmitted": False}
+    return None
+
+
 def _inputs(root, paths):
     result = {}
-    for path in paths:
-        path = Path(path).resolve(strict=True)
+    for path in dict.fromkeys(Path(path) for path in paths):
+        path = path.resolve(strict=True)
         path.relative_to(root)
         if not path.is_file():
             raise ValueError("regular source file required")
@@ -28,9 +71,77 @@ def _inputs(root, paths):
     return result
 
 
+def _catalog_fallback_paths(root):
+    """Catalog denial binds source files, never Python/runtime-generated caches."""
+    excluded = {".cache", ".data", ".git", ".venv", ".state", "__pycache__"}
+    for name in ("evidence", "models", "docs"):
+        for directory, dirs, files in os.walk(root / name, followlinks=False):
+            dirs[:] = sorted(part for part in dirs if part not in excluded)
+            for filename in sorted(files):
+                path = Path(directory) / filename
+                if path.suffix not in {".pyc", ".pyo"} and path.is_file():
+                    yield path
+
+
+def _request_database_path(root):
+    """Migrate real rows and fence old writers before admitting new requests."""
+    from gambit_smp.artifact_storage import durable_database_path, cache_path, repository_root
+    legacy = cache_path(root, "research-actions/requests.sqlite")
+    expected = repository_root(root) / ".state/research-actions/requests.sqlite"
+    if not expected.exists() and legacy.exists():
+        with closing(sqlite3.connect(legacy.as_uri() + "?mode=ro", uri=True)) as old:
+            if old.execute("SELECT 1 FROM sqlite_schema WHERE type='trigger' "
+                           "AND name LIKE 'gambit_smp_retired_requests_%'").fetchone():
+                raise ValueError("durable request store missing; retired cache is not recovery authority")
+    path = durable_database_path(root, ".state/research-actions/requests.sqlite", "research-actions/requests.sqlite")
+    if not legacy.exists():
+        return path
+    fences = {"gambit_smp_retired_requests_" + operation.lower():
+              "CREATE TRIGGER gambit_smp_retired_requests_" + operation.lower() +
+              " BEFORE " + operation + " ON requests BEGIN SELECT RAISE(ABORT, "
+              "'requests moved to .state/research-actions/requests.sqlite'); END"
+              for operation in ("INSERT", "UPDATE", "DELETE")}
+    with closing(sqlite3.connect(legacy, timeout=1, isolation_level=None)) as owner:
+        existing = dict(owner.execute("SELECT name,sql FROM sqlite_schema WHERE type='trigger'"))
+        if all(existing.get(name) == sql for name, sql in fences.items()):
+            return path
+        owner.execute("BEGIN IMMEDIATE")
+        try:
+            with closing(sqlite3.connect(path, timeout=1, isolation_level=None)) as current:
+                current.execute("BEGIN IMMEDIATE")
+                try:
+                    old = owner.execute("SELECT id,body,result FROM requests ORDER BY id").fetchall()
+                    new = dict((row[0], row[1:]) for row in current.execute("SELECT id,body,result FROM requests"))
+                    if any(new.get(row[0]) != row[1:] for row in old):
+                        raise ValueError("legacy request rows diverged during migration; explicit reconciliation required")
+                    # Preserve the pre-fence SQLite snapshot, including failed/pending
+                    # rows. A cached boolean or a new empty store cannot retire it.
+                    snapshot = path.parent / ("legacy-" + identity(old) + ".sqlite")
+                    if not snapshot.exists():
+                        with closing(sqlite3.connect(legacy.as_uri() + "?mode=ro", uri=True)) as origin, \
+                                closing(sqlite3.connect(snapshot)) as destination:
+                            origin.backup(destination)
+                    with closing(sqlite3.connect(snapshot)) as saved:
+                        if saved.execute("SELECT id,body,result FROM requests ORDER BY id").fetchall() != old:
+                            raise ValueError("legacy request snapshot changed")
+                    snapshot.chmod(0o600)
+                    with snapshot.open("rb") as stream:
+                        os.fsync(stream.fileno())
+                    for name, sql in fences.items():
+                        if name in existing and existing[name] != sql:
+                            raise ValueError("legacy request fence differs")
+                        if name not in existing:
+                            owner.execute(sql)
+                    owner.commit()
+                finally:
+                    current.rollback()
+        finally:
+            owner.rollback()
+    return path
+
+
 def _outcomes(root):
-    from gambit_smp.artifact_storage import database_path
-    path = database_path(root, "research-actions/requests.sqlite", ".data/research-actions/requests.sqlite")
+    path = _request_database_path(root)
     if not path.exists():
         return []
     with closing(sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True)) as db:
@@ -90,7 +201,7 @@ def discover(root, context):
     from gambit_smp.recipes import load, source_path
     from gambit_smp.research_kernel import manifest_paths, implementation_paths
     root = Path(root).resolve()
-    if set(context) - {"recipes", "engine", "studies", "graph", "observations", "views"} or not isinstance(context.get("recipes", []), list):
+    if set(context) - {"recipes", "engine", "studies", "graph", "observations", "views", "navigator"} or not isinstance(context.get("recipes", []), list):
         raise ValueError("context requires an explicit recipe inventory and optional engine")
     names = context.get("recipes", [])
     if len(set(names)) != len(names) or not (names or context.get("studies") or context.get("graph") or context.get("views")):
@@ -107,15 +218,36 @@ def discover(root, context):
     actions = []
     references = {}
     views = []
-    from gambit_smp.evidence_views import load as load_view
+    from gambit_smp.evidence_views import load as load_view, registry as view_registry
     if not isinstance(context.get("views", []), list):
         raise ValueError("explicit Evidence view inventory required")
+    if context.get("views"):
+        _, registry_inputs = view_registry(root)
+        if registry_inputs:
+            registry_path = root / "evidence/views.json"
+            paths.append(registry_path)
+            retired = {row["path"] for row in json.loads(registry_path.read_text()).get("historical", [])}
+            if retired.intersection(context["views"]):
+                raise ValueError("historical Evidence view is not a current action input")
     for name in context.get("views", []):
         view, _, _, bound_view = load_view(root, name)
         if any(row["id"] == view["id"] for row in views):
             raise ValueError("duplicate Evidence view identity")
         views.append(view)
         paths.extend(Path(p) for p in bound_view)
+    if "navigator" in context:
+        navigator = context["navigator"]
+        if not isinstance(navigator, str) or navigator not in context.get("views", []):
+            raise ValueError("navigator must name a declared Evidence view")
+        if "question" not in views[context["views"].index(navigator)]["queries"]:
+            raise ValueError("navigator must name a declared Evidence view with a question query")
+
+    if "navigator" in context:
+        navigator = context["navigator"]
+        if not isinstance(navigator, str) or navigator not in context.get("views", []):
+            raise ValueError("navigator must name a declared Evidence view")
+        if "question" not in views[context["views"].index(navigator)]["queries"]:
+            raise ValueError("navigator must name a declared Evidence view with a question query")
 
     def evidence(path, pointer="", *, premise=None, action=None):
         path = Path(path).resolve(strict=True)
@@ -248,8 +380,7 @@ def discover(root, context):
             # A failed catalog cannot license graph validation, but must not
             # suppress unrelated read-only investigation of bound receipts.
             gaps.append({"action": "graph:" + graph["model"], "premise": "current-catalog", "reason": str(error)})
-            paths.extend(path for directory in ("evidence", "models", "docs")
-                         for path in (root / directory).rglob("*") if path.is_file())
+            paths.extend(_catalog_fallback_paths(root))
         paths.extend(root / path for path in python_files(root))
         paths.extend(root / path for path in asset_files(root))
         add_action("graph:" + graph["model"], "current-graph", model=graph["model"], budgetSeconds=300,
@@ -276,6 +407,7 @@ def discover(root, context):
                     raise ValueError("view action names an undeclared query")
                 action = "view:" + view["id"] + ":" + identifier
                 add_action(action, "evidence-view", view=view["path"], query=query,
+                           selectedEvidenceIdentity=view_evidence_identity(view, query),
                            expectedEvidence=[reason], budgetSeconds=15)
                 # The view document declares every individually hashed input.
                 # Keep that full map once in the snapshot, not once per action.
@@ -304,7 +436,9 @@ def discover(root, context):
     checked = _inputs(root, paths)
     checked.update({str(path.resolve()): digest(path) for path in implementation})
     if checked != bound:
-        raise ValueError("action inputs changed during discovery")
+        changed = sorted(name for name in bound.keys() | checked.keys()
+                         if bound.get(name) != checked.get(name))
+        raise ValueError("action inputs changed during discovery: " + ", ".join(changed))
     if engine is not None and manifest_paths(engine_path) != engine:
         raise ValueError("sealed engine changed during discovery")
     if _outcomes(root) != history:
@@ -341,8 +475,7 @@ def discover(root, context):
 
 
 def _database(root):
-    from gambit_smp.artifact_storage import database_path
-    path = database_path(root, "research-actions/requests.sqlite", ".data/research-actions/requests.sqlite")
+    path = _request_database_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=1)
     db.execute("CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, body TEXT NOT NULL, result TEXT)")
@@ -392,12 +525,15 @@ def select(root, snapshot, action, inputs, request_id, *, authorize_execution=Fa
             name: digest(path) for name, path in artifact_paths().items()} != current["backend"]
         if backend_changed or _outcomes(root) != current["recordedOutcomes"]:
             raise ValueError("STALE backend or action outcomes before reservation")
+        reusable = _reusable_view_result(current, selected)
         db.execute("INSERT INTO requests VALUES (?, ?, NULL)", (request_id, encoded))
         db.commit()
-        from gambit_smp.artifact_storage import cache_path
-        out = cache_path(root, "research-actions/" + request_id)
+        from gambit_smp.artifact_storage import cache_path, runtime_output
+        out = runtime_output(root, cache_path(root, "research-actions/" + request_id))
         try:
-            if selected.get("operation"):
+            if reusable is not None:
+                result = reusable
+            elif selected.get("operation"):
                 result = _execute_action(Path(root).resolve(), selected, current, out, started=started)
             else:
                 receipt = run_sealed(Path(root).resolve(), Path(root).resolve() / selected["recipe"],
@@ -451,7 +587,11 @@ def _execute_action(root, action, snapshot, out, *, started):
         from gambit_smp.evidence_views import evaluate as evaluate_view
         with engine_api(retain=True) as (api, _):
             view = evaluate_view(root, action["view"], api)
+        selected_identity = view_evidence_identity(view, action["query"])
+        if selected_identity != action["selectedEvidenceIdentity"]:
+            raise ValueError("STALE selected Evidence view result")
         receipt.update(view=view, selectedQuery=action["query"],
+                       selectedEvidenceIdentity=selected_identity,
                        answers=view["answers"][action["query"]], outcome="RECORDED", budgetSeconds=15)
     else:
         study, _, provenance, _ = _study(root, action["study"])
@@ -524,11 +664,16 @@ def observe(root, handle):
             "executionAuthorized": False, "runtimeAdmitted": False}
 
 
-def main():
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("discover", "select", "observe"))
     parser.add_argument("--request", type=Path, help="structured JSON request")
     parser.add_argument("--authorize-execution", action="store_true")
+    return parser
+
+
+def main():
+    parser = argument_parser()
     args = parser.parse_args()
     if args.request is None:
         parser.error("--request is required")
@@ -553,3 +698,11 @@ def main():
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
         print("ACTION-DENY " + str(error), file=sys.stderr)
         return 2
+
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('actions')(main)
+
+if __name__ == "__main__":
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('actions', main))

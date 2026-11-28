@@ -1,0 +1,71 @@
+diff --git a/src/gambit_smp/trajectory_exploration.py b/src/gambit_smp/trajectory_exploration.py
+index 63c301d..ebefa0f 100644
+--- a/src/gambit_smp/trajectory_exploration.py
++++ b/src/gambit_smp/trajectory_exploration.py
+@@ -355,7 +355,8 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
+                      engine: object = None, *,
+                      bindings: Sequence[tuple[str, str]] | None = None, expansions: Sequence[str] | None = None,
+                      checkpoint: object = None, display_bytes: int = DEFAULT_CLUE_DISPLAY_BYTES,
+-                     selector: str | None = None, constructor: str = "query") -> dict:
++                     selector: str | None = None, constructor: str = "query",
++                     read_confirmed: bool = True) -> dict:
+     """Return a source-bound incremental Evidence slice using ASCENT inference.
+ 
+     The CLI renders this same result directly as inert Scheme data.
+@@ -467,6 +468,9 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
+     loses traceability, unlike the Library's honest folding. Repeating a read
+     with checkpoint=None is an initial read again, not an incremental read.
+     display_bytes is presentation capacity, never a search or inference limit.
++    read_confirmed is a host carrier observation. False replays display items
++    through the native engine while retaining its digest-checked saved query;
++    it is not evidence authority or a persistent query preference.
+     No Context, catalog lookup, action choice or execution authority is implied.
+     """
+     if engine is None:
+@@ -475,7 +479,7 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
+         with engine_api() as (bound_engine, _):
+             return repository_clues(root, question, bound_engine, bindings=bindings,
+                 expansions=expansions, checkpoint=checkpoint, display_bytes=display_bytes,
+-                selector=selector, constructor=constructor)
++                selector=selector, constructor=constructor, read_confirmed=read_confirmed)
+     from gambit_smp.recipes import source_path
+ 
+     root = Path(root).resolve()
+@@ -492,6 +496,10 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
+         constructor = selection["constructor"]
+     owner = _native_exchange(root, snapshot, engine)
+     request = dict(displayBytes=display_bytes)
++    if type(read_confirmed) is not bool:
++        raise ValueError('boolean carrier observation required')
++    if not read_confirmed:
++        request['readConfirmed'] = False
+     if expansions is not None:
+         request["expand"] = list(expansions)
+     cache_miss = False
+@@ -683,17 +691,21 @@ def _clue_output(root, request, engine, *, wire_bytes=None):
+     checkpoint = request.get('checkpoint')
+     unconfirmed = False
+     if wire_bytes is not None and checkpoint is not None:
+-        checkpoint = (load_clue_checkpoint(root, checkpoint, require_framed=True)
+-                      if isinstance(checkpoint, str) else None)
+-        unconfirmed = checkpoint is None
+-        if unconfirmed:
++        token = checkpoint
++        confirmed = (load_clue_checkpoint(root, token, require_framed=True)
++                     if isinstance(token, str) else None)
++        unconfirmed = confirmed is None
++        checkpoint = (load_clue_checkpoint(root, token)
++                      if isinstance(token, str) else token)
++        if checkpoint is None:
+             checkpoint = []
+     identity = None
+     while True:
+         packet = repository_clues(root, request.get('questions'), engine,
+             bindings=request.get('bindings'), expansions=request.get('expand'),
+             checkpoint=checkpoint, display_bytes=budget,
+-            selector=request.get('selector'), constructor=request.get('constructor', 'query'))
++            selector=request.get('selector'), constructor=request.get('constructor', 'query'),
++            read_confirmed=not unconfirmed)
+         current = packet['brief']['inputIdentity']
+         if identity is not None and identity != current:
+             raise ValueError('Evidence source changed while framing output')

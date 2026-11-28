@@ -77,7 +77,7 @@ time is not GC performance. No performance improvement is claimed here.
 
 ## Executed Qualification
 
-The v2 Recipe is `evidence/research/chez-resweep-cards/control.recipe.json`.
+The v2 Recipe is `.cache/research/legacy-evidence/evidence/research/chez-resweep-cards/control.recipe.json`.
 `.data/chez-resweep-cards-002` passed in 47.365/60 seconds, parent exit 0,
 no timeout, parent reaped and process group quiescent. All declared inputs were
 stable. The finite safety exploration checked 104 distinct states, with zero

@@ -1,0 +1,281 @@
+#+TITLE: Modern C Copy Capacity, Scan Custody and Native Abort Isolation
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never :tangle no
+
+* Decision and current process :modern_c:gc:smp:
+:PROPERTIES:
+:CUSTOM_ID: copy-custody-process
+:AUTHORITY: GambitCopyCustody
+:PROCESS: SCOPED-NATIVE-PASS; SOURCE-REFINEMENT-OPEN; COMMIT-BLOCKED
+:COMMIT_ADMITTED: false
+:END:
+
+The implementation is on =vendor/gambit= branch =modern-c=, with a complete bootstrap and scoped native acceptance now recorded. Scheme semantics,
+multi-shot continuation behavior and portable C remain Gambit's core. This
+slice replaces responsibility at two boundaries: the source census before any
+collector flips an interval, and native abort custody independent of join.
+It does not claim that a collector-worker pool or generational GC is complete.
+
+SysML owns the three contracts and their handoffs. The native =sysml= CLI
+produces the projection consumed by ASCENT and D2. QNT describes the desired
+transition contract; Lean proves conditional bounds. Neither establishes that
+the existing C queues, frame traversal or memory barriers refine that contract.
+
+- [[file:models/sysml/copy-custody.sysml][Authoritative contracts and open obligations]]
+- [[file:models/quint/copy_custody.qnt][Finite custody and rejection model]]
+- [[file:models/lean/CopyCustody.lean][Conditional bound and isolation laws]]
+- [[file:../../modeling/ascent/copy-custody.rules.scm][Executable ASCENT evidence-class and dependency policy]]
+- [[file:diagrams/copy-custody.d2][Derived architecture graph]]
+
+* Joint capacity and unique scanning contract
+:PROPERTIES:
+:CUSTOM_ID: copy-joint-contract
+:END:
+
+** Source freeze precedes destination setup
+
+=___garbage_collect_pstate= flushes each participant's =fp/hp= into its
+allocator, marks the participant ROOTS_FROZEN, closes the member count and
+crosses the old-set barrier. Only then does =setup_stack_heap_vmstate= record
+=source_words= and =source_sections= before flipping any participant's parity.
+The source census uses =words_movable_objs=: its factor of two is inherited
+semispace accounting, not a count of distinct live payload words.
+
+The new early check rejects fewer than two initial sections per participant
+before a partial flip. This is only a necessary initial-assignment check. It
+is not the requested complete destination-capacity proof. No multiplier or
+larger default heap has been added to make that proof appear complete.
+
+** Distinct obligations must not collapse into one number
+
+#+NAME: copy-capacity-proof-obligations
+| Obligation | Actual source endpoint | Established here | Remaining condition |
+|---+---+---+---|
+| Complete source view | GC entry flush and old-set barrier | Source census before parity change | Raw roots, frame completeness and C happens-before refinement |
+| One forwarding winner per original object | mark_array header CAS | Existing winner/loser split; only wins charged | All header reads and CAS ordering; no duplicate mutable-cell processing |
+| Copy only original source | require_fromspace_copy_source | Reject MOVABLE source outside frozen fromspace | Does not prove why a cell/chunk was revisited |
+| Tail work retained across publication | mark_array and scan skip-first rule | Explicit QNT debt before publication | Actual chunk queue, cursor and concurrent frame refinement |
+| Unique chunk/object scan | end_heap_chunk, queue dequeue, scan | Model forbids duplicate claim/scan | Existing C implementation is not proved to satisfy it |
+| Contiguous destination packing | next_heap_msection, captured frames | Failure remains observable | Object/frame maxima, alignment, chunk links and per-worker terminal loss |
+| Stack restoration and resume | move_continuation, resize_heap | Existing post-copy reserve retained | Joint pre-copy reservation and whole-round peak bound |
+
+A successful source-half guard is not evidence of unique scanning. Duplicate
+scans can race on a mutable cell; a header can be read before another worker
+repairs it; continuation capture has an additional frame lock and coordinate
+mapping. Conversely, a bounded source census cannot guarantee a particular
+worker's contiguous destination interval. The correct future capacity proof
+must cover both identities and physical packing.
+
+The guard is deliberately fail-closed. It must not silently ignore a tospace
+input: doing so would hide the task-ownership failure and could lose Tail or
+initialization responsibility. A per-worker =copied_words= census counts
+successful forwarding payload/header words and captured-frame materialization;
+CAS losers do not contribute. It is diagnostic accounting, not an independent
+oracle of correct traversal.
+
+* Destination ownership replaces implicit scan exclusivity
+:PROPERTIES:
+:CUSTOM_ID: destination-scan-authority
+:END:
+
+Each msection now has a trailer containing two bits per destination-word
+position. The payload and Scheme object/frame representation are unchanged.
+The trailer is allocated in the same native allocation as the section, so
+there is no independently lost metadata-allocation result. The closed-round
+setup clears it before flipping any participant or starting workers.
+
+#+NAME: destination-scan-transitions
+| State / operation | Sole responsibility | Publication / completion condition |
+|---+---+---|
+| UNPUBLISHED to READY | Forwarding winner or captured-frame constructor | Header and complete raw payload initialized; before chunk publication |
+| READY to OWNED | One scanner's successful packed-word CAS | Acquire ordinary field-write authority for this destination identity |
+| OWNED to DONE | That scanner | Its ordinary scan has returned; no second field writer admitted |
+| Request sees OWNED or DONE | Duplicate task dispatcher | Skip this object's ordinary scan; do not cancel the original owner or Tail |
+| First-field Tail | Copying worker | Independent debt; ordinary scan skips it even if Tail has not finished |
+
+The ordinary pair fast macro is removed. Both pair and general heap scanning
+now pass through =scan= and its object authority. The queue/frontier is a
+transport of work requests; it no longer grants field mutation merely by
+delivering a pointer. =change_object_scan_state= preserves neighboring packed
+states through a CAS loop. =publish_object_scan= is called after initialization
+and before the allocation chunk can be published. Source-half checks remain to
+expose roots or paths outside this ownership protocol; they are not the repair.
+
+Captured-frame READY means its raw payload was filled; special frame-link
+repair can continue under =MISC_MEM_LOCK=. The remaining refinement must show
+that FrameSpec excludes that link from ordinary roots and that all special
+link accesses, including the initial =cf=*ptr= read before the lock in
+=mark_captured_continuation=, satisfy the intended atomic protocol. Native
+passes do not close that C-memory-model obligation or authorize independent
+worker takeover.
+
+A duplicate delivery may arrive while the first owner is still scanning. It
+is safe to discharge that duplicate only because the original synchronous GC
+worker remains active until its scan returns. DONE does not discharge a
+copying worker's pending Tail. Current termination still relies on those
+workers carrying their calls to completion before becoming idle. Independent
+worker migration/death requires explicit owner-stop and Tail-transfer receipts;
+resetting an OWNED bit is not a recovery protocol.
+
+* Conditional pre-copy plan and the remaining allocator replacement
+:PROPERTIES:
+:CUSTOM_ID: pre-copy-plan
+:STATUS: DESIGN-CONDITIONALLY-BOUNDED; NOT-IMPLEMENTED
+:END:
+
+Let L be semispace words, K the minimum completed-chunk threshold, Amax the
+largest contiguous copy including headers/alignment, U a proved upper bound on
+all copy/retained-stack charges, N restored contexts, W collector workers, R the
+logical resume reserve and Q genuinely retained physical domains. Under a
+valid source-object/frame map, unique forwarding/scan authority, completed
+payload publication and no unaccounted producer:
+
+#+BEGIN_EXAMPLE
+G = L - Amax - 4 - ceil(L/K) > 0
+heapSections <= W + floor(U/G)
+P >= N + 2*W + floor(U/G) + R + Q
+#+END_EXAMPLE
+
+A closed heap section leaves less than Amax contiguous terminal room; initial
+and final markers plus completed-chunk links are charged separately. At most
+W terminal heap sections can remain partially occupied. N stack destinations,
+at most W first-restoration extensions and R VM-free logical reserve are
+separate consumers. This is deliberately a conservative sufficient bound,
+not a claim that the current workload needs that many sections.
+
+=U= must cover continuation frames materialized into the heap while active
+frames are also restored. =Amax= must cover actual FrameSpec consumers; the
+255-word movable-object constant alone cannot bound captured frames. The frozen
+source census is only an input to these obligations. Its semispace factor of
+two and source-layout validity must be reconciled with the charge model before
+issuing a physical receipt. No numeric grant is inferred while these premises
+are open, and no runtime heap growth is implemented from this formula.
+
+The next allocator cut is a =CopyCapacityPlan= consumed before any parity flip:
+freeze all sources, compute U/Amax and disjoint grants, obtain every physical
+interval, publish one common result, then initialize destinations. A known
+reservation failure must leave old roots/parity untouched, refund only known
+new intervals, undo the pre-GC accounting charge and restore participant
+RUNNING state through a shared outcome barrier. Unknown native allocation or
+owner-stop results retain custody and do not authorize a partial flip. The
+current two-section floor check is not this transaction.
+
+* Unknown join: isolate the capability, retain the native identity
+:PROPERTIES:
+:CUSTOM_ID: abort-isolation
+:END:
+
+** Why an abort permit can be stronger than a join result
+
+=start_processor_execution= reads the stable native/PSTATE identity and then
+waits under =resize.gate=. Before RUN permission it has not bound TLS, entered
+Scheme or read the execution context's roots/heap. The coordinator publishes
+ABORT for every successfully created child while the old cohort is stopped.
+ABORT cannot later become RUN: retained state rejects further resize/setup.
+
+=___isolate_aborted_resize= additionally checks that every intended context was
+fully initialized, no create result is unknown, no slot was published, the
+stack contains only its initial break frame, the heap is empty, the still and
+RC domains are empty, and no activation marker exists. Only then may it clear
+the unused startup root cells and detach the empty stack/heap claims. The
+request thunk remains registered in =mark_vm_scmobj= and is repaired by worker
+zero at subsequent GC.
+
+The old-member finish barrier publishes =abort_isolated=. Healthy participants
+may then collect despite RETAINED native custody. No timeout, join error or
+absence of a visible thread is used as a stopped-writer receipt.
+
+** What remains retained
+
+Native thread handles, =PSTATE= identities, OS resources, slot decisions and the
+VM gate remain stable. They cannot be cleaned or reused based on isolation.
+A retained thunk can keep an arbitrarily large transitive Scheme graph alive; fixed slots do not bound that graph or native stack/fd bytes. No peak-memory reduction is claimed. The POSIX wrapper only returns after invoking the entry function; the stable
+record is retained for that entire lifetime. This distinction permits heap
+progress without pretending that native handle reclamation has completed.
+
+The path excludes published retirees, unknown create outcomes, nonempty native
+borrow/RC/still domains and interrupted coordinator transitions. Those cases
+retain the original GC refusal until a separate writer/root-transfer proof
+exists. Arbitrary native owner death has not become recoverable.
+
+** Conditional argument and counterexamples
+
+1. ABORT is immutable and read under the same mutex as publication.
+2. Every created native entry reaches the gate before any context access.
+3. Empty-domain checks establish that no payload/root requires orphan scanning.
+4. The old cohort is stopped while its allocation prefix is restored.
+5. The request root remains a VM-owned scan obligation.
+6. No slot/native-record reuse occurs until an actual join/reaper proof exists.
+
+Under these premises, reusing empty heap intervals cannot race with an orphan
+context access. Omitting premise 2 lets a late start read recycled memory;
+omitting premise 3 loses a still/RC root; omitting premise 6 lets a late start
+observe a new generation's RUN permit. An unknown create result cannot be
+converted to a known parked thread. A published retiree cannot use the empty
+startup-domain proof.
+
+* Native qualification and historical failures
+:PROPERTIES:
+:CUSTOM_ID: copy-custody-evidence
+:END:
+
+The completed ownership recipe uses the existing Bazel GCC O1/O3 profile and original
+budgets, full two-pass bootstrap, then canonical p11 map/multi-shot/wide-root
+lanes. Compiler-action p1 during bootstrap is not p11 runtime admission.
+
+The preceding read-only debugger campaign sampled six distinct completed-GC
+counters at p11 before its 60-second watchdog. Its mark_array-entry observer
+did not report a tospace input. This is scheduling-sensitive, entry-only,
+incomplete negative evidence; it does not cover the internal Tail loop. An
+incorrect object-coordinate observer and an observer that rejected a legal
+zero-length input are retained as unqualified attempts. Neither may be used
+as a runtime defect or a successful control.
+
+The new held-start fault control independently calibrates the adapter, then
+holds a created native thread before Gambit's entry while forcing an unknown
+join. The healthy VM must complete three collections while the native actor
+is still held. The hold is released only afterwards. An intentional safety
+exit remains distinct from natural cleanup of the unjoined native handle.
+
+#+INCLUDE: "copy-custody-results.org"
+
+* Learning from Gambit's design, without reducing the goal to repairs
+:PROPERTIES:
+:CUSTOM_ID: copy-custody-questions
+:END:
+
+The reusable foundation is a precise division between Scheme semantic roots,
+execution ownership, collector work and native capability lifetime. A portable
+frame contract should support repeated continuation restoration and worker
+scheduling without assuming one-shot effects or equating a carrier with a GC
+owner. The new source census and isolation receipt are small consumers of that
+architecture; they do not complete its replacement chain.
+
+#+NAME: copy-custody-core-questions
+| Question | Required answer before retirement |
+|---+---|
+| Can a continuation frame be marked through both a stack root and captured frame? | Concrete lock, coordinate, root/Tail and forwarding ownership proof |
+| Can a destination chunk be scanned before payload/Tail obligations close? | Claim identity plus explicit pending Tail ownership, not a generic completion flag |
+| Is capacity bounded by live bytes alone? | No: account packing, frame materialization, marker links and worker terminal fragments |
+| Does unknown join force whole-VM GC refusal? | Only domains without an independently proved writer exclusion require it; empty aborted startup has a distinct proof |
+| Does isolation authorize native record reuse? | No: retain identity/gate until native lifetime is actually closed |
+| Does one native pass prove ISO C memory order? | No: atomic load/CAS/publication and existing barrier refinement remain explicit obligations |
+
+* Five conjunctive submission gates
+:PROPERTIES:
+:CUSTOM_ID: copy-custody-commit-gates
+:END:
+
+#+NAME: copy-custody-commit-gates
+| Gate | Evidence | Admission |
+|---+---+---|
+| Required tests | Full bootstrap; p11 compiler and host-managed runtime; explicit host map; 5/5 faults | Scoped PASS; full SMP suite and unknown-handle cleanup excluded |
+| Architecture gain and cost | Capacity/scan separation and native/heap custody split; matrix below | Bounded claims only |
+| Current process | Source replacement on modern-c; no commit/push performed | Visible, not completed modernization |
+| Actual models | Native SysML; 9/12 scoped ASCENT joins; five QNT histories and seven Lean laws | Three C simulations and packing OPEN |
+| Gambit questions/amplification | Multi-shot frame roots, Tail ownership, portable C memory order and native lifetime | OPEN |
+
+No model result, compiler bootstrap, isolated fault pass or copied repair
+milestone can substitute for the conjunction. Commit admission remains false.

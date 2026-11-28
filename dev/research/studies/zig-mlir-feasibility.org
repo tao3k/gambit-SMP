@@ -1,0 +1,215 @@
+#+TITLE: Zig and MLIR Feasibility for Gambit
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: research
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Zig and MLIR Feasibility for Gambit :research:
+:PROPERTIES:
+:ID: e623cfb9-a9d6-5f0a-a971-d71a4df077b8
+:CUSTOM_ID: zig-and-mlir-feasibility-for-gambit
+:SOURCE_PATH: docs/experimental/zig/zig-mlir-feasibility.md
+:SOURCE_SHA256: d4e0f94536d94969f9110bfd800e3a81a0755b6b56d910b1aa15223760e20d20
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Research date: 2026-10-19. Status: architecture assessment; no implementation,
+benchmark, native qualification or change to the SMP milestone.
+
+The current research direction is the broader
+[[file:../../refactoring/zig/studies/zig-system-engineering-architecture.org][Zig system engineering architecture]],
+with an [[file:../../refactoring/zig/studies/zig-system-engineering-sources.org][annotated literature review]].
+Zig's long-term role is studied before choosing an MLIR integration or a
+validation workload. This note retains the narrower backend assessment.
+
+*** Decision
+:PROPERTIES:
+:ID: a18d3dc0-72a3-5cd3-b6ef-41234e2bbda6
+:CUSTOM_ID: decision
+:END:
+
+Zig is a plausible C-toolchain driver and MLIR C-ABI client. Neither role
+automatically translates Gambit semantics into MLIR. Separate three proposals:
+
+| Proposal | Assessment | Required evidence |
+|-
+| Compile existing generated C using Zig's C toolchain | Toolchain integration option; compatibility and speed unknown | Matched source/configuration, compile/link/load/execute results, cold and warm timings |
+| Compile selected typed numeric kernels through MLIR | Plausible incremental research direction | Explicit subset, independent semantic oracle, safe runtime boundary, measured total cost |
+| Replace the general Gambit backend with MLIR through Zig | Substantial compiler/runtime project | Complete lowering and runtime contracts, bootstrap and full supported semantic/native coverage |
+
+There is no evidence here for negligible engineering cost, automatic GPU
+acceleration, elimination of C compilation cost, or inherent superiority over
+C or Rust. Define the engineering layer's responsibilities independently of
+the choice of compiler service.
+
+*** Local Source and Evidence
+:PROPERTIES:
+:ID: 4ad1caa3-e4f3-57e5-84a4-a344c77141c8
+:CUSTOM_ID: local-source-and-evidence
+:END:
+
+The research checkout HEAD observed was
+~b67da6262a973a0ae898002d5c7f5be2d8b5a90d~, with existing local changes.
+The vendor Gambit HEAD was ~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~.
+These identities do not identify a qualified current runtime overlay.
+
+- ~vendor/gambit/gsc/_back.scm:17-65~ describes target representations,
+  GVM instruction translation, initialization and the ~dump~ interface. Its
+  ~c-intf~ argument includes embedded C declarations, procedures and initializers.
+- ~vendor/gambit/gsc/_t-c-1.scm:249,337~ registers and implements the C
+  target's dump procedure. This is a concrete backend boundary to investigate,
+  not a claim that a second target can reuse every target-specific decision.
+- ~vendor/gambit/include/gambit.h.in:6801-6815~ defines cached-state
+  read/write macros and host procedure entry with processor state.
+- [[file:../../../docs/compiler-cost-boundaries.md][Compiler cost boundaries]] records an
+  earlier diagnostic with 30.818 seconds of Scheme-to-C and 152,462 generated
+  C lines; C-to-module exhausted the remaining budget after 59.250 seconds.
+  Execution did not begin. This is a historical DENY, not a current benchmark
+  or evidence that Zig would improve the result.
+- [[file:../../../docs/experimental/c-backend-compatibility.md][C backend compatibility]] records the existing
+  architectural objective of preserving portable generated C and supported
+  continuation/FFI semantics. An optional MLIR experiment can coexist with it;
+  a general replacement would change that objective.
+- [[file:../../../docs/ffi-gc-frame-protocol.md][Foreign call and moving GC boundary]] identifies
+  writeback, return-address rooting and relocation reload obligations. Its
+  finite model and extracted-source tests do not establish whole-runtime safety.
+
+The registered ~trajectory clues~ interface was consulted. Initial factor
+queries exposed observation vocabulary but did not identify compiler/MLIR
+claims; expansion using these document paths returned unknown claims. Unknown
+identifiers establish no absence of repository evidence. The documents and
+source above were inspected directly for this assessment.
+
+*** What Zig Changes
+:PROPERTIES:
+:ID: 916fe0e3-24c4-5edf-aaaf-10c7dd2e1834
+:CUSTOM_ID: what-zig-changes
+:END:
+
+The Zig build system can orchestrate generated files, C compilation and cached
+artifacts. A cache hit avoids repeated work only when all semantic inputs are
+represented correctly. It does not remove parsing, macro expansion, optimization
+and code generation for a cold or invalidated generated-C unit. Replacing a
+build driver and changing the C compiler are separate experimental variables.
+
+Compiler selection and build-system migration need distinct research decisions.
+Preserve target, SDK, headers, defines, runtime generation, threading
+configuration and effective optimization policy. GCC-only options or extensions
+need explicit handling; successful compilation alone does not qualify modules.
+Cross compilation additionally needs matching target runtime libraries and
+platform dependencies.
+
+Calling the MLIR C API from Zig is feasible through a C ABI. The client still
+owns error handling, context/module lifetime and borrowed handle validity.
+Zig's allocator does not control all allocations made inside MLIR. Importing
+headers supplies declarations, not a Scheme compiler or conversion pass.
+Compiling C and translating C constructs into Zig are different facilities.
+
+*** Where MLIR Should Enter
+:PROPERTIES:
+:ID: 523d2e6f-231b-5068-996d-12f9796ae886
+:CUSTOM_ID: where-mlir-should-enter
+:END:
+
+Candidate general pipeline:
+
+#+BEGIN_SRC text :eval never
+Scheme frontend -> audited GVM/target boundary -> explicit export format
+  -> MLIR construction (Zig client optional) -> semantic lowering
+  -> LLVM/object -> matched Gambit runtime
+#+END_SRC
+
+Keep the existing C target alongside any experimental target. Audit which
+representation choices have already occurred before the export boundary.
+GVM offers a source-backed candidate, but may already be too low-level for
+recovering rich tensor or affine-loop structure. Typed kernels may need an
+earlier, explicitly annotated representation.
+
+The alternative ~generated C -> C parser/importer -> MLIR~ needs a real C
+frontend. Existing work such as Polygeist makes it a valid route to compare;
+see the literature review. Zig's C compilation path does not itself produce
+high-level MLIR. The available structure and Scheme-level facts in Gambit's
+generated C still require analysis. Additional passes cannot be assumed to
+reconstruct missing facts.
+
+MLIR's C API supports core IR construction and passes but is deliberately
+low-level and has no stability guarantee. Existing dialects can be used through
+available interfaces; richer custom semantics, verifiers, effects and lowering
+may require extensions, commonly using TableGen/C++. Dynamic dialect mechanisms
+do not remove the need to define and implement those semantics. Textual/bytecode
+export and in-process construction are separate architecture choices.
+
+*** Semantic Obligations
+:PROPERTIES:
+:ID: 647a82a7-eec3-562e-a8f3-733134f8d03d
+:CUSTOM_ID: semantic-obligations
+:END:
+
+A general backend must preserve proper tail calls, closure environments,
+multiple values, numeric overflow/promotion, exceptions and continuations.
+It must also specify movable object representation, roots at safepoints,
+return addresses, stack maps/descriptors, relocation reloads, foreign callback
+reentry, module loading and processor/VM ownership. MLIR verification checks
+declared IR constraints; it does not independently prove Gambit equivalence.
+Existing SMP protocol failures remain separate obligations.
+
+Typed leaf kernels reduce this surface. Such a restricted domain can operate
+on explicit unboxed numeric buffers, with defined bounds, aliasing and floating
+point policy. Copied storage and explicitly stable buffer protocols are possible
+lifetime designs; never retain an unprotected pointer into a movable heap.
+Specify whether allocation, callbacks, polling, exceptions and continuation
+capture are allowed. A long-running kernel still needs a defined interruption
+and runtime participation policy.
+
+GPU lowering additionally needs device-compatible operations, memory transfer,
+buffer lifetimes and launch synchronization. General Scheme continuations,
+dynamic objects and the CPU runtime do not acquire device implementations by
+being represented in MLIR.
+
+*** Research before Implementation
+:PROPERTIES:
+:ID: b6c637fa-f31a-5108-bb4b-c7ede3c7ac0f
+:CUSTOM_ID: research-before-implementation
+:END:
+
+The earlier suggestion to start with minimal experiments is superseded by the
+user's architecture-first direction. The current work compares responsibilities,
+native construction and runtime integration, semantic export choices, service
+placement, deployment profiles and maintenance economics. The broader study's
+research-decision table owns that agenda.
+
+Any later implementation proposal must distinguish semantic correctness,
+artifact/runtime compatibility and measured performance. Bootstrap and complete
+native SMP acceptance remain separate from a bridge or kernel result. No
+experiment is selected or scheduled by this note.
+
+Neither ~zig~ nor ~mlir-opt~ was found on the raw shell PATH during this review.
+Project-specific environments were not inventoried, and no toolchain was
+installed or downstream compilation attempted. Compatibility and performance
+remain unmeasured.
+
+*** Primary References
+:PROPERTIES:
+:ID: 82bcc246-44c4-5295-9737-0d028f11bf9b
+:CUSTOM_ID: primary-references
+:END:
+
+- [[https://ziglang.org/learn/build-system/][Zig build system]]: build graph,
+  artifacts and caching; this is capability documentation, not a Gambit benchmark.
+- [[https://ziglang.org/documentation/master/#C][Zig language documentation]]:
+  C ABI primitives, target/flag consistency and C translation limitations.
+- [[https://mlir.llvm.org/docs/CAPI/][MLIR C API]]: deliberately minimal API,
+  opaque handles, ownership conventions and lack of stability guarantees.
+- [[https://mlir.llvm.org/docs/DefiningDialects/][Defining MLIR dialects]]:
+  TableGen/C++ definitions and extensible/dynamic dialect mechanisms.
+
+These are live documentation references checked on the research date, not pinned
+dependency versions. An executable experiment must record exact tool revisions.

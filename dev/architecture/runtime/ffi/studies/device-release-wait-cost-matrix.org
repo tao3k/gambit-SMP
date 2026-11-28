@@ -1,0 +1,168 @@
+#+TITLE: Wait and Deferred Release Support: Modern C versus Zig
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Wait and Deferred Release Support: Modern C versus Zig :ffi:
+:PROPERTIES:
+:ID: fd455c0b-8afa-5730-b7e6-ad4c485fd777
+:CUSTOM_ID: wait-and-deferred-release-support-modern-c-versus-zig
+:SOURCE_PATH: docs/experimental/zig/device-release-wait-cost-matrix.md
+:SOURCE_SHA256: 6117a127102889d7d1846ecc85505f9b19c24b914630dac9a4b1d2371c3a9cb2
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. [[file:device-release-wait-contract.org][Contract]],
+[[file:device-release-wait-evidence.org][source/paper ledger]]. Compare the same complete
+DeviceReleaseCoordinator and its real device callers in C-full and Z-full;
+C-ZT retains independent tool/build choice. Theory only, with no measured work,
+positive cost interval, native test or actual retirement.
+
+The [[file:device-release-sync-cost-matrix.org][synchronization support refinement]]
+prices concrete predicate/debt/attempt/observer/descendant protocols and actual
+payload custody before cleanup_rc. It credits the existing C donor-transfer and
+failure funnels. These are refinements of the same obligations below, not an
+additional set of benefits to sum a second time.
+
+*** 1. Necessary Support Units After Reuse
+:PROPERTIES:
+:ID: fd1400bd-e180-5bef-ad26-42e376db205d
+:CUSTOM_ID: 1-necessary-support-units-after-reuse
+:END:
+
+These units are responsibility/code-body families, not proposed source files,
+implementation snippets, LOC estimates or mandatory generic-library components.
+Use one common service. Ten wrapper registrations do not require ten copies.
+
+| ID / necessary unit | Existing support credited first | Modern C residual code/support | Zig residual code/support | Incremental removal / cost boundary |
+|-
+| WSU01 WaitContext construction/destruction | fdset allocation's existing C error funnel; candidate partial pipe/ready cleanup [DW-S03/S08] | Explicit owned-buffer/endpoint struct, sentinel initialization, one partial destroy/failure funnel | Same storage, sentinel/optional fields and allocator; lexical defer/errdefer and explicit publication handoff | Candidate ordinary failure-edge plumbing only. Actual buffer/endpoint release, native handle semantics and all-exit review remain. C reuse is not absent. |
+| WSU02 WaitFrame/bounds | Existing select-state arrays and fd/poll conversion [DW-S02/S03] | Checked lengths/index arithmetic and exclusive scratch leases in typed functions | Same bounds/lease protocol; slices/typed enums express some local shape checks | Neither catches semantic fd reuse or concurrent resize automatically. Bounds configuration/backend review retained. |
+| WSU03 native wait adapter | Existing OS select/poll/Windows leaves/time helpers [DW-S02/S06/S12] | Parameterize explicit context, backend and signal/time policy; bounded C ABI where needed | Same policy and OS calls; C imports or selected native adapter bodies | Reusing C leaves retains their maintenance; rewriting them adds requalification. No cross-platform benefit counted without actual replaced adapters. |
+| WSU04 wake endpoint/resolution | Candidate readiness/direct-user drain precondition [DW-S04/S08] | Stable identity directory, protected readers, WakeLease issuance/withdrawal and final-stop lease | Same lifetime/identity/readers and reserved stop protocol | Neither language discovers a late raw writer. Typed handle names are not affine leases. |
+| WSU05 wake/cancel predicate | Existing abort mechanism is a leaf, not a task protocol [DW-S04/S05] | Durable synchronized reason state, check-to-sleep/wake order, failure handling | Same synchronization/order/failure handling; local enum dispatch | No lock/wakeup proof removed. Do not replace physical evidence with a Boolean effect label. |
+| WSU06 reserve/prepare action | Existing wrapper setup/rollback and issued native payload [DW-S07] | Reserved cell/pool or embedded action; input/code/library pins, builder/funnel | Same reservation/input custody; lexical setup cleanup for private phases | A general-purpose C container is not mandatory. Both must avoid unsafe-phase allocation; reuse a bounded intrusive queue where sufficient. |
+| WSU07 accept/resolve task | New shared service obligation grounded in four release origins | One metadata commit path, attempt directory, accepted/rejected ownership result, lost-response resolution | Same path/ownership states; tagged union or generated products | Zig error union alone cannot represent ownership after accepted wake failure. No automatic exactly-once task claim. |
+| WSU08 stage execution/partial effects | Existing RD/WR close mechanics, native task refs and leaf error behavior [DW-S01/S06] | One common stage machine and result with payload/external-effect disposition | Same stage machine/result and leaf calls; typed exhaustiveness on selected states | Partial OS effects, callback/affinity review, native failures and all-exit behavior remain. Generated C switches are a valid comparator. |
+| WSU09 outcome delivery/observer cancel | Existing explicit/rollback error rules and managed wait adapter [DW-S05/S07] | Stable outcome readers, observer detach, native sink, separately admitted Scheme delivery | Same readers/sink/reentry contract; lexical local result construction | A disappeared caller cannot trigger freeing an accepted job in either design. No managed callback across GC gained from language. |
+| WSU10 producer/descendant accounting | Current source is synchronous; later service creates this need [DW-S07/S10, DW-P02] | Producer permits/work credit, parent-child transfer, sealed-root and zero-outstanding checks | Same accounting/transfer and termination premises | No per-client copy; no automatic terminal proof from task types or queue-empty. |
+| WSU11 shutdown orchestration | Current memory/OS/module order and native joins [DW-S09--S11] | One dependency-ordered shutdown state machine, reserved stop and waiter/writer/reader drains | Same state machine/drains and join status treatment | Ordinary lexical defer cannot replace dynamic task/owner/retainer order. Both need stuck-dependency policy. |
+| WSU12 retained failure/reuse | Candidate failed joins and old source partial cleanup evidence [DW-S01/S11] | Retainer records, identity reuse checks, surviving dependency closure, diagnostics | Same records/reuse/retention and diagnostics; private tagged records may simplify construction | Known/unknown resource disposition is semantic. Retaining C library/code/VM dependencies costs memory and support in both. |
+
+The old ~device_cleanup~ loop and group-cleanup drain body cannot remain the
+hidden authority for migrated callers: the former owns implicit-PSTATE waits
+and unlinks before error; the latter frees its group after a cleanup error.
+The replacement common stage/drain bodies are needed in both C-full and Z-full.
+They may reuse leaf close/release operations under qualified assumptions, not
+reinvoke the whole old helper and claim independent WaitContext ownership.
+
+Potential shared construction savings belong to the union of WSU01/06/09's
+remaining ordinary native construction work after reuse, not every asynchronous
+unit. Language-local enum/slice checks are useful mechanisms, but no claim is
+made that they prove ownership, cancellation or resource disposal.
+
+*** 2. One Concrete Builder Comparison
+:PROPERTIES:
+:ID: 8eaebfae-8da0-5db9-876a-0ec1c81225f7
+:CUSTOM_ID: 2-one-concrete-builder-comparison
+:END:
+
+For an admitted POSIX/select profile a WaitContext builder validates capacities,
+acquires two native bitmaps plus an optional exception bitmap, acquires a wake
+endpoint pair, configures flags, initializes identity/predicate state, and
+publishes. Source already has the two/three-buffer failure funnel and candidate
+endpoint rollback [DW-S03/S08]. This is a dependency graph, not a native test.
+
+C-full can use null buffer pointers, invalid-fd sentinels, one partial-destroy
+routine and one publication transfer. It need not maintain a flag for every
+failure edge or a generic container library. Z-full can use equivalent fields
+with lexical errdefer/defer before transfer; it still needs partial resource
+state, a correct destroy operation and a transfer/disarm law. Once published,
+both must use asynchronous wait/wake/reader drain rather than scope exit.
+
+The three buffer cleanup bodies or two endpoint closes are not removed because
+syntax is shorter. An actual exclusive saving must be in necessary builder
+control/review work remaining after the C helper/funnel/generator alternatives.
+New C generation has development/schema/qualification cost; new Zig comptime or
+helper machinery has corresponding cost. Existing Scheme generation is actual
+reuse, not a forecast of cost-free new generation. Neither alternative's local
+construction saving is quantified yet.
+
+*** 3. Change and Retirement Matrix
+:PROPERTIES:
+:ID: d73ea98c-9100-5444-bf45-d2d6f6a01912
+:CUSTOM_ID: 3-change-and-retirement-matrix
+:END:
+
+| ID / change event | Shared policy/native work in both alternatives | C-full-specific work to price | Z-full-specific work to price |
+|-
+| WCE01 add a native buffer/endpoint acquisition | Resource order, rollback and publication ownership | Existing partial-destroy/funnel or costed generator update | Lexical cleanup and ownership transfer update; review allocator/helper changes |
+| WCE02 add one more existing-style device constructor | Effect/origin/borrow policy and leaf qualification | One generated/typed registration; common coordinator unchanged if policy fits | One typed/generated registration; common coordinator unchanged if policy fits |
+| WCE03 add a new wait backend/capacity rule | Backend semantics, fd/handle lifetime, signal/time, wake/drain review | C backend adapter/SDK definitions and bound checks | Same native adapter or retained C ABI plus Zig bindings/tool qualification |
+| WCE04 cancellation arrives after accepted notification fails | Durable attempt ownership, observer detach and retained task | C status/union/switch and synchronization review | Zig tagged state/error/ownership result and same synchronization review |
+| WCE05 destructor emits another release task at shutdown | Descendant permit/credit, capacity and bounded-work proof | Common C accounting and API update | Common Zig accounting and API update; no automatic ownership proof |
+| WCE06 runtime/provider/tool upgrade | Profile/root/callback/OS leaf compatibility and old dependency retirement | C generator/SDK/required C++ boundary maintenance | Same required boundaries plus Zig compiler/comptime/binding maintenance as applicable |
+
+| ID | Old authority/support may leave selected cohort | Exit condition / what stays |
+|-
+| WRT01 implicit processor OS scratch in release waits | WCT01--WCT07 and explicit wait adapters serve every migrated cleanup caller; managed condvar path retains its own admitted law |
+| WRT02 synchronous caller/wrapper lifetime as delivery custody | DLT01--DLT06 and every release origin establish accepted ownership, reservation and result resolution; raw ABI outside cohort remains priced |
+| WRT03 abort/EINTR as the only effective cancellation signal | WCN01--WCN08 separate wake, observer and irreversible cleanup; OS abort is retained as a notification mechanism |
+| WRT04 queue/group membership as shutdown completion evidence | RSD01--RSD08 plus descendant/pending/retained dependency closure and successful relevant joins; actual OS/library release still required |
+| WRT05 repeated private builder error-edge support | A necessary repeated C support family survives helper/funnel/generation reuse, disappears in Z-full, and every corresponding creator migrates; asynchronous service support does not disappear |
+
+No existing source authority/body is retired by these documents. A new Zig
+wrapper that keeps the old implicit scratch, synchronous custody and group-free
+logic satisfies none of these exits. Full reconstruction capability remains the
+same for the C and Zig alternatives.
+
+*** 4. Net Benefit, Bounds and Refutation
+:PROPERTIES:
+:ID: 7d0ec93c-28be-5b56-bc97-b08267c16a54
+:CUSTOM_ID: 4-net-benefit-bounds-and-refutation
+:END:
+
+Use one effort unit and declared support horizon. Let K be the disjoint union
+of necessary native support/change bodies **remaining after actual reuse and
+costed alternatives**. Let cC(k), cZ(k) include construction, review, upgrades and
+qualification for each unit; count shared pool/queue/builder support once.
+
+#+BEGIN_SRC text :eval never
+IncrementLower = sum_k [ lower(cC(k)) - upper(cZ(k)) ]
+                 - upper(Z-only migration + tooling + ABI/residual cost)
+
+Zig effort selection requires IncrementLower > 0,
+plus independently positive total modernization and admitted semantics/runtime.
+#+END_SRC
+
+Common wait/context/lifetime/LLVM modernization gains are outside this language
+increment. Build latency, GC pause, release latency, descriptors/images/bytes
+retained over time and support effort remain separate dimensions unless an
+explicit policy prices them. No empirical phase follows merely from fewer
+syntax branches.
+
+| ID | Positive condition and matched counterexample |
+|-
+| WNB01 private construction | Positive only if unavoidable post-reuse C construction/change support is demonstrably absent or cheaper in Zig by a bounded amount. Refuted for a proposed saving if existing C funnel plus shared destroy already covers it with no additional avoidable support. |
+| WNB02 shared portfolio | Multiple demanded services can amortize a new necessary private helper's fixed setup once. Refuted by multiplying one shared service saving by ten callers, or inventing helper demand. If C already shares the helper, client count is not a crossover proof. |
+| WNB03 actual authority replacement | Savings require WRT exits and deletion/retirement of corresponding support. Refuted by indefinite dual old/new state machines or unpriced C/ABI islands. |
+| WNB04 finite native progress | Deferred work needs live owner/library/executor and bounded retained obligations. Refuted by a stopped owner, a peer that never progresses or an unbounded descendant stream; shorter GC path alone is insufficient. |
+| WNB05 cancellation correctness | Observer cancellation must preserve native task custody and known partial effects. Refuted by dropping queued work, replay after uncertain close or freeing outcome while a resolver reads it. A semantic failure cannot be traded for saved effort. |
+| WNB06 comparable maintenance | Both price new C generation and Zig comptime/tool/binding support; use existing helper/OS libraries first. Refuted by a free imaginary C generator or a deliberately duplicated C baseline. |
+| WNB07 positive conservative bound | Justified lower avoided-support savings must exceed all upper added Z-only costs and residual runtime limits. With K empty and positive added Z cost the incremental effort result is negative. Unknown intervals leave the claim unresolved, not positive. |
+
+The native wait/task/drain architecture has source-backed necessity. This slice
+establishes no strictly positive Zig-only support-effort lower bound, no global
+positive modernization bound and no native admission. The next theory evidence
+must supply exact target/effect/user/wake refinement and post-reuse support-cost
+bounds. Current conclusions are conditional; no implementation/native test or
+architecture generation naming is introduced.

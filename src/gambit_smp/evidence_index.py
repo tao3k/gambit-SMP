@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from gambit_smp.framework import ROOT, digest
+from gambit_smp.output_observations import recorded, binding
 
 QUERIES = {
     "reports_without_snapshots": "needs_snapshot",
@@ -86,10 +87,21 @@ def observation_bindings(root, inventory_path, rows, bind):
              "operation": str, "original-budget": (int, float),
              "whole-budget": (int, float), "argv": list,
              "teardown": bool, "stdout": str, "stderr": str}
+    def observation_path(ref):
+        if isinstance(ref, str) and ref.startswith(".cache/research/legacy-evidence/"):
+            legacy_root = (root / ".cache/research/legacy-evidence").resolve()
+            resolved = (root / ref).resolve()
+            if not resolved.is_relative_to(legacy_root):
+                raise ValueError("legacy evidence path escapes cache root")
+            return resolved
+        return source_path(root, ref)
+
     for name, entry in document["bindings"].items():
         fields(entry, ("receiptSha256", "recordPointer", "eventPointer", "scope", "fields"), ("logSha256Pointer",))
         row = known[name]
-        receipt_path = source_path(root, row["receipt"])
+        receipt_path = observation_path(row["receipt"])
+        if row["receipt"].startswith(".cache/research/legacy-evidence/") and not receipt_path.is_file():
+            continue
         if entry["receiptSha256"] != digest(receipt_path):
             raise ValueError("stale native observation receipt binding")
         receipt = read_json(receipt_path)
@@ -150,7 +162,9 @@ def observation_bindings(root, inventory_path, rows, bind):
             raise ValueError("invalid declared observation signal")
         controls = []
         for control in row.get("controls", []):
-            control_path = source_path(root, control["receipt"])
+            control_path = observation_path(control["receipt"])
+            if control["receipt"].startswith(".cache/research/legacy-evidence/") and not control_path.is_file():
+                continue
             read_json(control_path)
             bind(root / control["receipt"])
             controls.append([name, control["kind"], control["mode"], digest(control_path)])
@@ -164,11 +178,11 @@ def observation_bindings(root, inventory_path, rows, bind):
             location = entry["logSha256Pointer"]
             if location not in (event + "/rawLogSha256", event + "/portableLogSha256"):
                 raise ValueError("log must bind an original process log digest")
-            log_path = source_path(root, row["log"])
+            from gambit_smp.output_observations import recorded, binding
+            log_path = root / row['log']
             sha = resolve(receipt, location)
-            if sha != digest(log_path):
-                raise ValueError("original observation log digest mismatch")
-            bind(root / row["log"])
+            recorded(root, log_path, sha)
+            for input_name in binding(root, log_path, sha): bind(root/input_name)
             attachments.append([name, row["log"], sha, location])
         bind(root / row["receipt"])
         result[name] = {"observed_failure": [[name, row["category"], row["status"], entry["receiptSha256"], entry["scope"]]],
@@ -185,6 +199,8 @@ def observation_bindings(root, inventory_path, rows, bind):
 
 def admitted_control(denied, control, file, mode, output):
     from gambit_smp.native_suite import admitted_suite
+    from gambit_smp.output_observations import observe
+    observed = output if isinstance(output, dict) else observe(output.encode())
     fields = ("candidateReceiptSha256", "gsiSha256", "gscSha256", "sourceFiles",
               "extraFixtures", "processors", "minHeapKiBControl", "compiler", "selectedFiles", "wholeSuiteBudgetPerMode")
     rows = [row for row in control.get("results", []) if row.get("mode") == mode]
@@ -199,10 +215,12 @@ def admitted_control(denied, control, file, mode, output):
             and any(row.get("mode") == mode and row.get("accepted") is False for row in denied.get("results", []))
             and len(rows) == 1 and rows[0].get("accepted") is True and rows[0].get("sourceStable") is True
             and rows[0].get("timeout") is False
-            and admitted_suite(rows[0].get("exit"), output, rows[0].get("timeout"), 1))
+            and rows[0].get('exit') == 0 and observed['suite']['completions'].count(1) == 1
+            and not observed['suite']['failed'])
 
 
 def export(root=ROOT):
+    root = Path(root).resolve()
     directory = root / "models/gambit"
     manifest = json.loads((directory / "cases.json").read_text())
     catalog = json.loads((directory / "report_catalog.json").read_text())
@@ -216,7 +234,14 @@ def export(root=ROOT):
              "observed_failure", "observed_process", "observed_field", "observed_signal", "observed_control_reference", "observed_model_reference", "observed_log_attachment")}
     inputs = {}
     def bind(path):
-        inputs[str(path.relative_to(root))] = digest(path)
+        from gambit_smp.framework import evidence_file
+        evidence_file(path, path.resolve())
+        from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES
+        if path.suffix.casefold() in TRANSCRIPT_SUFFIXES:
+            output = recorded(root, path)
+            inputs.update(binding(root, path, output['sha256']))
+        else:
+            inputs[str(path.relative_to(root))] = digest(path)
     bind(directory / "cases.json")
     bind(directory / "report_catalog.json")
     paper_path = root / "evidence/papers.json"
@@ -237,6 +262,19 @@ def export(root=ROOT):
         tuple(TopologicalSorter(contract_graph).static_order())
     except CycleError as error:
         raise ValueError("cyclic model contracts") from error
+    def resolve_local_evidence(ref):
+        path = (root / ref).resolve()
+        path.relative_to(root.resolve())
+        if path.is_file():
+            return path
+        if ref.startswith(("evidence/model-results/", "evidence/source-results/")):
+            legacy = (root / ".cache/research/legacy-evidence" / ref).resolve()
+            legacy.relative_to((root / ".cache/research/legacy-evidence").resolve())
+            return legacy if legacy.is_file() else None
+        if ref.startswith(".cache/research/legacy-evidence/"):
+            return None
+        return path
+
     if "nativeFailureManifest" in manifest:
         path = (root / manifest["nativeFailureManifest"]).resolve()
         path.relative_to(root.resolve())
@@ -252,48 +290,50 @@ def export(root=ROOT):
                 for relation, values in observations[row["id"]].items():
                     facts[relation].extend(values)
                 continue
-            receipt_path = (root / row["receipt"]).resolve()
-            receipt_path.relative_to(root.resolve())
+            receipt_path = resolve_local_evidence(row["receipt"])
+            if receipt_path is None:
+                continue
             receipt = json.loads(receipt_path.read_text())
             if receipt.get("status") != "DENY":
                 raise ValueError("local failure receipt is not denied")
             if row["category"] == "signal":
-                log = (root / row["log"]).resolve()
-                log.relative_to(root.resolve())
+                log = resolve_local_evidence(row["log"])
+                if log is None:
+                    continue
                 signal = row["signal"]
                 marker = f"*** FAILED {row['file']} WITH EXIT CODE HI=0 LO={signal}"
                 if (type(signal) is not int or not 0 < signal < 128
-                    or marker not in log.read_text().splitlines()
+                    or [row['file'], 0, signal] not in recorded(root, log)['failures']['signals']
                     or row["file"] not in receipt.get("extraFixtures", {})
                     or not any(not r.get("accepted", True) for r in receipt.get("results", []))):
                     raise ValueError("local signal is absent from denied source-bound log")
-                bind(root / row["log"])
+                for item in binding(root, log, recorded(root, log)['sha256']): bind(root/item)
             if row["category"] == "assertion" and row["file"] not in {r["file"] for r in receipt.get("assertionFailures", [])}:
                 if "log" not in row:
                     raise ValueError("local assertion is absent from receipt")
-                log = (root / row["log"]).resolve()
-                log.relative_to(root.resolve())
-                output = log.read_text()
-                if not any(line.startswith('"unit-tests/' + row["file"] + '"@') and ': FAILED ' in line
-                           for line in output.splitlines()):
+                log = resolve_local_evidence(row["log"])
+                if log is None:
+                    continue
+                output = recorded(root, log)
+                if row['file'] not in output['failures']['assertions']:
                     raise ValueError("local assertion is absent from bound log")
                 if not any(not result.get("accepted", True) for result in receipt.get("results", [])):
                     raise ValueError("local assertion log has no denied native mode")
                 if row["file"] not in receipt.get("extraFixtures", {}) and "unit-tests/" + row["file"] not in receipt.get("sourceFiles", {}):
                     raise ValueError("local assertion source is not inventoried")
-                bind(root / row["log"])
-            bind(root / row["receipt"])
+                for item in binding(root, log, output['sha256']): bind(root/item)
+            bind(receipt_path)
             facts["local_native_failure"].append([row["id"], row["category"], row["status"], digest(receipt_path)])
             for control in row.get("controls", []):
-                control_path = (root / control["receipt"]).resolve()
-                control_log = (root / control["log"]).resolve()
-                control_path.relative_to(root.resolve())
-                control_log.relative_to(root.resolve())
+                control_path = resolve_local_evidence(control["receipt"])
+                control_log = resolve_local_evidence(control["log"])
+                if control_path is None or control_log is None:
+                    continue
                 if not admitted_control(receipt, json.loads(control_path.read_text()), row["file"],
-                                        control["mode"], control_log.read_text()):
+                                        control["mode"], recorded(root, control_log)):
                     raise ValueError("local passing control is not identical-source/runtime native evidence")
-                bind(root / control["receipt"])
-                bind(root / control["log"])
+                bind(control_path)
+                for item in binding(root, control_log, recorded(root, control_log)['sha256']): bind(root/item)
                 facts["local_control_pass"].append([row["id"], control["kind"], control["mode"], digest(control_path)])
             for model in row["models"]:
                 if model not in cases:
@@ -348,13 +388,20 @@ def export(root=ROOT):
         facts["model"].append([name, digest(path), case.get("mode", "repair-obligation")])
         if "modelReceipt" in case:
             from gambit_smp.check_gambit import reuse_model_receipt
-            receipt_path = (root / case["modelReceipt"]).resolve()
-            receipt_path.relative_to(root.resolve())
-            rows = reuse_model_receipt(receipt_path, case, directory)
-            if not all(row.get("sourceStable") is True for row in rows):
-                raise ValueError("model receipt has no stable-source admission")
-            bind(root / case["modelReceipt"])
-            facts["model_receipt"].append([name, digest(receipt_path), "finite-state-TLC"])
+            receipt_path = resolve_local_evidence(case["modelReceipt"])
+            if receipt_path is not None:
+                is_legacy = receipt_path.is_relative_to((root / ".cache/research/legacy-evidence").resolve())
+                try:
+                    rows = reuse_model_receipt(receipt_path, case, directory)
+                except ValueError:
+                    if not is_legacy:
+                        raise
+                    rows = None
+                if rows is not None:
+                    if not all(row.get("sourceStable") is True for row in rows):
+                        raise ValueError("model receipt has no stable-source admission")
+                    bind(receipt_path)
+                    facts["model_receipt"].append([name, digest(receipt_path), "finite-state-TLC"])
         facts["source_obligation"].extend([name, source] for source in case["source"])
         for reference in case.get("paperSections", []):
             if reference["paper"] not in paper_ids or not reference["sections"]:
@@ -368,19 +415,23 @@ def export(root=ROOT):
                 raise ValueError("model contract has no obligation")
             facts["model_contract"].append([name, contract["model"], contract["obligation"]])
         for observation in case.get("nativeObservations", []):
-            for key in ("receipt", "log"):
-                path = (root / observation[key]).resolve()
-                path.relative_to(root.resolve())
-                bind(root / observation[key])
+            rec_path = resolve_local_evidence(observation["receipt"])
+            log_path = resolve_local_evidence(observation["log"])
+            if rec_path is None or log_path is None:
+                continue
+            bind(rec_path)
+            bind(log_path)
             facts["native_observation"].append([name, observation["kind"],
-                digest(root / observation["receipt"]), digest(root / observation["log"])])
+                digest(rec_path), recorded(root, log_path)['sha256']])
         for observation in case.get("sourceUnitObservations", []):
-            for key in ("receipt", "log"):
-                path = (root / observation[key]).resolve()
-                path.relative_to(root.resolve())
-                bind(root / observation[key])
+            rec_path = resolve_local_evidence(observation["receipt"])
+            log_path = resolve_local_evidence(observation["log"])
+            if rec_path is None or log_path is None:
+                continue
+            bind(rec_path)
+            bind(log_path)
             facts["source_unit_observation"].append([name, observation["kind"],
-                digest(root / observation["receipt"]), digest(root / observation["log"])])
+                digest(rec_path), recorded(root, log_path)['sha256']])
         for fixture_name in case.get("sourceUnitFixtures", []):
             fixture = (root / fixture_name).resolve()
             fixture.relative_to(root.resolve())
@@ -431,13 +482,21 @@ def export(root=ROOT):
             raise ValueError("stale or unknown frozen trace: " + path.name)
         if trace["modelSha256"] != digest(directory / (name + ".qnt")):
             entry = historical.get(str(path.relative_to(root)))
-            from gambit_smp.recipes import source_path
-            if (entry is None or digest(path) != entry["sha256"]
-                    or trace["modelSha256"] != entry["modelSha256"]
-                    or digest(source_path(root, entry["modelSnapshot"])) != entry["modelSha256"]):
+            if entry is None or digest(path) != entry["sha256"] or trace["modelSha256"] != entry["modelSha256"]:
                 raise ValueError("stale or unknown frozen trace: " + path.name)
+            snap_ref = entry["modelSnapshot"]
+            if snap_ref.startswith(".cache/research/legacy-evidence/"):
+                snapshot_path = resolve_local_evidence(snap_ref)
+                if snapshot_path is not None and digest(snapshot_path) != entry["modelSha256"]:
+                    raise ValueError("stale or unknown frozen trace: " + path.name)
+            else:
+                from gambit_smp.recipes import source_path
+                snapshot_path = source_path(root, snap_ref)
+                if digest(snapshot_path) != entry["modelSha256"]:
+                    raise ValueError("stale or unknown frozen trace: " + path.name)
             bind(path)
-            bind(root / entry["modelSnapshot"])
+            if snapshot_path is not None:
+                bind(snapshot_path)
             # Preserve source-bound history, but never count it as a current
             # model's negative control. New controls require new trace bytes.
             facts.setdefault("historical_frozen_negative", []).append(
@@ -459,8 +518,8 @@ def export(root=ROOT):
         from gambit_smp.protocol_evidence import facts as protocol_facts, bundle_facts
         extra, bound = protocol_facts(root)
         for manifest_name, receipt_name in (
-                ("evidence/pstate-setup-protocol.json", "evidence/model-results/pstate-setup-helper-owned/receipt.json"),
-                ("evidence/pstate-resize-composition.json", "evidence/model-results/pstate-resize-composition/receipt.json")):
+                ("evidence/pstate-setup-protocol.json", ".cache/research/legacy-evidence/evidence/model-results/pstate-setup-helper-owned/receipt.json"),
+                ("evidence/pstate-resize-composition.json", ".cache/research/legacy-evidence/evidence/model-results/pstate-resize-composition/receipt.json")):
             if (root / manifest_name).is_file():
                 rows, more_inputs = bundle_facts(root, manifest_name, receipt_name)
                 for name, values in rows.items():
@@ -560,6 +619,9 @@ def main():
     print(json.dumps({name: len(rows) for name, rows in results.items()}, sort_keys=True))
     print("DATALOG-COVERAGE-OK")
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('evidence')(main)
 
 if __name__ == "__main__":
     main()

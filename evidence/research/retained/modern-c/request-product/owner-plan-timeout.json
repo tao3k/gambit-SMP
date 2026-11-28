@@ -1,0 +1,48 @@
+{
+  "failedTree": "3d092733c514b8f9e5f100c098164221fb29b06d",
+  "checks": [
+    {
+      "stage": "compile-mutex-wait",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 4.514833042005193,
+      "markers": {}
+    },
+    {
+      "stage": "priority-ownership-p1",
+      "exit": -9,
+      "timeout": true,
+      "seconds": 30.005192333002924,
+      "markers": {
+        "PRIORITY-OWNERSHIP-PASS": false,
+        "PRIORITY-OWNER-CHAIN-PASS": false
+      }
+    }
+  ],
+  "fixedFixtureTree": "3e9b6bc319e0715af9d955102a9594302374a23f",
+  "sameCaseText": "(define (require value . context) (if (not value) (apply error \"priority control\" context)))\n(define (await-mutex thread mutex)\n  (let loop ()\n    (let ((state (thread-state thread)))\n      (if (and (thread-state-waiting? state)\n               (eq? (thread-state-waiting-for state) mutex))\n          #t\n          (begin (thread-yield!) (loop))))))\n\n(define (priority-owner-chain)\n  (let ((gate (make-mutex)) (owned (make-mutex))\n        (order '()) (middle #f) (leaf #f) (competitor #f) (work #f))\n    (mutex-lock! gate)\n    (set! middle\n      (thread-start! (make-thread\n        (lambda ()\n          (mutex-lock! owned)\n          (mutex-lock! gate)\n          (set! order (cons 'owner order))\n          (mutex-unlock! gate)\n          (mutex-unlock! owned)))))\n    (await-mutex middle gate)\n    (set! leaf (thread-start! (make-thread\n      (lambda () (mutex-lock! owned) (mutex-unlock! owned)))))\n    (await-mutex leaf owned)\n    (set! competitor (make-thread\n      (lambda ()\n        (mutex-lock! gate)\n        (set! order (cons 'competitor order))\n        (mutex-unlock! gate))))\n    (thread-base-priority-set! competitor 5)\n    (thread-start! competitor)\n    (await-mutex competitor gate)\n    ;; Public calls reuse the same real owner chain through different keys.\n    (for-each (lambda (priority)\n                (thread-base-priority-set! leaf priority)\n                (thread-priority-boost-set! leaf 0)\n                (##gc))\n              '(7 11 6 17))\n    (mutex-unlock! gate)\n    (for-each thread-join! (list middle leaf competitor))\n    (require (equal? (reverse order) '(owner competitor)) 'priority-owner-propagation order)\n    (display \"PRIORITY-OWNER-CHAIN-PASS plan-unwind refusal gc owner-propagation\\n\")))\n\n\n(priority-owner-chain)\n(display \"CHAIN-DONE\\n\") (force-output)\n(let ((m (make-mutex))) (mutex-lock! m) (let ((t (thread-start! (make-thread (lambda () (mutex-lock! m)))))) (await-mutex t m) (display \"PROBE-RAN\\n\") (force-output)))\n",
+  "sameCase": [
+    {
+      "label": "baseline",
+      "exit": -9,
+      "timeout": true,
+      "seconds": 5.004821915994398,
+      "runtimeSha256": "762b0191ebf71efc0a2a48abc1315bd0b8a6b054585859073cd2084b306fcca5",
+      "caseSha256": "45f337b17ce4f73fbd079db92ae920a69dc4e06d8d36f7850ef16f92cc760b59",
+      "chainDone": true,
+      "probeRan": false
+    },
+    {
+      "label": "candidate",
+      "exit": -9,
+      "timeout": true,
+      "seconds": 5.0061014169914415,
+      "runtimeSha256": "04b2af46a861f96d1d10e838df888e16ddf13881468aa100d6aa6dc414dc35b6",
+      "caseSha256": "45f337b17ce4f73fbd079db92ae920a69dc4e06d8d36f7850ef16f92cc760b59",
+      "chainDone": true,
+      "probeRan": false
+    }
+  ],
+  "attribution": "Both old and new runtime complete the public owner chain and retain the elevated caller priority; the subsequent yield probe does not run in either five-second diagnostic. Existing SMP unlock downgrade hooks are disabled. The fixture now restores its caller with the public priority setter after all joins; no scheduler hook, heap or timeout was changed.",
+  "boundary": "Bounded same-mode diagnostic attribution, not a full historical branch or liveness proof. Original30s failure is retained."
+}

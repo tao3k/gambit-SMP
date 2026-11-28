@@ -28,7 +28,7 @@ patterns and dynamic callback generators remain outside this explicit contract.
 
 Current Evidence dependency assets no longer ship unused mutable Scheme closure
 factories. Their exact prior files, exports and test bodies were archived in
-`evidence/library/compiled-graph-057/contract-history`. Contract migration is not
+`.cache/research/legacy-evidence/evidence/library/compiled-graph-057/contract-history`. Contract migration is not
 a claim that those old arbitrary-procedure/Actor semantics were repaired.
 
 ## Final Local Artifact
@@ -80,4 +80,4 @@ resolution, not another downstream path/SDK workaround. These gates are not
 closed merely by building a local wheel or editing a revision string.
 
 Raw receipts, all initial failures and SHA archive are under
-`evidence/library/compiled-graph-057`. No Git-persistent admission is claimed.
+`.cache/research/legacy-evidence/evidence/library/compiled-graph-057`. No Git-persistent admission is claimed.

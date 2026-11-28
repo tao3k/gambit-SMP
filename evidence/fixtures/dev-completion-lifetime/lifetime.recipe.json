@@ -1,0 +1,135 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-completion-lifetime",
+  "scope": "Quint controls for one completion lifetime and one runtime generation recovery: an acknowledgment alone keeps the record pinned, a pinned record cannot be recycled, a stale key cannot be accepted, and a detached generation does not recover the old handler. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 180,
+  "inputs": [
+    "models/gambit/still_completion_lifetime.qnt",
+    "models/gambit/runtime_generation_recovery.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-completion-lifetime/binding.json",
+    "evidence/fixtures/dev-completion-lifetime/observations.json",
+    "evidence/fixtures/dev-completion-lifetime/lifetime.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "life-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/still_completion_lifetime.qnt"
+      }
+    },
+    {
+      "id": "life",
+      "capability": "quint.test",
+      "dependsOn": [
+        "life-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/still_completion_lifetime.qnt",
+        "parsed": "life-parse",
+        "main": "still_completion_lifetime",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "preemptionKeepsGuardTest",
+          "cancelDeferredDuringNativeTest",
+          "nestedGuardRestoresOuterTest",
+          "privateResultNotQueryableTest",
+          "rawDeathRefusesHandoffTest",
+          "enteredDeathRetainsGrantTest",
+          "publishedDeathServiceRecoveryTest",
+          "publishedFailureRecoveryTest",
+          "expectedRejectLeavesLedgerTest",
+          "retryAfterExpectedRejectTest",
+          "cancelDuringPartialWaitsTest",
+          "partialDeathPoisonsTest",
+          "committedLockedDeathRefusesTest",
+          "unlockedDeathCanRecoverTest",
+          "lostDeliveryDoesNotUndoTest",
+          "ackAloneRetainsPinnedTest",
+          "pinDrainEnablesReuseTest",
+          "noNewLookupBelowFloorTest",
+          "prefixHoleRetainsSecondTest",
+          "prefixClosureRecyclesBothTest",
+          "secondPinRetainsRecordTest",
+          "failureReceiptCanRetireTest",
+          "unknownFirstBlocksPrefixTest",
+          "restoredContextHandoffTest",
+          "earlyRestoreCounterexampleTest",
+          "partialUnlockCounterexampleTest",
+          "pinnedReuseCounterexampleTest",
+          "staleKeyAcceptCounterexampleTest",
+          "rawGapHandoffCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "gen-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/runtime_generation_recovery.qnt"
+      }
+    },
+    {
+      "id": "gen",
+      "capability": "quint.test",
+      "dependsOn": [
+        "gen-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/runtime_generation_recovery.qnt",
+        "parsed": "gen-parse",
+        "main": "runtime_generation_recovery",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "conditionalRecoveryTest",
+          "blockedDetachedTest",
+          "observedCrossTest",
+          "quietSafeTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "life-parse",
+        "life",
+        "gen-parse",
+        "gen"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-completion-lifetime/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

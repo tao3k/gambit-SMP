@@ -4,6 +4,7 @@ import unittest
 
 from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load, registry
+from gambit_smp.evidence_index import export
 from gambit_smp.framework import ROOT, digest
 
 VIEW = "evidence/scenarios/concurrent-gc/ffi-select-frame.view.json"
@@ -22,10 +23,25 @@ class SelectFrameEvidenceTests(unittest.TestCase):
         self.assertFalse(record["fullStressAdmitted"])
         self.assertFalse(record["unchangedRetryAdmitted"])
 
+    def _record_digest(self, relpath):
+        import hashlib, subprocess
+        path = ROOT / relpath
+        if path.is_file():
+            return digest(path)
+        prefix = ".cache/research/legacy-evidence/"
+        if relpath.startswith(prefix):
+            orig = relpath.removeprefix(prefix)
+            for rev in ("7da20ce564", "0891fea6c2"):
+                proc = subprocess.run(["git", "-C", str(ROOT), "show", f"{rev}:{orig}"],
+                                      capture_output=True, timeout=10)
+                if proc.returncode == 0:
+                    return hashlib.sha256(proc.stdout).hexdigest()
+        return digest(path)
+
     def test_abi_classification_matches_actual_fault_registers(self):
         record = json.loads((ROOT / "evidence/fixtures/darwin-ticket-ownership-acquire/incident-value-classification.json").read_text())
         for field in ("incident", "recipe", "fixture"):
-            self.assertEqual(digest(ROOT / record[field]), record[field + "Sha256"])
+            self.assertEqual(self._record_digest(record[field]), record[field + "Sha256"])
         incident = json.loads((ROOT / record["incident"]).read_text())
         registers = next(row["registers"]["x"] for row in incident["threads"] if row["faulting"])
         self.assertEqual(record["returnAddress"]["captured"], registers[23] - (1 << 64))
@@ -58,8 +74,15 @@ class SelectFrameEvidenceTests(unittest.TestCase):
 
     def test_exact_model_import_recipe_and_unproved_conditions(self):
         record = json.loads((ROOT / "evidence/fixtures/darwin-ticket-ownership-acquire/ffi-select-relock-model.json").read_text())
-        for field in ("source", "import", "recipe"):
-            self.assertEqual(digest(ROOT / record[field]), record[field + "Sha256"])
+        for field in ("source", "recipe"):
+            self.assertEqual(self._record_digest(record[field]), record[field + "Sha256"])
+        # Preserve the observed import version, not a pass for today's import.
+        history = export()["facts"]["historical_frozen_negative"]
+        snapshots = {row[3] for row in history if row[0] == "ffi_gc_frame_protocol"}
+        self.assertTrue(snapshots)
+        for path in snapshots:
+            self.assertEqual(self._record_digest(path), record["importSha256"])
+        self.assertEqual(record["import"], "models/gambit/ffi_gc_frame_protocol.qnt")
         self.assertEqual(0, record["checks"][0]["queued"])
         self.assertTrue(all(row["accepted"] for row in record["checks"]))
         self.assertEqual(3, sum(row["negative"] for row in record["checks"]))

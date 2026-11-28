@@ -1,0 +1,240 @@
+#+TITLE: ModuleSpec, Controlled ModuleHandle and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitModuleSpecHandleMigration
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| front-placeholder | vendor/gambit/gsc/_front.scm | #f ;; space for foreign pointer to ___module_struct | Semantic descriptor has no complete native manifest |
+| front-native-main | vendor/gambit/gsc/_front.scm | (car module-procs) ;; module main | Scheme thunk identity must remain rooted and owned |
+| dump-capture | vendor/gambit/gsc/_t-c-1.scm | (c-inits (c-intf-inits c-intf)) | Native init snippets remain opaque unless qualified |
+| dump-clear | vendor/gambit/gsc/_t-c-1.scm | (c-intf-inits-set! c-intf '()) | Freeze must occur after ownership transfer from mutable interface |
+| scan-work | vendor/gambit/gsc/_t-c-1.scm | (queue-get! targ-prc-objs-to-scan) | Discover generated procedure closure before freezing resource view |
+| descriptor-reachable | vendor/gambit/gsc/_t-c-1.scm | (targ-use-obj module-descr) | Descriptor is part of emitted object graph |
+| late-c-objs | vendor/gambit/gsc/_t-c-1.scm | (map (lambda (x) (cons (car x) (targ-use-obj (cdr x)))) c-objs) | Late object registration precedes heap-dump snapshot |
+| leaf-resources | vendor/gambit/gsc/_t-c-1.scm | (define (targ-heap-dump filename c-decls c-inits c-objs module-descr linker-name) | Single immutable leaf view must drive C and ModuleSpec |
+| label-count | vendor/gambit/gsc/_t-c-1.scm | (targ-define-count "LBLCOUNT" targ-lbl-alloc) | Count emitted from actual allocation table; zero is not no member |
+| ofd-count | vendor/gambit/gsc/_t-c-1.scm | (targ-define-count "OFDCOUNT" ofd-count) | Frame metadata coverage tied to actual emitted procedure list |
+| native-dump | vendor/gambit/gsc/_t-c-1.scm | (targ-dump-mod prm-list c-inits sym-list key-list) | Native hooks belong to leaf even absent Scheme-visible descriptor |
+| link-header | vendor/gambit/gsc/_t-c-1.scm | (equal? (car info) (compiler-version)) | Existing linker metadata identity check not full content/ABI seal |
+| mod-entries | vendor/gambit/gsc/_t-c-1.scm | (append-lists (map targ-mod-mods-and-flags input-mods)) | Complete declared children differ from supply-name set |
+| supply-dedup | vendor/gambit/gsc/_t-c-1.scm | (targ-set-of | Supply name dedup is not native image dedup |
+| flag-merge | vendor/gambit/gsc/_t-c-1.scm | (append flags1 flags2) | Preserve inherited flags and ordered semantics |
+| extension-old | vendor/gambit/gsc/_t-c-1.scm | (append-lists (map targ-mod-mods-and-flags (cdr input-mods))) | Extension old inputs remain dependency owners; physical image resolution OPEN |
+| link-order | vendor/gambit/gsc/_t-c-1.scm | (append old-mods-and-flags new-mods-and-flags) | Preserve all ordered effects while membership set can deduplicate |
+| preload-flags | vendor/gambit/gsc/_t-c-1.scm | "DEF_LNK_NOPRELOAD" | Preload false does not remove lifetime dependency |
+| native-snippets | vendor/gambit/gsc/_t-c-1.scm |     c-inits) | Arbitrary C init cannot yield a complete effect manifest by counts alone |
+| module-emission | vendor/gambit/include/gambit.h.in | #define ___BEGIN_MOD_SYM_KEY | ABI emitter constructs actual module record from counts/resources |
+| module-return | vendor/gambit/include/gambit.h.in | return (___mod_or_lnk)&___module_descr; | Native identity currently raw address |
+| linkfile-return | vendor/gambit/include/gambit.h.in | return (___mod_or_lnk)&___linkfile_descr; | Link graph identity and image ownership are distinct |
+| old-import | vendor/gambit/include/gambit.h.in | #define ___DEF_OLD_LNK(id) | OLD declares imported linker; not a loader image proof |
+| new-link | vendor/gambit/include/gambit.h.in | #define ___DEF_NEW_LNK(id) | NEW versus OLD must not be inferred as unique OS image membership |
+| preload-zero | vendor/gambit/include/gambit.h.in | #define ___DEF_LNK_NOPRELOAD(id) | Generated graph carries flag zero but still stores linker edge |
+| linker-exec | vendor/gambit/lib/setup.c | mol = linker (___GSTATE); | Own provisional loader operation before invoking executable resolver |
+| zero-label | vendor/gambit/lib/setup.c | if (module->lblcount > 0) | Returned vector is a subset; native hook runs outside branch |
+| permanent-wrapper | vendor/gambit/lib/setup.c | NULL, /* allocate as permanent object */ | Permanent raw wrapper is not ordinary handle finalization |
+| raw-publication | vendor/gambit/lib/setup.c | ___VECTORELEM(descr, ___MODULE_DESCR_MODULE_STRUCT) = module_scmobj; | Migration source for stable identity and legacy retention |
+| setup-hook | vendor/gambit/lib/setup.c | return module->setup_mod (); | Initialization order/effects cannot be erased by dedup |
+| loaded-sentinel | vendor/gambit/lib/setup.c | mol->linkfile.version = -1; | Error after setup does not prove absence of effects |
+| init-raw-reader | vendor/gambit/lib/_kernel.scm | ___CAST(___module_struct*,___FOREIGN_PTR_FIELD(___ARG1))->init_mod | Must replace actual blind native entry on controlled route |
+| registry-wrapper | vendor/gambit/lib/_kernel.scm | (macro-make-module module-ref module-descr) | Distinct wrappers share descriptor but have independent stage cells |
+| supply-register | vendor/gambit/lib/_kernel.scm | (##register-module-descr! module-ref module-descr) | Repeated supply refs must preserve lookup and stage identity |
+| registry-remove | vendor/gambit/lib/_kernel.scm | (and x (##set-car! x #f)) | Cell removal alone does not prove alias/root detachment |
+| stage-native-before | vendor/gambit/lib/_kernel.scm | (macro-module-stage-set! module 1) | Logical stage written before native call, not success receipt |
+| stage-scheme-before | vendor/gambit/lib/_kernel.scm | (macro-module-stage-set! module 2) | Logical stage written before Scheme thunk, not success receipt |
+| scheme-init-thunk | vendor/gambit/lib/_kernel.scm | ((macro-module-descr-thunk module-descr)) | Code dependency includes Scheme main and captured continuation |
+| module-vector | vendor/gambit/lib/_kernel#.scm | `(##vector ,module-ref 0 ,module-descr) | Do not merge per-ref stage cells while interning native handle |
+| mutable-field | vendor/gambit/lib/_kernel#.scm | (##define-macro (macro-module-descr-module-struct-set! | Generic vector/FFI alias closure remains external |
+| ffi-void-wildcard | vendor/gambit/lib/c_intf.c | if (src_tags == ___FAL \vert{}\vert{} /* source type == void* */ | Tag change is not access-control or borrow lifetime |
+| ffi-pointer-read | vendor/gambit/lib/c_intf.c | *x = ___CAST(void*,___FOREIGN_PTR_FIELD(obj)); | Generic pointer conversion can escape legacy module address |
+| ffi-address-int | vendor/gambit/lib/_kernel.scm | ___CAST(void*,___FOREIGN_PTR_FIELD(___arg1)))); | Integer address export cannot be revoked by wrapper rewrite |
+| release-conditional | vendor/gambit/lib/c_intf.c | if (release_fn != 0) | Null release_fn leaves old module pointer unchanged |
+| release-clear | vendor/gambit/lib/c_intf.c | ___FOREIGN_PTR_FIELD(obj) = | Clearing wrapper cannot revoke independent copies even with callback |
+| ffi-pointer-store | vendor/gambit/lib/c_intf.c | ___FOREIGN_PTR_FIELD(r) = ___CAST(___SCMOBJ,x); | Root protection and native code/data ownership separate |
+| ffi-static-host | vendor/gambit/lib/c_intf.c | body[-___LABEL_SIZE+___LABEL_HOST] | Native function export bypasses ordinary procedure root lifetime |
+| ffi-dynamic-converter | vendor/gambit/lib/c_intf.c | ___make_c_closure (obj, converter) | Track converter and proc image owners independently |
+| interpreted-descriptor | vendor/gambit/lib/_module.scm | (macro-make-module-descr | Interpreted path supplies field5 false; no native init must remain no-op |
+| object-register | vendor/gambit/lib/_module.scm | (##register-module-descrs module-descrs) | Actual object-file result enters Scheme registry |
+| callback-descriptor | vendor/gambit/lib/_module.scm | (macro-module-module-descr mod) | Script callback aliases descriptor metadata |
+| vm-early-publish | vendor/gambit/lib/mem.c | tail->next = ___vms; | Topology presence does not settle owner enrollment |
+| dynamic-list-publish | vendor/gambit/lib/os_dyn.c | p->next = ___dyn_mod.dl_list; | Stable operation must own loader handle before setup result |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| field5-setter-definition | vendor/gambit/lib/_kernel#.scm | \(##define-macro \(macro-module-descr-module-struct-set! | 1 | Exact lexical scope; no preprocessed whole-program or concrete external module-pointer client closure |
+| named-field5-setter-calls | vendor/gambit/lib/_kernel.scm | macro-module-descr-module-struct-set! | 0 | Exact lexical scope; no preprocessed whole-program or concrete external module-pointer client closure |
+| pointer-family-raw-reads | vendor/gambit/lib/c_intf.c | \*x = ___CAST\(void\*,___FOREIGN_PTR_FIELD\(obj\)\); | 4 | Exact lexical scope; no preprocessed whole-program or concrete external module-pointer client closure |
+| wildcard-source | vendor/gambit/lib/c_intf.c | if \(src_tags == ___FAL \\vert{}\\vert{} | 1 | Exact lexical scope; no preprocessed whole-program or concrete external module-pointer client closure |
+| address-export | vendor/gambit/lib/_kernel.scm | \(define-prim \(##foreign-address f\) | 1 | Exact lexical scope; no preprocessed whole-program or concrete external module-pointer client closure |
+| init-direct-cast | vendor/gambit/lib/_kernel.scm | ___CAST\(___module_struct\*,___FOREIGN_PTR_FIELD\(___ARG1\)\)->init_mod | 1 | Exact lexical scope; no preprocessed whole-program or concrete external module-pointer client closure |
+
+** Consumer
+
+| key | callers | custody | gap |
+|---+---+---+---|
+| leaf-generator | front module-procs -> targ-dump -> use-obj -> heap-dump | LeafSpec owns generated native storage and code metadata | Freeze after late object uses; not merely front descriptor |
+| linker-aggregator | targ-get-mod -> link-aux -> dump-linkfile | Ordered edges and inherited flags plus deduplicated identity set | All child specs and OLD/NEW native placement need qualification |
+| native-setup | dynamic_load -> resolver -> setup_modules | Provisional OperationId holds loader dependency across effects/errors | No success sentinel or error is a detachment receipt |
+| init-module | init-modules wrapper stage -> init-mod / Scheme thunk | Per-ref stage identity and code/root lease | Before-call stage is not proof of successful completion |
+| registry-aliases | make-module -> supply refs -> program-descr / callback | Shared descriptor identity; distinct ref wrappers/stage cells | Registry deletion leaves old descriptor and raw wrapper references |
+| ffi-generic | foreign-address and SCMOBJ_to_POINTER/STRUCT/UNION/TYPE | Legacy raw export retains image; controlled handle is separate representation | Actual converter/address mechanisms established; specific external module-pointer client OPEN |
+| ffi-functions | c-define host or make_c_closure proc/converter | Proc root plus converter/code lease plus native registry drain | Direct native bypass cannot be sandboxed by a tag |
+| interpreted | get-from-source descriptor field5 false -> init-mod and thunk | Preserve no-native-init branch and Scheme main roots | Do not force interpreted modules into native image membership |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| complete-spec | Single frozen leaf view drives both ModuleSpec and modern C ABI emission | Every resource code label FrameSpec hook export and opaque snippet classified | Avoid drift between native output and ownership metadata | Current generator emits no such complete sealed ModuleSpec |
+| aggregate | Compose declared child manifests and separate ordered edge plan | Input artifact digests child specs flags and actual native placement agree | No zero-label or nonpreloaded child omitted | Native dynamic dependencies and open C effects require explicit adapter |
+| opaque-handle | Separate interned native identity from Scheme wrapper/ref stage identity | Actual init reader raw exporters and ABI upgraded coherently | No generic foreign conversion on controlled handle | Arbitrary unsafe C remains trusted; legacy behavior retained by pinning |
+| root-publish | Keep candidate rooted until stable registry/root acceptance known | RootRegistry covers relevant processors and collector moves | Publish-before-source-release prevents root gap | Actual scanner and C11 source refinement OPEN |
+| operation | Idempotent reply retrieval is distinct from semantic reexecution | Stable operation exists before effects; same OperationId on delivery retry | Lost reply cannot justify repeating native init | Nested continuation multi-shot intent identity remains source obligation |
+| close-unknown | Accepted preclose registration settles under original coordinator | Close shares authority with enrollment and native borrowing | Unknown effects/exit retain stable record and image dependencies | No automatic timeout cleanup or raw alias revocation |
+| capability-envelope | Sealed static members plus qualified native capability envelope | All later native dependency creation is mediated before access under the same lifetime authority | Closed parent cannot silently acquire an unaccounted dependency | Open-world C effects and unmanaged registrations retain the generation; no native envelope proof |
+
+** Memory
+
+| key | publication | consumer | gap |
+|---+---+---+---|
+| freeze | Private single-writer view after all emission roots registered | C and spec read same snapshot; hash all material inputs | Snapshot canonicalization mutable target tables and exact emission equivalence OPEN |
+| publish | Root candidate; register stable control/root bundle; release-publish applied operation | Acquire acknowledgment or query confirms same operation before candidate root drops | Source atomic publication and RC/nonzero processor scan coverage OPEN |
+| borrow | Reserve image generation lease under same authority as close | Resolve module pointer only after accepted reservation; known last use before release | Uncontrolled native addresses and callback escape cannot be made safe by tags |
+| init | Set logical wrapper stage as source does; track invocation/completion separately | Do not hold registry/topology lock across Scheme GC callback or continuation | Exception completed versus effects rolled back must stay distinct |
+| unknown | Stable external coordinator owns unknown operation and native dependencies | No source release after unacknowledged handoff or unknown abort | VM disappearance and caller abandonment do not delete the record |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| single-source | Duplicate count/layout/linker discovery across C emitter ownership and incremental service | O(M+E+R+X) sealed spec plus digest/dependency validation | M members E ordered edges R resource records X exports; no open native effects omitted |
+| incremental | Whole-process restart solely for qualified generation replacement | Generation-indexed handles semantic ABI invalidation old-code leases | Cannot retire generation with captured frame or untracked raw alias |
+| module-entry | Repeated whole-VM topology inspection for admitted native access | Short gate and stable handle lookup per borrow | Local cost below avoided coordination; no measured speedup |
+| reply-retry | Potential setup/init reexecution from delivery retry in the planned service | Operation-keyed result record and stable outcome custody | Same logical operation identity; not an observed existing retry bug; intentional execution not coalesced |
+| memory | Unnecessary image retention on fully controlled routes | Roots handle records pending operations and observer cleanup | Reclaimed bytes ZERO on legacy raw or unknown dependency route |
+| shared-support | Separate ad hoc module FFI and GC lifetime supports | Shared RootRegistry lease and release-coordinator contracts | Modern C can express all mechanisms; Zig marginal net benefit not demonstrated |
+
+** Member
+
+| key | fields | producer | lifetime | migration |
+|---+---+---+---+---|
+| semantic | supply demand metadata flags Scheme main | front module-descr | Identity/phase/exception semantics remain Scheme | Field5 binding is a separate typed discriminant |
+| leaf | symbols keys globals constants subtyped objects procedures labels OFD | targ-heap-dump frozen resources | C tables and Scheme payload roots tied to generation | Emit ModuleSpec from same frozen resource view |
+| native-effects | C decls objects inits setup hook FFI export/converter/release code | c-intf and dump-mod/prc | Opaque code may register dependencies not visible in Scheme graph | Admit qualified adapter or preserve legacy retained lifetime |
+| link-edges | all mods inherited flags OLD NEW preload order | targ-link/get-mod/dump-linkfile | Ownership union differs from ordered execution plan | Input digests bind child manifests; native image placement separate |
+| image-placement | native module -> actual ImageId/generation and dependencies | loader/link adapter | OLD/NEW or supply names alone do not prove OS ownership | Seal only after actual group and imported dependencies reconciled |
+| runtime-identity | ModuleHandle OperationId OwnerKey BorrowId | runtime coordinator outside unloadable module | Stable control record may outlive VM and OS image | No raw module address in ordinary Scheme handle representation |
+| roots | candidate bundle published payload captured frames callbacks | GC RootRegistry and actual semantic users | Registry removal is only one alias deletion | Retire payload only with complete root and native detach receipt |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Scheme-semantics | frozen-emission-view | Keep ref identities stages source and exceptions in Scheme |
+| frozen-emission-view | modern-C-output | C |
+| frozen-emission-view | leaf-ModuleSpec | Spec |
+| leaf-ModuleSpec | aggregate-member-manifest | All child specs dependencies digests plus ordered flag edges |
+| aggregate-member-manifest | qualified-image-group | Loader resolves physical membership; native adapters cover opaque effects |
+| legacy-raw-alias | retained-generation | Raw exports retain generation |
+| aggregate-member-manifest | stable-operation-owner | Reserve before loader open and executable linker discovery |
+| candidate-root | published-root-bundle | Known target acceptance precedes source root release |
+| stable-operation-owner | published-root-bundle | Commit identity root and reply record under same authority |
+| published-root-bundle | ModuleHandle | Stable interned native identity; Scheme wrappers retain separate stages |
+| ModuleHandle | guarded-init-and-FFI | Lease before pointer resolution; preserve interpreted false binding |
+| guarded-init-and-FFI | close-and-drain | Accepted preclose calls settle; fresh entry denied |
+| stable-operation-owner | unknown-outcome-custodian | Lost reply queries same operation; unknown effects retain dependencies |
+| unknown-outcome-custodian | retained-generation | Unknown debt survives VM exit |
+| close-and-drain | global-unload-prerequisites | All aliases roots frame metadata native users and reservations detached |
+| stable-operation-owner | qualified-image-group | Own provisional dependencies while native placement and effects are reconciled |
+| qualified-image-group | published-root-bundle | Complete group and capability envelope required before publication |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| module_spec_handle.recordLeaf | ModuleHandle.recordLeafPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.recordEdges | ModuleHandle.recordEdgesPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.declareOpaque | ModuleHandle.declareOpaquePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.qualifyNative | ModuleHandle.qualifyNativePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.sealSpec | ModuleHandle.sealSpecPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.reserve | ModuleHandle.reservePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.protectCandidate | ModuleHandle.protectCandidatePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.startEffects | ModuleHandle.startEffectsPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.commit | ModuleHandle.commitPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.acknowledge | ModuleHandle.acknowledgePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.retryReply | ModuleHandle.retryReplyPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.dropCandidate | ModuleHandle.dropCandidatePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.abortBeforeEffects | ModuleHandle.abortBeforeEffectsPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.unknownReserved | ModuleHandle.unknownReservedPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.unknownCommitted | ModuleHandle.unknownCommittedPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.exposeRaw | ModuleHandle.exposeRawPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.borrowNative | ModuleHandle.borrowNativePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.returnBorrow | ModuleHandle.returnBorrowPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.beginNativeInit | ModuleHandle.beginNativeInitPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.returnNativeInit | ModuleHandle.returnNativeInitPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.beginSchemeInit | ModuleHandle.beginSchemeInitPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.returnSchemeInit | ModuleHandle.returnSchemeInitPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.failInit | ModuleHandle.failInitPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.removeAlias | ModuleHandle.removeAliasPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.publishAlias | ModuleHandle.publishAliasPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.close | ModuleHandle.closePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.retirePayload | ModuleHandle.retirePayloadPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.issue | ModuleHandle.issuePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.permit | ModuleHandle.permitPreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+| module_spec_handle.rejectLate | ModuleHandle.rejectLatePreserves | Actual typed IR step; complete source model and C11 realization OPEN |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| all-step | ModuleHandle.stepPreserves |
+| reachable | ModuleHandle.reachableSafe |
+| permit-local | ModuleHandle.permitMigrationReady |
+| native-capability | ModuleHandle.sealedNativeCoverage |
+| reply | ModuleHandle.replyRetryDoesNotRerun |
+| raw | ModuleHandle.facadeDoesNotRevokeRaw |
+| declared-union | ModuleHandleComposition.declaredChildCovered |
+| order | ModuleHandleComposition.orderedEffectsPreserved |
+| duplicate-effect | ModuleHandleComposition.duplicateEffectsRemain |
+| prior-raw-denial | ModuleHandleComposition.rawMigrationBlocksPriorPermit |
+
+** Migration
+
+| key | producerAnchor | consumerAnchor | actionName | lemma |
+|---+---+---+---+---|
+| generator-to-native | label-count | module-emission | module_spec_handle.recordLeaf | ModuleHandle.recordLeafPreserves |
+| raw-to-guarded-init | raw-publication | init-raw-reader | module_spec_handle.beginNativeInit | ModuleHandle.beginNativeInitPreserves |
+| descriptor-to-registry | front-placeholder | registry-wrapper | module_spec_handle.commit | ModuleHandle.commitPreserves |
+| pointer-to-controlled-FFI | raw-publication | ffi-pointer-read | module_spec_handle.borrowNative | ModuleHandle.borrowNativePreserves |
+| root-handoff | ffi-pointer-store | object-register | module_spec_handle.dropCandidate | ModuleHandle.dropCandidatePreserves |
+| setup-unknown | dynamic-list-publish | loaded-sentinel | module_spec_handle.unknownReserved | ModuleHandle.unknownReservedPreserves |
+
+** Seam
+
+| producer.componentId | consumer.componentId | contract | actionName | lemma |
+|---+---+---+---+---|
+| build-publisher | resource-exit | ModuleSpec-native-members | module_spec_handle.sealSpec | ModuleHandle.sealedNativeCoverage |
+| host-roots | resource-exit | root-publication-and-native-borrow | module_spec_handle.commit | ModuleHandle.commitPreserves |
+| continuation | resource-exit | old-frame-and-raw-retention | module_spec_handle.exposeRaw | ModuleHandleComposition.rawMigrationBlocksPriorPermit |
+| gc-work | resource-exit | complete-payload-root-retirement | module_spec_handle.retirePayload | ModuleHandle.permitMigrationReady |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| MH-history | interleaving | dev/refactoring/modern-c/models/quint/module_spec_handle.qnt | Rooted commit close unknown effects raw export init completion and delivery retry histories |
+| MH-induction | induction | dev/refactoring/modern-c/models/lean/ModuleHandle.lean | All extracted sequential steps; alias counts represent externally complete user coverage |
+| MH-composition | induction | dev/refactoring/modern-c/models/lean/ModuleHandleComposition.lean | Declared child union ordered effects and prior raw-permit rejection; no native completeness theorem |
+| MH-projection | restricted-projection | dev/refactoring/modern-c/models/lean/ModuleHandleAst.lean | Full action roster binding IDs state field kinds and restricted typed IR expressions |
+| MH-source | source-refinement | dev/refactoring/modern-c/module-spec-handle-migration-design.org | Complete emitter/input/native manifests per-ref alias closure actual roots and multi-shot refinement OPEN |
+| MH-platform | native-memory-order | dev/refactoring/modern-c/module-spec-handle-migration-design.org | Concrete C11 authority root scanning native teardown and effective profile refinement OPEN |

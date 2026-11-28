@@ -1,0 +1,63 @@
+;;; Actual compiler helper control. The emitter is a fixture; the queue,
+;;; snapshot/restore, failure guard and second native compilation are real.
+(import :gerbil/runtime/error)
+(extern namespace: gxc current-compile-product-module compile-product-module
+        compile-product-output compile-product-output-path compile-product-invoke
+        compile-product-invoke-now)
+(export generation-control)
+(def (generation-control mode driver prefix source scheme interface program)
+ (eval (list 'import driver))
+ (let* ((original compile-product-invoke-now)
+       (old-prefix (getenv "GERBIL_BUILD_PREFIX"))
+       (old-options (getenv "GAMBOPT"))
+       (source-text (call-with-input-file source (lambda (p) (read-line p #f))))
+       (front-calls 0) (native-calls 0))
+  (def (generate)
+    (set! front-calls (+ front-calls 1))
+    (vector-set! (current-compile-product-module) 0 "std/unit")
+    (call-with-output-file scheme
+      (lambda (p)
+        (display "(let ((answer 42)) (unless (= answer 42) (error answer)) (display \"GENERATION-NATIVE-CONSUMER-PASS\\n\"))\n" p)))
+    (compile-product-output scheme)
+    (let (private (compile-product-output-path interface))
+      (call-with-output-file private (lambda (p) (display "private interface" p)))
+      (compile-product-output interface))
+    (compile-product-invoke program [scheme] scheme))
+  (unwind-protect
+    (begin
+     (setenv "GERBIL_BUILD_PREFIX" prefix)
+     (setenv "GAMBOPT" (string-append "p1," old-options))
+     (cond
+     ((equal? mode "capture")
+      (set! compile-product-invoke-now (lambda args (raise #f)))
+      (unless (with-catch (lambda (e) (unless (eq? e #f) (raise e)) #t)
+                (lambda () (compile-product-module source generate) #f))
+        (error "native-start failure did not escape"))
+      (unless (and (= front-calls 1) (not (file-exists? interface)))
+        (error "failed native work published the interface"))
+      (displayln "GENERATION-CAPTURE-WITHHELD"))
+     ((equal? mode "resume")
+      (compile-product-module source (lambda () (error "frontend ran during resume")))
+      (unless (and (= front-calls 0) (file-exists? interface))
+        (error "generation continuation lost ownership"))
+      (displayln "GENERATION-RESUME-PUBLISHED"))
+     ((equal? mode "source-guard")
+      (delete-file interface)
+      (set! compile-product-invoke-now
+        (lambda args
+          (begin0 (apply original args)
+            (set! native-calls (+ native-calls 1))
+            (call-with-output-file source (lambda (p) (display "changed source" p))))))
+      (unless (with-catch (lambda (e) (display-exception e (current-output-port)) #t)
+                (lambda () (compile-product-module source (lambda () (error "frontend reran"))) #f))
+        (error "source mutation was accepted"))
+      (unless (and (= native-calls 1) (= front-calls 0) (not (file-exists? interface)))
+        (error "source guard ran after publication"))
+      (displayln "GENERATION-SOURCE-GUARD-WITHHELD"))
+     (else (error "unknown generation control" mode))))
+    (begin
+      (set! compile-product-invoke-now original)
+      (setenv "GERBIL_BUILD_PREFIX" old-prefix)
+      (setenv "GAMBOPT" old-options)
+      (when (equal? mode "source-guard")
+        (call-with-output-file source (lambda (p) (display source-text p))))))))

@@ -122,7 +122,7 @@ def rebuild_source_core(stages, source, budget):
     compiler = source / "gsc/gsc"
     seed_hash = digest(compiler)
     shutil.copy2(compiler, source / "gsc-boot")
-    code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(10, budget))
+    code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(60, budget))
     retained = [name for name in generated if (source / name).exists()]
     if code != 0 or timeout or retained or digest(source / "gsc-boot") != seed_hash:
         return False, {"generatedCStillPresent": retained, "scmRegenerationEstablished": False}
@@ -250,5 +250,9 @@ def main():
     return 0 if ok else 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('locked-object')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('locked-object',main))

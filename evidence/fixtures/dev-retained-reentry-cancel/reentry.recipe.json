@@ -1,0 +1,184 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-retained-reentry-cancel",
+  "scope": "Quint controls for one retained RC scan, one native root reentry, and one requester cancel: a failed join is not a stopped executor, reload uses the relocated cells, and a canceled owner stays retained until unlink. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 240,
+  "inputs": [
+    "models/gambit/retained_rc_scan.qnt",
+    "models/gambit/native_root_reentry.qnt",
+    "models/gambit/interrupt_delivery_result_composition.qnt",
+    "models/gambit/interrupt_requester_cancel_composition.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-retained-reentry-cancel/binding.json",
+    "evidence/fixtures/dev-retained-reentry-cancel/observations.json",
+    "evidence/fixtures/dev-retained-reentry-cancel/reentry.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "scan-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/retained_rc_scan.qnt"
+      }
+    },
+    {
+      "id": "scan",
+      "capability": "quint.test",
+      "dependsOn": [
+        "scan-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/retained_rc_scan.qnt",
+        "parsed": "scan-parse",
+        "main": "retained_rc_scan",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "failedJoinProxyScanTest",
+          "nextEpochRescansTest",
+          "unknownWithoutFreezeQuarantineTest",
+          "committedReceiptLostTest",
+          "resolveBeforeCleanupTest",
+          "precommitAbortTest",
+          "missingEnrollmentControlTest",
+          "retiredExecutorControlTest",
+          "mutexOnlySpliceControlTest",
+          "earlyUnpinControlTest",
+          "missingStillSetupControlTest",
+          "missingAccountingControlTest",
+          "failedJoinIsNotStoppedControlTest",
+          "retainedHeaderFreeControlTest",
+          "snapshotAbaControlTest"
+        ]
+      }
+    },
+    {
+      "id": "re-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/native_root_reentry.qnt"
+      }
+    },
+    {
+      "id": "re",
+      "capability": "quint.test",
+      "dependsOn": [
+        "re-parse"
+      ],
+      "budgetSeconds": 80,
+      "arguments": {
+        "source": "models/gambit/native_root_reentry.qnt",
+        "parsed": "re-parse",
+        "main": "native_root_reentry",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "publishTransfersAckDutyTest",
+          "unspilledCannotPublishWitnessTest",
+          "writerDebtMustDrainTest",
+          "writerDrainThenPublishTest",
+          "rawBorrowMustDrainTest",
+          "rawBorrowDrainTest",
+          "workerIndependentOfContextTest",
+          "collectorMayWriteFrozenCellsTest",
+          "rawOutcomeUnknownStillScannableTest",
+          "unknownWriterRefusesScanTest",
+          "unknownWriterRefusesReturnTest",
+          "returnWaitsForScanTest",
+          "scanCompletesRequestedReturnTest",
+          "requestAfterRoundBeforeClaimTest",
+          "repeatedCollectionsUpdateSameCellsTest",
+          "reentryBlocksNewScanTest",
+          "permitProtectsReloadWindowTest",
+          "reloadUsesRelocatedCellsTest",
+          "metadataRetiresAfterReloadTest",
+          "callbackAcquiresBeforeManagedReadTest",
+          "callbackAfterRelocationTest",
+          "outerRootsRemainPinnedTest",
+          "nestedNativeReturnsToCallbackTest",
+          "callbackExitPublishesFreshParentTest",
+          "callbackParentMayScanAgainTest",
+          "rcBeforeFreezeIncludedTest",
+          "publicationWithBorrowCounterexampleTest",
+          "staleLocalsCounterexampleTest",
+          "foreignWriteDuringScanCounterexampleTest",
+          "earlyImageDropCounterexampleTest",
+          "callbackBeforeRootProtectionCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "cancel-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/interrupt_requester_cancel_composition.qnt"
+      }
+    },
+    {
+      "id": "cancel",
+      "capability": "quint.test",
+      "dependsOn": [
+        "cancel-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/interrupt_requester_cancel_composition.qnt",
+        "parsed": "cancel-parse",
+        "main": "interrupt_requester_cancel_composition",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "canceledOwnerRetainedTest",
+          "resultBeforeUnlinkTest",
+          "deadWakeControlTest",
+          "unlinkedWakeControlTest",
+          "lostLifetimeControlTest",
+          "wrongOwnerControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "scan-parse",
+        "scan",
+        "re-parse",
+        "re",
+        "cancel-parse",
+        "cancel"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-retained-reentry-cancel/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

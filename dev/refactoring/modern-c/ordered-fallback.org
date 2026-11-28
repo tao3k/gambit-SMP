@@ -1,0 +1,149 @@
+#+TITLE: Defined POSIX emulated word and fence service
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:2 num:nil
+#+PROPERTY: header-args :eval never-export
+#+COLUMNS: %42ITEM(Responsibility) %STATUS(Status) %AUTHORITY(Source)
+
+* PUBLISHED Complete ordered-word fallback :modern_c:sync:audit:
+:PROPERTIES:
+:CUSTOM_ID: ordered-word-fallback
+:BASELINE: 5c0ff48959d612752705f324df7b0913069c43a5
+:AUTHORITY: GambitOrderedFallback
+:COUNTING_UNIT: one POSIX emulated RMW/wrap/fence and constructor/user/drain responsibility
+:END:
+
+[[file:models/sysml/ordered-fallback.sysml][SysML]] owns this existing queued two-file responsibility and its shared
+Make integration. Primitive semantics belong in the service; a production
+compiler option or an empty function cannot serve as its portable contract.
+The builtin production profile remains unchanged. This is modern C runtime
+work, not a new execution/configuration layer or a whole emulated Scheme VM.
+
+** Actual source and representation contract
+
+| Service | Source owner | Contract |
+|---------+--------------+----------|
+|CAS/add/clear|lib/os_thread.c existing emulated functions|Same address-hashed mutex covers read/transform/write |
+|Addition|Same function|Unsigned addition followed by signed representation reconstruction, before the volatile store |
+|Standalone barrier|Same function|Sequentially consistent atomic_thread_fence replaces the empty implementation |
+|Lifecycle|Existing setup_thread_module / cleanup_thread_module|Construct real hash mutexes before users; join all users before teardown |
+|Native tests|Existing queued tests/ordered-sync.c and shared Make|Exercise real primitives and thread-module lifecycle, not nonexistent old slot macros |
+
+The candidate does not narrow an out-of-range unsigned value by a signed cast.
+It reconstructs the managed word representation through memcpy into a local
+signed word, then performs the volatile store while the existing source mutex
+is held. The target premise is equal-width C23 two's-complement word types;
+actual qualification covers64-bit GCC/Darwin. No new word field, allocation,
+mutex table, namespace or concurrent-owner identity is introduced.
+
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf][C draft N3220]]6.3.1.3 retains implementation-defined out-of-range signed
+conversion; two's complement does not justify pretending that cast is a fully
+portable conversion rule. Unsigned arithmetic and representation are separate
+steps here. Its7.17.4 specifies fence ordering. A fence is not thread stop or
+a cure for ordinary data races. [[https://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html][GCC atomic documentation]] likewise requires
+race-free protocols and explains that fences work with appropriate accesses.
+Current ticket publication still uses actual acquire/RMW/mutex handoff.
+
+The parent strict diagnostic fails on signed max+1 in the actual emulated C
+function. Candidate runs the same queued native test under UBSan with no such
+failure. This diagnostic deliberately disables -fwrapv; the existing production
+profile keeps it, so its old behavior is not labeled a production UB failure.
+C23 atomic support is a requirement for the revised fallback fence; no claim
+is made for compilers without that support or an actual CAS-less machine.
+
+** Test boundary and actual consumers
+
+Capability suppression selects the real emulated code in a standalone test.
+All os_thread/os_base/os_setup units use the same conditional ABI. The test
+never links the builtin-profile libgambit archive into that altered ABI.
+Constructor dependencies are real source, not stubs. The existing build link
+option parameter supplies section collection; it is not a new configuration
+variable or executor. The new leaf targets are POSIX GNU/Clang diagnostic
+consumers, not additions to every official platform's default check manifest.
+
+The old queued fixture used nonexistent SYNC_SLOT macros and never qualified
+current collective ownership. It now tests the actual word/ticket/fence API:
+16384 protected updates, two trylock cases, word and ticket wrap boundaries,
+CAS/clear results,4096 race-free atomic store-buffer litmus rounds and actual
+module drain after successful native joins. The litmus observation does not
+prove every weak-memory execution. Unknown join/dead-owner recovery and the
+real collective remain separate responsibilities.
+
+The prior thread creation/join formatting/name changes and old fixture are
+retained as rejected proposal bytes. They are not published as architecture
+changes. Existing Scheme SFUN PBT, replay/shrink, GC, constructor/exception and
+processor1 consumers validate the new archive. GSI/GSC/seed byte identity
+permits exact reuse; it does not grant new SMP acceptance credit.
+
+** Existing models, no duplicated proof
+
+[[file:../../../models/gambit/result_mutex_ticket_grant_tests.qnt][Root ticket QNT]] and [[file:../../../models/gambit/result_mutex_ticket_visibility.qnt][visibility model]] supply conditional grant-completion
+ordering. Current mutex-backed CAS already provides acquire: the model's
+empty-fallback negative is not an observed parent native ticket failure.
+Primitive C23 arithmetic/representation and fence laws remain explicit source
+premises; native emitted code and boundary checks refine them for this target.
+No copied QNT state machine or Lean theorem is introduced. Lean has no new
+protocol duty merely because an existing primitive implementation is repaired.
+Native OpenSysML SDK→ASCENT binds actual adapters, observations and missing/stale
+controls instead of treating these links as proof.
+
+** Cost and progress matrix
+
+| Measure | Parent | Candidate | Boundary |
+|---------+--------+-----------+----------|
+|Old pending paths|43|41 expected|Ordered group complete; eight of original nine groups remain nonempty |
+|Signed wrap strict diagnostic|Actual UBSan overflow|Same boundary test passes|Different diagnostic flags, not a production-profile failure |
+|Emulated barrier emitted instruction|0|1 arm64 dmb|Additional required work, not a speedup |
+|Native operations|Builtin profile|Identical builtin executable bytes|No native runtime speedup credited |
+|New fields/allocations|0|0|Same source storage/lifecycle |
+|Generated artifacts|51|51 reused|No Scheme regeneration or cold-bootstrap claim |
+|Independent SMP|1/12|1/12|No repair-line or whole fallback-VM credit |
+
+The1-argument performance question remains separate. An A/A cohort invokes the
+same exact4096-call executable, cwd, environment and argv under both labels,
+with two ABBA cycles and arities0/1/8. Any label difference is a measurement
+control, not implementation gain. Keep all samples and prior cohorts; do not
+rerun until favorable. Extra authorization checks, layout and system noise are
+not quantitatively separated by these short samples.
+
+** Five gates
+
+- [X] Real baseline/candidate diagnostic and native/emulated Make consumers.
+- [X] State-owned wrap/order, signed-representation and fence limitations.
+- [X] Two queued paths retire; shared Make future hunks remain.
+- [X] Native SDK→ASCENT and conditional reuse of existing QNT/Lean duties.
+- [X] ABI isolation, caller lifetime, emitted fence and A/A cost interpretation.
+
+Evidence owner: [[file:../../../evidence/research/retained/modern-c/ordered-fallback/][repository-retained packets]].
+
+** Observed cost control
+
+The same exact executable under both A/A labels produced0/1/8 median label
+changes−1.715%/−16.126%/+0.756%. The1-argument result is not a source change or
+speedup: the executable hash, argv and cwd are identical. All24 samples remain.
+It demonstrates that the earlier+2.129% one-cohort estimate is insufficient to
+identify a stable guard cost. Previous frozen-pair sign changes remain in their
+own source period; cache/layout/scheduling/check contributions remain unresolved.
+
+The production native build preserves identical GSI, GSC and bootstrap seed
+bytes, and all51 generated products. Its archive is rebuilt and differs; fresh
+SFUN tests use that archive rather than inferring it from interpreter identity.
+The new emulated standalone fence emits one dmb; the parent emits none. This is
+necessary extra emulated-path work, not runtime acceleration. No new runtime
+storage or allocation is introduced. The compiled test explicitly verifies real
+module refcount returns to zero after every worker joins.
+
+The first queued fixture compile attempts exposed nonexistent old sync-slot
+APIs and then the actual OS constructor dependency; no stubs or copied slot
+implementation were introduced. A consumer observer initially searched for a
+nonemitted cfi marker after all measurements had completed. Its complete raw
+samples were preserved; only emitted-code observation resumed. No failure is
+promoted to native compilation or whole-SMP success.
+
+** Published responsibility
+
+Runtime REV =169b5705b73ecda570a1536e47064bf403b0e3db= passes five scoped
+gates with46 rejection controls. The two original queued paths are now clean;
+shared test Make future hunks remain independent. Native SDK inventory must
+report41 paths, eight nonempty owners in the original nine groups. Independent
+SMP remains1/12 with11 open; no repair-line or whole emulated-VM credit.

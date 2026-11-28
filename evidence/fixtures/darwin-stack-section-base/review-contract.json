@@ -1,0 +1,15 @@
+{
+  "schema": "gambit-source-diagnostic-review.v1",
+  "sourceLock": "evidence/fixtures/darwin-stack-section-base/source.lock.json",
+  "sourceLockSha256": "3852adb56330b871da9b603b7d39d5b5ec2dd6761e888ba99871164eda5c900e",
+  "parent": "evidence/fixtures/darwin-stack-push-statement/source.lock.json",
+  "parentNative": "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json",
+  "pathRelevance": "Violated transition remains an interrupt-disabled store below the section content floor. ___PUSH still compares its target with alloc_stack_limit and aborts before a 4-word store from fp 24 bytes above that floor; 4*8-24 = 8 bytes inside the 24-byte header before stack_msection->base. The statement lock's mark_continuation guard compared the active frame RA with alloc_stack_limit. setup_stack_heap_vmstate moves that limit to the new tospace before the walk, while the frame remains in the old semispace. The kept DENY .cache/stack-push-statement-bootstrap aborted at mem.c:4391 with the slot 416 bytes below the limit and the break 32 bytes below it. Both distances are greater than 24, and the slot was above stack_msection->base. This lock changes only that comparison to stack_msection->base. It does not call ___stack_limit and does not rerun the statement lock or the uncompilable push lock.",
+  "priorExploration": "Quint initFromspace allows a mark 52 words below the allocation floor and at or above the section base, with no header damage and no interrupt service. initHeader refuses a slot below the section base. initHeaderOmitted and initPushOmitted damage the header. initOmitted is the omitted stack check. initServicesInterrupts services interrupts. Relations 9*8-32=40, 4*8-24=8, and 416>24 and 32>24 are conjuncts. Statement-lock bootstrap DENY, uncompilable-lock seed DENY, poll-kind stress DENY, write-boundary TFIB abort, interrupt2 300s timeout, and prepare-origin STALE stay active.",
+  "worth": "A model PASS is the finite envelope of the section-base guard. It is not bootstrap, compiled stress, or milestone 6/12.",
+  "expectedBenefit": "Runtime speedup is unknown. The guarded push remains a diagnostic abort, not a GC or a stack-limit recovery.",
+  "model": "models/gambit/stack_section_base_check.qnt",
+  "modelSha256": "a474f668a12599f86f4d541f5ceca860ead298308a0c35b0aba6a0a1d23c67db",
+  "runtimeAdmitted": false,
+  "releaseAdmitted": false
+}

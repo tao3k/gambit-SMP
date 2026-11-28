@@ -48,7 +48,7 @@ two-pass bootstrap or a Gerbil performance result.
 The additional compiled reuse control compiled in 6.714091 seconds and passed
 unchanged in 1.368661 seconds. Its independent receipt is `compiled-reuse.json`.
 
-Durable receipts are in `evidence/source-results/fixtures/startup-sync-flag-handoff`.
+Durable receipts are in `.cache/research/legacy-evidence/evidence/source-results/fixtures/startup-sync-flag-handoff`.
 
 ## Model boundary and remaining requirements
 

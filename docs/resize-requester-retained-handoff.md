@@ -17,7 +17,7 @@ claim: the retirement protocol is shared by SMP platforms.
 
 GNU GCC incremental core build passed in 10.945 seconds. It is not a fresh
 two-pass bootstrap. Durable receipts are in
-`evidence/source-results/fixtures/resize-requester-retained-handoff/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/resize-requester-retained-handoff/`.
 
 | Local native observation | Seconds | Result |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ invalid-argument validation ordering, and lock-error unwinding remain open.
 TLC reproduced the concurrent lost-requester counterexample in 3.906 seconds
 and checked the abstract drain protocol's safety and fair completion in
 3.878 seconds. Results are published and registered in
-`evidence/model-results/fixtures/resize-requester-retained-handoff/concurrent-drain-contract/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/resize-requester-retained-handoff/concurrent-drain-contract/`.
 The initial sandbox loopback denial was not a model result; it was retained
 separately before rerunning with the required local-backend permission.
 

@@ -49,7 +49,7 @@ Both DENY observations remain under `staged-exit-denials`; they are neither
 native regressions nor passing model checks. No expired deadline was reset.
 
 The current snapshot, logs, decoded controls and hash-bound archive are under
-`evidence/model-results/research/interrupt-nested-termination/staged-exit-drain`.
+`.cache/research/legacy-evidence/evidence/model-results/research/interrupt-nested-termination/staged-exit-drain`.
 Shared `protocol_evidence.portable` removes host diagnostic paths, retaining
 raw and portable log digests. Reinterpreting the portable logs produces the
 same decoded traces and checker verdicts. The registered protocol list and
@@ -163,7 +163,7 @@ remain explicit unclosed requirements. No production implementation of the
 candidate fallback is claimed.
 
 The v2 data-only recipe
-`evidence/research/exit-drain-mutex-lock-order/controls.recipe.json` binds the
+`.cache/research/legacy-evidence/evidence/research/exit-drain-mutex-lock-order/controls.recipe.json` binds the
 locked source, parse/typecheck, exact five-test inventory and terminal ASCENT
 evaluation. The initial sealed run was DENY in 2.681 seconds within 90 seconds:
 `native execution requires host --allow-native and --gcc`. The CLI omitted
@@ -279,7 +279,7 @@ Each model snapshot matched the source hash before and after checking.
 
 Portable model snapshots, complete checker logs, decoded counterexamples and
 source-lock-bound archival receipt are retained under
-`evidence/model-results/research/interrupt-nested-termination`. The registered
+`.cache/research/legacy-evidence/evidence/model-results/research/interrupt-nested-termination`. The registered
 protocol list was not changed during the framework task's DSL migration. This
 archive is not a canonical failed-native-route record or retry eligibility.
 

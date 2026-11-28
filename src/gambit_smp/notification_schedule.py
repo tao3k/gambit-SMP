@@ -63,7 +63,10 @@ def main():
             inputs[path.relative_to(ROOT).as_posix()] = digest(path)
         record["inputs"] = inputs
         candidate = sources["candidate"]
-        if digest(candidate / "include/gambit.h.in") != digest(sources["baseline"] / "include/gambit.h.in"):
+        from gambit_smp.source_capabilities import modular_header_files
+        inventories = {policy: {name: digest(source / name) for name in modular_header_files(source)}
+                       for policy, source in sources.items()}
+        if inventories['candidate'] != inventories['baseline']:
             raise ValueError("matched header templates required")
         setup, ok = configure_source(candidate, out, compiler, env, str(Path(autoconf_path).resolve()))
         record["setup"] = setup.results
@@ -118,5 +121,9 @@ def main():
     return 0 if ok else 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('notification-schedule')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('notification-schedule',main))

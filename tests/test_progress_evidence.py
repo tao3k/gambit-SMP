@@ -6,6 +6,7 @@ import unittest
 
 from gambit_smp import progress_evidence as evidence
 from gambit_smp.framework import digest
+from gambit_smp.output_observations import REGISTRY
 
 
 class ProgressEvidenceTests(unittest.TestCase):
@@ -13,20 +14,31 @@ class ProgressEvidenceTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        name = "evidence/model-results/model-progress/sync_resource_users"
-        source = evidence.ROOT / name
+        fixture = json.loads((evidence.ROOT / "tests/fixtures/model-progress-sync-resource-users.json").read_text())
+        name = fixture["prefix"]
         self.destination = self.root / name
-        shutil.copytree(source, self.destination)
+        self.destination.mkdir(parents=True, exist_ok=True)
+        for filename, content in fixture["files"].items():
+            (self.destination / filename).write_text(content)
+        registry_path = self.root / REGISTRY
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        published_schema = json.loads((evidence.ROOT / REGISTRY).read_text())["schema"]
+        registry_path.write_text(json.dumps({
+            "schema": published_schema,
+            "records": {},
+            "observations": fixture["observations"],
+        }))
         self.receipt = self.destination / "receipt.json"
         saved = json.loads(self.receipt.read_text())
-        saved["inputs"] = {name.replace("tools/model/", "src/gambit_smp/"): sha
-                           for name, sha in saved["inputs"].items()}
+        saved["inputs"] = {key.replace("tools/model/", "src/gambit_smp/"): sha
+                           for key, sha in saved["inputs"].items()}
         for relative in saved["inputs"]:
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(evidence.ROOT / relative, target)
         # This is an isolated validator unit fixture, not republished evidence.
-        # Live historical receipts must still reject changed tool identities.
+        # Historical receipts must still reject changed tool/context identities.
+        self.original_inputs = dict(saved["inputs"])
         saved["inputs"] = {relative: digest(self.root / relative) for relative in saved["inputs"]}
         self.receipt.write_text(json.dumps(saved))
         self.case = json.loads((self.root / evidence.MANIFEST).read_text())["cases"][0]
@@ -43,15 +55,15 @@ class ProgressEvidenceTests(unittest.TestCase):
         self.assertEqual([("sync_resource_users", digest(self.receipt))], facts["model_progress_checked"])
 
     def test_live_receipt_still_rejects_changed_context(self):
-        receipt = evidence.ROOT / self.receipt.relative_to(self.root)
-        saved = json.loads(receipt.read_text())
-        changed = any(not (evidence.ROOT / name).is_file() or digest(evidence.ROOT / name) != sha
+        self.mutate(lambda saved: saved["inputs"].update(self.original_inputs))
+        saved = json.loads(self.receipt.read_text())
+        changed = any(not (self.root / name).is_file() or digest(self.root / name) != sha
                       for name, sha in saved["inputs"].items())
         if changed:
             with self.assertRaisesRegex(ValueError, "context differs"):
-                evidence.checked(evidence.ROOT, self.case, receipt)
+                evidence.checked(self.root, self.case, self.receipt)
         else:
-            self.assertFalse(evidence.checked(evidence.ROOT, self.case, receipt)["runtimeAdmitted"])
+            self.assertFalse(evidence.checked(self.root, self.case, self.receipt)["runtimeAdmitted"])
 
     def test_missing_control_is_rejected(self):
         self.mutate(lambda saved: saved["results"].pop(0))
@@ -87,9 +99,10 @@ class ProgressEvidenceTests(unittest.TestCase):
     def test_safety_only_log_cannot_be_rehashed_into_temporal_admission(self):
         def change(saved):
             row = saved["results"][1]
-            log = self.destination / row["log"]
-            log.write_text(log.read_text().replace("Finished checking temporal properties", "Safety checks only"))
-            row["logSha256"] = digest(log)
+            from gambit_smp.output_observations import recorded
+            output = recorded(self.root, self.destination / row["log"], row["logSha256"])
+            output["tlc"]["temporalComplete"] = False
+            saved["outputs"] = {row["log"]: output}
         self.mutate(change)
         with self.assertRaisesRegex(ValueError, "temporal check"):
             evidence.checked(self.root, self.case, self.receipt)

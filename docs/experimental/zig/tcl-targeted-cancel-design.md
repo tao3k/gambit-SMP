@@ -1,0 +1,333 @@
+# Targeted Tcl Cancellation Settlement
+
+Targeted settlement is a Tcl core operation over a registered cancellation token,
+not an external unmark followed by private reset. Its useful result is that old
+managed cancellation cannot reach a fresh job without running unrelated async
+handlers at the reuse barrier. It must preserve raw cancellation, handler identity
+and actual native lifetimes. This refines [TclReuseService](tcl-reuse-service-design.md).
+All structures, states and operations below are proposed contracts. No API, private
+stub slot, provider, implementation or native admission is supplied by this study.
+See [evidence](tcl-targeted-cancel-evidence.md), [arguments](tcl-targeted-cancel-arguments.md)
+and the [value matrix](tcl-targeted-cancel-benefit-matrix.md).
+
+## Existing Representation and the Architectural Change
+
+TD01. Current CancelInfo contains an interpreter, async token, one pending byte
+message, length, ignored clientData and flags. CancelEval overwrites pending data
+under cancelLock and marks the token. AsyncMark sets a level-triggered bit, not a
+request queue. AsyncInvoke clears that bit before unlocking and invoking the
+callback, which reads the current CancelInfo under cancelLock. Re-marking during
+that gap can cause a later additional invocation; a selected callback is not a
+snapshot of the request that originally made it ready. Receipt issuance cannot be
+reconstructed from ready=0 or message equality. [TX01–TX04]
+
+TD02. Keep one cancellation token in its existing handler-list position for the
+interpreter's lifetime. Add provider-owned identity/provenance and a managed
+request record; do not rewrite Tcl's entire async executor as a second host queue.
+The raw CancelEval entry retains its existing pending-message/flags and result
+ownership path. A separate managed entry accepts a bound target and epoch; it must
+not overload reserved clientData or change the raw API's meaning. Both entries
+are source-integrated with lifecycle accounting. Scheme derives the common plan;
+modern generated C owns the facade and Tcl-private integration. Optional Zig uses
+the same opaque capability. [TE01, TX01, TX05, TX06, TO01]
+
+## Identity, Request Domain and Custody
+
+TD03. Identity is a product, not an address. The following is a data specification,
+not compilable C, Zig or Scheme:
+
+```text
+TargetIdentity = { providerImageGeneration, interpreterGeneration,
+                   tokenRegistrationGeneration, ownerThreadGeneration }
+CancelTarget = { opaqueNativeHandle, TargetIdentity, providerLease }
+ManagedRequest = { TargetIdentity, jobEpoch, requestSequence,
+                   payloadOwner, allowedFlags, terminalDisposition }
+TokenState = { immutableIdentity, markSerial, attributedMarkSerial,
+               unknownMarkDebt, ready, ownerTsd }
+CancelState = { rawSerial, rawInterference, rawPendingState,
+                managedPendingSummary, oldRequestCutoff,
+                installedStateProvenance, mutationSerial }
+```
+
+Generation and sequence identifiers never wrap into a live or archived identity;
+exhaustion seals admission. No pointer/hash equality establishes generation.
+Creation registers identity before public exposure, including internal ChildCreate.
+Deletion revokes authority and joins API/native/image users before freeing the
+CancelInfo or token. Existing public raw pointer callers still require lifetime
+closure; a sidecar generation cannot authenticate a stale raw pointer by magic.
+No receipt revives a returned Gambit C activation. [TX01, TX05, TE01, TL03]
+
+TD04. Three domains prevent an unsound equivalence claim:
+
+| Domain | Cancellation behavior | Clean reuse decision |
+| --- | --- | --- |
+| RawOnly | Existing raw coalescing, callback order and idle-to-next-script behavior | Targeted managed settlement gives no authority to erase raw state |
+| ManagedExclusive | Explicit epoch-bound entry; all relevant raw/native/script producers accounted; no raw activity or unknown mark in this epoch | Candidate for a clean receipt after old scopes and senders return |
+| RawInterference | Any raw CancelEval or unattributed mark during a managed epoch invalidates its clean-reuse eligibility | Preserve raw state; keep admission sealed; no reset or clean publication from these receipts |
+
+ManagedExclusive is an admission predicate, not a claim that arbitrary Tcl users
+cannot call the public API. A raw call is accepted according to its original API;
+it is not rejected merely because the host is closing an epoch. Its actual core
+entry stamps rawSerial and the absorbing rawInterference state under cancelLock.
+Builtin interp cancel is raw unless separately redesigned with an explicit new
+contract. It cannot be silently relabeled by looking at the current host epoch.
+Existing instances with unknown history cannot be adopted as clean by inspecting
+flags. Fresh registration or independently qualified history is required. [TX01,
+TX05, TX08, TX10]
+
+TD05. Managed requests may coalesce only inside the declared managed contract.
+A pending summary records the covered accepted sequence interval/set, last selected
+message/flags and each terminal class. Proposed compatibility within that lane is
+last-pending-payload selection, with already installed UNWIND remaining sticky as
+in Tcl; it is not FIFO and does not OR all pending flags. A coalesced request is
+not an observed cancellation. Missing sequence coverage prevents a receipt.
+
+In the managed callback branch, under C detach the currently selected managed
+summary and record its applied coverage before returning. Its attribution is
+determined at this read, not at AsyncInvoke's earlier ready-bit claim. A concurrent
+managed mark ordered before that read joins the selected batch; one after it is
+a new pending batch. A subsequent invocation with no managed pending batch must
+not replay an old payload. This is new managed-branch behavior; the raw callback's
+existing repeated/current-payload behavior is retained in the raw domain.
+
+If raw interference occurs, retain the raw payload path for the existing callback,
+freeze further managed token delivery, and retain displaced managed records with
+their custodian until actual old return. New managed submissions report a domain
+conflict before acceptance; already accepted ones get explicit displaced/settled
+outcomes, never a fabricated observed acknowledgement. Previously installed managed
+flags may already affect evaluation. Therefore arbitrary mixed histories are not
+claimed equivalent to RawOnly or qualified for transparent reuse. Completing a
+fully general mixed-domain refinement remains an open architecture requirement;
+restricting that domain is not counted as an optimization. [TX01, TX04, TX08]
+
+## Operations and Lock Discipline
+
+TD06. Use one declared hierarchy for the new integration:
+
+```text
+host lifecycle lock L -> Tcl cancelLock C -> owner asyncMutex A
+```
+
+Raw CancelEval keeps C -> A and never acquires L while holding C. Generic AsyncMark
+uses A only. The existing AsyncInvoke releases A before callbacks acquire C;
+retain that property. No path may take C or L while holding A, or wait for a
+producer/owner while holding any of these locks. Join senders outside the locks.
+Provider retirement and tree mutation must participate in L or equivalent admitted
+lifecycle exclusion. Audit all new paths before claiming global deadlock freedom;
+the selected source proves the existing local order, not every extension's order.
+[TX02–TX06, TL01]
+
+TD07. Each operation has a separate acceptance or commitment boundary:
+
+| Operation | Locked state transition / ordering point | Responsibility and failure |
+| --- | --- | --- |
+| Register target | Owner registers identity and immutable token association before exposure | Core owns record/token; failed registration never exposes a managed handle |
+| Accept managed request | L checks identity/epoch/admission and reserves lease; C updates attributed pending coverage; A marks token atomically with attribution | Return accepted only after coverage and mark are committed; storage failure before commit remains caller-owned |
+| Accept raw request | C updates original raw payload and rawSerial/interference; A performs original mark | Preserve raw return/payload ownership behavior; invalidate managed clean eligibility |
+| Mark cancellation token through generic API | A advances token markSerial and records unknown debt if not through the attributed internal path | Preserve generic mark behavior; debt blocks clean reuse until independently accounted, not guessed away |
+| Invoke selected callback | Existing A claim/unlock then C callback; complete actual owner scope after return | ready=0 is not completion; old callback may still install flags |
+| Settle selected managed targets | Owner holds L,C,A, stable tree, actual idle, joined senders; detach old managed pending coverage and clear only attributed target readiness | Block on raw/unknown/identity/scope failure; retain payload/outcome custody |
+| Reset and publish | Revalidate all targets under the same exclusion; private force=0 reset, inspect flags, then publish fresh descriptor before releasing C | No user callbacks, allocation, destruction or partial tree publication inside the commit interval |
+| Retire | Owner has actual scope/API/image grace; revoke handles and perform existing deletion | No unsafe delete merely because reuse failed |
+
+The attributed mark is a new Tcl-internal primitive with an A-locked variant;
+calling public AsyncMark recursively while already holding A would deadlock.
+Attribution cannot be simulated by reading a shared serial after unlocking A.
+Stamps use pre-reserved storage and no user callback. [TX01–TX07]
+
+TD08. Target settlement runs only on the registered OS owner and outside every
+actual AsyncInvoke/native/NRE/event/callback scope. Check asyncActive=0 under A
+as a cross-check, not the sole witness. The common owner-scope ledger must cover
+core service entry and all exits, not just the outer Scheme wrapper; counters
+leave only after physical native return. This deliberately avoids a new claim that
+a ready bit can cancel an already selected callback. If a callback is in flight,
+return busy and let it finish; never wait for that owner callback under L,C,A.
+Nested attempts are rejected without changing pending state. [TE01, TX03, TX07]
+
+TD09. Under L,C,A, validate every target, managed cutoff, rawSerial baseline,
+unknown debt, binding/tree generation and owner-idle ticket before mutation.
+Detach only the old managed payload/coverage. Remove its target ready bit only
+when no raw or unknown obligation shares it. Keep token address, proc, clientData,
+originTsd, owner and next links unchanged. Record pending requests as
+settled-after-return, prior callback installation as applied, and absent coverage
+as none. These are different from evaluation-observed and result-delivered.
+The operation does not execute CancelEvalProc to manufacture application.
+
+All targets in a same-owner tree are validated before a no-fail commit. A failure
+before commit changes no semantic pending state; prepared storage stays owned.
+If managed pending state was already committed in an earlier provisional step,
+its detachment remains terminal and sealed even if later publication is blocked;
+retry never replays it as unprocessed. Detached bytes are placed on an explicit
+retirement list. Reclamation/callback-capable cleanup occurs outside the final
+reset/publication interval and may require another idle observation. [TX01,
+TX03–TX07, TO01]
+
+TD10. Correct readiness repair has a real cost. At owner idle, after clearing
+selected bits, scan the still-registered handler list under A and set asyncReady
+to the disjunction of all remaining ready bits. This is one O(H) list pass plus
+selected-token validation, not O(1) settlement. Concurrent unrelated marks serialize
+on A: a mark before the scan is included; a mark after unlock sets asyncReady
+normally. Do not invoke, delete, reorder or clear unrelated handlers. Existing
+OS thread alerts already emitted cannot be retracted; no exact notifier wake-count
+or timing equivalence is promised for the new managed settlement operation.
+
+Leaving asyncReady unconditionally true can cause an otherwise empty AsyncInvoke
+and observable service-loop progress; clearing it unconditionally loses unrelated
+work. An optional ready-count design would instead modify create/mark/claim/delete
+and every relevant mutation, charging hot-path overhead and overflow/invariant
+proof. It is not assumed here. Handler callback order continues to be list-priority
+with a rescan from the head, never mark-time FIFO. [TX02, TX03, TX07]
+
+![Token identity and request domain](tcl-targeted-token.svg)
+[D2 source](tcl-targeted-token.d2).
+
+## Raw Idle Cancellation Is a Preserved Obligation
+
+TD11. TIP 285 requires a cancellation accepted with no invocation on the stack to
+affect the next script. A raw request after seal, during settlement, or between
+provisional settlement and final reset must therefore prevent a clean receipt;
+never relabel it old-managed, clear it, acknowledge it as observed, or drain it
+through an arbitrary NULL-context async invocation. Even a raw callback already
+run by idle event service can leave installed flags; rawInterference stays set
+rather than inferring completion from ready=0. [TX04, TX07, TX08]
+
+The chosen clean-admission rule is intentionally stronger: any raw activity during
+the managed epoch blocks this proof, even if later library resets might make some
+histories reusable. This is a stated proof/domain boundary, not a finding that such
+histories are fundamentally unreusable. A future broader design must establish
+actual evaluation-entry consumption and installed-state provenance, preserve raw
+last-writer/message behavior and prove the combined state machine. It may not clear
+the taint merely because flags are zero. RawOnly continues to use Tcl's existing
+rules. Clean reuse can resume only after a separately qualified transition/history
+or construction; this study supplies no automatic clearing recipe. [TX01, TX04,
+TX08, TX10]
+
+TD12. Concurrent schedules are resolved by the core locks, not by host polling:
+
+| Competing action | Before settlement validation | After provisional settlement, before final commit | After final publication |
+| --- | --- | --- | --- |
+| Old managed sender | Must be joined or validation fails; accepted sequences included | Sealed epoch rejects before native access | Old identity/epoch rejects before native access |
+| Raw CancelEval | Original pending state retained; rawInterference blocks clean settlement | Changes serial/interference; final validation fails before reset | Waits for C, then accepts as raw cancellation of the interpreter; may cancel the next script |
+| Generic mark of target token | Unknown debt blocks settlement | Token serial/debt invalidates receipt | Preserved generic behavior; no claim of managed provenance |
+| Mark unrelated token | Included in remaining-ready scan | Stays ready; does not by itself invalidate target receipt | Remains subject to ordinary service order |
+| Owner callback/tree work | Idle premise fails | Invalidates ticket/tree; retry closure | Accepted only under fresh authority and normal owner scope |
+
+A trusted long-lived raw canceller deliberately has interpreter-wide authority;
+its post-publication cancellation is valid. An old job's unjoined raw caller is a
+producer-closure failure, not a permissible way to retarget the next epoch. No
+source integration can infer that caller's intention from an untagged pointer.
+[TX01–TX08, TL01]
+
+## Receipt, Reset and Epoch Publication
+
+TD13. PendingSettlementReceipt is provider-issued and ticket-bound:
+
+```text
+PendingSettlementReceipt = {
+  bindingIdentity, ownerIdentity, barrierTicketGeneration, treeFrontier,
+  oldEpoch, producerClosureIdentity, ownerIdleIdentity,
+  targets: [{ TargetIdentity, acceptedCutoff, coverageDigest,
+              appliedCoverage, coalescedCoverage, settledAfterReturnCoverage,
+              rawSerialBaseline, mutationSerial, tokenMarkSerial,
+              unknownDebtIsZero, readyAfterSettlement }],
+  mode: managed-clean | raw-preserved-blocked | busy | invalid,
+  detachedPayloadCustodian, outstandingRetirementDependencies
+}
+```
+
+Only managed-clean can authorize the next reset; the other modes are typed outcomes
+with no reset authority. Coverage classes are disjoint terminal custody records,
+not per-request native observations. If coalesced coverage refers to a selected
+batch, its final applied/settled outcome must also be recorded; a coverage digest
+alone proves nothing. installed flags can still be present from old managed work,
+so PendingSettlementReceipt is not ResetReceipt. It proves no old managed future
+installer remains under its live premises. Any intervening target mutation,
+raw/unknown mark, owner entry, tree/binding change or lost ticket invalidates it.
+Copies do not extend authority. [TD03–TD12, TL01]
+
+TD14. Use a two-stage protocol to permit concurrent marks without a check/reset
+race. Preparation/join and provisional settlement may release C and A while L's
+barrier keeps owner entries sealed. Raw APIs remain callable. Final commit takes
+L -> C -> A, revalidates every receipt and target, rechecks actual idle and zero
+nesting, and validates no raw interference/unknown debt or new managed coverage.
+Only then call the owner/private non-forced reset for every target, inspect both
+cancellation bits, prepare the ResetReceipt, and publish the complete fresh tree
+epoch descriptor under L before releasing C or A. A raw call that lost C runs
+after publication; it is preserved as raw, not discarded by a stale reset.
+
+This assumes the selected force=0 reset path remains callback-free and no-fail
+after validation. Current source only unsets bits, but future ABI/source changes
+invalidate this qualification. Preallocate the descriptor, receipt slots, target
+array and outcome storage; no Tcl result reset, Scheme allocation/GC, user log,
+image release, destructor or delivery callback occurs in the commit interval.
+Do not call callback-capable validation under locks. A post-reset impossible
+postcondition or partial failure quarantines the whole frontier, records changed
+state and publishes no new epoch; the original custodian retains responsibility.
+[TX04, TX06, TX09, TL01, TL02]
+
+TD15. Publication is one synchronized change of authority, not an incremented
+integer. The immutable descriptor carries the binding/tree generation, fresh epoch,
+provider/image leases and issuer's successful reset/settlement identities. Readers
+acquire it under L or an independently proven release/acquire scheme; request
+admission revalidates under L before touching native pointers. No relaxed atomic
+counter or Scheme mutex substitutes for owner/native closure. New cancellation
+of the fresh epoch is legitimate. Raw state accepted later is outside the old
+receipt's cutoff and cannot be overwritten by any old retry. [TL01, TL02, TO01]
+
+![Concurrent mark and commit](tcl-targeted-commit.svg)
+[D2 source](tcl-targeted-commit.d2).
+
+## Whole Frontier, Failure and Migration
+
+TD16. Parent cancellation installs descendant flags through TclSetChildCancelFlags;
+children also have independent tokens and can receive their own raw requests.
+The frontier must cover affected ancestors, descendant identities, their pending
+records and installed-state provenance. It is not enough to settle just the parent
+ready bit. This design qualifies only one exclusive OS owner per committed tree.
+Cross-owner arrangements require a different distributed barrier and are unresolved;
+do not hold one owner's locks while waiting for another. Tree mutation, deletion,
+partial reset, binding revocation or receipt-storage exhaustion leaves admission
+sealed. Old roots, Scheme marker, result bytes, native payloads and image leases
+remain with their explicit custodians until actual users and derived cleanup leave.
+Do not destroy an interpreter merely to sidestep an accepted raw next-script
+obligation; retirement has its own host lifecycle semantics. [TE01, TX04–TX07, TL03]
+
+TD17. Replacement sequence and retirement conditions:
+
+| Responsibility | Design migration | Old path can retire only when |
+| --- | --- | --- |
+| Token lifetime and private access | One source-bound provider plus immutable generation and lease | Every creator, internal child constructor, deletion and image path is covered |
+| Cancellation submission | Explicit managed entry and raw entry provenance; reserve/commit/outcome custody | Every managed caller migrates; raw public API remains supported, never removed by this work |
+| Native/async owner scopes | Common actual-entry/return ledger, callback-free barrier | Every service/eval/NRE/event/nested/exceptional exit participates |
+| Target pending disposition | Core attributed mark and targeted clear, readiness scan, receipt | Arbitrary unmark/delete-recreate and thread-wide barrier drain recipes have no remaining managed caller |
+| Reset/publication | One generated common plan plus core commit lock protocol | Per-adapter reset-on-OK and independent epoch-publication paths have no remaining caller |
+| Root/control semantics | Existing Gambit native root, marker and return-validity contract | No independent root system is introduced; those obligations remain |
+
+Targeted settlement may remove the requirement to execute unrelated handlers at
+this barrier; it does not retire their executor, thread alerts, normal event
+service, raw cancellation or private ABI support. No path is retired by this study.
+[TE01, TX01–TX10, TO01]
+
+TD18. Remaining admission work is explicit: full mixed raw/managed semantic
+refinement, every installed producer/flag writer and owner scope, installed Tcl/Tk
+source/private ABI/image binding, signal-sensitive generic mark compatibility,
+all failure exits and lock interactions, provider implementation and native
+qualification, and measured total/incremental benefit. Handwritten arguments and
+inert cases below do not discharge these. The architecture can be expressed with
+modern generated C; Zig has not been shown to remove any necessary protocol or
+Tcl-owned support family. LLVM/MLIR stays a decoupled consumer and does not issue
+cancellation, GC or continuation authority. [Arguments](tcl-targeted-cancel-arguments.md),
+[matrix](tcl-targeted-cancel-benefit-matrix.md), [trace](tcl-targeted-cancel-traceability.json).
+
+![Custody and publication outcomes](tcl-targeted-custody.svg)
+[D2 source](tcl-targeted-custody.d2).
+
+## Mixed History Follow-up
+
+The [mixed-history study](tcl-mixed-cancel-design.md) refines TD11's deliberately
+conservative permanent-taint boundary. Complete source-owned histories may
+discharge an interference generation when raw residue and future installers are
+absent, required outcomes are allowed, and idle requests have real next-evaluation
+consumption witnesses. Unknown/mixed-policy/entry-path gaps remain blocked.
+[Arguments](tcl-mixed-cancel-arguments.md) and
+[matrix](tcl-mixed-cancel-benefit-matrix.md) add no native admission or existing API.

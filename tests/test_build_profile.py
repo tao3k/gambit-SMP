@@ -14,6 +14,19 @@ PROFILE = "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
 
 
 class BuildProfileTests(unittest.TestCase):
+    def test_c23_overlay_preserves_the_pinned_bazel_source_and_base_arrays(self):
+        original=json.loads((ROOT / PROFILE).read_text())
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'c23.json';p.write_text(json.dumps({**original,'languageStandard':'c23'}))
+            new=read_profile(p);base=read_profile(ROOT / PROFILE)
+            self.assertEqual(base['profileFlags'],new['profileFlags'])
+            self.assertEqual(base['sourceSha256'],new['sourceSha256'])
+            self.assertEqual(base['flags'],new['flags'])
+            self.assertEqual(base['cflags'],new['profileCflags'])
+            self.assertEqual('-pipe -std=c23',new['cflags'])
+            p.write_text(json.dumps({**original,'languageStandard':'gnu17'}))
+            with self.assertRaises(ValueError):read_profile(p)
+
     def test_profile_executor_binds_input_and_uses_full_bazel_flags(self):
         calls, bound = [], []
         temporary = tempfile.TemporaryDirectory()

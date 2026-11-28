@@ -1,0 +1,153 @@
+#+TITLE: Callback Authority, Carry-over and Root Custody Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitCallbackCarryClosure
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| formatter-default | vendor/gambit/lib/_io.scm | (define ##wr ##default-wr) | Initial binding; not immutable session identity |
+| formatter-set | vendor/gambit/lib/_io.scm | (set! ##wr x) | Global replacement writer |
+| debug-register | vendor/gambit/gsc/_gscdebug.scm | (##wr-set! | One module installation and two temporary writes; special branch only |
+| debug-loader | vendor/gambit/gsc/igsc.scm | "_gscdebug" | Explicit interpreted loader; compiled loader qualification remains open |
+| port-initial | vendor/gambit/lib/_io.scm | #f ;; io-exception-handler | Constructor default; not an immutable capability |
+| port-register | vendor/gambit/lib/_io.scm | (macro-port-io-exception-handler-set! port handler) | Public wrapper reaches internal field writer |
+| io-dispatch | vendor/gambit/lib/_io.scm | (define-prim (##raise-io-exception port exc) | Port callback or ambient dynamic handler |
+| dynamic-bind | vendor/gambit/lib/_thread.scm | (define-prim (##with-exception-handler handler thunk) | Both SMP branches bind dynamic environment |
+| primordial-register | vendor/gambit/lib/_repl.scm | (##primordial-exception-handler-hook-set! ##repl-exception-handler-hook) | Runtime module initializes primordial hook |
+| compiler-catcher | vendor/gambit/gsc/_utils.scm | (define (with-exception-handling proc) | Compiler diagnostic escape is separate from ambient I/O binding |
+| gc-register | vendor/gambit/lib/_nonstd.scm | (##add-gc-interrupt-job! ##display-gc-report) | Actual persistent GC job registration |
+| gc-report-enable | vendor/gambit/lib/_nonstd.scm | (define ##gc-report? #f) | Report also enabled by debug level >=5 |
+| gc-report-port | vendor/gambit/lib/_nonstd.scm | (##repl-output-port) | Dynamically selected reporting output, invokes global writer |
+| gc-execute | vendor/gambit/lib/_kernel.scm | (define-prim (##execute-jobs! jobs) | Traverses list; no effect sandbox or removal of in-flight callbacks |
+| gc-job-api | vendor/gambit/lib/_kernel.scm | (##add-job! ##gc-interrupt-jobs thunk) | Extensible FIFO roots arbitrary procedures |
+| gc-before-jobs | vendor/gambit/lib/_kernel.scm | (##gc-finalize!) | Finalization precedes GC job list execution |
+| will-action | vendor/gambit/lib/_kernel.scm | (action testator) | Zaps will fields before action; lexical arguments survive and may capture |
+| reader-ready | vendor/gambit/lib/_io.scm | (define-prim (##char-ready?1 port) | Fill in exhausted branch only |
+| reader-peek | vendor/gambit/lib/_io.scm | (define-prim (##peek-char1 port) | Fill in exhausted branch only |
+| reader-char | vendor/gambit/lib/_io.scm | (define-prim (##read-char1 port) | Fill in exhausted branch only |
+| reader-bulk | vendor/gambit/lib/_io.scm | (define-prim (##read-substring | Positive unread count transferred before refill |
+| carry-test | vendor/gambit/lib/_io.scm | (if (##fx= vect-rlo vect-rhi) | Split exhausted/no-carry from internal unread carry |
+| carry-copy | vendor/gambit/lib/_io.scm | (,',##subvect vect-rbuf vect-rlo vect-rhi) | Copies unread slice; fresh allocation may fail after FIFO advance |
+| carry-fifo | vendor/gambit/lib/_io.scm | (macro-fifo-elem-set! | Install replacement in FIFO and reader, then writer if shared |
+| writer-loop | vendor/gambit/lib/_io.scm | (define-prim (##write-substring str start end port) | After drain loops with saved index, re-reads current buffer |
+| capture | vendor/gambit/lib/_thread.scm | (define-prim (call-with-current-continuation | Multi-shot capture; no compiled-map receipt from lexical text |
+| frame-decode | vendor/gambit/include/gambit.h | frame.gcmap = ___IFD_GCMAP(descr); | Real descriptor consumer; action-specific generated identity still open |
+| frame-scan | vendor/gambit/lib/memory/continuation-roots.inc | while (___frame_root_next_run (&cursor, &first, &past)) | Captured roots consumed using frame maps |
+| resource-write | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Raw resource alias has write authority independent of callback name |
+| second | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Retirement requires complete emission equivalence, not local idempotence |
+
+** Callback
+
+| key | registrant | closure | authority | status |
+|---+---+---+---+---|
+| stock-writer | _io module initial binding | default-wr recursively resolves global wr; port methods and faults | No direct resource setter established; globals/FFI not capability-restricted | Direct initializer located; session closure open |
+| debug-writer | _gscdebug top level; igsc explicit loader | VAR/PTREE conversion and saved formatter; scalar bypass | No direct resource write; old saved formatter can be restored after capture | Do not transfer debug witness to default scalar route |
+| port-handler | device constructor #f; public setter can replace | handler receives exception including procedure/args; ambient path if absent | Arbitrary installed procedure can hold raw aliases or reach c# globals | No selected default setter caller found; whole-session negative not proved |
+| ambient-handler | with-exception-handler; primordial hook set by _repl | Dynamic environment, REPL hook, error reporting, continuation | No lexical capability firewall; exceptions may return/capture | Compiler diagnostic catcher does not seal this chain |
+| gc-report | _nonstd installs display-gc-report via _kernel add-job | stats, debug settings, repl-output-port, write and I/O handlers | Stock body lacks direct resource write; downstream custom formatter unrestricted | Enabled by level>=5 or gc-report flag; default flag false insufficient |
+| gc-finalizers | make-will / make-final-will; gc-finalize before jobs | action and testator copied to locals before will fields zapped | Arbitrary Scheme action, global and retained alias authority | All reachable wills and native callbacks remain qualification input |
+| registry-mutation | add/clear GC jobs; wr-set; port setter; dynamic binding | Existing invocation retains lexical handler/list even after registry changes | Closing registration alone cannot revoke in-flight aliases | Need admitted epoch, borrower drain and restoration closure |
+
+** Reader
+
+| key | guard | effect | scope |
+|---+---+---+---|
+| ready | rlo>=rhi | fill with want=1, block=false | Direct selected character method |
+| peek | rlo>=rhi | fill with want=1, no consumption on success | Direct selected character method |
+| read | rlo>=rhi | fill with want=1, consumes after refill | Direct selected character method |
+| substring | chars-buffered<=0 | fill only after available chars transferred | Direct selected character method; normal valid index invariant required |
+| carry | rlo<rhi and rhi==length(old) | copy prefix plus next; update writer if next==wbuf | Internal branch algebra; ordinary public reachability not established |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| counter | c=rhi-rlo; b=wlo; h=whi; shared next | b becomes b-rlo; whi becomes h+c; rlo becomes 0 | Post-minus-pre pending expression equals c; payload concatenation preserves bytes | Not a public bug claim; other caller/FFI reachability and counter semantics open |
+| no-carry | four direct reader guards | Valid rlo<=rhi and unmodified locked state | c=0 at fill, recovers preceding no-carry conservation | Aliases, injected methods and reentrant/FFI mutations not closed |
+| roots | capture may retain input string, port, writer, old buffer and dynamic environment | Lexical locals identify candidates, not live GC slots | Return/field zapping is insufficient for release; multi-shot capture retains custody | Generated program points, saved registers and map coverage unresolved |
+| failure | FIFO advance and wlo update precede append allocation | Allocation failure or escaping callback at intermediate point | No full rollback/equivalence claimed; old and next storage need continued custody | Actual OOM/GC exception timing and compiler roots require refinement |
+| retirement | one immutable native binding plan | Same entry, canonical writers, admitted transitive closures and fault prefixes | At most one second helper per qualified binding can disappear | Current qualified bindings=0; first demand still required |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| normalization | 0..N second helper calls per module; first N retained | Plan creation O(N), epoch validation and transitive effect qualification | Positive iff saved sum helper cost exceeds plan plus validation; no timing measured |
+| formatter | 0 direct debug temporary writes on selected scalar default route | WriterView conversion must cover recursive dispatch and handlers | Do not count unrelated special-branch savings on scalar path |
+| carry | No guaranteed fewer copies; internal carry copies c+len(next) elements | Optional explicit logical cursor and root descriptors | Only useful after reachable consumer and exception semantics established |
+| roots | 0 currently admitted early releases | Capture/activation accounting, descriptor provenance and owner drain | Memory saved only after last reachable capture plus native borrower retires |
+| language | C23 representation can express scoped contexts and atomics | Platform qualification and generated ABI work remain necessary | Zig does not eliminate callback effect or root coverage proof |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| SysML | ASCENT | Source identities, component obligations and open receipts |
+| ASCENT | QNT | Exact action roster and source rows; missing evidence blocks retirement |
+| QNT | Lean | Restricted typed IR projection and all-step induction |
+| formatter | output | Global identity plus recursive dispatch; not sealed |
+| GC interrupt | will action | Arbitrary action before reporting jobs |
+| GC interrupt | report | Registered stock callback and runtime enable condition |
+| report | output | REPL port, global formatter and dynamic exception chain |
+| output | metadata | Access only if reachable global/raw authority; absence not proved |
+| reader | carry candidate | Advance FIFO then allocate; failure retains custody obligation |
+| carry candidate | shared writer | Replace FIFO/reader/writer identity, preserve captured old roots |
+| captured continuation | root retirement | Last reachable capture plus compiled map and native borrower receipts |
+| root retirement | second normalization | Only complete admitted emission contract permits plan reuse |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| callback_carry_closure.beginLegal | CallbackCarry.beginLegalPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.beginInternalCarry | CallbackCarry.beginInternalCarryPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.advanceFifo | CallbackCarry.advanceFifoPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.allocateCandidate | CallbackCarry.allocateCandidatePreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.installShared | CallbackCarry.installSharedPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.expose | CallbackCarry.exposePreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.allocationFailure | CallbackCarry.allocationFailurePreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.capture | CallbackCarry.capturePreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.resume | CallbackCarry.resumePreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.returnActivation | CallbackCarry.returnActivationPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.attestRootRetirement | CallbackCarry.attestRootRetirementPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.release | CallbackCarry.releasePreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.changeRegistration | CallbackCarry.changeRegistrationPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.unknownCallback | CallbackCarry.unknownCallbackPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+| callback_carry_closure.attestEffects | CallbackCarry.attestEffectsPreserves | Abstract steps; attest actions are external obligations, not source receipts |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| stepPreserves | CallbackCarry.stepPreserves |
+| reachableSafe | CallbackCarry.reachableSafe |
+| sharedCounterBias | CallbackCarry.sharedCounterBias |
+| capturePreventsRelease | CallbackCarry.capturePreventsRelease |
+| replayRetainsCapture | CallbackCarry.replayRetainsCapture |
+| releaseNeedsReceipt | CallbackCarry.releaseNeedsReceipt |
+| permitEpoch | CallbackCarry.permitEpoch |
+| failedAllocationRetainsRoots | CallbackCarry.failedAllocationRetainsRoots |
+| noCarryConserves | CallbackCarry.noCarryConserves |
+| shared-delta | CallbackCarry.sharedCarryDelta |
+| nonshared-delta | CallbackCarry.nonsharedCarryDelta |
+| initialized-payload | CallbackCarry.initializedPayload |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| CC-formal | induction | dev/refactoring/modern-c/models/lean/CallbackCarry.lean | restricted typed IR to Lean all-step preservation |
+| CC-callbacks | source | dev/refactoring/modern-c/callback-carry-closure-design.org | complete actual-session transitive registration and alias closure |
+| CC-carry | source | dev/refactoring/modern-c/callback-carry-closure-design.org | legal carry producer and physical byte/counter semantics |
+| CC-roots | source | vendor/gambit/lib/_io.scm | generated program-point maps and multi-shot retirement |
+| CC-exceptions | equivalence | dev/refactoring/modern-c/callback-carry-closure-design.org | partial mutation allocation failure and output fault prefix equivalence |
+| CC-platform | platform | dev/refactoring/modern-c/language-baseline-design.org | C23 Darwin configuration ABI and native atomic qualification |
+| CC-emission | equivalence | dev/refactoring/modern-c/emission-pipe-refinement-design.org | full ordinary C emission fidelity and same entry |

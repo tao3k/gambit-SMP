@@ -1,0 +1,13 @@
+package GambitSuitePoolCustody {
+ private import ScalarValues::*;
+ attribute scope:String="Complete fixed-suite-pool receipt routing and lease admission, with exact tested Python source periods. No Gambit runtime, scheduler or independent SMP-family change.";
+ attribute stage:String="suite-pool-ci-correction";
+ attribute formalDuty:String="OpenSysML SDK resolves the existing producer, lease consumer and receipt-owner contracts; ASCENT binds exact-source tests and retained remote failures. Existing runtime QNT schedules and Lean laws are not repeated for Python storage routing.";
+ attribute components:String="producer;leaseConsumer;receiptOwner;indexOwner";
+ attribute sourcePeriod:String="All Python imports in the fixed review view come from one committed tree plus the explicitly selected source cut. A success using an unselected working dependency is not exact-head evidence. Keep native/header evidence, framework controls and remote CI separate.";
+ part def Component { attribute id:String; attribute source:String; attribute responsibility:String; }
+ part producer:Component { attribute :>> id="SUITE-POOL-PRODUCER"; attribute :>> source="src/gambit_smp/suite_primitives.py:suite_workers"; attribute :>> responsibility="Use the existing task_output owner for both run and Recipe receipts; one task/process owns one bounded build/suite-tests pool. Labels of observation directories do not create another runtime or pool."; }
+ part leaseConsumer:Component { attribute :>> id="SUITE-POOL-LEASE"; attribute :>> source="src/gambit_smp/artifact_storage.py:fixture_root"; attribute :>> responsibility="Recognize only the exact existing pool root under a validated task/process prefix. Existing exclusive identity-checked workspace_lease still owns custody; nested workers and unrelated stores are not newly admitted as lease roots."; }
+ part receiptOwner:Component { attribute :>> id="SUITE-POOL-RECEIPT"; attribute :>> source="tests/test_artifact_storage.py;tests/test_native_suite.py;tests/test_stress_inventory.py"; attribute :>> responsibility="Retain every original assertion; test exclusive lease, owner rejection and shared pool across both receipt layouts. Read the already-tracked historical fixture JSON rather than a private cache path."; }
+ part indexOwner:Component { attribute :>> id="REV-INDEX-CUSTODY"; attribute :>> source="src/gambit_smp/revision_submission.py:index_identity"; attribute :>> responsibility="Git stages, blobs, modes, assume/skip flags, intent-to-add behavior and resolve-undo records are proposal identity. Refreshed filesystem stat metadata alone is not staging. Preserve every real proposal change and report physical index changes separately."; }
+}

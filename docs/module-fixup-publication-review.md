@@ -50,7 +50,7 @@ GC or allocation is performed, and the five-second observation caps remain.
 The earlier non-PRIMAL duplicate-symbol link denial is preserved separately;
 it is not counted as a runtime failure or passing check.
 
-Receipts: `evidence/source-results/fixtures/checked-cleanup-retained-error/`
+Receipts: `.cache/research/legacy-evidence/evidence/source-results/fixtures/checked-cleanup-retained-error/`
 directories `exact-setup-rejection` and `duplicate-setup-link-denial`.
 
 ## QNT Design Alternatives
@@ -66,7 +66,7 @@ typed failure. It passes safety and weak-fair completion over 28 distinct / 41
 generated states in 3.796 seconds. The owner claim is assumed atomic. Waiters
 can resume after the owner completes; actual sync/GC participation and failure
 rollback are not implemented by this model. Receipt and counterexamples are in
-`evidence/model-results/fixtures/checked-cleanup-retained-error/fixup-publication/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/checked-cleanup-retained-error/fixup-publication/`.
 
 The reviewed GHC and HotSpot notes distinguish forwarding claims, readable
 payload and termination. They motivate examining these separate milestones,

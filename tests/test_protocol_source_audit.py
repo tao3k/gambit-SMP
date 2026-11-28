@@ -19,13 +19,13 @@ class CorrespondenceTests(unittest.TestCase):
         (self.root / "source/setup.c").write_text("reviewed source\n")
         self.sha = digest(self.root / "source/setup.c")
         for name in ("evidence/dsl/observation-contract.ss",
-                     "evidence/research/source-schedule-revalidation/observations.json",
+                     "tests/fixtures/source-schedule-observations.json",
                      "evidence/dsl/source-review-contract.ss",
                      "evidence/protocol-source-requirements.json"):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
-        declared = json.loads((self.root / "evidence/research/source-schedule-revalidation/observations.json").read_text())
+        declared = json.loads((self.root / "tests/fixtures/source-schedule-observations.json").read_text())
         self.receipt = dict(schema="gambit-sync-retirement-schedule.v1",
             compile=dict(exit=0, timeout=False), status="source-schedule-observed", sourceStable=True,
             runtimeAdmitted=False, inputs={"source/setup.c": self.sha},
@@ -49,6 +49,21 @@ class CorrespondenceTests(unittest.TestCase):
         self.assertEqual(len(rows["source_review"]), 4)
         self.assertEqual(rows["source_native_pending"], [("bootstrap",)])
         self.assertIn("source/setup.c", inputs)
+
+    def test_historical_unit_receipt_does_not_become_current_source_input(self):
+        self.data.pop("sourceUnitReceipt")
+        self.data.pop("sourceUnitReceiptSha256")
+        self.data["nativeGates"].append("source-unit-observation-unavailable")
+        self.save(audit.MANIFEST, self.data)
+        (self.root / "evidence/unit.json").unlink()
+        rows, inputs = audit.facts(self.root)
+        self.assertEqual(len(rows["source_review"]), 4)
+        self.assertIn(("source-unit-observation-unavailable",), rows["source_native_pending"])
+        self.assertNotIn("evidence/unit.json", inputs)
+        self.data["sourceUnitReceiptSha256"] = "a" * 64
+        self.save(audit.MANIFEST, self.data)
+        with self.assertRaisesRegex(ValueError, "fields require a current receipt"):
+            audit.facts(self.root)
 
     def historical_context(self):
         for directory in ("source/lib", "src", "patches", "evidence/source-results/history"):
@@ -91,7 +106,7 @@ class CorrespondenceTests(unittest.TestCase):
     def test_historical_tool_archive_drift_is_rejected(self):
         inputs = self.historical_context()
         (self.root / "evidence/source-results/history/tool.py").write_text("not the original")
-        with self.assertRaisesRegex(ValueError, "exact versioned historical source"):
+        with self.assertRaisesRegex(ValueError, "exact authenticated historical source bytes required"):
             audit.source_facts(self.root, self.data, self.root / "source", inputs, locked=True)
 
     def test_history_cannot_replace_current_source_lock(self):

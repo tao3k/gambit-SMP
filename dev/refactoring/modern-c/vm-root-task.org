@@ -1,0 +1,190 @@
+#+TITLE: Explicit VM root origin and task
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: VERIFYING READY | PUBLISHED
+#+PROPERTY: header-args :eval never :exports code
+
+* READY VM Scheme-object source responsibility :rev:gc:ownership:
+:PROPERTIES:
+:CUSTOM_ID: REV-VM-ROOT-TASK
+:AUTHORITY: GambitVmRootTask
+:SOURCE: models/sysml/vm-root-task.sysml
+:BASE_REVISION: 162cd90d6b51ed754ebfe07cd48dcd032f48d791
+:SOURCE_TREE: 258676573bec678d823630155c8486f457673d35
+:STATUS: Scoped source/native review complete; actual admission/publication recorded separately
+:END:
+
+[[file:models/sysml/vm-root-task.sysml][SysML]] owns this responsibility and its five actual needs; [[file:vm-root-task.d2][D2]] is a
+projection. [[file:rc-task-result.org][The RC task predecessor]] and its frozen inputs remain historical.
+This is one VM-object domain, not all remaining roots or a whole SMP REV.
+
+** Source chain and replacement :source:refinement:
+
+| Endpoint | Actual responsibility | Old authority retired |
+|----------+-----------------------+-----------------------|
+| =setup_vm_scmobj_vmstate=, setup.c:449 | VM-owned permanent structure, body =VM_SIZE=, all cells initially FAL | No ownership/layout change here |
+| Both =macro-vm-init!= definitions, _thread#.scm:2206/4219 | Type descriptor, queue17/18, idle count19, locks1/9; unused-field2 documented | No scheduler writer changed |
+| =execute_sync_op_loop= -> =execute_sync_op= -> GC | Existing collective stops admitted participants | No new synthetic freeze flag |
+| =garbage_collect_pstate= setup barriers -> leader strong phase | Only after both setup barriers can VM view be published | Direct leader scan with implicit provenance |
+| =___root_task_publish_vm= | Typed VM origin, checked coordinator/current VM, nonwrapping epoch and one lease | Inferring source inside scanner from executor |
+| Common =root_task_claim_state/finish_state= | RC and VM share epoch/kind/executor/state/lease rules | RC-only inline mutations lifted to common primitives; avoid copying them for VM |
+| =___root_task_scan_vm= -> =mark_vm_scmobj(source)= | CLAIMED -> SCANNING; actual body addresses visited; SCANNED only on normal return | A metadata-only scan acknowledgement |
+| Existing round barriers and cleanup | Retain VM storage/stopped roster after task DONE | Task completion cannot release VM or authorize resume |
+
+Logical VM cells are =(VM identity, VM-root family, slot)= for slots0 through
+=VM_SIZE-1=. RC cells belong to separately allocated native headers. Two cells
+may point to the same heap object or multi-shot continuation: cell partition
+must never become referent deduplication. The copying/frame/control protocols
+remain Gambit's own implementation.
+
+The VM task is a coordinator-confined C record, never placed on a shared queue.
+Its source allocation and stopped roster are held by the enclosing actual GC,
+independently of task-record lifetime. Its scanner never queues addresses into
+the task record; descendants belong to the existing heap traversal. After
+normal completion the C record may leave scope, while VM storage remains held
+through weak/copy/cleanup. It must not be exported as a durable async handle.
+
+Only a fresh unexposed record may be initialized. Production seeds its epoch
+from the already published nonzero coordinator RC epoch minus1, and requires
+the resulting epoch to match. Init is not an unknown-work reset. Epoch wrap,
+stale requests, wrong source/executor and duplicate entry are refused. Source
+lifetime must already cover lookup before metadata is read; stale addresses
+are not resurrected by epoch checking.
+
+** Exclusion and conditional proof :proof:counterexample:
+
+RC keeps its existing domain mutex. VM control state adds no lock: only the
+current coordinator's nonallocating, nonreentrant C invocation can access it.
+Real barriers protect the admitted source data plane. This does not establish
+writer coverage for arbitrary native code, unknown live threads or future
+asynchronous workers. The new API is private; fabricating a fresh record does
+not prove a valid GC phase. Publication does not independently detect that
+all source writers stopped: this cut establishes the actual caller placement
+after the barriers. Calling it earlier violates a private-call precondition;
+it is not a promised dynamic rejection or an authorization boundary.
+
+1. Given a live stopped VM view, valid coordinator and current epoch, publication
+   installs one typed origin and one lease before any claim can succeed.
+2. Shared claim permits only READY -> CLAIMED once. Scan checks the same origin,
+   executor, key and lease, and calls the actual VM source scanner.
+3. Only normal scanner return sets SCANNED. Shared finish releases once;
+   duplicate known completion does not decrement again.
+4. Completion leaves source/round lifetime with the enclosing GC; it cannot
+   establish global termination, mutator reentry or worker retirement.
+
+Counterexamples retained as obligations: publish before setup quiescence;
+reinitialize unknown SCANNING work; hand the C record to another thread;
+deduplicate two cells by the same pointed-to continuation; infer whole-round
+completion from task DONE. None is admitted by this cut. Worker-death progress
+or healthy-VM isolation must not be claimed from a synchronous task adapter.
+
+** Existing model duties, without duplication :sysml:ascent:
+
+| Authority | Obligation here | Boundary |
+|-----------+-----------------+----------|
+| Existing =runtime_roles.qnt::root_dispatch= | Temporal claim/enter/finish, stale/unknown custody and qualified round drain | Native SCANNED refines abstract scanning before finish; no new machine |
+| Existing Lean =RuntimeRoles= | Conditional CompleteCensus, TaskCoverage, AdapterFaithful and currentAddressCovered | VM/RC projection only; no complete all-root census or new temporal proof |
+| Native C/source refinement | Typed source maps to actual VM body; exact slot range and stopped-view lifetime | Actual barriers/writers remain preconditions, not a Boolean receipt |
+| Existing Scheme PBT | Compare structured requests with actual C observations, replay and shrink failures | Not universal C memory-model checking or concurrent schedule exhaustion |
+
+At p2 the actual task population is two RC domains plus one VM domain. The
+existing two-origin QNT checks a selected projection, not that entire census.
+Its qualified round-seal input is not derived from that projection.
+
+The outer VM hold refines the model's pin after native lease0; no second Lean
+copy of this schedule is written. SysML links the component and needs to shared
+ASCENT admission, with the source/profile/artifact/audit identities checked
+before publication. LLM review is the ambient review process, not formal proof.
+
+** Native replay, shrink and actual payload :pbt:evidence:
+
+The existing =tests/root-task.scm= and =test-root-task= target are extended.
+There is no second harness, configuration format or Python test. Four-field
+Scheme traces name either the existing RC family or the VM family; both use
+the same generator, independent observable oracle, fresh-process replay and
+deletion shrinker. The VM observation called phase encodes whether the origin
+is published; it is not a synthetic certificate that all VM writers stopped. VM opcode4 submits an alien source and must be refused
+before dereference; it is not RC retirement. The first integer is warm-GC
+count, not a version name.
+
+VM replay children require p1 and replace the actual VM root body's fields
+with FAL in one C invocation. No subsequent Scheme allocation/callback/return
+is allowed; the child emits its result and exits. This tests actual task and
+scanner code with immediate payloads; it does not pretend to model production
+reset/recovery. Actual relocation is tested separately: a joined Scheme
+producer places a fresh pair/vector in documented unused-field2, ordinary GC
+must update its address and preserve content, and dynamic-wind clears only
+fixture-owned storage. The raw before-address is comparison data, not a root.
+
+Per family, a labeled stale-finish invocation mutation must be detected and
+shrink24 noisy actions to publish/claim/actual-scan/finish, replaying the same
+failure while retaining SCANNED/lease1. This is deletion1-minimality for that
+failure class, not global minimality or a discovered production defect.
+
+** Benefits and added work :matrix:
+
+| Mechanism | Benefit | Added cost / limit |
+|-----------+---------+--------------------|
+| Typed RootOrigin | VM scanner consumes selected source, provenance is auditable | Tag/union metadata; RC private layout must be recompiled |
+| Common RootTask states/lease | One claim/finish implementation serves RC and VM | Source-specific mutex/confinement wrappers remain necessary |
+| Real scan completion | No early lease release or duplicate scan admission | Existing mark_array work remains; no throughput claim |
+| Coordinator-confined record | No per-GC native allocation, queue or identity table | C stack record plus epoch; no asynchronous task lifetime |
+| Shared native replay/shrinker | New VM actions use existing driver and reproduce minimal histories | Fresh-process test cost; no controlled concurrent schedules |
+| Exact roots and continuation | Preserve Gambit shared objects/multi-shot roots while making source obligations explicit | No representation, tail-call or generational collector change |
+
+Configured native measurement: RootOrigin16 bytes, RootTask32 ->48, RC
+domain184 ->192 after moving the former separate8-byte lease into the task.
+Thus the persistent structural delta is +8D bytes for D live/detached RC
+domains (+96 bytes at12 domains). The coordinator's source-level task record
+is48 bytes plus an8-byte epoch local; optimizer-dependent machine stack/peak
+growth is not measured. Header48/carrier896/VM78504 are unchanged. No extra
+mutex or GC-time task allocation is introduced; existing RC gates remain.
+
+** Native closure matrix :evidence:matrix:
+
+[[file:../../../evidence/research/retained/modern-c/vm-root-task/receipt.json][Repository evidence]] binds the exact producer/artifacts, source, compiler and
+unchanged profile. [[file:../../../tests/fixtures/vm-root-task/vm-minimal.scm][VM replay data]] and [[file:../../../tests/fixtures/vm-root-task/rc-minimal.scm][RC replay data]] are portable Scheme values.
+Build through existing =make test-root-task=; the compiled executable's
+=--replay TRACE= path runs these labeled negative controls. Their expected
+outcome is exit71 and the same stale-finish mismatch, not a positive exit.
+
+| Required scope | Actual result | Remaining boundary |
+|----------------+---------------+--------------------|
+| Exact full producer | Tree25867657; two phase1--4 passes121.128s; stock core28.054s | Same persistent SDK/profile;600s outer/575s internal limit; no speedup inference from timing difference |
+| Existing roles/frame/map/exit | PASS1.102/4.976/0.613s;290 layout assertions retained | Existing multi-shot/18-frame/36-wide-slot consumers; no new continuation representation |
+| RC source regression | p2 origins0/1,6 seed cases,1440 draws/720 legal actions PASS2.719s | Shared task-field move preserves retirement/refusal/byte ownership; raw FFI remains open |
+| New VM consumer | Actual fresh pair/vector in unused-field2 survives moving GC; address updated | Tests the real ordinary GC/source adapter, not sole-root completeness or all writers |
+| Shared native PBT | RC and VM each24 cases/864 actions;1728 total;15.878s compile+execution | No new harness; immediate-only VM replay plus separate moving payload |
+| Native shrink/replay | Each family24 ->4, deletion1-minimal, same failure replay,56 trials | Labeled invocation mutation; not a discovered runtime bug, global minimality or schedule exhaustion |
+| Original GSI first |407/408;61.394s; thread_interrupt.scm:41 inactive-thread failure | Complete inventory executed; retained FAIL |
+| Exact predecessor comparison | Preserved162cd90d interpreter407/408;64.638s; identical failure | Both outer runner and actual child path use predecessor bytes; same Scheme/generated inputs; candidate restored/hash-checked |
+| Fixed second candidate sample |408/408;60.926s | Single pass does not establish reliable SMP scheduling; first failure not erased |
+| Original whole check | Test1--7 complete; test8 FAIL18.957s | Actual setup_mem_pstate6/6 sections,1/12 members,max_heap0; unchanged capacity sources |
+| Independent later official tests |9/10/12/entry/inline PASS6.162s | Not whole check/GSC/stress/Gerbil credit |
+| Existing models/tools |10 QNT runs plus10000 samples/64-step bound, no violation; native SysML/D2 PASS | Selected projection, not exhaustive C proof; Lean bytes/duties unchanged |
+
+The predecessor's actual =../gsi/gsi= child path was temporarily bound to the
+preserved static interpreter under the same workspace lease, then restored
+to the qualified candidate and verified. Running only an old outer test-list
+interpreter would still launch current child binaries; that would not be an
+independent runtime comparison. No SDK source clone, fixture modification,
+changed wait or heap adjustment was used. The full-suite scheduling cause is
+still open even though its failure is now reproduced on the exact parent.
+
+Public
+=gambit.h= layout, official names/entrypoints, Scheme producers, capacities,
+timeouts and heap settings remain unchanged. Prior failed observations stay
+retained. Other roots, W!=R, full membership/GC/FFI and twelve-family SMP
+acceptance remain separate.
+
+** Submission checklist :ascent:
+
+- [X] Exact production bootstrap and required native consumers; original failures
+  retained and independently disposed, not relabeled as passing.
+- [X] Actual moving VM payload and both implementation replay/shrink families.
+- [X] Source/round lifetime, retired authority and measured benefits/costs reviewed.
+- [X] Native SysML validates; existing QNT obligations and unchanged Lean duties
+  recorded; final source-bound needs reproject through shared ASCENT.
+- [X] Nine-field audit prepared for the bounded cut; actual commit requires all
+  five ASCENT gates and21 rejection controls. The separate publication result
+  records whether that requirement actually passed.

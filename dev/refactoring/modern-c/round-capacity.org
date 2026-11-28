@@ -1,0 +1,95 @@
+#+TITLE: Whole-Round Contiguous Capacity Before Parity Flip
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never :tangle no
+
+* Authority and implementation boundary
+:PROPERTIES:
+:AUTHORITY: GambitCopyCustody
+:STATUS: TARGET-CONTRACT; C-PLANNER-OPEN
+:COMMIT_ADMITTED: false
+:END:
+
+The [[file:models/sysml/copy-custody.sysml][ROUND-CAPACITY SysML contract]] links separate [[file:models/quint/round_capacity.qnt][QNT]] and
+[[file:models/lean/RoundCapacity.lean][Lean]] artifacts to the current allocator endpoints. Current C implements
+private per-copy grants; =setup_stack_heap_vmstate= still flips after the
+initial two-section check. A full pre-flip planner has not been implemented.
+The target contract below is not asserted as behavior of that old entry path.
+
+* Inputs, physical plan and outcome
+
+#+NAME: round-capacity-inputs
+| Input | Source/producer | Required property |
+|-------+-----------------+-------------------|
+| Closed root/frame view | participant freeze; generator FrameSpec and native entry roots | Complete roots, stable epoch, valid metadata and injective heap/frame source identity |
+| U | source heap headers and allocated stack extents | Copy upper bound, including header/alignment charges; current doubled census is not automatically this proof |
+| A | mark_array and captured-frame request constructors | Maximum real contiguous request; selected five-register generator gives conditional 16395 words |
+| L and K | mem.h, set_heap_msection, prepare_heap_msection, end_heap_chunk | L=65536 destination words and K=255; account initial link and both terminal markers |
+| S | current-stack restoration plans and move_continuation | All destination stack sections, including each worker's initial section and break-frame/slack costs |
+| R | first context-resume/fudge allocation endpoints | Additional sections beyond S and copy allocations; do not charge the same interval twice |
+| Q | retained root/native/heap domains | Physical sections excluded from the allocator pool; native-handle retention is a separate resource |
+| P | actual msection table and provider receipts | Known live physical regions, provenance and disjointness; logical heap_size is insufficient |
+
+The plan assigns region identity, half/parity, [begin,past), owner, purpose,
+initialization frontier and known allocator receipt to each interval. It reserves
+markers, restoration and retained domains explicitly. All inputs and grants are
+sealed before any source parity, root location or old section ownership changes.
+A common admitted plan is consumed by all participants; partial success cannot
+let one participant flip while another retains old roots.
+
+Known failure leaves the old root/allocator view intact and returns one failure.
+An unknown native allocation outcome retains its query identity, source roots
+and reservation debt: no automatic refund or speculative parity flip. Successful
+copy publication and old readers must close before old physical regions can be
+reclaimed. A late result cannot overwrite a plan for a different epoch.
+
+* Conditional sufficient bound for the existing private allocation policy
+
+Let H be copy sections and let every exhausted, non-shared copy section charge
+at least G source-copy words. At most W final worker sections can be partial.
+Thus, if total copy charge is at most U,
+
+#+begin_example
+G = L - A - 4 - ceil(L/K) > 0
+H <= W + floor(U/G)
+P >= Q + S + H + R
+#+end_example
+
+The selected constants give G=48879 words. The four-word allowance and chunk
+term are conservative bookkeeping premises, not measured useful payload.
+=sectionPackingBound= proves the implication from the exhausted-section charge;
+it does not prove that the C cursor/chunk implementation establishes that charge.
+No stack/heap sharing may occur for an admitted plan. A first attempted sharing
+fallback would contradict the certified section bound; current fallback alone
+is not that certificate. S includes initial stack sections, avoiding the earlier
+ambiguous use of an additional N plus W.
+
+=FRAME_SPACE(fs)=round4(fs+3), while a captured frame's copy needs fs+2 words.
+The local inequality is proved separately. To use it for U still requires every
+source extent to be counted once and its endpoints/FrameSpec to be valid. The
+runtime 8194-word fudge declaration is not the generator's 16395-word maximum
+copy request, and neither bounds all loaded or foreign-constructed frames.
+
+A sufficient bound can reject a layout that would actually fit. That is not a
+reason to grow the heap. Alternatives are a tighter closed source inventory,
+pre-trace of unique live objects/frames, or a certified balanced/shared packing
+policy. A pre-trace adds graph traversal and metadata; balancing can add atomics,
+coordination and object movement. Their net benefit must be measured separately.
+No one is credited as implemented by the present per-copy grant.
+
+* Refund and peak ledger
+
+A known CAS loser returns only its complete unpublished [begin,past) interval
+to the same private cursor. If reservation first closed an old section, that
+terminal slack/publication is not refunded; the new section remains assigned.
+The full equation separates committed payload/header, alignment, chunk links,
+terminal waste, stack restoration, resume reserve and retained domains. Summing
+cumulative reservation attempts is not peak memory.
+
+The native collision control schedules two actual GC workers at the real CAS;
+it does not inject the result. Its loser must charge zero copied words, cancel
+four words and restore begin; the winner commits one four-word vector and both
+root cells must agree. This controlled branch evidence is distinct from default
+whole-runtime execution, 32-bit alignment or a native pre-flip plan. The QNT
+layout reserves marker and restoration intervals explicitly and rejects overlap,
+unknown-result flips and refunding section waste. C integration remains open.

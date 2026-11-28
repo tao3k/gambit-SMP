@@ -1,0 +1,126 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-checkpoint-clock",
+  "scope": "Quint controls for one checkpoint dependency and one cross-boot clock: the producer is reached through the dependency instance, a reboot without a mapping stays unbound, and a verified mapping can launch. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 180,
+  "inputs": [
+    "models/gambit/interrupted_producer_recovery.qnt",
+    "models/gambit/checkpoint_dependency_recovery.qnt",
+    "models/gambit/checkpoint_clock_recovery.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-checkpoint-clock/binding.json",
+    "evidence/fixtures/dev-checkpoint-clock/observations.json",
+    "evidence/fixtures/dev-checkpoint-clock/clock.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "dep-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/checkpoint_dependency_recovery.qnt"
+      }
+    },
+    {
+      "id": "dep",
+      "capability": "quint.test",
+      "dependsOn": [
+        "dep-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/checkpoint_dependency_recovery.qnt",
+        "parsed": "dep-parse",
+        "main": "checkpoint_dependency_recovery",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "R::deadlineResetControlTest",
+          "R::expiredCheckpointTest",
+          "R::interruptedRunningTest",
+          "R::liveProcessControlTest",
+          "R::missingReceiptControlTest",
+          "R::postRecoveryDriftTest",
+          "R::resumedCommittedTest",
+          "R::staleOutputControlTest",
+          "cycleControlTest",
+          "dependencyClosedTest",
+          "missingParentControlTest",
+          "postRecoveryParentDriftTest",
+          "staleParentControlTest"
+        ]
+      }
+    },
+    {
+      "id": "clock-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/checkpoint_clock_recovery.qnt"
+      }
+    },
+    {
+      "id": "clock",
+      "capability": "quint.test",
+      "dependsOn": [
+        "clock-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/checkpoint_clock_recovery.qnt",
+        "parsed": "clock-parse",
+        "main": "checkpoint_clock_recovery",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "D::cycleControlTest",
+          "D::dependencyClosedTest",
+          "D::missingParentControlTest",
+          "D::postRecoveryParentDriftTest",
+          "D::staleParentControlTest",
+          "clockBypassControlTest",
+          "expiredMappingTest",
+          "postReviewClockLossTest",
+          "rebootWithoutMappingTest",
+          "verifiedMappingTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "dep-parse",
+        "dep",
+        "clock-parse",
+        "clock"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-checkpoint-clock/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

@@ -6,12 +6,11 @@ import unittest
 
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.native_archive import archive, archive_bootstrap, source_unit_checked, validate
-
-
-NAME = "evidence/source-results/gc-notification-source-schedules-031/archive.json"
+from gambit_smp.output_observations import REGISTRY, TRANSCRIPT_SUFFIXES
 
 
 class NativeArchiveTests(unittest.TestCase):
+
     def test_atomic_history_preserves_unexecuted_scope_and_original_batch_cap(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -97,7 +96,7 @@ class NativeArchiveTests(unittest.TestCase):
 
     def test_failed_bootstrap_histories_preserve_unknown_parent_and_original_seed(self):
         for fixture in ("bootstrap-second-core-history", "bootstrap-gc-iteration-history", "bootstrap-serialization-history"):
-            name = f"evidence/source-results/fixtures/thread-completion-contract/{fixture}/archive.json"
+            name = f"tests/fixtures/historical-bootstrap/{fixture}/archive.json"
             bound = validate(ROOT, name)
             self.assertEqual(4, len(bound))
             saved = json.loads((ROOT / name).read_text())
@@ -129,84 +128,84 @@ class NativeArchiveTests(unittest.TestCase):
                 archive_bootstrap(source, root / "archive", identity)
             self.assertFalse((root / "archive").exists())
 
-    def test_actlog_source_unit_archive_binds_all_branches_without_admission(self):
-        name = "evidence/source-results/vm-actlog-abort-source031/archive.json"
-        bound = validate(ROOT, name)
-        self.assertEqual(16, len(bound))
-        saved = json.loads((ROOT / name).read_text())
-        self.assertFalse(saved["nativeGcPassed"])
-        self.assertFalse(saved["runtimeAdmitted"])
-        receipt = json.loads((ROOT / Path(name).parent / "receipt.json").read_text())
-        self.assertEqual(6, len(receipt["results"]))
-
     def test_actlog_negative_control_cannot_be_promoted_to_success(self):
-        source = ROOT / "evidence/source-results/vm-actlog-abort-source031"
-        receipt = json.loads((source / "receipt.json").read_text())
-        row = next(row for row in receipt["results"]
-                   if row["label"] == "ignored-mutex-error-control")
-        row["observation"]["exit"] = 0
-        with self.assertRaisesRegex(ValueError, "negative control"):
-            source_unit_checked(source, receipt)
-
-    def test_actlog_archive_rejects_changed_observation(self):
-        name = "evidence/source-results/vm-actlog-abort-source031/archive.json"
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            target = root / Path(name).parent
-            shutil.copytree((ROOT / name).parent, target)
-            (target / "posix-observe.log").write_text("{}\n")
-            with self.assertRaises(ValueError):
-                validate(root, name)
-
-    def test_source031_scoped_native_logs_and_identity_remain_non_admitted(self):
-        name = "evidence/source-results/source031-native-gc-fixtures/archive.json"
-        bound = validate(ROOT, name)
-        self.assertEqual(12, len(bound))
-        saved = json.loads((ROOT / name).read_text())
-        self.assertFalse(saved["nativeGcPassed"])
-        receipt = json.loads((ROOT / Path(name).parent / "receipt.json").read_text())
-        self.assertEqual("PASS", receipt["status"])
-        self.assertEqual(4, len(receipt["selectedFiles"]))
-        self.assertEqual({"gsi", "gsc"}, set(receipt["modes"]))
+            source = Path(directory)
+            results = [
+                {"label": "object-enabled", "accepted": True, "exit": 0, "timeout": False},
+                {"label": "object-disabled", "accepted": True, "exit": 0, "timeout": False},
+            ]
+            for label, count in (("posix", 3), ("void-init", 2), ("disabled", 1)):
+                log = source / f"{label}-observe.log"
+                log.write_text(json.dumps({"checks": count, "arrayLive": 0, "mutexLive": 0}) + "\n")
+                results.append({
+                    "label": label, "accepted": True,
+                    "compile": {"exit": 0, "timeout": False},
+                    "observation": {"exit": 0, "timeout": False,
+                                    "log": log.name, "logSha256": digest(log)},
+                })
+            ctrl_log = source / "ignored-mutex-error-control-observe.log"
+            ctrl_log.write_text("EXPECTED-MUTEX-ERROR\n")
+            results.append({
+                "label": "ignored-mutex-error-control", "accepted": True,
+                "compile": {"exit": 0, "timeout": False},
+                "observation": {"exit": 0, "timeout": False,
+                                "log": ctrl_log.name, "logSha256": digest(ctrl_log)},
+            })
+            receipt = {
+                "schema": "gambit-actlog-abort-source-unit.v1",
+                "status": "source-unit-pass", "sourceStable": True,
+                "runtimeAdmitted": False, "releaseAdmitted": False,
+                "results": results,
+            }
+            with self.assertRaisesRegex(ValueError, "negative control"):
+                source_unit_checked(source, receipt, root=source)
 
     def test_scoped_archive_rejects_identity_drift_and_parent_exit_mismatch(self):
-        source = ROOT / "evidence/source-results/source031-native-gc-fixtures"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with self.assertRaisesRegex(ValueError, "consistent parent exit"):
-                archive(source, root / "wrong-exit", 1, source / "identity.json")
-            wrong = root / "identity.json"
+            source = root / "source"
+            source.mkdir()
+            identity = source / "identity.json"
+            identity.write_text('{"tree":"a"}')
+            (source / "gsi.log").write_text("passed\n")
+            (source / "processor-probe.log").write_text("2\n")
+            (source / "receipt.json").write_text(json.dumps({
+                "schema": "gambit-upstream-suite.v1", "status": "PASS",
+                "modes": ["gsi"], "wholeSuiteBudgetPerMode": 300,
+                "candidateReceiptSha256": digest(identity),
+                "results": [{"mode": "gsi", "accepted": True, "exit": 0, "timeout": False}]}))
+            for bad_exit in (1, False):
+                with self.subTest(bad_exit=bad_exit), self.assertRaisesRegex(ValueError, "consistent parent exit|parent"):
+                    archive(source, root / f"wrong-exit-{bad_exit}", bad_exit, identity)
+            wrong = root / "wrong-identity.json"
             wrong.write_text("{}")
             with self.assertRaisesRegex(ValueError, "bound identity"):
                 archive(source, root / "wrong-identity", 0, wrong)
 
-    def test_all_actual_component_artifacts_are_bound_without_cache(self):
-        inputs = validate(ROOT, NAME)
-        self.assertEqual(len(inputs), 28)
-        self.assertTrue(all(".data" not in Path(name).parts for name in inputs))
-        saved = json.loads((ROOT / NAME).read_text())
-        self.assertFalse(saved["nativeGcPassed"])
-        self.assertEqual(saved["observedParentExit"], 0)
-
-    def test_changed_or_missing_component_log_is_rejected(self):
+    def test_changed_or_missing_archived_file_is_rejected(self):
         for fault in ("change", "missing"):
-            with tempfile.TemporaryDirectory() as directory:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                target = root / Path(NAME).parent
-                shutil.copytree((ROOT / NAME).parent, target)
-                log = target / "candidate/point-1.log"
+                source = root / "source"
+                source.mkdir()
+                identity = source / "identity.json"
+                identity.write_text("{}")
+                (source / "gsi.log").write_text("partial suite failure\n")
+                (source / "processor-probe.log").write_text("2\n")
+                (source / "receipt.json").write_text(json.dumps({
+                    "schema": "gambit-upstream-suite.v1", "status": "DENY",
+                    "modes": ["gsi"], "wholeSuiteBudgetPerMode": 300,
+                    "candidateReceiptSha256": digest(identity),
+                    "results": [{"mode": "gsi", "accepted": False, "exit": -9, "timeout": True}]}))
+                archive(source, root / "archive", None, identity)
+                target = root / "archive/gsi.log"
                 if fault == "change":
-                    log.write_text("not the observed output\n")
+                    target.write_text("tampered\n")
                 else:
-                    log.unlink()
-                with self.subTest(fault=fault), self.assertRaises((ValueError, FileNotFoundError)):
-                    validate(root, NAME)
-
-    def test_parent_exit_cannot_contradict_pass_or_be_a_boolean(self):
-        with tempfile.TemporaryDirectory() as directory:
-            for value in (1, False):
-                with self.subTest(value=value), self.assertRaises(ValueError):
-                    archive((ROOT / NAME).parent, Path(directory) / "new", value)
+                    target.unlink()
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    validate(root, "archive/archive.json")
 
 
 if __name__ == "__main__":

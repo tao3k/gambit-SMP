@@ -1,0 +1,244 @@
+"""Native-model research orchestration; no compiler/runtime implementation."""
+from gambit_smp.research_flow import projected_fields as _study_fields
+from gambit_smp.research_flow import study_workspace as _study_workspace
+from gambit_smp.research_flow import write_bytes as _study_write_bytes, write_text as _study_write_text
+import hashlib
+import json
+import textwrap
+from pathlib import Path
+from ascent import Engine
+
+class ScientificLibrary:
+
+    def __init__(_science, context):
+        _science.context = context
+        _science._study_fields = _study_fields
+        _science._study_workspace = _study_workspace
+        _science._study_write_bytes = _study_write_bytes
+        _science._study_write_text = _study_write_text
+        _science.hashlib = hashlib
+        _science.json = json
+        _science.textwrap = textwrap
+        _science.Path = Path
+        _science.Engine = Engine
+        _science.ROOT = _science.context.root
+        _science.STEM = 'syncop-guard-custody'
+        _science.PACKAGE = 'SyncOpGuardCustody'
+        _science.MODEL = f'dev/architecture/toolchain/models/sysml/{_science.STEM}.sysml'
+        _science.DESIGN = f'dev/architecture/toolchain/{_science.STEM}-design.org'
+        _science.MATRIX = f'dev/architecture/toolchain/{_science.STEM}-matrix.org'
+        _science.DIAGRAM = f'dev/architecture/toolchain/diagrams/{_science.STEM}.d2'
+        _science.RULES = f'dev/modeling/ascent/{_science.STEM}.rules.scm'
+        _science.QNT = 'models/build/syncop_guard_custody.qnt'
+        _science.LEAN = 'models/build/SyncOpGuardCustody.lean'
+        _science.PARAM = 'models/build/syncop_guard_parameters.qnt'
+        _science.GROUPS = [('census', 12, 'key anchor condition status qntAction leanLemma'), ('settle', 7, 'key anchor condition status qntAction leanLemma'), ('caller', 5, 'key anchor condition'), ('protocol', 5, 'key anchor condition'), ('route', 5, 'key anchor qntAction leanLemma condition'), ('gain', 3, 'key avoided added condition'), ('refinement', 4, 'key qntScope leanScope sourceDuty'), ('prior', 4, 'key path invariant qntAction leanLemma condition'), ('gate', 7, 'key qualified condition')]
+        _science.process_profile = {'cap': 60, 'stream': 'stdout', 'failure': 'runtime', 'failParameter': False, 'expectedParameter': False}
+
+    def sha(_science, p):
+        return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+    def save(_science, p, v):
+        _study_write_text(Path(p), json.dumps(v, indent=2, ensure_ascii=False) + '\n')
+
+    def project(_science):
+        keys = []
+        for group, count, schema in _science.GROUPS:
+            keys += [(group, str(i), f, f'{_science.PACKAGE}::{group}{i}.{f}') for i in range(count) for f in schema.split()]
+        for key in ['workspaceCount', 'participantCount', 'actualAdmitted']:
+            keys.append(('scalar', '', key, f'{_science.PACKAGE}::{key}'))
+        for slot in ['history', 'induction', 'source', 'platform']:
+            keys += [('need', slot, f, f'{_science.PACKAGE}::{slot}.{f}') for f in ['obligationId', 'kind', 'subjectPath', 'subjectScope', 'owner.componentId']]
+        for i in range(4):
+            keys += [('dependency', str(i), f, f'{_science.PACKAGE}::dependency{i}.{f}') for f in ['dependent.obligationId', 'prerequisite.obligationId']]
+        field_expressions = []
+        for _, _, _, expr in keys:
+            field_expressions.append(expr)
+        native = _study_fields(_science.ROOT, None, 'syncop-guard-custody', field_expressions, ordered=True, models=['dev'])
+        vals = native['orderedValues']
+        assert len(vals) == len(keys)
+        p = {}
+        for (group, i, f, _), v in zip(keys, vals, strict=True):
+            p.setdefault(group, {}).setdefault(i, {})[f] = v
+        for group, _, _ in _science.GROUPS:
+            p[group] = list(p[group].values())
+        _science.save(_study_workspace('CACHE') / 'native-queries.json', keys)
+        _science.save(_study_workspace('CACHE') / 'projection.json', p)
+        return (p, native)
+
+    def views(_science, p):
+        _study_write_text(_science.ROOT / _science.PARAM, '// Native SysML projection.\nmodule syncop_guard_parameters {\n pure val ParticipantCount = ' + str(p['scalar']['']['participantCount']) + '\n}\n')
+        lines = ['#+TITLE: Sync-Op Participants, Completion Guards and Cleanup Custody Matrix', '#+SETUPFILE: ../../modeling/org/setup.org', '#+PROPERTY: header-args :eval never', '', '* RESEARCH Canonical native SysML projection', ':PROPERTIES:', ':CUSTOM_ID: syncop-guard-custody-matrix', ':AUTHORITY: SyncOpGuardCustody', ':STATUS: conditional-models-source-open', ':END:', '', 'Local formal checks are separate from host registration and native/source qualification.']
+        graph = ['direction: down']
+        for group, field in [('census', 'condition'), ('protocol', 'condition'), ('settle', 'condition'), ('gain', 'condition')]:
+            graph += [group + ': ' + json.dumps(group.capitalize() + ' / native SysML') + ' {', ' grid-columns: 2']
+            graph += [' n' + str(i) + ': ' + json.dumps(v['key'] + '\n' + textwrap.fill(v[field], 54)) for i, v in enumerate(p[group])]
+            graph += ['}']
+        graph += ['proof: "SGC-H/I/S/E -> local ASCENT -> QNT / Lean; source and native gates OPEN"', 'census -> protocol', 'protocol -> proof', 'settle -> proof', 'proof -> gain']
+        _study_write_text(_science.ROOT / _science.DIAGRAM, '\n'.join(graph) + '\n')
+        for group, _, schema in _science.GROUPS:
+            fs = schema.split()
+            lines += ['', '** ' + group.capitalize(), '', '| ' + ' | '.join(fs) + ' |', '|' + '+'.join(('---' for _ in fs)) + '|']
+            lines += ['| ' + ' | '.join((str(v[f]) for f in fs)) + ' |' for v in p[group]]
+        _study_write_text(_science.ROOT / _science.MATRIX, '\n'.join(lines) + '\n')
+
+    def ascent(_science, p):
+        needs = [[v['obligationId'], v['kind'], v['subjectPath'], _science.sha(_science.ROOT / v['subjectPath']), v['subjectScope']] for v in p['need'].values()]
+        deps = [[v['dependent.obligationId'], v['prerequisite.obligationId']] for v in p['dependency'].values()]
+        results = {}
+        native = Engine()
+        try:
+            session = native.open_sources((_science.ROOT / _science.RULES).read_text())
+            queries = ['checked', 'missing', 'route', 'blocked', 'candidate', 'aligned', 'prioraligned', 'componentmapped']
+            assert session.run(queries=queries)['complete']
+            for case in ['current', 'missing-qnt', 'stale-subject', 'wrong-scope', 'synthetic-all', 'unqualified-chain', 'missing-source-anchor', 'missing-model-step', 'missing-prior', 'missing-root-family']:
+                all_checked = case in {'synthetic-all', 'unqualified-chain', 'missing-source-anchor', 'missing-model-step', 'missing-prior', 'missing-root-family'}
+                receipts = [[case, n, path, digest, scope] for n, kind, path, digest, scope in needs if all_checked or kind in {'interleaving', 'induction'}]
+                if case == 'missing-qnt':
+                    receipts = [x for x in receipts if x[1] != 'SGC-H']
+                if case == 'stale-subject':
+                    receipts = [x[:3] + ['stale'] + x[4:] if x[1] == 'SGC-H' else x for x in receipts]
+                if case == 'wrong-scope':
+                    receipts = [x[:4] + ['wrong'] if x[1] == 'SGC-I' else x for x in receipts]
+                gates = [[case, v['key'], str(all_checked and (not (case == 'unqualified-chain' and v['key'] == 'gc-seal'))).lower()] for v in p['gate']]
+                components = [[g + ':' + v['key'], v['anchor'], v['qntAction'], v['leanLemma']] for g in ['census', 'settle'] for v in p[g]]
+                steps = sorted({(v['qntAction'], v['leanLemma']) for g in ['route', 'prior', 'census', 'settle'] for v in p[g]})
+                if case == 'missing-model-step':
+                    steps.remove(('handoffOutcome', 'rethrowNeedsOutcomeRoot'))
+                inputs = dict(scenario=[[case]], need=needs, method=[['interleaving', 'quint'], ['induction', 'lean'], ['source-refinement', 'source-audit'], ['environment-refinement', 'platform']], receipt=receipts, dependency=deps, external=[[case, 'FSH-S', str(all_checked).lower()]], gate=gates, anchor=[[v['key'], v['anchor']] for v in p['route'] if not (case == 'missing-source-anchor' and v['key'] == 'registration')], binding=[[v['key'], v['qntAction'], v['leanLemma'], v['anchor']] for v in p['route']], modelstep=[list(v) for v in steps], component=components, componentbinding=[v for v in components if not (case == 'missing-root-family' and v[0] == 'census:rc-payload')], prior=[[v['key'], v['path'], _science.sha(_science.ROOT / v['path']), v['invariant'], v['qntAction'], v['leanLemma']] for v in p['prior']], priorbinding=[[v['key'], v['path'], _science.sha(_science.ROOT / v['path']), v['invariant'], v['qntAction'], v['leanLemma']] for v in p['prior'] if not (case == 'missing-prior' and v['key'] == 'strong-receipt')])
+                session.replace(inputs)
+                v = session.run(queries=queries)
+                assert v['complete']
+                results[case] = v['relations']
+            assert len(results['current']['componentmapped']) == 19
+            assert len(results['missing-root-family']['componentmapped']) == 18
+            assert len(results['current']['prioraligned']) == 4
+            assert len(results['missing-prior']['prioraligned']) == 3
+            assert len(results['current']['aligned']) == 5
+            assert len(results['missing-source-anchor']['aligned']) == 4
+            assert len(results['missing-model-step']['aligned']) == 4
+            assert len(results['current']['checked']) == 2 and len(results['current']['missing']) == 2 and (len(results['current']['route']) == 4)
+            for case in ['missing-qnt', 'stale-subject', 'wrong-scope']:
+                assert len(results[case]['checked']) == 1
+            assert len(results['synthetic-all']['candidate']) == 1
+            assert all((not v['candidate'] for k, v in results.items() if k != 'synthetic-all'))
+        finally:
+            native.close()
+        _science.save(_study_workspace('CACHE') / 'ascent-model-results.json', dict(results=results, hostAttested=False, repositoryRegistered=False))
+
+    def analyze(_science):
+        _study_workspace('CACHE').mkdir(parents=True, exist_ok=True)
+        _study_workspace('EVIDENCE').mkdir(parents=True, exist_ok=True)
+        p, native = _science.project()
+        assert p['scalar']['']['workspaceCount'] == 2 and p['scalar']['']['participantCount'] == 2
+        _science.views(p)
+        sources = ['vendor/gambit/gsc/' + v for v in ['_back.scm', '_gvm.scm', '_prims.scm', '_t-c-1.scm', '_t-c-2.scm', '_front.scm', '_env.scm', '_ptree1.scm', '_ptree2.scm']]
+        sources += ['../gerbil-gambit-bootstrap-audit/src/' + v for v in ['gerbil/compiler/base.ss', 'gerbil/compiler/driver.ss', 'gerbil/compiler/compile.ss', 'std/iter/macros.ss', 'std/iter/api.ss', 'std/iter.ss', 'std/string/misc.ss', 'std/sync/wg.ss']]
+        sources += ['vendor/gambit/gsc/_host.scm', 'vendor/gambit/gsc/_utils.scm', '../gerbil-gambit-bootstrap-audit/src/gerbil/expander/core.ss', 'vendor/gambit/lib/_thread.scm']
+        sources += ['vendor/gambit/lib/mem.c', 'vendor/gambit/lib/c_intf.c', 'vendor/gambit/lib/setup.c', 'vendor/gambit/lib/os_dyn.c', 'vendor/gambit/examples/tcltk/tcltk.scm', 'vendor/gambit/include/gambit.h.in', 'vendor/gambit/lib/_kernel.scm', 'vendor/gambit/lib/_nonstd.scm', 'vendor/gambit/lib/srfi/124/124.scm', '../gerbil-gambit-bootstrap-audit/src/std/db/sqlite.ss', 'vendor/gambit/doc/gambit.txi']
+        checks = [('vendor/gambit/lib/mem.c', 'scan_workers_count[0] = np;'), ('vendor/gambit/lib/mem.c', '___WORD *alloc = alloc_heap_ptr;'), ('vendor/gambit/lib/mem.c', 'alloc_heap_ptr = alloc;'), ('vendor/gambit/lib/mem.c', 'heap_chunks_to_scan_tail = new_tail;'), ('vendor/gambit/lib/mem.c', 'scan_complete_heap_chunk (___PSP ptr+1);'), ('vendor/gambit/lib/mem.c', 'while (ptr != alloc_heap_ptr)'), ('vendor/gambit/lib/mem.c', 'if (--(*workers_count) == 0)'), ('vendor/gambit/lib/mem.c', 'if (*workers_count == 0)'), ('vendor/gambit/lib/mem.c', '(*workers_count)++;'), ('vendor/gambit/lib/mem.c', 'mark_reachable_from_marked (___PSPNC);'), ('vendor/gambit/lib/mem.c', 'mark_rc (___PSPNC);'), ('vendor/gambit/lib/mem.c', 'mark_captured_continuation (___PSP &body[___CONTINUATION_FRAME]);')]
+        census = {}
+        for name, pattern, scope in [('publication', 'start_heap_chunk|end_heap_chunk|heap_chunks_to_scan|SHARED_MEMORY_BARRIER|alloc_heap_ptr = alloc', 'vendor/gambit/lib/mem.c'), ('termination', 'scan_workers_count|workers_count|scan_termination|mark_reachable_from_marked|continue_local_scan', 'vendor/gambit/lib/mem.c'), ('ffi-rc-writers', 'set_data_rc|register_rc|release_rc|data_rc|make_sfun_stack_marker|kill_sfun_stack_marker', 'vendor/gambit'), ('root-producers', 'mark_vm_scmobj|mark_symkey_tables|mark_rc|mark_global_variables|mark_continuation|mark_registers|mark_saved|mark_type_cache|mark_processor_scmobj|mark_captured_continuation', 'vendor/gambit/lib/mem.c')]:
+            out = _science.context.command(name, ['rg', '--json', '-g', '*.c', '-g', '*.scm', '-g', '*.in', '-g', '*.h', pattern, scope], policy=_science.process_profile)
+            matches = [json.loads(line)['data'] for line in out.splitlines() if json.loads(line)['type'] == 'match']
+            _science.save(_study_workspace('CACHE') / (name + '-census.json'), dict(matches=matches, scope=scope, closure='syntactic real caller/scan seams; native configuration, root/FFI closure and teardown remain open'))
+            census[name] = len(matches)
+        for path, frag in checks:
+            assert frag in (_science.ROOT / path).read_text(), (path, frag)
+        import re
+        mem = (_science.ROOT / 'vendor/gambit/lib/mem.c').read_text()
+        strong = mem[mem.index('___HIDDEN void garbage_collect_mark_strong_phase'):mem.index('___HIDDEN void garbage_collect_mark_weak_phase')]
+        actual = re.findall('\\b(mark_\\w+) \\(.*', strong)
+        expected = ['mark_vm_scmobj', 'mark_symkey_tables', 'mark_rc', 'mark_global_variables', 'mark_continuation', 'mark_registers', 'mark_saved', 'mark_type_cache', 'mark_processor_scmobj', 'mark_reachable_from_marked']
+        assert actual == expected
+        assert 'mark_rc (___PSPNC);' in strong[strong.index('if (___PROCESSOR_ID'):strong.index('  mark_global_variables')]
+        assert re.search('#define rc_head\\s+___PSTATE_MEM\\(rc_head_\\)', mem)
+        assert '#define ___PSTATE_MEM(var) ___ps->mem.var' in mem
+        assert '___rc_header *head = &rc_head;' in mem and 'h->data = val;' in mem
+        writers = []
+        for folder in ['lib', 'examples', 'include', 'gsc']:
+            for file in sorted((_science.ROOT / 'vendor/gambit' / folder).rglob('*')):
+                if not file.is_file() or file.suffix not in {'.c', '.scm', '.in', '.h'}:
+                    continue
+                for no, line in enumerate(file.read_text(errors='replace').splitlines(), 1):
+                    if re.search('(?:___EXT\\(___set_data_rc\\)|___set_data_rc)\\s*\\(', line):
+                        writers.append(dict(path=str(file.relative_to(_science.ROOT)), line=no, text=line.strip()))
+        assert [(v['path'], v['line']) for v in writers] == [('vendor/gambit/lib/os_dyn.c', 769), ('vendor/gambit/examples/tcltk/tcltk.scm', 326)]
+        _science.save(_study_workspace('CACHE') / 'root-contract-facts.json', dict(strongEntryOrder=actual, setupStillEntry='mem.c:6800', directPayloadWriters=writers, scope='Inspected in-tree C/Scheme/headers only; exported consumers and arbitrary aliases remain open', asymmetry='Registration uses current PSTATE, strong mark_rc called only on processor zero', fullRootCertificate=False, structuralOnly=True))
+        cint = (_science.ROOT / 'vendor/gambit/lib/c_intf.c').read_text()
+        setup = (_science.ROOT / 'vendor/gambit/lib/setup.c').read_text()
+        header = (_science.ROOT / 'vendor/gambit/include/gambit.h.in').read_text()
+        marker = cint[cint.index('___EXP_FUNC(___SCMOBJ,___make_sfun_stack_marker)'):cint.index('___EXP_FUNC(void,___kill_sfun_stack_marker)')]
+        assert marker.index('___make_vector') < marker.index('proc_or_false may have been GC') < marker.index('___VECTORELEM(stack_marker, 0) = proc_or_false;')
+        assert 'if (___garbage_collect (___PSP words))' in mem
+        assert 'on_all_processors (___PSP &sop);' in setup
+        call = setup[setup.index('___EXP_FUNC(___SCMOBJ,___call)'):setup.index('___EXP_FUNC(___SCMOBJ,___run)')]
+        assert call.index('___throw_error (___PSP ___err);') < call.index('return ___FIX(___NO_ERR);')
+        assert '___LONGJMP1(___ps->catcher->buf)' in header
+        cleanup = mem[mem.index('___HIDDEN void cleanup_rc'):mem.index('___EXP_FUNC(void*,___alloc_rc_no_register)')]
+        assert '___FREE_MEM(h);' in cleanup and 'refcount' not in cleanup
+        _science.save(_study_workspace('CACHE') / 'handoff-source-facts.json', dict(markerAllocatesBeforeExplicitArgumentInstall=True, markerTodoRetained=True, allocatorRequestsAllProcessorsGc=True, callCanRethrowBeforeNormalReturn=True, cleanupRcIgnoresOrdinaryRefcount=True, proposedProtocolImplemented=False, scope='Source-order and direct-call witnesses only; ABI, actual legal native execution and complete exception coverage are open'))
+        loop = setup[setup.index('void execute_sync_op_loop\n', setup.index('void execute_sync_op\n')):setup.index('void service_sync_op\n', setup.index('void execute_sync_op\n'))]
+        assert loop.index('barrier_sync_op') < loop.index('intr_flag[___INTR_SYNC_OP] = ___FIX(0)') < loop.index('execute_sync_op (___PSP &sop);')
+        assert 'sop_ptr->op = OP_NOOP;' in loop and 'if (!first_iter)' in loop and ('___throw_error (___PSP ___err);' in loop)
+        assert 'for (;;)\n    service_sync_op (___PSPNC);' in setup
+        resize = setup[setup.index('___SCMOBJ ___vm_resize_pstate'):setup.index('void execute_sync_op\n')]
+        assert resize.index('___garbage_collect_pstate (___ps, 0)') < resize.index('___cleanup_pstate (___ps);')
+        assert '___thread_join (t); /* ignore error */' in resize
+        send = setup[setup.index('#define SYNC_SEND_MSG'):setup.index('___HIDDEN void ___sync_wait')]
+        assert send.index('___MUTEX_UNLOCK') < send.index('___CONDVAR_SIGNAL')
+        procCleanup = setup[setup.index('___HIDDEN void cleanup_interrupts_pstate'):setup.index('/*---------------------------------------------------------------------------*/', setup.index('___HIDDEN void cleanup_interrupts_pstate'))]
+        assert 'release_procedural_interrupt' in procCleanup
+        assert '#define OP_VM_RESIZE               OP_MAKE( 2,0)' in setup and '#define OP_GARBAGE_COLLECT         OP_MAKE( 3,COMBINING_ADD)' in setup
+        assert 'sop.op == sop_ptr->op' in loop
+        vmCleanup = mem[mem.index('void ___cleanup_mem_vmstate'):mem.index('  free_msections (&the_msections);', mem.index('void ___cleanup_mem_vmstate'))]
+        assert vmCleanup.index('___CONDVAR_DESTROY(scan_termination_condvar)') < vmCleanup.index('___cleanup_mem_pstate')
+        _science.save(_study_workspace('CACHE') / 'syncop-source-facts.json', dict(requesterAndPeersUseSameLoop=True, operationPriorities=dict(resize=2, gc=3, noop=63), matchingRequestOnlyReceivesResult=True, nonzeroProcessorServicesAfterSchemeReturn=True, callbackResultResetAndNoopDistinct=True, resizeHasDirectGcBeforeRetirement=True, shrinkJoinErrorIgnoredInSource=True, senderSignalAfterUnlock=True, vmWrapperDestroysScanFacilityBeforePstateMemoryCleanup=True, proceduralInterruptCleanupIsNotAllSyncFacilityDestruction=True, sourceOnly=True, proposedIntegrationImplemented=False))
+        q = (_science.ROOT / _science.QNT).read_text()
+        l = (_science.ROOT / _science.LEAN).read_text()
+        for v in p['route'] + p['census'] + p['settle']:
+            assert 'action ' + v['qntAction'] + '=' in q or 'action ' + v['qntAction'] + '(' in q
+            assert 'theorem ' + v['leanLemma'] + ' ' in l
+        for v in p['refinement']:
+            assert all(('action ' + n + '(' in q or 'action ' + n + '=' in q for n in v['qntScope'].split(';')))
+            assert all(('theorem ' + n + ' ' in l for n in v['leanScope'].split(';')))
+        prior = []
+        for item in p['prior']:
+            path = _science.ROOT / item['path']
+            text = path.read_text()
+            assert any((prefix + item['invariant'] + suffix in text for prefix in ['val ', 'def '] for suffix in [' =', '=']))
+            assert 'action ' + item['qntAction'] + '=' in q or 'action ' + item['qntAction'] + '(' in q
+            assert 'theorem ' + item['leanLemma'] + ' ' in l
+            sources.append(item['path'])
+            prior.append(dict(**item, sha256=_science.sha(path), refinementProved=False, rerun=False))
+        _science.save(_study_workspace('CACHE') / 'prior-model-alignment.json', prior)
+        _science.save(_study_workspace('CACHE') / 'source-census.json', dict(counts=census, checks=checks, files={s: _science.sha(_science.ROOT / s) for s in sources}, aliasClosure='open: participant tree, full exits, foreign producers and cleanup authority', nativeTests=False))
+        tests = _science.context.command('quint-tests', ['quint', 'test', _science.QNT, '--match', 'Test$'], policy=_science.process_profile)
+        assert tests.count('ok ') == 34 and tests.count('ControlTest passed') == 19
+        _science.context.command('quint-samples', ['quint', 'run', _science.QNT, '--init', 'init', '--invariant', 'safe', '--max-samples', '100', '--max-steps', '80', '--seed', '17', '--verbosity', '1'], policy=_science.process_profile)
+        _science.context.command('quint-other', ['quint', 'run', _science.QNT, '--init', 'initResize', '--invariant', 'safe', '--max-samples', '100', '--max-steps', '80', '--seed', '17', '--verbosity', '1'], policy=_science.process_profile)
+        _science.context.command('quint-collision', ['quint', 'run', _science.QNT, '--init', 'initCollision', '--invariant', 'safe', '--max-samples', '100', '--max-steps', '80', '--seed', '17', '--verbosity', '1'], policy=_science.process_profile)
+        _science.context.command('lean', ['lean', _science.LEAN], policy=_science.process_profile)
+        _science.ascent(p)
+        _science.context.command('d2-svg', ['d2', _science.DIAGRAM, _science.DIAGRAM[:-3] + '.svg'], policy=_science.process_profile)
+        _science.context.command('d2-png', ['d2', _science.DIAGRAM, str(_study_workspace('CACHE') / 'diagram.png')], policy=_science.process_profile)
+        org = (_science.ROOT / '.cache/research/legacy-evidence/evidence/research/iter-compiler-service/check-org.el').read_text().replace('iter-compiler-service-design.org', _science.STEM + '-design.org').replace('iter-compiler-service-matrix.org', _science.STEM + '-matrix.org')
+        _science.save(_study_workspace('EVIDENCE') / 'checks.json', dict(status='pending-local-checks', runtimeAdmitted=False))
+        _study_write_bytes(_study_workspace('EVIDENCE') / 'prior-model-alignment.json', (_study_workspace('CACHE') / 'prior-model-alignment.json').read_bytes())
+        _study_write_text(_study_workspace('CACHE') / 'check-org.el', org)
+        _science.context.command('org', ['emacs', '--batch', '-Q', '--load', str(_study_workspace('CACHE') / 'check-org.el')], policy=_science.process_profile)
+        parent = _science.ROOT / '.cache/research/legacy-evidence/evidence/research/ffi-scan-ready-handoff/input.json'
+        bindings = json.loads(parent.read_text())['sourceBindings']
+        assert all((_science.sha(_science.ROOT / path) == h for path, h in bindings.items())), 'Parent drift'
+        artifacts = [_science.MODEL, _science.DESIGN, _science.MATRIX, _science.DIAGRAM, _science.RULES, _science.QNT, _science.LEAN, _science.PARAM, _science.context.library_source((_science.STEM + '-study.py').removesuffix('.py').replace('-', '_'))]
+        for path in artifacts + sources:
+            bindings[path] = _science.sha(_science.ROOT / path)
+        identity = {'task': _science.STEM, 'head': _science.context.command('head', ['git', 'rev-parse', 'HEAD'], policy=_science.process_profile).strip(), 'vendorHead': _science.context.command('vendor-head', ['git', '-C', 'vendor/gambit', 'rev-parse', 'HEAD'], policy=_science.process_profile).strip(), 'identityBoundary': 'Worktree file hashes, not HEAD alone, identify inspected dirty source'}
+        _science.save(_study_workspace('CACHE') / 'input.json', dict(sourceBindings=bindings, checkout=identity, parentLocalInputSha256=_science.sha(parent), parentHostRegistered=False, sysmlSha256=_science.sha(_study_workspace('CACHE') / 'projection.json'), logs={str(path.relative_to(_science.ROOT)): _science.sha(path) for path in _study_workspace('CACHE').iterdir() if path.suffix in {'.stdout', '.stderr'}}))
+        checks = dict(status='conditional-local-models-pass', qntHistories=34, negativeControls=19, sampledRuns=300, maxSteps=80, leanBoundaryLemmas=17, ascentLocalScenarios=10, gatesOpen=7, aliasClosure='open: participant tree, full exits, foreign producers and cleanup authority', sourceRefinement='open', hostRegistration='unresolved inherited attestation failure; not retried', runtimeAdmitted=False, nativeTestsRun=False, performanceTestsRun=False)
+        _science.save(_study_workspace('CACHE') / 'checks.json', checks)
+        for path in _study_workspace('CACHE').iterdir():
+            if path.is_file() and path.suffix not in {'.png', '.stdout', '.stderr', '.txt', '.log'}:
+                _study_write_bytes(_study_workspace('EVIDENCE') / path.name, path.read_bytes())
+        _science.save(_study_workspace('EVIDENCE') / 'artifacts.json', {str(p.relative_to(_science.ROOT)): _science.sha(p) for p in _study_workspace('EVIDENCE').iterdir() if p.is_file() and p.name != 'artifacts.json'})
+        print(json.dumps(checks))

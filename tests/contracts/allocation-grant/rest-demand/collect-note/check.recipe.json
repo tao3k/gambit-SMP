@@ -1,0 +1,86 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "rest-collect-note",
+  "scope": "Source contract for the production collect note only. No core build, no native admission, ledger 5/12, 295/300 unchanged.",
+  "budgetSeconds": 60,
+  "inputs": [
+    "evidence/dsl/c-bounded-contract.ss",
+    "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+    "tests/contracts/allocation-grant/rest-demand/collect-note/check.recipe.json",
+    "tests/contracts/allocation-grant/rest-demand/collect-note/harness.c",
+    "vendor/gambit/lib/_mem/rc-allocation.inc"
+  ],
+  "steps": [
+    {
+      "id": "collect-note",
+      "capability": "c.cbmc",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "harness": "tests/contracts/allocation-grant/rest-demand/collect-note/harness.c",
+        "function": "collect_note_contract",
+        "sources": [
+          "tests/contracts/allocation-grant/rest-demand/collect-note/harness.c",
+          "vendor/gambit/lib/_mem/rc-allocation.inc"
+        ],
+        "projections": [
+          {
+            "source": "vendor/gambit/lib/_mem/rc-allocation.inc",
+            "target": "collect-note.inc",
+            "begin": "___WORD ___rest_fallback_pops;",
+            "end": "___WORD ___rest_fallback_vector_writes;"
+          }
+        ],
+        "unwind": 1,
+        "scope": "The production ___rest_note_before_collect body copies two counters and does not assign a separate frame sentinel.",
+        "assumptions": [
+          "LP64 signed long. The function body and its four globals are projected unchanged.",
+          "The frame sentinel is a harness global, not a field of the production note.",
+          "This source cut matches the two-store image function. It does not prove the linked handler restores a frame."
+        ],
+        "contract": "allocation-grant/rest-demand",
+        "branch": "collect-note",
+        "interface": "AllocationGrant",
+        "assertions": [
+          "note.copies-pops",
+          "note.copies-writes",
+          "note.leaves-frame-sentinel"
+        ],
+        "solver": "z3",
+        "options": [
+          "--drop-unused-functions",
+          "--slice-formula"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "collect-note"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "evidence/fixtures/dev-cbmc-copy-plan/evidence-entry.json",
+        "queries": {
+          "missing": "missing_boundary",
+          "repairs": "repair_needed",
+          "verified": "verified",
+          "unresolved": "unresolved",
+          "sources": "bound_source",
+          "assumptions": "assumption"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "repairs",
+          "verified",
+          "unresolved",
+          "sources",
+          "assumptions"
+        ]
+      }
+    }
+  ]
+}

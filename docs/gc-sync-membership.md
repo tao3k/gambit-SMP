@@ -60,7 +60,7 @@ Quint 0.33.0 / TLC found all four independently injected faults:
 The positive protocol exhausts **129 distinct / 198 generated states**, depth
 44, with zero queued states. Both initial population choices are included.
 All five verifier checks are admitted with unchanged model bytes. Receipt:
-`evidence/model-results/gc-sync-membership.json`; four digest-bound traces are
+`.cache/research/legacy-evidence/evidence/model-results/gc-sync-membership.json`; four digest-bound traces are
 under `models/gambit/counterexamples/gc_sync_membership-*.json`.
 
 Attempt001 is retained as a Quint init-action translation denial. Attempt002
@@ -88,7 +88,7 @@ binding, rather than promoting prose to proof or repeating denied native runs.
 Tree safety and channel-drain properties each exhaust 724 distinct / 1,961
 generated states. Message publication's three negative controls are accepted;
 its positive exhausts six distinct / nine generated states. Both receipts are
-now under `evidence/model-results/`, designated in the case manifest. All six
+now under `.cache/research/legacy-evidence/evidence/model-results/`, designated in the case manifest. All six
 models in this dependency closure have digest-checked recorded admissions;
 the missing-designated-receipt query is empty. This is not executable semantic
 refinement of the contracts or complete native acceptance.

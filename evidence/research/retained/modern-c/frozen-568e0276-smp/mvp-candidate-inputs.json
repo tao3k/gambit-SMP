@@ -1,0 +1,24 @@
+{
+  "baseRevision": "568e02766ba0bc091e623506224558490fbba267",
+  "baselineTree": "30ce83fcd546febe6eb425e04697c9339c59bf29",
+  "profileSha256": "884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69",
+  "vendorInputs": {
+    "include/_gambit/gvm_operations.h.in": "f8e770fc14bd90404a9535b28f50db3fa50701a6facf53216b8f16ec440f815a",
+    "tests/unit-tests/06-thread/issue_216.scm": "f552bb47197d1f00121170ccc81bdc8d6db3e531aa2252cf7807ff8bda4d8559"
+  },
+  "vendorDiff": "diff --git a/include/_gambit/gvm_operations.h.in b/include/_gambit/gvm_operations.h.in\nindex 13936cff..2d9c3fd0 100644\n--- a/include/_gambit/gvm_operations.h.in\n+++ b/include/_gambit/gvm_operations.h.in\n@@ -616,7 +616,7 @@ ___EXPECT_FALSE(__builtin_mul_overflow(___FW(x),___FW(___INT(y)),&var))\n         ? (var=___FIXMUL(x,y),1) \\\n         : 0) \\\n    : (y)==___FIX(-1) \\\n-     ? (var=___FIXNEGP(x),1) \\\n+     ? ___FIXNEGP_NOTFALSEP(var,x) \\\n      : ___EXPECT_TRUE(___FIX_BETWEEN(x,___FIX(___MAX_FIX/___INT(y)),___FIX(___MIN_FIX/___INT(y)))) \\\n        ? (var=___FIXMUL(x,y),1) \\\n        : 0)\ndiff --git a/tests/unit-tests/06-thread/issue_216.scm b/tests/unit-tests/06-thread/issue_216.scm\nindex 1c758d84..7fee97e8 100644\n--- a/tests/unit-tests/06-thread/issue_216.scm\n+++ b/tests/unit-tests/06-thread/issue_216.scm\n@@ -2,9 +2,20 @@\n \n ;;; Create some threads but don't start them.\n \n-(define t1 (make-thread (lambda () (thread-sleep! .02) (println \"t1 ending\"))))\n+(define driver (current-thread))\n \n-(define t2 (make-thread (lambda () (thread-sleep! .02) (println \"t2 ending\"))))\n+;; Keep the target alive until the driver finishes submitting interrupts.\n+;; A relative sleep does not guarantee this under scheduler or host load.\n+(define (waiting-thread name)\n+  (make-thread\n+   (lambda ()\n+     (thread-send driver 'ready)\n+     (thread-receive)\n+     (println name \" ending\"))))\n+\n+(define t1 (waiting-thread \"t1\"))\n+(define t2 (waiting-thread \"t2\"))\n+(define delivered '())\n \n (define t3 (make-thread (lambda () (println \"t3 ending\"))))\n \n@@ -18,11 +29,12 @@\n \n (thread-start! t1)\n \n-(thread-sleep! .01)\n+(test-eq 'ready (thread-receive))\n \n (thread-interrupt! t1 (lambda () (println \"t1 interrupt\")))\n \n-(thread-sleep! .05)\n+(thread-send t1 'done)\n+(thread-join! t1)\n \n \n ;;; Multiple interruptions has caused problems in the past:\n@@ -31,13 +43,19 @@\n \n (thread-start! t2)\n \n-(thread-sleep! .01)\n+(test-eq 'ready (thread-receive))\n \n-(thread-interrupt! t2 (lambda () (println \"t2 interrupt #1\")))\n-(thread-interrupt! t2 (lambda () (println \"t2 interrupt #2\")))\n-(thread-interrupt! t2 (lambda () (println \"t2 interrupt #3\")))\n+(define (record-interrupt number)\n+  (set! delivered (cons number delivered))\n+  (println \"t2 interrupt #\" number))\n \n-(thread-sleep! .05)\n+(thread-interrupt! t2 (lambda () (record-interrupt 1)))\n+(thread-interrupt! t2 (lambda () (record-interrupt 2)))\n+(thread-interrupt! t2 (lambda () (record-interrupt 3)))\n+\n+(thread-send t2 'done)\n+(thread-join! t2)\n+(test-equal '(3 2 1) delivered)\n \n \n ;;; Interrupting a thread after it is started but before it begins\n",
+  "validationInputs": {
+    "src/gambit_smp/compiler_phase_primitives.py": "deb107aed59998fff573d5fcd41ccd6b194498ff9eaef00d7e856e6f68a007d5",
+    "src/gambit_smp/native_capabilities.py": "1fec130c97d59cf4cf99cd8c3099f445e36b2635dce83f1fbc7b11957932edc8",
+    "tests/test_compiled_suite_phases.py": "e6dc418af0e91ba2491ec843d6eebe3bb9d9ed4d85d8accbab351ddd303d5c60",
+    "models/gambit/native/numeric-alias/outline-assertions.scm": "4bf384b92bd647fdec9641444702198b5b0f9ceaa2f40b5ae6bf43e677c46604"
+  },
+  "numericFixtureUnchanged": true,
+  "requiredFamilies": [
+    "bootstrap",
+    "gsi",
+    "gsc"
+  ],
+  "familyPasses": [],
+  "published": false
+}

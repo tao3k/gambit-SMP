@@ -82,7 +82,7 @@ def main():
     args = parser.parse_args()
     source = args.source.resolve(strict=True)
     manifest_path = ROOT / "evidence/gc-queue-wait-composition.json"
-    proof = ROOT / "evidence/model-results/gc-queue-wait-composition/receipt.json"
+    proof = ROOT / ".cache/research/legacy-evidence/evidence/model-results/gc-queue-wait-composition/receipt.json"
     manifest = json.loads(manifest_path.read_text())
     rows = checked_rows(ROOT, manifest, proof)
     name = source.relative_to(ROOT).as_posix()
@@ -90,7 +90,7 @@ def main():
         raise ValueError("source differs from reviewed model context")
     inputs = {**manifest["contextInputs"],
               "evidence/gc-queue-wait-composition.json": digest(manifest_path),
-              "evidence/model-results/gc-queue-wait-composition/receipt.json": digest(proof)}
+              ".cache/research/legacy-evidence/evidence/model-results/gc-queue-wait-composition/receipt.json": digest(proof)}
     for path in (Path(__file__).resolve(), ROOT / "src/gambit_smp/source_binding.py",
                  ROOT / "src/gambit_smp/protocol_evidence.py",
                  ROOT / "src/gambit_smp/check_gambit.py",
@@ -116,5 +116,9 @@ def main():
     return 0
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('gc-queue-binding')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('gc-queue-binding', main))

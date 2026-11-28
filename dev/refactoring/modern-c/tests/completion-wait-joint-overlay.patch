@@ -1,0 +1,115 @@
+--- a/map-worker-stop-gc-cuts.h
++++ b/map-worker-stop-gc-cuts.h
+@@ -333,10 +333,24 @@
+   map_worker_rounds.weak_receipt = epoch;
+ }
+ 
++/* DEV observation for the installed target of the current wait. */
++static ___rc_domain *joint_wait_domain;
++static uintptr_t joint_wait_scan_epoch;
++
+ void map_slot_gc_repaired(void *carrier, uintptr_t epoch)
+ {
+   ___processor_state ps = carrier;
+   ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(ps);
++  if (joint_wait_domain != NULL) {
++    ___root_round *joint = ___ROOT_UNION(vm);
++    if (joint->participants == 3 && joint->collection.worker_count == 2)
++      for (int i = 0; i < joint->participants; ++i)
++        if (joint->members[i].rc == joint_wait_domain &&
++            joint_wait_domain->task.epoch == epoch &&
++            joint_wait_domain->task.state == ___ROOT_DONE &&
++            joint_wait_domain->task.scan_leases == 0)
++          joint_wait_scan_epoch = epoch;
++  }
+   if (vm != map_worker_rounds.vm)
+     return;
+   ___root_round *round = ___ROOT_UNION(vm);
+--- a/completion-wait-restore.scm
++++ b/completion-wait-restore.scm
+@@ -56,6 +56,36 @@
+                     (+ slots (if (memq frame seen) 0 live))
+                     (+ words (if (memq frame seen) 0 (frame-physical-words frame)))))))))
+ 
++(define borrow-wait-target! (c-lambda () bool
++  "___return(___borrow_rc_root(___ps, wait_transfer.target) != NULL);"))
++(define return-wait-target! (c-lambda () void
++  "___return_rc_root(wait_transfer.target);"))
++
++(define watch-target-domain! (c-lambda (bool) void #<<c-end
++joint_wait_scan_epoch = 0;
++joint_wait_domain = ___arg1
++  ? ((___rc_header *)wait_transfer.target - 1)->domain : NULL;
++c-end
++))
++(define target-scan-epoch (c-lambda () unsigned-long
++  "___return(joint_wait_scan_epoch);"))
++
++;; The frozen original image supplies this descriptor-specific expectation.
++;; The ordinary wait replay can capture a different label. This is an
++;; acceptance-oracle mutation and does not change the live heap descriptor.
++(define (reject-missing-saved-r0 generation)
++  (let* ((saved-r0 '(9 9 saved-r0))
++         (chain '(1 17 chain))
++         (complete (list chain saved-r0))
++         (omitted (list chain)))
++    (ensure (and (memq saved-r0 complete)
++                 (not (memq saved-r0 omitted))
++                 (= 3 (transfer-query generation)))
++            "omitted saved R0 accepted")
++    (write (list 'JOINT-WAIT-SLOT9-ORACLE generation 'omission-rejected
++                 'original-descriptor-only))
++    (newline)))
++
+ (define (restore-wait-case converted?)
+   (let ((controller (current-thread)) (m (make-mutex))
+         (gate (make-mutex)) (cv (make-condition-variable)) (released #f)
+@@ -106,8 +136,10 @@
+           (if converted?
+               (begin
+                 (ensure (= -1 (transfer-ack generation #t)) "wait-frame lost ACK")
+-                (ensure (= 3 (transfer-query generation)) "wait-frame ACK query")))
++                (ensure (= 3 (transfer-query generation)) "wait-frame ACK query")
++                (ensure (= 3 (transfer-ack generation #f)) "wait-frame repeated ACK")))
+           (transfer-reader! #t)
++          (if converted? (ensure (borrow-wait-target!) "native target borrow"))
+           (mutex-lock! gate)
+           (set! released #t)
+           (condition-variable-broadcast! cv)
+@@ -117,8 +149,17 @@
+           (transfer-cache! #f)
+           (ensure (and (= callbacks 1) (= completed 1)) "capturing owner ended exactly once")
+           (if converted?
+-              (ensure (not (transfer-retire generation #f)) "escaped reader outlives owner"))
++              (begin
++                (ensure (not (transfer-retire generation #f)) "escaped reader outlives owner")
++                (watch-target-domain! #t)))
+           (##gc)
++          (if converted?
++              (let ((epoch (target-scan-epoch)))
++                (watch-target-domain! #f)
++                (ensure (> epoch 0) "missing post-join target domain scan")
++                (write (list 'JOINT-WAIT-TARGET-SCAN generation epoch 'R=3 'W=2))
++                (newline)
++                (reject-missing-saved-r0 generation)))
+           (let* ((slot (wait-frame-slot (vector-ref (active-graph converted?) 1)))
+                  (frame (vector-ref slot 0)) (index (vector-ref slot 1))
+                  (old-alias (vector-ref slot 2)) (replacement (vector 'wait-cell 9))
+@@ -153,8 +194,16 @@
+                            'allocated-bytes (- (f64vector-ref bytes 1) (f64vector-ref bytes 0))
+                            'static-entries 0 'eliminated-closures 0)) (newline)))
+           (transfer-reader! #f)
++          (if converted? (return-wait-target!))
+           (ensure (if converted? (transfer-retire generation #f) (finish-control))
+-                  "post-shot reader settlement"))))))
++                  "post-shot reader settlement")
++          (if converted?
++              (begin
++                (ensure (transfer-releases) "joint wait source/target release counts")
++                (write (list 'JOINT-WAIT-REPLAY-PASS generation 'shots=2
++                             'ack=queried+repeated 'rc-borrow=across-scheme-join
++                             'release=once-each))
++                (newline))))))))
+ (restore-wait-case #f)
+ (restore-wait-case #t)
+ 

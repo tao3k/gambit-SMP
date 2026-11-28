@@ -165,7 +165,7 @@ class WorkspaceCustodyTests(unittest.TestCase):
         for reference in references:
             self.assertTrue(reference["path"].startswith(".cache/research/workspace-states/"))
             self.assertEqual(digest(self.root / reference["path"]), reference["sha256"])
-        self.assertFalse((self.root / "evidence/research/workspace-states").exists())
+        self.assertFalse((self.root / ".cache/research/legacy-evidence/evidence/research/workspace-states").exists())
 
     def test_cached_state_loss_is_unknown_not_an_admitted_runtime(self):
         out = self.source.parent

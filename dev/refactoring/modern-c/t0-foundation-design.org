@@ -1,0 +1,179 @@
+#+TITLE: GC and SMP as the T0 Modern C Refactoring Foundation
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+#+PROPERTY: COLUMNS %ITEM %OWNER %STATUS %REFINEMENT_STATUS
+
+* RESEARCH Redesign the runtime foundation, reuse existing evidence :modern_c:t0:
+:PROPERTIES:
+:ID: 7a55a715-d939-4e31-86be-7c78568c1b4f
+:CUSTOM_ID: t0-gc-smp-foundation
+:OWNER: modern-C refactoring with GC, execution, control and FFI
+:AUTHORITY: GambitRuntimeComposition
+:STATUS: target-architecture-refinement-open
+:REFINEMENT_STATUS: proposed-not-mechanized
+:EVIDENCE_CLASS: source-driven-target-design
+:END:
+
+GC and same-VM SMP are T0 architectural work for Gambit modernization. DEV's
+purpose is a coherent target refactoring model: responsibilities, transitions,
+shared contracts, migration dependencies, benefits and disproof conditions.
+It is not another configuration catalogue or a duplicate copy of root GC models.
+Modern generated C is the required engineering path; Zig is a separately justified
+replacement candidate and does not define these runtime semantics.
+
+The root models/ tree is the maintained formal source library. Its contents
+have different scopes: some characterize current source, some specify proposals,
+some carry historical conditional proofs. File location alone never means that
+all current GC/SMP behavior is proved or that the target architecture already
+exists. Reuse exact bindings and preserve the earlier counterexamples and gaps.
+
+[[file:../../architecture/runtime/models/sysml/composition.sysml][The existing runtime-composition SysML]] now owns seven explicit T0 target lanes,
+four baseline-reuse records and nine interface dependencies. The
+[[file:diagrams/t0-foundation.svg][D2]] is rendered directly from its typed T0TargetGraph by the installed
+SysML CLI. The responsibility and ownership matrices below explain that model. This extends the
+[[file:runtime-blueprint.org][multicore runtime blueprint]], without creating another organization source.
+[[file:../../architecture/runtime/interfaces/frame-contract-design.org][FrameSpec]] is the current concrete shared-interface cut.
+
+* RESEARCH Seven coordinated target responsibilities
+:PROPERTIES:
+:CUSTOM_ID: t0-target-responsibilities
+:END:
+
+#+NAME: t0-target-decision-matrix
+| T0 lane | Target replacement | Why frame-only modernization is insufficient |
+|---+---+---|
+| Execution | VM domain, execution context grant and independent epoch participant membership | A frame address/processor index cannot authorize resume, removal or ownership transfer |
+| Roots | Completed semantic FrameSpec and one generated layout/scan/reload contract | Correct encoding does not prove source liveness, final publication or foreign-root closure |
+| Collector work | CollectorWorkContext with copy/scan/queue/claim custody and explicit phase coordinator | Moving worker threads without separating PSTATE-owned state simply moves the old coupling |
+| Heap/generations | Context allocation grants, VM capacity epoch, promotion/remembered-edge contract | Fewer mature scans require complete writer/barrier closure and a positive work tradeoff |
+| Control | Logical continuation chain, explicit origins and descriptor/image lifetimes | Heap frames still reference control metadata; preserving multi-shot behavior needs capture/restore/wind semantics |
+| Foreign | Root-safe borrowing, blocking participation, nested callbacks and qualified release owners | A GC worker is not automatically a legal foreign destructor/callback thread |
+| Progress | Participant closure, work closure, common completion/capacity results, reclaim permits and fairness | Finite safety, local-empty or a completed barrier is not proof of global completion or scalability |
+
+These are coordinated responsibilities, not seven mandatory allocations,
+processes or independent runtime implementations. Their target transition systems
+need deliberate design under the owning modules; do not invent a toy local GC
+model to make a coverage table appear complete.
+
+* RESEARCH Source pressure and what must change
+:PROPERTIES:
+:CUSTOM_ID: t0-source-and-retirement
+:END:
+
+mem.c:276-311 selects allocator state, scan cursors, queues, RC and weak work
+through PSTATE. Strong marking gives processor zero some common root duties,
+then each participant traverses its continuation, registers, saved and processor
+roots. The GC entry uses fixed participant barriers and processor-zero resize
+before participant-local preparation. These are current coupling/role facts,
+not proof that every supported current run races or fails.
+
+A target work grant must identify the VM/epoch and the exact scan/copy task
+independently of the mutator whose roots originated it. Root participants and
+collector workers are distinct sets. CollectorWorkContext cannot be a renamed
+PSTATE pointer that still selects another mutator's allocation cursors and root
+ownership implicitly. All work-state consumers, capacity accounting and failure
+handoffs must migrate before that old responsibility retires.
+
+The target coordinator must distinguish sealing the required root participant
+set, closing every work producer, accounting private/claimed/queued/descendant
+work, publishing a common capacity/completion result and authorizing resource
+reclamation. Resize requests and resumed contexts must agree on the same accepted
+result; local control-flow branches cannot invent divergent outcomes. Retain
+failed/unknown transfer custody. Do not equate queue-empty with producer closure.
+
+Context/worker reassignment and continuation migration also differ. A work item
+can be reassigned under a valid task/metadata grant without transferring Scheme
+execution. Context migration must preserve current root and control origin;
+cross-VM continuation use needs explicit separate admission. The design retains
+Gambit's supported multi-shot and C-facing behavior rather than silently replacing
+it with one-shot effects or restricting all foreign interaction.
+
+A context-local nursery and parallel stopped-mutator minor collection remain the
+existing blueprint's selected research direction. The full algorithm is still an
+open target design: all stores, remembered-edge visibility, promotion reserve,
+weak/cleanup phases, capacity recovery and root reload must compose. Neither a
+new implementation language nor copying OCaml's collector removes these duties.
+Learning another runtime means understanding its invariants, then deriving the
+right choices for Gambit's continuation, object and C/FFI design.
+
+The composition now has a typed T0CollectionBoundary that reuses existing
+VmRecord, ContextRecord and RootCarrierRecord definitions rather than cloning
+them. Four target requirements separate scanner admission, managed resume,
+whole-GC completion and target-specific reclamation. They name VM/epoch agreement,
+final roots/stopped mutation, live task/descriptor custody, relocation reload,
+complete participant and producer census, all work/debt states, weak/cleanup,
+common capacity and last-user closure. Root/scanner/context identities and worker
+grants must match the active VM request epoch; two equal stale epochs are not
+enough. Work closure and common capacity likewise identify that same request.
+Worker identity alone grants none of them.
+These are unsatisfied necessary constraints, not an executable GC algorithm or
+a proof that the corresponding native guards exist. Progress remains separate.
+
+* RESEARCH Model and evidence ownership
+:PROPERTIES:
+:CUSTOM_ID: t0-model-ownership
+:END:
+
+#+NAME: t0-model-owner-boundary
+| Layer | Maintained authority | Meaning |
+|---+---+---|
+| Existing evidence and formal semantics | Root models/ and current ContractBinding registry | Exact source/symbols, assumptions, counterexamples and receipt scope; unchanged here |
+| Target system/refactoring structure | Runtime-composition SysML and module-owned DEV models | New ownership, protocol interfaces, replacement duties, dependencies and admission criteria |
+| Future target behavior | QNT transition systems under their unique owning model root | Distinct execution/participant/work state and meaningful failure/interleaving cohorts; design obligations until authored |
+| Future refinement | Lean relations and proofs under unique owning root | Encoding/location laws, root/work invariants, concrete steps, weak-memory premises and safety/progress composition |
+| Evidence reasoning | SysML-derived ASCENT associations | Trace actual source to target role, law, migration cut and classified counterexample; hypotheses, not native proof |
+| Explanation and views | Authored Org; SysML-derived matrices and D2 | Arguments and inspectable projections, not duplicate model ownership |
+
+The four reused root bindings refer to the existing model relation registry
+by ID: ROOT-HANDOFF, CONTROL-ORIGIN, RETIRE-WINDOW and GC-WORK-CLOSURE.
+Their source paths, theorem names and historical status remain owned there. No formal files or receipts are copied into DEV as new maintained
+sources. No old scoped theorem is promoted to a whole-GC or whole-SMP result.
+The target needs explicit state projections, initial relation, step/stutter
+simulation, assumption closure, weak-memory refinement and progress under hiding.
+The rely/guarantee cycles in the D2 dependency view are not a proof: discharge them
+through a joint invariant/transition relation and justified phase/ownership order.
+
+* RESEARCH Benefits and non-negotiable disproof conditions
+:PROPERTIES:
+:CUSTOM_ID: t0-gain-boundary
+:END:
+
+The target should remove duplicated layout/ownership policy, unjustified
+processor/work coupling, provably avoidable coordination/imbalance and eligible
+repeated mature scanning. Required root visits, copy work and supported control
+effects remain baseline. Added grants, leases, barriers, queues, metadata,
+publication and drain operations must be counted as deltas under matched work.
+The [[file:../../architecture/runtime/interfaces/frame-contract-design.org::frame-proof-and-cost][FrameSpec cost matrix]] separates these categories explicitly.
+
+Actual same-VM SMP admission needs safety, producer/participant completeness,
+progress/fairness, bounded retained resources, useful parallel work and net cost
+qualification. Separate VMs, native thread support, build-job concurrency and
+forced single-processor execution are different capabilities. A global lock or
+single-processor fallback cannot stand in for the desired scalability result.
+No particular processor count, pause time or speedup is fabricated in this study.
+
+No runtime, collector, scheduler, contract generator or build implementation,
+native compilation/test or performance experiment is performed. Existing root
+QNT/Lean sources stay unchanged; new target duties remain open.
+
+* RESEARCH Native view maintenance and open association transport
+:PROPERTIES:
+:CUSTOM_ID: t0-native-view-maintenance
+:STATUS: native-structure-checked-behavior-open
+:END:
+
+Follow the [[file:../../modeling/standards.org::native-sysml-tool-boundary][native SysML tool boundary]]. The seven referenced lane parts and nine
+connections in T0TargetGraph are interpreted by OpenSysML itself; a Python
+builder does not select graph edges or rewrite model semantics. The admission
+boundary and D2 exports are structural views only. The full algorithm,
+implementation refinement, useful parallel speedup and the new FL-to-ASCENT
+transport remain open. Parent ND associations and earlier scoped root proofs
+remain usable within their original boundaries.
+
+The [[file:../../architecture/runtime/interfaces/role-contract-design.org][three-role refinement]] now adds module-owned execution and collector grant
+definitions, shared epoch participation and typed native references to the four
+existing ContractBinding records. Native value lookup and an ASCENT join connect
+those selected QNT/Lean pairs without a Python model processor. Its eight new
+laws, census/native memory proof, progress and actual net benefit remain open.

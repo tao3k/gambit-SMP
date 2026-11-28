@@ -1,0 +1,36 @@
+{
+  "sourcePath": "src/std/make.ss",
+  "sourceSha256": "9ec7ea0ab5e10c4dffd9a5fc4cf2ce16bb96e1cf190add5c85d603202df92070",
+  "upstreamRevision": "1cfb032c7a1612637da6205f5f8a15683eba3ba0",
+  "sourceAdapter": "src/gambit_smp/gerbil_build.py",
+  "excerpts": [
+    {
+      "firstLine": 236,
+      "text": "    (def (import/mx mod)\n      (with-lock import-mx (lambda ()\n      (let (path (if (getenv \"GERBIL_COMPILE_CONTEXT\" #f) (compile-product-interface mod) mod))\n        (begin0 (import-module path #f #f)\n          (unless (equal? path mod) (compile-product-module-used mod path)))))))\n    ;; spec module id\n    (def (module-id spec)\n      (let* ((file (spec-file spec settings))\n             (ext (path-extension file)))\n        (case ext\n          ((\".ss\" \".ssi\")\n           (expander-context-id (import/mx file)))\n          (else\n           (string->symbol file)))))\n"
+    },
+    {
+      "firstLine": 299,
+      "text": "       (for (spec workch)\n         (build spec settings)\n         (completion-post! (hash-ref completions (module-id spec)) 'done))\n       (catch (e)\n         (barrier-error! build-barrier e)\n         (raise e))))\n\n    ;; the build coordinator\n    (def (build-coordinator spec)\n      (let* ((file (spec-file spec settings))\n             (mod (import/mx file)))\n        (for (in (module-context-import mod))\n          (consider in (expander-context-id mod)))\n        (if (or (build? spec)\n                (build-dependent? spec mod))\n          ;; it needs to be built, put it to the work channel\n          (channel-put workch spec)\n          ;; no need to build, unblock dependents\n          (completion-post! (hash-ref completions (module-id spec)) 'done))\n        ;; clear the barrrier\n        (barrier-post! build-barrier)))\n\n    (def (consider in self)"
+    },
+    {
+      "firstLine": 339,
+      "text": "\n    ;; prepare the build\n    (create-directory* (settings-bindir settings))\n    (create-directory* (settings-libdir settings))\n    (create-directory* (path-expand \"static\" (settings-libdir settings)))\n\n    ;; prepare the completion table\n    (for (spec buildspec)\n      (let (id (module-id spec))\n        (hash-put! completions id (make-completion `(build ,id)))))\n\n    ;; spawn a thread for each spec that waits for the dependency completions\n    ;; and pushes to the work channel if necessary.\n    (for (spec buildspec)"
+    }
+  ],
+  "callChain": [
+    "prepare completion table",
+    "module-id",
+    "import/mx",
+    "import-module saved SSI",
+    "begin-syntax load-module std/struct/lru~1",
+    "native global registration rejects at20000"
+  ],
+  "retirement": "A checked completed module program already supplies module identity and dependency metadata. Build planning must consume that metadata without activating macro code. Actual compilation still owns phase activation and lexical context. Unqualified modules retain the original import path; no missing dependency may be guessed.",
+  "unresolved": [
+    "Implement metadata consumption in the existing Make graph, with exact spec/extra-input and output freshness checks.",
+    "Prove dependency completion edges and native phase activation remain distinct.",
+    "Requalify the changed consumer against completed producer identities; do not silently waive context changes.",
+    "Run whole stdlib/libgerbil/lang/tools and matched release/build before4/4."
+  ],
+  "runtimeAdmitted": false
+}

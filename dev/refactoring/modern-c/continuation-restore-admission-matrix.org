@@ -1,0 +1,132 @@
+#+TITLE: Continuation Restore Admission — Evidence and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitContinuationRestoreAdmission
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| R | vendor/gambit/lib/mem.c | length = (___ps->context->stack_break + ___FIRST_BREAK_FRAME_SPACE) - start; | R is current contiguous active segment, not the whole captured continuation |
+| copy | vendor/gambit/lib/mem.c | *--p2 = *--p1; | Writes exactly R descending words after tospace tracing |
+| metadata | vendor/gambit/lib/mem.c | -___FIRST_BREAK_FRAME_STACK_MSECTION, | Metadata offset two must remain inside copied interval |
+| threshold | vendor/gambit/lib/mem.c | (___ps->context->stack_start - ___ps->context->stack_limit)*2/3) | Conditional pressure heuristic is not a quarter bound |
+| limit-break | vendor/gambit/lib/mem.c | ___ps->context->stack_break = alloc_stack_ptr; | Setup, stack overflow and restoration produce break identity |
+| explicit | vendor/gambit/lib/_kernel.scm | (define-prim (##gc) | Explicit collection path has no preceding universal split-fit check |
+| gc-call | vendor/gambit/lib/_kernel.scm | overflow = ___garbage_collect (___PSP 0); | Several Scheme GC entry paths store roots then collect |
+| heap | vendor/gambit/lib/mem.c | return 1; /* trigger GC */ | Heap pressure also collects without stack threshold normalization |
+| mark-local | vendor/gambit/lib/mem.c | fp = context->fp; | mark_continuation walks a local fp; does not truncate frozen segment |
+| frozen | vendor/gambit/lib/mem.c | participant->phase = ___GC_ROOTS_FROZEN; | Snapshot collection point before setup loop |
+| setup | vendor/gambit/lib/mem.c | tospace_offset = fromspace_offset; | Parity flip is irreversible boundary for preflight rejection |
+| initial-stack | vendor/gambit/lib/mem.c | set_stack_msection (___ps, alloc); | Reuse already assigned stack section as dedicated space |
+| shared-cap | vendor/gambit/lib/mem.c | alloc_stack_limit = alloc_stack_ptr - (space + ___MSECTION_FUDGE); | Future heap fallback shrinks stack reserve after setup |
+| markers | vendor/gambit/lib/mem.c | work->context->mem.alloc_heap_limit_ -= 2; | Heap interval includes end markers |
+| prepare | vendor/gambit/lib/mem.c | stack_left_before_fudge = (alloc_stack_ptr - alloc_stack_limit) | Restoration capacity and resumption headroom are distinct |
+| undo | vendor/gambit/lib/mem.c | stack_msection_resume_using (___ps, alloc_stack_start, alloc_stack_ptr); | Old stack restoration can rebind section provenance |
+| capture | vendor/gambit/include/gambit.h.in | #define ___CONTINUATION_CAPTURE | Capture changes current break and stores prior frames |
+| graft | vendor/gambit/include/gambit.h.in | #define ___CONTINUATION_GRAFT_NO_WINDING | Graft resets active fp to break; not universal GC pre-normalization |
+| thread | vendor/gambit/include/gambit.h.in | #define ___THREAD_SAVE | Thread suspension may insert break independently |
+| break-handler | vendor/gambit/lib/_kernel.scm | ra1 = ___stack_overflow_undo_if_possible (___PSPNC); | Resume can copy one described frame or restore prior stack |
+| alignment | vendor/gambit/include/gambit.h.in | #define ___FRAME_ALIGN 4 | Default first-break rounded size four and frame alignment |
+| limits | vendor/gambit/lib/mem.h | #define ___MSECTION_SIZE        131072 | Default half-section H65536; effective profile still must be bound |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| R-span | Prove B<=R<=H from same-block ordered frozen endpoints | All generated stack writes and break restoration preserve provenance | Conditional symbolic theorem | Legal Scheme full trace and external FFI aliases remain open |
+| quarter | R<=quarter reserve is an additional property | No universal trimming across explicit and heap GC entries was found | Cannot certify quarter fit for all legal Scheme from current evidence | No source-qualified legal-input counterexample; numerical implication refuted only |
+| policy | Check R plus execution headroom at freeze | Shared when it fits, otherwise preserve initial stack as dedicated | Avoid late fatal fallback by planning before setup | Dedicated plan must also reserve global copy-space and pool capacity |
+| enforcement | Authorize every later heap fallback from immutable plan | No R or section identity change until restore completes | A preflight observation alone is insufficient | Native hook and writer closure plus C11 refinement open |
+| failure | Reject or retain before parity flip | All old members consume same immutable outcome and acknowledge | No coordinator-only return or new Scheme execution while frozen | Stable exception handoff and emergency headroom remain open |
+
+** Memory
+
+| key | publication | consumer | gap |
+|---+---+---+---|
+| freeze | Last source pointer write happens-before owner acknowledgement | Coordinator acquire observes fp/break/source section as one frozen view | Ordinary reads only after writer exclusion; per-field atomics insufficient |
+| plan | Initialize manifest and per-member reserve policy then release publish | Every member acquire same generation and digest | Generation reuse prohibited while readers or late receipts exist |
+| fallback | Acquire plan or hold owning epoch before changing heap/stack limits | Allowed sharing cannot shrink below committed K | No extra global atomic per copied word required |
+| failure | Publish rejected result release; acquire consumption and last-reader ack | Old roots retained until all acknowledgements and result delivery | Unknown is retained, never timeout-forged completion |
+| restore | R/source identity pinned through weak completion and move_continuation | Restore completion precedes authorization to resume context | C11 native adapter and callbacks not refined by sequential QNT |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| shared | Use original heap borrowing for short active segments | O(P) length/provenance checks and plan records | R+headroom fits shared reserve and total heap capacity independently sufficient |
+| dedicated | Reuse initial stack instead of allocating another section just for restore | Forbid fallback; surrender up to current shared heap quota per protected section | Net benefit only if avoiding extra storage/failure outweighs lost heap capacity |
+| pool | At most eligible stack sections contribute fallback visits | Recompute actual N and actual eligible count | L<=N remains conditional; no credit for removing existing allocation lock |
+| reject | Prevent partial parity flip for unsupported plan | Collective latency and retained resources on unknown results | No speedup claim; do not map rejection directly to an allocating Scheme exception |
+| modern-c | Explicit runtime contract replaces implicit quarter assumption | Plan issuer, guard coverage and generation reclamation support | Zig is not needed to express these contracts |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| frozen-roster | span-snapshot | Validate same live block and checked offsets; pin source |
+| span-snapshot | shared-fit | Compare R plus execution headroom with reserve |
+| shared-fit | shared-policy | Short segment may allow later heap fallback |
+| shared-fit | dedicated-policy | Large segment keeps existing full stack section |
+| dedicated-policy | global-capacity | Rebudget copy space and queue pool before acceptance |
+| shared-policy | global-capacity | Bind actual N and eligible fallback identities |
+| global-capacity | collective-decision | Unknown retains; known unsupported plan rejects |
+| collective-decision | last-reader-acks | All members consume matching generation and outcome |
+| last-reader-acks | setup | Accept only; parity flip after release |
+| last-reader-acks | reject-delivery | Reject only; preserve old roots and no parity change |
+| setup | guarded-fallback | Enforce plan until actual restoration |
+| guarded-fallback | restore-and-resume | Copy R then validate execution headroom and publish context |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| continuation_restore_plan.freezeSmall | ContinuationRestore.freezeSmallPreserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.freezeLarge | ContinuationRestore.freezeLargePreserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.freezeOversize | ContinuationRestore.freezeOversizePreserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.share0 | ContinuationRestore.share0Preserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.share1 | ContinuationRestore.share1Preserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.dedicate0 | ContinuationRestore.dedicate0Preserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.dedicate1 | ContinuationRestore.dedicate1Preserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.reject0 | ContinuationRestore.reject0Preserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.reject1 | ContinuationRestore.reject1Preserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.sealAccept | ContinuationRestore.sealAcceptPreserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.sealReject | ContinuationRestore.sealRejectPreserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.allocationFailure | ContinuationRestore.allocationFailurePreserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.denyMutation | ContinuationRestore.denyMutationPreserves | Actual typed AST induction, not native source qualification |
+| continuation_restore_plan.retainUnknown | ContinuationRestore.retainUnknownPreserves | Actual typed AST induction, not native source qualification |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| span | RestoreAdmissionComposition.sourceSpanBound |
+| quarter-control | RestoreAdmissionComposition.thresholdDoesNotImplyQuarter |
+| interval | RestoreAdmissionComposition.actualWriteSeparation |
+| resume | RestoreAdmissionComposition.resumeHeadroom |
+| lease-count | RestoreAdmissionComposition.restrictFallbackCount |
+| bounds | ContinuationRestore.acceptedBounds |
+| large | ContinuationRestore.largeNeedsDedicated |
+| frozen | ContinuationRestore.frozenLengthStable |
+| sealed | ContinuationRestore.sealedOutcomeStable |
+| product | RestoreAdmissionComposition.reachableCoupled |
+| setup | RestoreAdmissionComposition.setupRequiresValidBounds |
+| reject | RestoreAdmissionComposition.rejectedPlanCannotSetup |
+| non-vacuity | RestoreAdmissionComposition.largeDedicatedSetupReachable |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| CR-history | interleaving | dev/refactoring/modern-c/models/quint/continuation_restore_plan.qnt | Two-owner short long oversize OOM unknown and mutation histories |
+| CR-induction | induction | dev/refactoring/modern-c/models/lean/ContinuationRestore.lean | All actual typed AST planner actions |
+| CR-composition | induction | dev/refactoring/modern-c/models/lean/RestoreAdmissionComposition.lean | Actual preceding collective AST product plus conditional source-span geometry |
+| CR-projection | restricted-projection | dev/refactoring/modern-c/models/lean/ContinuationRestoreAst.lean | Scalar typed JSON to Lean identity-preserving extraction |
+| CR-source | source-refinement | dev/refactoring/modern-c/continuation-restore-admission-design.org | Legal Scheme trace source provenance and actual all-writer plan guards remain open |
+| CR-platform | native-memory-order | dev/refactoring/modern-c/continuation-restore-admission-design.org | C11 publication and stable guard failure delivery remain open |

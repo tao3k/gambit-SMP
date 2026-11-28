@@ -6,13 +6,14 @@ from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load
 from gambit_smp.framework import ROOT
 from gambit_smp import research_actions
+from tests.historical_view import projection
 
 VIEW = "evidence/scenarios/concurrent-gc/payload-transfer.view.json"
 
 
 class PayloadVMViewTests(unittest.TestCase):
     def test_source_counterexamples_do_not_admit_new_candidate(self):
-        document, facts, catalog, inputs = load(ROOT, VIEW)
+        document, facts, catalog, inputs = projection(ROOT, VIEW)
         self.assertGreater(len(inputs), 50)
         with engine_api() as (engine, _):
             answer, first = evaluate(engine, facts, catalog, document["queries"])
@@ -32,8 +33,11 @@ class PayloadVMViewTests(unittest.TestCase):
             self.assertGreater(last["sourceGeneration"], first["sourceGeneration"])
 
     def test_source_investigation_is_read_only_and_generation_bound(self):
-        snapshot = research_actions.discover(ROOT, {"views": [VIEW]})
-        selected = next(r for r in snapshot["actions"] if r["query"] == "source_gap")
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            research_actions.discover(ROOT, {"views": [VIEW]})
+        snapshot = research_actions.discover(ROOT, {"views": [
+            "evidence/scenarios/concurrent-gc/darwin-source-032.view.json"]})
+        selected = next(r for r in snapshot["actions"] if r["query"] == "missing_flag")
         self.assertEqual(selected["risk"], "read-only")
         self.assertFalse(selected["explanation"]["executionAuthorized"])
         handle = str(uuid.uuid4())

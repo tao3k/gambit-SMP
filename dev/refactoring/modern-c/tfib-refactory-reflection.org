@@ -1,0 +1,399 @@
+#+TITLE: TFIB failure mechanisms and Modern C design review
+#+OPTIONS: toc:2
+
+* Current mechanism composition work
+
+The [[file:family6-linked-image-questions.org][three linked-image questions]] expose three design errors to avoid:
+conflating source refusal with allocation-path selection, treating a fresh
+section as every restored heap tail, and observing a parent frame only after
+the handler has overwritten its saved address. Model transitions need actual
+image edges and observation lifetimes. Checklist 6 refusal and 8 delivery use
+different invocations on the same qualified image.
+
+The [[file:family6-mechanism-assurance.org][Family 6 mechanism assurance experiment]] applies the existing models
+to checklist 6-7. It adds public refusal/reentry and logical source-extent
+contracts, validates actual C demand functions, and keeps source refinement
+and same-image native witnesses separate. Feeley's polling and continuation
+papers motivate explicit compiler/runtime and continuation interfaces; the
+LLM amplification workflow is our engineering application.
+
+* Evidence and causal boundaries
+:PROPERTIES:
+:CUSTOM_ID: tfib-evidence
+:END:
+
+TFIB is a coupled test of interpreted tail calls, fork/join scheduling, and
+shared-heap lifetime. Each recursive node executes the delay. Each nonleaf
+starts one child, computes the other branch locally, then joins. In the
+unchanged =go 15 5000= source, the recurrence =T(0)=T(1)=1;
+T(n)=1+T(n-1)+T(n-2)= gives 1,973 nodes per root, 9,865,000 delay calls,
+59,190,000,000 positive delay iterations and 59,199,865,000 unary entries
+including the terminal entry. A completed invocation logically creates and
+joins 4,940,000 threads including 5,000 top-level threads. These are source
+counts for one topology, not observed counters or a time estimate.
+[[file:../../../vendor/gambit/tests/unit-tests/06-thread/tfib_stress.scm][Original Gambit workload]]
+[[file:models/quint/smp_tfib_cost_recurrence.qnt][Recurrence and budget controls]]
+
+| Evidence | What it establishes | What remains open |
+|-
+| [[file:../../../docs/smp-repair9-tfib-crash-binding.md][Repair 9 compiled crash]] | The bound child crashed at about 93.642 s on an invalid pre-object-header read in =mark_array=. | The first writer and the causal path to that read. |
+| [[file:stress-gsi-evidence-reuse.org][Refactory compiled diagnostic]] | The retained compiled control crashed and a p2 diagnostic located an invalid closure-allocation write. | A common producer with the Repair 9 read, or applicability to a later interpreted timeout. |
+| [[file:stress-gsi-restoration.org::*Same-cache acceptance observation][Original Refactory campaign]] | p2 interrupt and interrupt2 completed. TFIB started and was censored. Terminate had no completion marker and p1 did not start. | A terminal result for each missing file. Censoring establishes neither a wait cycle nor sustained throughput. |
+| [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-tfib-rte-progress.json][Instrumented TFIB prefix]] | 1,207,959,552 ordinary-site events were observed before censoring. The 100-ordered-join marker was absent. | Whether 0–99 ordered joins completed, the exact topology, and sustained original-run progress. |
+| [[file:tfib-interpreter-candidate.org::*Linked numeric replay and allocation units][Linked reduced-delay replay]] | Four-word ordinary unary RTEs account for more than 99.98% of the measured incremental allocation bytes in the matched reductions. In the p1 linked sample, median wall rose from 3.859779 to 4.127890 s while CPU fell from 1.173721 to 1.150997 s. | Full-workload allocation attribution, p2 candidate timing, and a positive end-to-end result. |
+
+The separate Repair 9 sender stress requests 360 million calls. Use it to
+challenge request settlement and retention; use TFIB to challenge shared
+roots, restoration, and join/interpretation throughput. Completion or timing
+from one does not fill an acceptance gap in the other.
+[[file:request-service-reconstruction.org][Request-service load and retention]]
+
+* Host control precedes native construction
+:PROPERTIES:
+:CUSTOM_ID: tfib-host-control-reflection
+:END:
+
+The TFIB experiments identify expensive runtime work and test some of the
+publication and restoration conditions. The two-pass =bootstrap-16= receipt
+establishes the lineage of one earlier image. The current candidate must
+independently show that its compiler and interpreter host can consume the
+formal prelude and an actual runtime module before we spend another whole
+build. The reported macro count of 523 with repeat count 1 establishes
+sampled progress in =parse=. The heap exception and exit 139 still have
+distinct failure identities. This puts the first engineering decision
+upstream of the target emitter and the TFIB experiment.
+
+The earlier delivery order described a coherent host but deferred a
+representative host control until after construction work. This made a
+large core run a discovery mechanism. The revised =BC-HOST-CONTROL= uses
+two identified interpreter hosts with one fixed module, compiler closure
+and resolved Make prelude. A small procedure without that prelude is useful
+for startup diagnosis and has a different comparison key. The paired
+result determines the next investigation. It leaves the native producer
+and family gates independently open.
+
+Keep Feeley's bounded polling and reduced-entry-cost hypothesis downstream
+of that check. At matched useful work, account for allocation, live heap,
+checks, GC and wall time separately. Quint contributes finite histories and
+counterexamples, Lean contributes identity and frame-extent implications,
+and native receipts establish whether those premises hold for the emitted
+code. The [[file:tfib-producer-retry.org::#family6-formal-prelude-host-control][Grok work order]]
+and [[file:models/sysml/bootstrap-cohort.sysml][SysML stage]]
+give the explicit handoff. The accepted prefix remains 5/12.
+
+* Questions the architecture must answer
+:PROPERTIES:
+:CUSTOM_ID: tfib-review
+:END:
+
+** Can we remove the failure mechanism rather than guard its symptom?
+
+Yes, conditionally. Replace physical address or carrier identity as
+authority. The execution context publishes the actual descriptor and
+complete roots at a mapped point. A source lease carries VM incarnation,
+generation, physical section/half and a logical extent. Capture, census,
+copy and undo acquire that authority before their first read, including the
+break link and its separately authorized successor. Freeze arbitrates
+reflective writes. RootTask owns exact updates, and the worker owns copy
+and Tail debt until publication. The host acquires the repaired view,
+reloads its live state and acquires a continuous reservation covering the
+last word before the first resumed store. An unknown forwarding or ACK
+retains the same attempt and source until query or drain resolves it.
+
+This makes a foreign or stale interval inadmissible even when its address
+is numerically in bounds. A missing descriptor slot, a cursor inherited
+across break, a grant consumed before reload, or one-short physical room
+must fail independently. A later valid write or eventual process exit
+cannot repair an invalid first access. Keep the existing raw-suffix,
+generated rest/keyword-rest and allocation-size controls in the same
+product. Distinguish absence of a fault from the oracle observing the
+first read and complete write. This excludes a class of corruption once
+all consumers are covered. It does not attribute either retained crash to
+an exact first writer.
+[[file:smp-family-checklist.org::*Unified frame authorization coverage][Actual C and generated source cuts]]
+[[file:models/quint/smp_resume_publication_tfib.qnt][Publication and first-write histories]]
+
+** What must change at the stack interval entry?
+:PROPERTIES:
+:CUSTOM_ID: stack-interval-mechanism-review
+:END:
+
+The stack counterexample exposes two decisions hidden in a Boolean
+capacity result. The runtime must first establish that this activation may
+use the current section and half. It can then decide whether that live
+interval has enough space. Selecting the half from =fp= or falling back to
+a lower-bound comparison lets the cursor supply the authority that is
+supposed to constrain it. Tightening that comparison can fix one
+counterexample while a retry or another writer still uses the old rule.
+[[file:allocation-intervals.org::*Family 6 stack interval review][Stack interval proof and evidence route]]
+
+Use the allocator's existing ownership state for this decision. An owned
+interval with enough room admits the complete write group. An owned but
+short interval can use the existing limit service if its entry already
+has backed spill space and a scannable old frame. An invalid interval
+must stop before spill or collection. On retry, resolve ownership and
+check extent against the actual repaired view again. A successful
+collection by itself supplies neither a grant nor enough room.
+
+The check must dominate the first real store, including dirty unboxed
+spills emitted before the demand call. Either prove those spills already
+backed by the old view or move admission earlier. Resolve once per
+uninterrupted write group under existing execution custody. If a poll,
+collection or ownership transfer intervenes, acquire a fresh view. Retire
+address-derived admission once the actual writers and limit entries have
+been mapped. A complete source mapping can also show that a particular
+invalid state is unreachable without adding another runtime check.
+[[file:../../../vendor/gambit/gsc/_t-c-2.scm::612][Write group emission]]
+[[file:../../../vendor/gambit/lib/_mem/allocation-limits.inc::403][Current stack capacity predicate]]
+
+Compare the old and replacement paths on exact fit, one word short, an
+inactive half and a stale interval after refill. Check the first spill,
+root custody, service entry and first application write, not just the
+eventual return. A failure after an invalid spill is detection too late.
+A fatal refusal of a valid short interval is a regression. Require that
+the valid short case can collect, reload and enter the application once.
+The source mapping establishes coverage. These controls on the qualified
+generated image test that mapping at the actual boundary. Both are
+required to claim removal of the failure mechanism. The cause of the
+historical TFIB censor and the whole-family result remain separate.
+
+** Does safe restoration imply progress?
+
+No. A wait has its own identity and roots. Service obtains a distinct
+activation and commits result, exception or authorized abandonment before
+the waiter may consume it. Wake grants a recheck; it need not imply
+completion. A legal requeue retains the same wait. After an unknown
+return or exit, the original ticket stays queryable until terminal outcome
+and last-reader drain. User continuation replay must not repeat internal
+request settlement. Retire a transient service frame only when no
+register, resume closure, RC slot, published task or user continuation
+still reaches it. Unknown custody can be safe while progress is blocked.
+
+Compare child completions and ordered top-level joins with runnable
+owners, wait dependency and request generations, phase and worker progress,
+and actual poll/park/wake transitions. A closed wait cycle requires evidence
+that every edge and its enabled producer were observed and that no outside
+producer can break it. A missed wake requires a committed result, a still
+eligible parked waiter and a missing required notification or runnable
+handoff on the same identity. Work counters advancing
+with no verified join progression only establish local activity. Report
+partial observation as unresolved. Expected progress is conditional on
+fair dispatch, finite admitted work, eventual exit or resolution of
+external blockers, and capacity for work at the unchanged budget.
+[[file:../../../vendor/gambit/lib/_thread.scm::1789][Join wait and registration]]
+[[file:models/quint/smp_dev_composition.qnt][Pending request, early wake and hidden work controls]]
+
+** Where does Feeley's design let us remove work?
+
+Feeley's balanced polling separates the cost of checking from servicing an
+interrupt and controls how far execution can run before noticing it. Apply
+that idea by keeping an explicitly bounded poll corridor while making a
+plain unary tail entry cheap. Hold unexposed operands in mapped root slots
+and give each logically distinct lexical location a stable identity at
+exposure. Before a poll handler, reflection, debugger/stepper, escaping
+closure, or continuation makes the location observable, materialize its
+ordinary environment using the pre-existing slow semantics. Preserve two
+independently observable locations across GC and repeated restoration.
+Fallback before the first observable effect when guards change; after a
+committed effect resume at its successor. A Scheme instruction bound is
+separate from elapsed interrupt latency, which also depends on scheduling,
+native calls, and collector synchronization.
+[[https://www.cs.tufts.edu/comp/150FP/archive/marc-feeley/polling.pdf][Feeley, Polling Efficiently on Stock Hardware]]
+[[https://www.schemeworkshop.org/2000/][Feeley, Scheme/C continuation interoperability, proceedings entry]]
+[[file:../../../vendor/gambit/lib/_eval.scm::4255][Ordinary unary entry and heap check]]
+[[file:tfib-interpreter-candidate.org::*Asynchronous observation of unary RTE identity][Two real lexical locations and alias mutant]]
+
+The allocation result makes this the primary /throughput hypothesis/ for
+the interpreted hot path. A faster subtraction, fewer polls, or additional
+collector workers alone do not remove eager unary environments. A bounded
+probe must measure admissions, ordinary fallbacks, exposures, materialized
+environments, and meaningful completed work. For a matched workload,
+observed eliminated RTEs times 32 bytes gives the corresponding cumulative
+physical payload avoided at the measured 64-bit layout. At 100% elimination
+the source-count projection is about 1.894 TB per topology. It is a
+conditional cumulative upper bound for those unary records only, neither
+resident memory nor a speedup prediction. Compare saved allocation,
+copying and scanning against guards, polling, exact-root maintenance,
+deoptimization, synchronization and peak committed memory.
+
+** What should we learn from the other systems?
+
+- OCaml's experiment shows the value of designing compiler polling, native
+  participation and collector synchronization together and comparing
+  collector alternatives empirically. Gambit should separately measure
+  last safe-point arrival, collector work and resume publication. Changing
+  collection generations is an independent optimization hypothesis and is
+  unnecessary for the TFIB authority argument.
+  [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][Retrofitting Parallelism onto OCaml]]
+- The Scheme continuation literature gives a useful bound to seek: retain
+  and copy only the stack segment actually required by capture or resume,
+  with exact roots and valid aliases. Gambit must qualify this against its
+  own multiple restoration, reflection, dynamic-wind and native
+  boundaries. Internal one-shot settlement never changes Scheme's
+  first-class continuation contract.
+  [[https://doi.org/10.1145/93542.93554][Hieb, Dybvig and Bruggeman, Representing Control]]
+  [[file:../../architecture/runtime/control/continuation-segments.org][Pinned Chez and Guile source correspondence]]
+- OTP's process-signal queue has explicit enqueue and receiver fetch
+  endpoints. Use that separation to audit publication and receiver
+  ownership in Gambit. A fetch is not a terminal join result; Gambit also
+  needs frozen roots for shared heap references and preserves Scheme
+  continuation identity.
+  [[file:../../../vendor/erlang-otp/erts/emulator/beam/erl_proc_sig_queue.c::826][OTP enqueue and receiver fetch implementation]]
+- Work-stealing theory suggests measuring total work and the dependency
+  critical path separately. Its fully strict task theorem does not give
+  Gambit a bound for interpreter, interrupt, shared-heap GC and arbitrary
+  control effects. TFIB's syntactic fork/join tree is a starting point for
+  attribution, not a proof that every runtime edge is a fork/join edge.
+  [[https://www.cs.cornell.edu/courses/cs612/2006sp/papers/blumofe94.pdf][Blumofe and Leiserson, Scheduling Multithreaded Computations by Work Stealing]]
+
+* Joint review and release boundary
+:PROPERTIES:
+:CUSTOM_ID: tfib-joint-review
+:END:
+
+** Framework recovery and delivery cost
+:PROPERTIES:
+:CUSTOM_ID: tfib-framework-efficiency
+:STATUS: AUDITED-RECOVERY-AND-CORRESPONDENCE-GAPS
+:END:
+
+Following explicit =prior= links from =family6-make-lineage-bootstrap-16=
+reaches ten retained attempts, with a summed wall duration of 15,927.43
+seconds. This lineage omits attempts outside those links. Seven completed
+cold =source-core= commands sum to 9,352.52 seconds. They report the same
+source-lock digest, Scheme-input digest, seed digest, GCC path and profile
+path. Their generated artifacts differ, so admission of reuse still needs
+the complete dependency and retained-artifact check.
+
+| Run | Expensive work before the next failure | Observed failure boundary |
+|-
+| 9 | =source-core= 1,523.43 s | Review rejects a source-lock/generated-kernel mismatch. |
+| 11 | =source-core= 1,461.74 s | Review rejects using a generated runtime copy as vendor-source evidence. |
+| 12 | =source-core= 1,253.24 s | Bootstrap loader observation bypasses the required child birth/exec boundary. |
+| 13 | =source-core= 1,338.81 s | Make's witness child cannot import =gambit_smp=. |
+| 14 | =source-core= 1,265.62 s | Make's witness compiler child bypasses the required birth/exec boundary. |
+| 15 | =source-core= 1,291.04 s, then =from-scratch= 566.86 s | Bootstrap promotion still bypasses that boundary. |
+| 16 | =source-core= 1,218.64 s, then =from-scratch= 1,063.85 s | Build PASS. Actual first-access correspondence and Family A remain open. |
+
+The successful run took 2,339.14 seconds. Its two expensive Make commands
+account for 2,282.50 seconds of that wall duration. This split does not
+measure the witness overhead inside Make. Every linked retry reports an
+empty =reusedSteps= list. Later executor changes alter 307 recorded input
+bindings. The records expose a recovery-granularity and integration-test
+problem even though the final Make lineage is complete.
+[[file:../../../.cache/tasks/modern-c-frame-contract/cohort/family6-framework-efficiency/audit.json][Receipt-bound timing audit]]
+
+The witness fixture originally tested real Make and GCC outside the sealed
+production execution boundary. Loader execution, Make child module
+resolution, compiler spawn and promotion each need a preflight through
+that same boundary before an expensive source build. Reuse the small
+two-pass fixture under the existing sealed runner for this check.
+
+Before retrying a later review or witness failure, authenticate the
+completed source-core checkpoint and compute which actual dependencies
+changed. A framework-only fix needs its own executor/compatibility review.
+It must not silently imply changed Scheme bytes or demand a cold rebuild.
+If reuse is rejected, report the exact changed input and affected consumer
+before entering Make. Preserve all prior failure receipts.
+
+The Python implementation now executes that small fixture through the
+production =ExecutionContext= before a witnessed =source-core=. It covers
+both Make passes, the import path, loader children, GCC, archives, links
+and promotion; a same-run check is shared only under identical bindings.
+It is a transport check, not an independent Scheme producer or native
+qualification. The regression exercises actual managed child custody and
+also verifies that raw subprocess creation remains rejected.
+
+Checkpoint consumption now retains per-stage rejection reasons before
+capability execution. =research --read= and launch summaries expose
+receipt-bound stage/command durations, failed cuts and completed build
+candidates. They point to the existing checked import capabilities;
+they never waive the same-executor or Scheme consumability checks.
+Dependency-scoped compatibility across changed executors still requires
+the existing explicit import review; this change does not claim arbitrary
+cross-executor checkpoint reuse or a native performance improvement.
+
+The next work item consumes the existing final GSI and generated-source
+manifest. Build a procedure/label/write-group correspondence table for
+each required cut, with its descriptor, first spill/store, admission,
+handler demand, return and committed-effect observations. Record the
+earliest missing fact and the bounded observation needed to obtain it.
+Counts of =ADJFP(20)= or demand operands cannot identify those groups.
+Rebuilding the completed producer cannot supply missing correspondence.
+Only a source or ABI correction justified by that review can request a
+new affected generation. The original 295/300-second acceptance remains
+with the existing family gate.
+
+** Implementation order and review stops
+
+1. Bind the producer and retain separate compiled and interpreted evidence.
+   The current C has explicit RC, VM, bank and stack task claim sites and an
+   arena-to-resume handoff. Use those interfaces for the audit. Their
+   presence does not establish that every generated entry consumes them or
+   that an older lease survived a concurrent transition.
+   [[file:../../../vendor/gambit/lib/_mem/root-tasks.inc::13][RootTask claims]]
+   [[file:../../../vendor/gambit/lib/_mem/collection-round.inc::376][Owner match and arena handoff]]
+2. Qualify mapped source and destination admission end to end before
+   attributing any disappearance of faults. Require a first-access trace
+   through capture, census/copy or undo, current-root reload, and the first
+   full allocation. The current rest directory splits generation and
+   phase/pin. Include close, reuse, and a late CAS seeing the same OPEN
+   bits. Verify the pinned generation before admitting record loads, or
+   prove that the protocol precludes this interleaving.
+   [[file:../../../vendor/gambit/lib/lifecycle.h::66][Directory representation]]
+   [[file:../../../vendor/gambit/lib/_mem/rc-allocation.inc::620][Admission sequence]]
+3. Review wait/service settlement and interpreter exposure as distinct
+   interventions. A baseline, an authority-only candidate and the addition
+   of each optimization separately allow attribution of costs and failures.
+   Keep the same workload, topology, limits, and observation conditions.
+   A fix to root custody can be valid while a performance claim fails.
+4. Run the combined candidate through the existing Gambit test entrypoints.
+   Preserve the original interpreted path and exact-source controls. If the
+   original run remains censored, the review retains the last known
+   progress, unstarted cases and independently identified blockers. No
+   model result promotes the count.
+
+** Joint gate and cost matrix
+
+| Gate | Model responsibility | Same-product falsifier and evidence | Current disposition |
+|-
+| Producer and product | SysML and ASCENT bind source, model and ledger identities | Match the source tree, prior, generated C, configured GCC/C23 inputs, GSI and actual topology. A different or unbound image is diagnostic only. | Historical identities retained. No new current producer admitted here. |
+| Source, roots and first access | Quint orders acquire, freeze, scan, reload and write. Lean owns descriptor/slot coordinates and physical interval containment. | Independently decode frame and exact live slots. Inject stale/foreign grants, held reader, one-short write and relocated roots. Reject before first access or write as appropriate. | Model histories and selected linked controls. Whole producer coverage open. |
+| Wait, service and exit | Quint owns transition/custody histories. | Join requeue and early wake, lost settlement receipt, owner exit and multi-shot replay with the same logical wait. Observe a unique terminal settlement and all surviving roots. | Source contracts and selected controls. Original progress attribution open. |
+| Interpreted work and semantics | Quint owns exposure, invalidation and alias histories; the existing recurrence tests supply a workload count. | At a real asynchronous poll, observe distinct locations and two resumes across GC. Compare the original and guarded fast paths under matching probes, then compare uninstrumented time and peak. | Reduced evidence only. Deferred-allocation gain and original p2/p1 timing open. |
+| Original family | Evidence validates execution. ASCENT preserves the gap until the ledger admits an exact receipt. | One unspliced original p2 then p1 campaign, original assertions, census and heap, shared 295 s inner and 300 s outer budgets. Retain all exits, failures and censors. | Family 6 open, independent DEV 5/12. |
+
+For the retained launch pattern, even if the censored p2 work finished
+immediately, the completed 188.383 s interrupt2 shard would leave only
+about 102.61 s for all p1 work before teardown/setup. This is a conditional
+critical-path ceiling for that launch pattern, not a p1 measurement. Do not
+sum overlapping p2 shard times or give p1 a fresh budget. Compare one
+mechanism at a time under matching probes to attribute work, then require
+the combined candidate to satisfy the original uninstrumented gate.
+[[file:tfib-interpreter-candidate.org::*Critical path of the retained whole-family attempt][Budget derivation]]
+
+| Candidate | Work that must disappear | Added work to account for | Reject the benefit claim when |
+|-
+| Explicit source and resume authority | Repeated source discovery and conservative work caused by lost ownership, only where corresponding old consumers can retire. | Pin/claim operations, exact root publication, reserved and retained bytes. | Safety holds but source lookup, scanning, or peak commitment grows under the same useful load. Keep the correctness result separate. |
+| Independent wait and service | Captures and resume closures for admitted internal waits, plus scan/copy of service frames once the last real reference disappears. | Ticket lookup, queue/ACK traffic, roots retained across unknown settlement. | The original capture still runs on the admitted path, or retained words per completed join fail to fall. |
+| Deferred unary environment | Actual ordinary RTE allocations and attributable collector work per unit of completed useful work. | Per-entry guards, polls, root slots and uncommon exposure/materialization cost. | Matched allocation improves while wall time, GC pause tails, or peak worsens outside the predeclared cost boundary. |
+
+Keep the four handoffs and the family ledger in
+[[file:models/sysml/smp-dev-composition.sysml][SysML authority]] and use the
+[[file:smp-family-checklist.org][SDK/ASCENT projection]] for the queried
+source/model cuts. Quint and Lean have separate duties. Quint tests are
+finite protocol and recurrence checks. The existing
+[[file:models/lean/FrameContract.lean][Lean representation contract]] does
+not supply a scheduler fairness, concrete C memory-order or wall-time
+proof. Native evidence owns those observations.
+
+The scoped review reran the existing Quint 0.33.0 tests. Results were
+36 publication, 9 composition, 14 tail deoptimization, 5 lexical alias,
+and 14 recurrence checks. The strict OpenSysML projection links the three
+new TFIB cuts to source and existing named histories. It preserves seven
+open families and zero native acceptance credit.
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-smp-family-checklist.json][SDK and ASCENT projection receipt]]
+
+Run the unchanged source and any new reproducible native regressions
+through Gambit's test entrypoints in =vendor/gambit/tests=. DEV owns the
+model, reflection, and interpretation of the receipts.

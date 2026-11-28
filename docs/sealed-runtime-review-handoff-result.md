@@ -3,7 +3,7 @@
 ## Checked Projection
 
 The existing `gambit_smp.verify_protocols` verifier checked the fixed
-`evidence/research/sealed-runtime-review-handoff/contract.json` inputs with
+`.cache/research/legacy-evidence/evidence/research/sealed-runtime-review-handoff/contract.json` inputs with
 the original 90-second per-check budget. The complete campaign took 17.309
 seconds. Host-auto planning observed 12 available processors and selected two
 parallel controls with six TLC workers each; the positive used 12 workers.
@@ -23,7 +23,7 @@ launch, not reviewer availability or a real-time deadline guarantee.
 
 `gambit_smp.protocol_evidence` published and independently validated the logs,
 counterexample traces, generated checker artifacts and model snapshot at
-`evidence/model-results/research/sealed-runtime-review-handoff/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/research/sealed-runtime-review-handoff/receipt.json`.
 Context hashes were stable. No global protocol registry or concurrent Python
 framework files were changed.
 

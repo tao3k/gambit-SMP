@@ -35,7 +35,7 @@ assertions, extending the 60-second diagnostic cap or changing runtime source.
 
 Portable logs, exact candidate identity, final fixture snapshot and generated
 summary are at
-`evidence/source-results/fixtures/interrupt-thread-queue-payload-roots/native-diagnostic`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-thread-queue-payload-roots/native-diagnostic`.
 The existing runtime identity checker revalidated actual source/runtime bytes
 after execution. The independent research read remains a separate source-core
 freshness check, not a full test admission.

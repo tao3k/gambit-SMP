@@ -53,7 +53,7 @@ Two further scenarios inject mutex-init or condition-init failure into the
 unchanged setup helper. The former still initializes the condition variable;
 the latter retains the initialized mutex. Neither reports an error or rolls
 back. The portable receipt is
-`evidence/model-results/sync-retirement-source-schedule-002.json`.
+`.cache/research/legacy-evidence/evidence/model-results/sync-retirement-source-schedule-002.json`.
 The first receipt is retained separately: a concurrent, unrelated extension of
 the shared `source_unit.py` invalidated its current tool identity. The extraction
 helper was reviewed unchanged; the short eight-schedule check was refreshed

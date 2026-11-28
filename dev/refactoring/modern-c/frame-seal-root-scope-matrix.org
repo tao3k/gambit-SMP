@@ -1,0 +1,168 @@
+#+TITLE: Private Frame Plan and Resize Root Scope Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitFrameSealRootScope
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| constructor | vendor/gambit/gsc/_t-c-3.scm | (vector 'frame-spec kind fs actual-fs link gc-map out-of-line?) | Fresh mutable vector; validation is not alias closure |
+| validation | vendor/gambit/gsc/_t-c-3.scm | (< gc-map (expt 2 actual-fs)) | Revalidate exact kind size effective layout link and gc-map under frozen ABI |
+| chunks | vendor/gambit/gsc/_t-c-3.scm | (targ-frame-spec-chunks spec) | Emitter-time chunk generation also needs stable view |
+| return-wrappers | vendor/gambit/gsc/_t-c-2.scm | (targ-make-frame-spec 'internal fs link gc-map) | Three wrappers create normal task internal specs |
+| replace-class | vendor/gambit/gsc/_t-c-2.scm | (vector-set! lbl-struct 2 class) | Class and info writes are a logical pair, not atomic publish |
+| replace-payload | vendor/gambit/gsc/_t-c-2.scm | (vector-set! lbl-struct 3 info) | Replaces FrameSpec reference rather than mutating its scalar fields |
+| code-alias | vendor/gambit/gsc/_t-c-2.scm | (targ-emit (cons 'label x)) | Code stream holds same canonical label as registry |
+| table-alias | vendor/gambit/gsc/_t-c-2.scm | (queue-put! targ-proc-lbl-tbl (cons n y)) | Canonical label identity returned on repeated lookup |
+| order-alias | vendor/gambit/gsc/_t-c-2.scm | (queue-put! targ-proc-lbl-tbl-ord lbl-struct) | Ordered queue preserves label alias |
+| plan-alias | vendor/gambit/gsc/_t-c-2.scm | (reverse val-lbls) | Reversing list copies spine not label records |
+| plan-publish | vendor/gambit/gsc/_t-c-2.scm | (set-car! p | Procedure plan installed after scans but before goto numbering ends |
+| number-cell | vendor/gambit/gsc/_t-c-2.scm | (targ-cell-set! (targ-lbl-num x) i) | Seal must wait for loop3 goto numbering too |
+| ifd-reader | vendor/gambit/gsc/_t-c-1.scm | (targ-frame-spec-stored-fs info) | Descriptor pass reads mutable payload |
+| ofd-reader | vendor/gambit/gsc/_t-c-1.scm | (targ-frame-spec-chunks info) | OFD body pass must match count and IFD pass |
+| ofd-count | vendor/gambit/gsc/_t-c-1.scm | (define (targ-get-ofd-count objs) | Separate count traversal can disagree after mutation |
+| source-write | vendor/gambit/lib/setup.c | source->thunk = thunk; | Publish before any allocation callback safe point; reentry refused |
+| source-queue | vendor/gambit/lib/setup.c | ___RESIZE_SOURCE_WRITING, ___RESIZE_SOURCE_QUEUED | Root publication precedes token enqueue |
+| token-check | vendor/gambit/lib/setup.c | source->serial != token / ___MAX_PROCESSORS | Serial and origin bind selected request |
+| reload | vendor/gambit/lib/setup.c | (___ps, source->thunk, sop_ptr->arg[1]); | Selected operation reloads GC-updated source slot |
+| ledger-publish | vendor/gambit/lib/setup.c | r->thunk = thunk; | Old participant barrier precedes possible GC |
+| ledger-clear | vendor/gambit/lib/setup.c | r->thunk = ___FAL; | Clear only outside retained phase; successor contexts can still own roots |
+| source-ack | vendor/gambit/lib/setup.c | source->thunk = ___FAL; | Only CONSUMED CAS winner clears then publishes IDLE |
+| source-unknown | vendor/gambit/lib/setup.c | ___RESIZE_SOURCE_QUEUED, ___RESIZE_SOURCE_RETAINED | Unknown keeps thunk serial and exclusion of slot reuse |
+| root-scan | vendor/gambit/lib/mem.c | mark_array (work, &___vms->resize_requests[i].thunk, 1); | All MAX_PROCESSORS slots including retained absent origins |
+| ledger-scan | vendor/gambit/lib/mem.c | mark_array (work, &___vms->resize.thunk, 1); | Deduplicate transitive objects across ledger source and context aliases |
+| retire-guard | vendor/gambit/lib/mem.c | No C stack or | Current shrink refuses nonidle origin slot |
+| cleanup-guard | vendor/gambit/lib/setup.c | return; /* source-root ownership outlives an interrupted C activation */ | Cleanup refusal is custody not a drain/liveness proof |
+| setup-root | vendor/gambit/lib/setup.c | ___vms->resize_requests[i].thunk = ___FAL; | Exclusive pre-borrow setup; not an in-round writer |
+| serial | vendor/gambit/include/gambit.h.in | ___resize_request_root resize_requests[___MAX_PROCESSORS]; | VM-owned stable storage; generation/serial overflow must refuse reuse |
+| cas-family | vendor/gambit/include/gambit.h.in | __sync_val_compare_and_swap(p,oldval,newval) | Multiple macro backends; volatile alone establishes no C11 happens-before |
+| startup-publish | vendor/gambit/lib/setup.c | ps->context->startup_thunk = r->thunk; | Successor context keeps exact thunk before native start |
+| startup-scan | vendor/gambit/lib/mem.c | mark_array (work, &context->startup_thunk, 1); | Context root scanning must remain until successful downstream detach |
+
+** Alias
+
+| key | writer | custody | gap |
+|---+---+---+---|
+| FrameSpec | constructor | fresh mutable vector; scalar exact integers and symbols | No named setter found in bounded target files; arbitrary vector/FFI escape unclosed |
+| label.info | targ-add-label | class then info replacement | Owner excludes readers between paired writes |
+| canonical-label | targ-get-lbl | table -> code stream -> ordered queue -> val-lbls | Copying list spine does not detach label vectors |
+| procedure-plan | targ-scan-procedure | set-car! publishes vector of mutable code and labels | Wait for all numbering/resource/debug writes; whole generator reentry unqualified |
+| number-cell | targ-cell-set! | label field0 mutable cell shared by generated code | Copy final resolved label identity or deep-copy cell with relocation map |
+| emission-pass | targ-dump-prc / targ-get-ofd-count | count IFD OFD and chunks traverse repeatedly | All passes consume one private sealed plan identity |
+| native-root | mark_array | collector updates source thunk and downstream slots | Freeze structural ownership, permit authorized relocation updates |
+| module-users | closure/frame/continuation | transitive descriptor users can outlive public module entry | No executable old-descriptor pin closure proved |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| seal | Exclusive session -> close writers -> copy graph -> validate -> publish | All mutable aliases in code label cells target config and output hooks covered | Later live-plan mutation leaves private snapshot unchanged in model | Full Scheme callback/FFI alias closure remains open |
+| B | Union of canonical physical source intervals reached by complete root domains | R includes all request slots ledger startup contexts and prior roots | Delta B is incremental live object charge plus alignment and thresholds | Root slot count is not object bytes; root-completeness/source injection open |
+| old-modules | Descriptor leases follow all reachable procedures and captured frames | Transitive dependency union and generation retained through unknown transfer | Only exact current profile can issue local G and B receipt | Loader unload and every continuation/FFI alias not closed |
+| receipt | Combine private producer summary with frozen root/source epoch | Complete producer caps source partition ABI and packing predicates | Invalidate before copy; defer new activation during copy | Native complete gate and total fallback not implemented |
+| failure | Private failed candidate discarded; published unknown candidate retained | No source clear without consumed and downstream handoff receipt | No unsafe free or untracked fallback after partial copy | Retained state is safe custody conditional on scanner, not eventual progress |
+
+** Memory
+
+| key | publication | consumer | gap |
+|---+---+---+---|
+| root-publish | ordinary root write before release state; acquire before reading | Writer and GC scanner must be mutually excluded by same frozen membership cut | C11 data-race proof and actual Darwin macro selection open |
+| scan-update | Scanner may rewrite root slot only with GC authority | Resume/reload after collective acquire; raw C cached thunk cannot cross GC | All callers and generation close still source refinement |
+| seal | Private construction rooted before safepoints; release immutable handle | Acquiring consumer sees one resolved plan across count/IFD/OFD/code | C11 publication does not itself root Scheme objects |
+| revoke | Serialize activation/revocation with issue/start epoch transition | Once started use deferred queue; no free-space refund or tight plan replacement | CAS/version alone cannot repair a concurrent plain Scheme read |
+| retire | Close admissions and drain code/frame/maintenance/native users | Release descriptor pin after acquire-observed final user and no queued roots | Hazard/epoch or refcount choice and ABA exhaustion qualification open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| descriptor-walks | k redundant validation/count/summary walks over F labels -> one sealing walk; required code/IFD/OFD serialization remains | O(F) private plan + identity relocation; source writer checks | Positive if saved repeated traversal exceeds seal/copy cost; not measured |
+| GC-source-budget | Bnew = Bold + DeltaU + DeltaA + DeltaT | Scan MAX_PROCESSORS request slots each GC; physical canonical dedup | DeltaU zero when all new roots alias already-counted objects; retained unique graph may increase B |
+| tight-packing | K = P + floor(B / (C-G+1)) when 0<G<=C | Module profile union old-descriptor leases and alternative-space reserve | No benefit if any producer cap missing or denominator near one |
+| module-summary | Reuse size/root/ABI summaries across epochs and incremental builds | Invalidate on generator profile layout code or producer coverage change | Retire repeated layout interpretation only after all native consumers migrate |
+| parallel-build | Privatize label/code/target state for independent sessions | Deep copy or rebuild mutable cells and provider closures; per-session output | FrameSpec sealing alone establishes neither compiler reentrancy nor speedup |
+| language-choice | Modern C suffices for explicit root epochs and generated contracts | Zig adds another code generator and ABI maintenance if introduced | No additional Zig net gain established by these mechanisms |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Scheme-writers | exclusive-seal | Close reentry aliases and stabilize ABI |
+| exclusive-seal | private-plan | Copy label graph and resolve cells |
+| private-plan | module-profile | One identity for code IFD OFD and G |
+| request-root-slots | frozen-root-union | All VM origins; scanner updates authorized |
+| resize-ledger-and-contexts | frozen-root-union | Successor custody remains after source ACK |
+| frozen-root-union | canonical-source-B | Charge each physical object once |
+| frozen-root-union | old-descriptor-leases | Transitive closure of closure and frame users |
+| old-descriptor-leases | module-profile | Keep all still-live producer summaries |
+| module-profile | capacity-receipt | Qualified global G and exact ABI |
+| canonical-source-B | capacity-receipt | Frozen Q alignment threshold bound |
+| capacity-receipt | start-or-alternative | Revoke before start; defer after start |
+| unknown-handoff | retained-custody | Keep root and descriptor; refuse cleanup |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| frame_seal_root_scope.own | FrameSealRoot.ownPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.mutateLive | FrameSealRoot.mutateLivePreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.seal | FrameSealRoot.sealPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.beginRequest | FrameSealRoot.beginRequestPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.publishRequest | FrameSealRoot.publishRequestPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.selectRequest | FrameSealRoot.selectRequestPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.unknownRequest | FrameSealRoot.unknownRequestPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.completeRequest | FrameSealRoot.completeRequestPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.ackSource | FrameSealRoot.ackSourcePreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.freeze | FrameSealRoot.freezePreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.coverSource | FrameSealRoot.coverSourcePreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.issue | FrameSealRoot.issuePreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.start | FrameSealRoot.startPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.relocate | FrameSealRoot.relocatePreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.deferRootWriter | FrameSealRoot.deferRootWriterPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.revokeBeforeCopy | FrameSealRoot.revokeBeforeCopyPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.finishRound | FrameSealRoot.finishRoundPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.closeLedger | FrameSealRoot.closeLedgerPreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.retireModule | FrameSealRoot.retireModulePreserves | Actual typed IR action; source semantics conditional |
+| frame_seal_root_scope.rejectOpaque | FrameSealRoot.rejectOpaquePreserves | Actual typed IR action; source semantics conditional |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| all-step | FrameSealRoot.stepPreserves |
+| reachable | FrameSealRoot.reachableSafe |
+| receipt | FrameSealRoot.receiptScope |
+| snapshot | FrameSealRoot.privateSnapshotUnaffected |
+| unknown | FrameSealRoot.unknownKeepsSource |
+| budget-composition | FrameRootComposition.sourceBudgetFromReceipt |
+| root-monotonic | FrameRootComposition.unionDelta |
+| duplicate-root | FrameRootComposition.duplicateHasNoCharge |
+| reach-duplicate | FrameRootComposition.duplicateRootSameReach |
+| reach-added | FrameRootComposition.addedRootPreservesReach |
+| reach-ack | FrameRootComposition.sourceAckPreservesSuccessor |
+
+** Seam
+
+| producer.componentId | consumer.componentId | contract | actionName | lemma |
+|---+---+---+---+---|
+| build-publisher | gc-work | sealed-module-producer-summary | frame_seal_root_scope.seal | FrameSealRoot.privateSnapshotUnaffected |
+| host-roots | gc-work | frozen-all-origin-root-domain | frame_seal_root_scope.freeze | FrameSealRoot.freezePreserves |
+| continuation | gc-work | old-frame-descriptor-lease-union | frame_seal_root_scope.issue | FrameSealRoot.receiptScope |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| FS-history | interleaving | dev/refactoring/modern-c/models/quint/frame_seal_root_scope.qnt | Request custody private snapshot revocation and negative histories |
+| FS-induction | induction | dev/refactoring/modern-c/models/lean/FrameSealRoot.lean | All actual typed AST steps and reachability induction |
+| FS-composition | induction | dev/refactoring/modern-c/models/lean/FrameRootComposition.lean | SourceCover budget handoff and root union algebra |
+| FS-projection | restricted-projection | dev/refactoring/modern-c/models/lean/FrameSealRootAst.lean | Typed JSON references and supported expression extraction |
+| FS-source | source-refinement | dev/refactoring/modern-c/frame-seal-root-scope-design.org | Alias closure all-origin frozen roots downstream descriptor user closure remain open |
+| FS-platform | native-memory-order | dev/refactoring/modern-c/frame-seal-root-scope-design.org | Actual C11 loads stores freeze authority and total alternative remain open |

@@ -23,7 +23,7 @@ seconds, exit zero, no timeout, parent reaped and process group quiescent.
 
 The existing publisher returned PROTOCOL-EVIDENCE-OK and preserved both model
 snapshots, raw-log hashes, portable logs and the decoded counterexample under
-`evidence/model-results/fixtures/fdset-abort-owned-rollback/progress/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/fdset-abort-owned-rollback/progress/`.
 
 Published receipt SHA-256:
 `04a2584ce813a4f1f165018082a193c5bff0ef45b1d2441245a7db7f8cc050be`.

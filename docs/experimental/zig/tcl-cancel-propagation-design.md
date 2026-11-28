@@ -1,0 +1,209 @@
+# Tcl Cancel-Unwind Propagation and Shutdown Drain
+
+The architecture needs an explicit cancellation epoch and a durable completion
+record. `Tcl_CancelEval(..., TCL_CANCEL_UNWIND)` is useful library machinery,
+but its successful return is neither an evaluation-return receipt nor permission
+to free roots, markers, native strings or the interpreter. This design extends
+[the control boundary](tcl-control-boundary-design.md); evidence identifiers
+refer to the [source ledger](tcl-cancel-propagation-evidence.md).
+All structures below are proposed contracts, not code or installed behavior.
+
+## Actual Entry Routes and Semantic Boundaries
+
+CP01. The current bridge calls `Tcl_Eval`, enters Scheme on non-OK completion,
+and offers strings/false through its callback. Its active event service is a
+Scheme thread calling DoOneEvent. Tcl_Eval's reviewed implementation delegates
+to the direct string evaluator. This is a real modernization target: completion
+and result lifetime must become explicit before a cancellation profile can be
+added. Do not silently turn the existing Scheme error path into a cancellation
+success. The combined map/continuation/cancel histories are design scenarios,
+not existing executed samples. [PE01, PX04, PD01]
+
+CP02. Model three different layers: host intent/epoch, Tcl pending async record,
+and interpreter-installed flags. Host acceptance linearizes under the common
+lifecycle lock; it promises custody and an eventual explicit terminal disposition,
+not immediate interruption. API success means the request was accepted by Tcl's
+request path. The async callback installs flags/message; subsequent interpreter
+checks cause error propagation. Already-installed unwind is sticky until reset,
+but pending requests share one mutable record. A later ordinary request can
+replace pending flags before installation. Therefore a shutdown epoch coalesces
+host requests monotonically to unwind, uses a fixed NULL/default Tcl message,
+and records each host request's coalesced/rejected/settled disposition outside
+Tcl. No individual Tcl FIFO acknowledgment is assumed. [PX01–PX03, PX06, PX12]
+
+CP03. Bytecode path: a reached poll invokes async handlers, checks cancellation,
+enters gotError/checkForCatch, bypasses the catch target while cancellation is
+still present, and leaves through abnormalReturn. Its operand/auxiliary/frame
+cleanup remains library work and must return through NRE. The default mask 63
+means a periodic poll opportunity in this loop; peephole paths and native calls
+prevent treating it as a maximum of 64 arbitrary instructions or any time bound.
+Compiled catch selection itself has syntax/local-variable restrictions. [PX07–PX08]
+
+CP04. Direct evaluation still dispatches commands through object-vector/NRE
+machinery; non-bytecode does not mean no NRE or that called procedures cannot
+execute bytecode. NRE catch can temporarily return OK and write its result/options
+variables. With cancellation still installed, a later NRCommand OK check or
+new evaluation entry can turn that success back into error. Variable writes and
+native traces may precede that check; their effects cannot be erased from an
+equivalence claim. Callback-local return code alone is insufficient. [PX04, PX09]
+
+CP05. Reset placement is entry-sensitive. TEOV_Exception clears flags on its
+return-to-zero path before NRCommand decrements numLevels; the bytecode object
+return callback clears them when numLevels is zero. Direct string evaluation
+passes NOERR to command evaluation and its reviewed cleanup tail does not have
+that same inline reset. A complete reusable direct-entry profile is therefore
+unqualified. Do not repair the proof by assuming all public evaluations share
+one automatic reset. Also audit the conditional ordering in AC04: a noncompiled
+catch that returns OK must not have its cancellation cleared before the required
+reassertion. This is a source-composed hazard, not a tested installed Tcl defect.
+[PX04, PX09]
+
+CP06. Try/finally is two admission questions. For actual NRE Try callbacks,
+variable binding/result bookkeeping can occur before handler/finally evaluation;
+a new evaluation can reject entry while persistent cancellation remains.
+Scheduling finally does not imply its user script ran. For compiled Try, the
+registered compiler exists, but its exact emitted exception ranges, inline
+finally copies and paths not passing checkForCatch remain unresolved here.
+For any emitted catch-range exit, CP03 supplies only that exit's bypass rule.
+No blanket assertion that every compiled finally is bypassed or executed is
+admitted. Coroutine rewind, limits and cancellation remain different causes.
+Resource safety must use native custody/explicit cleanup, not required execution
+of arbitrary Tcl finally under forced cancellation. [PX04–PX10, PX14]
+
+CP07. Nested event handling is a stack of scopes, not a single done bit.
+A vwait variable write does not release its outer invocation while an inner
+handler remains active. vwait's normal exit untraces its stack-local done pointer;
+update polls after processed events and has an empty-queue success path. An
+installed unwind can still be seen by outer evaluation checks after an inner
+local success. Async thread alert is a wakeup aid, not preemption of a native
+handler or an end-to-end notifier progress bound. Keep every accepted scope
+and event outcome until its own return/delivery receipt. [PE01, PX11–PX12]
+
+CP08. Canceling one interpreter is not equivalent to canceling a thread's event
+queue. Parent cancellation propagates flags to children; unrelated interpreters
+can continue processing events. Idle descendants may retain state without an
+active evaluation to clear it. Freeze accepted child creation/mutation during
+close, retain an interpreter-generation tree, and give each affected child its
+own return/retire/reset obligation. ChildEval's selective descendant reset is
+not a whole-tree quiescence certificate. Unmanaged external interpreters/events
+are excluded from a closed-world completion claim. [PX03, PX13, PD01]
+
+![Propagation routes](tcl-cancel-routes.svg)
+[D2 source](tcl-cancel-routes.d2).
+
+## Host State and Receipt Contract
+
+CP09. One shared native plan, emitted by Scheme, carries the following data.
+Modern generated C and an optional Zig provider must implement the same state
+and custody rules. A cancellation serial is an instance identity, not an
+architecture version name. [CP01–CP08, PE02–PE03, PD01]
+
+| Record | Required fields / owner |
+| --- | --- |
+| CancelEpoch | Interpreter generation, close serial, owner OS thread, affected child generations, accepted LibraryScope frontier, completion policy, close/dispatch seal; lifecycle coordinator |
+| CancelRequest | Request identity, epoch, requested mode, coalesced batch identity, API call state, API code, retained interpreter/image lease; producer/coordinator |
+| EvalScope | Scope and parent identities, interpreter generation, actual API/flags, native activation/marker identity, returned receipt, durable sink; evaluator owner |
+| ForeignOutcome | Completion kind/code, independently owned result and return-options snapshot, cancellation provenance versus merely requested cancellation, rooted Scheme outcome, delivery target; producer until acceptance |
+| DrainLedger | Active/selected scopes, in-flight API callers, accepted derived tasks, unsettled outcomes, root/string/image/scanner obligations; coordinator with existing custody services |
+| RetirementReceipt | Frontier closed, zero active/selected users and in-flight request calls, outcomes settled, child disposition, owner deletion completed, native/image/root grace discharged |
+| ReuseReceipt | All retirement-independent frontier conditions plus qualified pending-handler disposition, installed-state clearing and unaffected next-entry state for every retained interpreter |
+
+Requested cancellation does not prove that a specific error was caused by it.
+Preserve `requested`, API result and actual evaluation completion separately;
+normal completion racing cancellation remains a valid recorded outcome.
+A delivery failure retains custody; it is not converted into a successful receipt.
+
+CP10. Thread/lifetime protocol: acquire the common lifecycle lock; validate
+interpreter generation and that request dispatch is open; acquire the request
+lease and publish the in-flight count before dropping the lock. Call the permitted
+cross-thread cancellation API without holding a lock needed by the evaluator.
+On return publish API result and drop that lease under the lifecycle lock.
+Owner close seals further API dispatch under the same lock, then waits without
+blocking owner service for all published leases. No sender may retain a bare
+pointer for later use. A Scheme mutex or thread identity does not establish Tcl
+OS-thread affinity. Other calls, snapshots and deletion remain owner operations.
+[PX01, PX05, PX12, PE01, PD01]
+
+Use NULL resultObj/clientData on this shutdown lane. A custom diagnostic belongs
+in the host-owned outcome. This avoids cross-thread shared Tcl_Obj mutation and
+ambiguity between the manual's consumed-object contract and the early failure
+branches. Custom-message/failure ownership is a separate unqualified profile,
+not a hidden decrement guessed by the generator. Never expose private Tcl flags,
+CancelInfo or internal reset through an ABI-unstable production shortcut.
+
+CP11. Completion is a partial order, not a four-state Tcl flag machine:
+
+```text
+close admission/frontier -> record requests/leases -> dispatch or coalesce
+library checks + cooperative native return -> each affected EvalScope returns
+scope return -> own result/options before any next eval/reset-result/deletion
+seal late request dispatch -> all published CancelEval calls return
+all user scopes return + sender seal + durable outcome custody
+    -> retire on owner OR separately qualified reset/reuse barrier
+recipient accepts OR explicit disposal -> discharge outcome roots/resources
+owner deletion + derived-task settlement + string/image/root/scanner grace
+    -> final shutdown receipt
+```
+
+Internal flag reset may precede evaluation return; do not put it after return
+as a source fact. Snapshot ordering concerns mutable result storage, which is
+separate from cancellation-flag reset. A Scheme outcome already produced by a
+callback must be rooted at production, not reconstructed from a later Tcl error
+string. A late async installation can follow an earlier reset; the dispatch seal
+and pending-handler disposition are essential. [CP02, CP05, CP09–CP10]
+
+CP12. For terminal shutdown, retire the interpreter on its owner after all
+actual evaluation scopes and API callers leave, preserving owned results first.
+The reviewed deletion path removes cancellation table/async state; async deletion
+can dispose a ready handler. A pending request may receive the explicit host
+terminal disposition `retired-before-observation`, never `cancellation-observed`.
+No requirement to run another user script just to clear a bit. Deletion callbacks
+and any derived release tasks remain counted, with allocator/image services alive
+until their last return. Result disposal at Tcl deletion is not recipient delivery.
+[PX05, PX11–PX12, PD01]
+
+CP13. Reuse is a stronger separate profile: pending cancels and all eligible
+async users must have a qualified owner barrier; accepted derived reentry must
+not consume/reset the wrong epoch; every retained child must be covered. Public
+AsyncInvoke services all ready handlers and can mutate state or generate work;
+AsyncReady is thread-scoped and may be zero during an active invocation. Neither
+is a per-interpreter cancel receipt. Internal TclResetCancellation is not assumed
+to be a supported public facility. Direct-entry reset, compiled Try and installed
+source identity gaps keep reuse unresolved. Terminal retirement is a complete
+policy choice for shutdown, not evidence that reuse became equivalent. [CP05–CP08,
+CP10–CP12, PX12]
+
+![Completion partial order](tcl-cancel-completion.svg)
+[D2 source](tcl-cancel-completion.d2).
+
+CP14. Cleanup progress cannot depend on a finally script that cancellation may
+prevent from entering. A derived task is charged to its parent epoch before its
+parent can settle; accepted essential cleanup gets an explicit unaffected service
+context or runs after safe retirement through a native coordinator. Changing
+where arbitrary user finally/hook code runs is a semantic change and cannot be
+a transparent optimization. Reject cross-Tcl raw continuation escape in a
+result-boundary profile before Scheme wind effects; retain the qualified C
+control island. No C cleanup label or Zig defer recovers frames jumped past by
+an unsupported transfer. [PE02–PE03, PL01–PL02, PD01]
+
+CP15. Admission remains conditional on cooperative return from every native
+handler, no untracked scope/child/producer, finite derived work, fair owner
+service and the stated custody protocol. A blocked handler that ignores checks
+makes drain latency unbounded. A timeout changes reporting/escalation policy,
+not the right to free reachable state. The [arguments](tcl-cancel-propagation-arguments.md),
+[operation inventory](tcl-cancel-propagation-callers.json) and
+[net-benefit matrix](tcl-cancel-propagation-benefit-matrix.md) distinguish safety,
+semantic coverage and progress. No path has retired or native profile passed.
+
+![Drain responsibility graph](tcl-cancel-drain.svg)
+[D2 source](tcl-cancel-drain.d2).
+
+## Coherent Compiler and Reuse Follow-Up
+
+The [interpreter reuse study](tcl-interpreter-reuse-design.md) closes this study's
+Try-source retrieval gap at a coherent pinned Tcl commit. It derives the four
+compiler selections and the selected direct Tcl_Eval/NOERR path's lack of cancel
+reset, while preserving path/timing caveats and actual installed-source boundaries.
+The proposed reuse barrier requires closed old request authority, actual owner
+idleness, pending async closure and a postcondition-bearing reset service; an
+internal reset OK code is not sufficient. Earlier receipts remain historical.

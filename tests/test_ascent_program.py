@@ -9,14 +9,56 @@ from gambit_smp.framework import ROOT
 
 
 class RuleEntryContractTests(unittest.TestCase):
-    def test_checked_inventory_projection_reuses_only_exact_seal_and_declaration(self):
+    def test_inventory_parent_resolution_is_shared_only_within_each_check(self):
+        from gambit_smp.ascent_program import _check_inventory_paths
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve(strict=True)
+            files = [root / name for name in ('one', 'two')]
+            for path in files:
+                path.write_bytes(b'source')
+            original = Path.lstat
+            calls = []
+
+            def observed(path, *args, **kwargs):
+                calls.append(path)
+                return original(path, *args, **kwargs)
+
+            with patch.object(Path, 'lstat', observed):
+                _check_inventory_paths(files + files)
+                self.assertEqual(calls.count(root), 1)
+                self.assertEqual(len(calls), len(set(calls)))
+                _check_inventory_paths(files)
+                self.assertEqual(calls.count(root), 2)
+            files[0].unlink()
+            files[0].symlink_to(files[1])
+            with self.assertRaisesRegex(ValueError, 'became an alias'):
+                _check_inventory_paths(files)
+            files[0].unlink()
+            with self.assertRaises(FileNotFoundError):
+                _check_inventory_paths(files)
+
+    def test_inventory_rechecks_parent_alias_and_ancestor_changes(self):
+        from gambit_smp.ascent_program import _check_inventory_paths
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve(strict=True)
+            parent = root / 'parent'
+            parent.mkdir()
+            source = parent / 'source'
+            source.write_bytes(b'source')
+            _check_inventory_paths([source])
+            parent.rename(root / 'original')
+            parent.symlink_to(root / 'original', target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'became an alias'):
+                _check_inventory_paths([source])
+            with self.assertRaisesRegex(ValueError, 'became an alias'):
+                _check_inventory_paths([root / 'original' / '..' / 'original' / 'source'])
+
+    def test_checked_inventory_projection_reuses_only_exact_seal(self):
         from gambit_smp import ascent_program as api
         api._bound_api_inventory.cache_clear()
         self.addCleanup(api._bound_api_inventory.cache_clear)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            declaration = root / 'pyproject.toml'
-            declaration.write_text('first declaration')
             files = {'binding': root / 'binding.py'}
             build = {'nested': {'value': 'original'}}
             manifest = {'engineId': 'first', 'files': {'binding.py': 'sha'}}
@@ -31,13 +73,10 @@ class RuleEntryContractTests(unittest.TestCase):
                     self.assertEqual(again, files)
                     self.assertEqual(metadata['nested']['value'], 'original')
                     self.assertEqual(inventory.call_count, 1)
-                    declaration.write_text('changed declaration')
-                    api._api_inventory()
-                    self.assertEqual(inventory.call_count, 2)
                     manifest = dict(manifest, engineId='second')
                     api._verified_api.set((root, manifest))
                     api._api_inventory()
-                    self.assertEqual(inventory.call_count, 3)
+                    self.assertEqual(inventory.call_count, 2)
                 finally:
                     api._verified_api.reset(token)
 
@@ -173,6 +212,8 @@ class RuleEntryContractTests(unittest.TestCase):
 
 
 class NativeAuditTests(unittest.TestCase):
+    validation_after_domains = True
+
     @classmethod
     def setUpClass(cls):
         cls.context = engine_api()
@@ -196,6 +237,31 @@ class NativeAuditTests(unittest.TestCase):
         self.assertEqual(answers, repeated)
         self.assertTrue(retained["nativeResultReused"])
         self.assertEqual(metrics["sessionOwner"], retained["sessionOwner"])
+
+    def test_runtime_storage_observation_is_available_to_configurable_scheme_without_admission(self):
+        from gambit_smp.evidence_capabilities import facts
+        step = dict(id='runtime', capability='gambit.runtime-import', dependsOn=['source'], arguments={},
+                    outcome='PASS', commands=[], runtimeAdmitted=False,
+                    workspaceReuse=dict(sourceContentId='verified-content', mode='same-producer-workspace', copiedFiles=0))
+        rules = (
+            ';;; Host byte/lease observations are not native correctness or execution advice.\n'
+            '(define-evidence (make-runtime-storage-observations)\n'
+            '  (sources runtime_storage_observation)\n'
+            '  (outputs recorded_runtime_storage)\n'
+            '  (relation runtime_storage_observation ((step string?) (mode string?)\n'
+            '    (source_content string?) (copied_files exact-integer?)))\n'
+            '  (relation recorded_runtime_storage (step mode source_content copied_files))\n'
+            '  ((recorded_runtime_storage S M I N) <-- (runtime_storage_observation S M I N)))\n'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            rules_path = Path(directory) / 'runtime-storage.ss'
+            rules_path.write_text(rules)
+            catalog = load_evidence_catalog(rules_path, constructor='make-runtime-storage-observations', trusted=True)
+            result, _ = evaluate(self.engine, facts({'steps':[step]}), catalog,
+                                 {'storage':'recorded_runtime_storage'})
+            self.assertEqual([('runtime', 'same-producer-workspace', 'verified-content', 0)], result['storage'])
+            with self.assertRaisesRegex(ValueError, 'declared native ASCENT relations'):
+                evaluate(self.engine, facts({'steps':[step]}), catalog, {'admitted':'runtime_admitted'})
 
     def test_decoded_rules_cannot_select_a_python_execution_fallback(self):
         catalog = self.engine.read_rules("(ascent-fragment (relation input ((value symbol?))))")
@@ -249,6 +315,28 @@ class NativeAuditTests(unittest.TestCase):
             {"deny": "retry_denied", "review": "retry_review_required"})
         self.assertEqual(sorted(expected_denials), result["deny"])
         self.assertEqual(expected_review, result["review"])
+
+    def test_hang_guard_widening_is_only_the_recorded_600_second_ceiling(self):
+        catalog = load_catalog(ROOT / "evidence/dsl/suite-review-rules.ss")
+        facts = {"original_budget": [], "requested_budget": [], "claim_evidence": []}
+        cases = (
+            ("widened", 600000, 1800000, True, False),
+            ("ceiling", 600000, 3600000, True, False),
+            ("unrecorded", 600000, 1800000, False, True),
+            ("short-history", 8000, 9000, True, True),
+            ("above-ceiling", 600000, 3600001, True, True),
+        )
+        for route, old, new, recorded, _denied in cases:
+            facts["original_budget"].append([route, "suite-step", old])
+            facts["requested_budget"].append([route, "suite-step", new])
+            if recorded:
+                facts["claim_evidence"].append([
+                    route, "hang-guard-widened-for-progressing-stage",
+                    "causal-review", "reviewed", "record"])
+        result, _ = evaluate(self.engine, facts, catalog, {"denied": "retry_denied"})
+        denied = {row[0]: row[1] for row in result["denied"] if row[1] == "budget-expanded"}
+        self.assertEqual({"unrecorded": "budget-expanded", "short-history": "budget-expanded",
+                          "above-ceiling": "budget-expanded"}, denied)
 
 
 if __name__ == "__main__":

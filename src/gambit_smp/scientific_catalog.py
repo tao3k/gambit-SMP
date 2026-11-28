@@ -1,0 +1,581 @@
+"""Closed scientific libraries. Derived from ScientificStudies; no path loading."""
+from gambit_smp.scientific_advantage_architecture_study import ScientificLibrary as advantage_architecture_study
+from gambit_smp.scientific_alias_workspace_reconstruction_study import ScientificLibrary as alias_workspace_reconstruction_study
+from gambit_smp.scientific_allocation_capture_guard_projection import ScientificLibrary as allocation_capture_guard_projection
+from gambit_smp.scientific_allocation_capture_guard_study import ScientificLibrary as allocation_capture_guard_study
+from gambit_smp.scientific_allocation_ticket_handoff_projection import ScientificLibrary as allocation_ticket_handoff_projection
+from gambit_smp.scientific_allocation_ticket_handoff_study import ScientificLibrary as allocation_ticket_handoff_study
+from gambit_smp.scientific_binding_observer_reentry_projection import ScientificLibrary as binding_observer_reentry_projection
+from gambit_smp.scientific_binding_observer_reentry_study import ScientificLibrary as binding_observer_reentry_study
+from gambit_smp.scientific_bundle_root_publication_study import ScientificLibrary as bundle_root_publication_study
+from gambit_smp.scientific_c23_development_design_study import ScientificLibrary as c23_development_design_study
+from gambit_smp.scientific_cache_ready_publication_projection import ScientificLibrary as cache_ready_publication_projection
+from gambit_smp.scientific_cache_ready_publication_study import ScientificLibrary as cache_ready_publication_study
+from gambit_smp.scientific_callback_carry_closure_projection import ScientificLibrary as callback_carry_closure_projection
+from gambit_smp.scientific_callback_carry_closure_study import ScientificLibrary as callback_carry_closure_study
+from gambit_smp.scientific_callback_producer_projection import ScientificLibrary as callback_producer_projection
+from gambit_smp.scientific_callback_producer_study import ScientificLibrary as callback_producer_study
+from gambit_smp.scientific_carrier_slot_mapping_projection import ScientificLibrary as carrier_slot_mapping_projection
+from gambit_smp.scientific_carrier_slot_mapping_study import ScientificLibrary as carrier_slot_mapping_study
+from gambit_smp.scientific_catcher_landing_marker_settlement_projection import ScientificLibrary as catcher_landing_marker_settlement_projection
+from gambit_smp.scientific_catcher_landing_marker_settlement_study import ScientificLibrary as catcher_landing_marker_settlement_study
+from gambit_smp.scientific_chain_seal_will_cut_projection import ScientificLibrary as chain_seal_will_cut_projection
+from gambit_smp.scientific_chain_seal_will_cut_study import ScientificLibrary as chain_seal_will_cut_study
+from gambit_smp.scientific_chunk_capacity_charge_projection import ScientificLibrary as chunk_capacity_charge_projection
+from gambit_smp.scientific_chunk_capacity_charge_study import ScientificLibrary as chunk_capacity_charge_study
+from gambit_smp.scientific_chunk_node_pool_projection import ScientificLibrary as chunk_node_pool_projection
+from gambit_smp.scientific_chunk_node_pool_study import ScientificLibrary as chunk_node_pool_study
+from gambit_smp.scientific_chunk_transport_ledger_projection import ScientificLibrary as chunk_transport_ledger_projection
+from gambit_smp.scientific_chunk_transport_ledger_study import ScientificLibrary as chunk_transport_ledger_study
+from gambit_smp.scientific_cleanup_ingress_projection import ScientificLibrary as cleanup_ingress_projection
+from gambit_smp.scientific_cleanup_ingress_study import ScientificLibrary as cleanup_ingress_study
+from gambit_smp.scientific_cohort_retirement_projection import ScientificLibrary as cohort_retirement_projection
+from gambit_smp.scientific_cohort_retirement_study import ScientificLibrary as cohort_retirement_study
+from gambit_smp.scientific_continuation_restore_admission_projection import ScientificLibrary as continuation_restore_admission_projection
+from gambit_smp.scientific_continuation_restore_admission_study import ScientificLibrary as continuation_restore_admission_study
+from gambit_smp.scientific_copy_producer_envelope_projection import ScientificLibrary as copy_producer_envelope_projection
+from gambit_smp.scientific_copy_producer_envelope_study import ScientificLibrary as copy_producer_envelope_study
+from gambit_smp.scientific_darwin_force_binding_study import ScientificLibrary as darwin_force_binding_study
+from gambit_smp.scientific_darwin_target_lease_projection import ScientificLibrary as darwin_target_lease_projection
+from gambit_smp.scientific_darwin_target_lease_study import ScientificLibrary as darwin_target_lease_study
+from gambit_smp.scientific_darwin_turbo_generated_module_study import ScientificLibrary as darwin_turbo_generated_module_study
+from gambit_smp.scientific_darwin_turbo_literal_study import ScientificLibrary as darwin_turbo_literal_study
+from gambit_smp.scientific_declaration_specialization_context_study import ScientificLibrary as declaration_specialization_context_study
+from gambit_smp.scientific_decrement_restore_closure_study import ScientificLibrary as decrement_restore_closure_study
+from gambit_smp.scientific_dedicated_copy_capacity_projection import ScientificLibrary as dedicated_copy_capacity_projection
+from gambit_smp.scientific_dedicated_copy_capacity_study import ScientificLibrary as dedicated_copy_capacity_study
+from gambit_smp.scientific_default_lease_admission_projection import ScientificLibrary as default_lease_admission_projection
+from gambit_smp.scientific_default_lease_admission_study import ScientificLibrary as default_lease_admission_study
+from gambit_smp.scientific_derivation_receipt_environment_study import ScientificLibrary as derivation_receipt_environment_study
+from gambit_smp.scientific_derivation_receipt_projection import ScientificLibrary as derivation_receipt_projection
+from gambit_smp.scientific_device_cleanup_wait_study import ScientificLibrary as device_cleanup_wait_study
+from gambit_smp.scientific_dispatch_joint_admission_projection import ScientificLibrary as dispatch_joint_admission_projection
+from gambit_smp.scientific_dispatch_joint_admission_study import ScientificLibrary as dispatch_joint_admission_study
+from gambit_smp.scientific_emission_pipe_refinement_projection import ScientificLibrary as emission_pipe_refinement_projection
+from gambit_smp.scientific_emission_pipe_refinement_study import ScientificLibrary as emission_pipe_refinement_study
+from gambit_smp.scientific_emission_view_correspondence_projection import ScientificLibrary as emission_view_correspondence_projection
+from gambit_smp.scientific_emission_view_correspondence_study import ScientificLibrary as emission_view_correspondence_study
+from gambit_smp.scientific_escrow_critical_tail_projection import ScientificLibrary as escrow_critical_tail_projection
+from gambit_smp.scientific_escrow_critical_tail_study import ScientificLibrary as escrow_critical_tail_study
+from gambit_smp.scientific_exit_domain_drain_projection import ScientificLibrary as exit_domain_drain_projection
+from gambit_smp.scientific_exit_domain_drain_study import ScientificLibrary as exit_domain_drain_study
+from gambit_smp.scientific_ffi_scan_ready_handoff_study import ScientificLibrary as ffi_scan_ready_handoff_study
+from gambit_smp.scientific_ffi_scope_root_admission_projection import ScientificLibrary as ffi_scope_root_admission_projection
+from gambit_smp.scientific_ffi_scope_root_admission_study import ScientificLibrary as ffi_scope_root_admission_study
+from gambit_smp.scientific_force_maintenance_fidelity_study import ScientificLibrary as force_maintenance_fidelity_study
+from gambit_smp.scientific_foreign_cleanup_closure_study import ScientificLibrary as foreign_cleanup_closure_study
+from gambit_smp.scientific_formal_study import ScientificLibrary as formal_study
+from gambit_smp.scientific_formatter_legal_output_projection import ScientificLibrary as formatter_legal_output_projection
+from gambit_smp.scientific_formatter_legal_output_study import ScientificLibrary as formatter_legal_output_study
+from gambit_smp.scientific_formatter_restore_reentry_projection import ScientificLibrary as formatter_restore_reentry_projection
+from gambit_smp.scientific_formatter_restore_reentry_study import ScientificLibrary as formatter_restore_reentry_study
+from gambit_smp.scientific_frame_chunk_weak_producers_projection import ScientificLibrary as frame_chunk_weak_producers_projection
+from gambit_smp.scientific_frame_chunk_weak_producers_study import ScientificLibrary as frame_chunk_weak_producers_study
+from gambit_smp.scientific_frame_cursor_projection import ScientificLibrary as frame_cursor_projection
+from gambit_smp.scientific_frame_seal_root_scope_projection import ScientificLibrary as frame_seal_root_scope_projection
+from gambit_smp.scientific_frame_seal_root_scope_study import ScientificLibrary as frame_seal_root_scope_study
+from gambit_smp.scientific_frame_seal_start_retire_projection import ScientificLibrary as frame_seal_start_retire_projection
+from gambit_smp.scientific_frame_seal_start_retire_study import ScientificLibrary as frame_seal_start_retire_study
+from gambit_smp.scientific_frame_weak_coverage_projection import ScientificLibrary as frame_weak_coverage_projection
+from gambit_smp.scientific_frame_weak_coverage_study import ScientificLibrary as frame_weak_coverage_study
+from gambit_smp.scientific_future_atomic_owner_projection import ScientificLibrary as future_atomic_owner_projection
+from gambit_smp.scientific_future_control_word_projection import ScientificLibrary as future_control_word_projection
+from gambit_smp.scientific_future_frame_activation_projection import ScientificLibrary as future_frame_activation_projection
+from gambit_smp.scientific_future_frame_commit_projection import ScientificLibrary as future_frame_commit_projection
+from gambit_smp.scientific_future_frame_commit_study import ScientificLibrary as future_frame_commit_study
+from gambit_smp.scientific_gate_empty_root_materialization_study import ScientificLibrary as gate_empty_root_materialization_study
+from gambit_smp.scientific_gc_drain_cut_study import ScientificLibrary as gc_drain_cut_study
+from gambit_smp.scientific_global_module_unload_projection import ScientificLibrary as global_module_unload_projection
+from gambit_smp.scientific_global_module_unload_study import ScientificLibrary as global_module_unload_study
+from gambit_smp.scientific_guard_thread_admission_projection import ScientificLibrary as guard_thread_admission_projection
+from gambit_smp.scientific_guard_thread_admission_study import ScientificLibrary as guard_thread_admission_study
+from gambit_smp.scientific_image_membership_enrollment_projection import ScientificLibrary as image_membership_enrollment_projection
+from gambit_smp.scientific_image_membership_enrollment_study import ScientificLibrary as image_membership_enrollment_study
+from gambit_smp.scientific_incremental_compiler_study import ScientificLibrary as incremental_compiler_study
+from gambit_smp.scientific_ingress_carrier_transfer_projection import ScientificLibrary as ingress_carrier_transfer_projection
+from gambit_smp.scientific_ingress_carrier_transfer_study import ScientificLibrary as ingress_carrier_transfer_study
+from gambit_smp.scientific_inspect_action_descriptors import ScientificLibrary as inspect_action_descriptors
+from gambit_smp.scientific_interrupt_custody_handoff_study import ScientificLibrary as interrupt_custody_handoff_study
+from gambit_smp.scientific_iter_compiler_service_study import ScientificLibrary as iter_compiler_service_study
+from gambit_smp.scientific_lazy_future_split_projection import ScientificLibrary as lazy_future_split_projection
+from gambit_smp.scientific_lazy_future_split_study import ScientificLibrary as lazy_future_split_study
+from gambit_smp.scientific_logical_cursor_study import ScientificLibrary as logical_cursor_study
+from gambit_smp.scientific_manifest_scan_qualification_projection import ScientificLibrary as manifest_scan_qualification_projection
+from gambit_smp.scientific_manifest_scan_qualification_study import ScientificLibrary as manifest_scan_qualification_study
+from gambit_smp.scientific_map_expression_projection import ScientificLibrary as map_expression_projection
+from gambit_smp.scientific_map_frame_abi_study import ScientificLibrary as map_frame_abi_study
+from gambit_smp.scientific_marker_alias_revocation_study import ScientificLibrary as marker_alias_revocation_study
+from gambit_smp.scientific_marker_audit_quiescence_study import ScientificLibrary as marker_audit_quiescence_study
+from gambit_smp.scientific_module_spec_handle_migration_projection import ScientificLibrary as module_spec_handle_migration_projection
+from gambit_smp.scientific_module_spec_handle_migration_study import ScientificLibrary as module_spec_handle_migration_study
+from gambit_smp.scientific_native_binding_plan_retirement_projection import ScientificLibrary as native_binding_plan_retirement_projection
+from gambit_smp.scientific_native_binding_plan_retirement_study import ScientificLibrary as native_binding_plan_retirement_study
+from gambit_smp.scientific_native_entry_admission_projection import ScientificLibrary as native_entry_admission_projection
+from gambit_smp.scientific_native_entry_admission_study import ScientificLibrary as native_entry_admission_study
+from gambit_smp.scientific_native_prefix_permission_projection import ScientificLibrary as native_prefix_permission_projection
+from gambit_smp.scientific_native_prefix_permission_study import ScientificLibrary as native_prefix_permission_study
+from gambit_smp.scientific_native_return_domains_projection import ScientificLibrary as native_return_domains_projection
+from gambit_smp.scientific_native_return_domains_study import ScientificLibrary as native_return_domains_study
+from gambit_smp.scientific_native_scope_writers_projection import ScientificLibrary as native_scope_writers_projection
+from gambit_smp.scientific_native_scope_writers_study import ScientificLibrary as native_scope_writers_study
+from gambit_smp.scientific_native_wake_channel_study import ScientificLibrary as native_wake_channel_study
+from gambit_smp.scientific_nested_domain_root_retirement_projection import ScientificLibrary as nested_domain_root_retirement_projection
+from gambit_smp.scientific_nested_domain_root_retirement_study import ScientificLibrary as nested_domain_root_retirement_study
+from gambit_smp.scientific_node_storage_authority_projection import ScientificLibrary as node_storage_authority_projection
+from gambit_smp.scientific_node_storage_authority_study import ScientificLibrary as node_storage_authority_study
+from gambit_smp.scientific_notifier_root_study import ScientificLibrary as notifier_root_study
+from gambit_smp.scientific_nr_anchor_retirement_projection import ScientificLibrary as nr_anchor_retirement_projection
+from gambit_smp.scientific_nr_anchor_retirement_study import ScientificLibrary as nr_anchor_retirement_study
+from gambit_smp.scientific_nr_inflight_handoff_projection import ScientificLibrary as nr_inflight_handoff_projection
+from gambit_smp.scientific_nr_inflight_handoff_study import ScientificLibrary as nr_inflight_handoff_study
+from gambit_smp.scientific_object_scan_custody_projection import ScientificLibrary as object_scan_custody_projection
+from gambit_smp.scientific_object_scan_custody_study import ScientificLibrary as object_scan_custody_study
+from gambit_smp.scientific_ordered_registry_delivery_study import ScientificLibrary as ordered_registry_delivery_study
+from gambit_smp.scientific_outer_completion_landing_study import ScientificLibrary as outer_completion_landing_study
+from gambit_smp.scientific_owner_notifier_study import ScientificLibrary as owner_notifier_study
+from gambit_smp.scientific_package_development_benchmark_study import ScientificLibrary as package_development_benchmark_study
+from gambit_smp.scientific_pending_start_composition_projection import ScientificLibrary as pending_start_composition_projection
+from gambit_smp.scientific_pending_start_composition_study import ScientificLibrary as pending_start_composition_study
+from gambit_smp.scientific_persistent_carrier_coverage_projection import ScientificLibrary as persistent_carrier_coverage_projection
+from gambit_smp.scientific_persistent_carrier_coverage_study import ScientificLibrary as persistent_carrier_coverage_study
+from gambit_smp.scientific_pin_roster_detachment_projection import ScientificLibrary as pin_roster_detachment_projection
+from gambit_smp.scientific_pin_roster_detachment_study import ScientificLibrary as pin_roster_detachment_study
+from gambit_smp.scientific_primitive_header_binding_projection import ScientificLibrary as primitive_header_binding_projection
+from gambit_smp.scientific_primitive_header_binding_study import ScientificLibrary as primitive_header_binding_study
+from gambit_smp.scientific_putobjs_custody_projection import ScientificLibrary as putobjs_custody_projection
+from gambit_smp.scientific_putobjs_custody_study import ScientificLibrary as putobjs_custody_study
+from gambit_smp.scientific_putobjs_move_graph_projection import ScientificLibrary as putobjs_move_graph_projection
+from gambit_smp.scientific_putobjs_move_graph_study import ScientificLibrary as putobjs_move_graph_study
+from gambit_smp.scientific_rc_reader_grace_projection import ScientificLibrary as rc_reader_grace_projection
+from gambit_smp.scientific_rc_reader_grace_study import ScientificLibrary as rc_reader_grace_study
+from gambit_smp.scientific_rc_root_release_projection import ScientificLibrary as rc_root_release_projection
+from gambit_smp.scientific_rc_root_release_study import ScientificLibrary as rc_root_release_study
+from gambit_smp.scientific_rc_storage_lifecycle_projection import ScientificLibrary as rc_storage_lifecycle_projection
+from gambit_smp.scientific_rc_storage_lifecycle_study import ScientificLibrary as rc_storage_lifecycle_study
+from gambit_smp.scientific_reader_span_study import ScientificLibrary as reader_span_study
+from gambit_smp.scientific_registry_atomic_commit_study import ScientificLibrary as registry_atomic_commit_study
+from gambit_smp.scientific_registry_slot_issuance_projection import ScientificLibrary as registry_slot_issuance_projection
+from gambit_smp.scientific_registry_slot_issuance_study import ScientificLibrary as registry_slot_issuance_study
+from gambit_smp.scientific_registry_view_sealing_study import ScientificLibrary as registry_view_sealing_study
+from gambit_smp.scientific_release_commit_custody_study import ScientificLibrary as release_commit_custody_study
+from gambit_smp.scientific_repair_driven_gc_smp_study import ScientificLibrary as repair_driven_gc_smp_study
+from gambit_smp.scientific_restore_entry_guard_projection import ScientificLibrary as restore_entry_guard_projection
+from gambit_smp.scientific_restore_entry_guard_study import ScientificLibrary as restore_entry_guard_study
+from gambit_smp.scientific_restore_entry_issuers_projection import ScientificLibrary as restore_entry_issuers_projection
+from gambit_smp.scientific_restore_entry_issuers_study import ScientificLibrary as restore_entry_issuers_study
+from gambit_smp.scientific_reti_ofd_semantics_study import ScientificLibrary as reti_ofd_semantics_study
+from gambit_smp.scientific_root_producer_census_study import ScientificLibrary as root_producer_census_study
+from gambit_smp.scientific_root_producer_closure_study import ScientificLibrary as root_producer_closure_study
+from gambit_smp.scientific_runtime_ownership_study import ScientificLibrary as runtime_ownership_study
+from gambit_smp.scientific_runtime_tls_ready_projection import ScientificLibrary as runtime_tls_ready_projection
+from gambit_smp.scientific_runtime_tls_ready_study import ScientificLibrary as runtime_tls_ready_study
+from gambit_smp.scientific_saved_result_retirement_projection import ScientificLibrary as saved_result_retirement_projection
+from gambit_smp.scientific_saved_result_retirement_study import ScientificLibrary as saved_result_retirement_study
+from gambit_smp.scientific_sfun_admission_refusal_projection import ScientificLibrary as sfun_admission_refusal_projection
+from gambit_smp.scientific_sfun_admission_refusal_study import ScientificLibrary as sfun_admission_refusal_study
+from gambit_smp.scientific_sfun_converter_use_closure_projection import ScientificLibrary as sfun_converter_use_closure_projection
+from gambit_smp.scientific_sfun_converter_use_closure_study import ScientificLibrary as sfun_converter_use_closure_study
+from gambit_smp.scientific_sfun_converter_use_inventory import ScientificLibrary as sfun_converter_use_inventory
+from gambit_smp.scientific_sfun_owner_use_closure_projection import ScientificLibrary as sfun_owner_use_closure_projection
+from gambit_smp.scientific_sfun_owner_use_closure_study import ScientificLibrary as sfun_owner_use_closure_study
+from gambit_smp.scientific_sigint_delivery_semantics_study import ScientificLibrary as sigint_delivery_semantics_study
+from gambit_smp.scientific_signal_gate_mailbox_study import ScientificLibrary as signal_gate_mailbox_study
+from gambit_smp.scientific_signal_route_retirement_study import ScientificLibrary as signal_route_retirement_study
+from gambit_smp.scientific_size_family_guard_gc_projection import ScientificLibrary as size_family_guard_gc_projection
+from gambit_smp.scientific_size_family_guard_gc_study import ScientificLibrary as size_family_guard_gc_study
+from gambit_smp.scientific_size_family_hold_balance_projection import ScientificLibrary as size_family_hold_balance_projection
+from gambit_smp.scientific_size_family_hold_balance_study import ScientificLibrary as size_family_hold_balance_study
+from gambit_smp.scientific_snapshot_observer_projection import ScientificLibrary as snapshot_observer_projection
+from gambit_smp.scientific_snapshot_observer_refinement_study import ScientificLibrary as snapshot_observer_refinement_study
+from gambit_smp.scientific_source_owner_registry_projection import ScientificLibrary as source_owner_registry_projection
+from gambit_smp.scientific_source_owner_registry_study import ScientificLibrary as source_owner_registry_study
+from gambit_smp.scientific_source_pin_handoff_projection import ScientificLibrary as source_pin_handoff_projection
+from gambit_smp.scientific_source_pin_handoff_study import ScientificLibrary as source_pin_handoff_study
+from gambit_smp.scientific_span_storage_study import ScientificLibrary as span_storage_study
+from gambit_smp.scientific_specializer_provider_semantics_study import ScientificLibrary as specializer_provider_semantics_study
+from gambit_smp.scientific_stable_copy_publication_study import ScientificLibrary as stable_copy_publication_study
+from gambit_smp.scientific_stable_guard_settlement_study import ScientificLibrary as stable_guard_settlement_study
+from gambit_smp.scientific_stage_reconstruction_study import ScientificLibrary as stage_reconstruction_study
+from gambit_smp.scientific_storage_handoff_receipt_study import ScientificLibrary as storage_handoff_receipt_study
+from gambit_smp.scientific_storage_index_transactions_projection import ScientificLibrary as storage_index_transactions_projection
+from gambit_smp.scientific_storage_index_transactions_study import ScientificLibrary as storage_index_transactions_study
+from gambit_smp.scientific_stream_release_study import ScientificLibrary as stream_release_study
+from gambit_smp.scientific_strong_closure_receipt_study import ScientificLibrary as strong_closure_receipt_study
+from gambit_smp.scientific_syncop_guard_custody_study import ScientificLibrary as syncop_guard_custody_study
+from gambit_smp.scientific_target_stage_sealing_study import ScientificLibrary as target_stage_sealing_study
+from gambit_smp.scientific_tcl_checked_refusal_projection import ScientificLibrary as tcl_checked_refusal_projection
+from gambit_smp.scientific_tcl_source_borrow_projection import ScientificLibrary as tcl_source_borrow_projection
+from gambit_smp.scientific_tcl_source_borrow_study import ScientificLibrary as tcl_source_borrow_study
+from gambit_smp.scientific_thread_cache_tail_projection import ScientificLibrary as thread_cache_tail_projection
+from gambit_smp.scientific_thread_cache_tail_study import ScientificLibrary as thread_cache_tail_study
+from gambit_smp.scientific_thread_thunk_frozen_roots_projection import ScientificLibrary as thread_thunk_frozen_roots_projection
+from gambit_smp.scientific_thread_thunk_frozen_roots_study import ScientificLibrary as thread_thunk_frozen_roots_study
+from gambit_smp.scientific_ticket_capability_retirement_projection import ScientificLibrary as ticket_capability_retirement_projection
+from gambit_smp.scientific_ticket_capability_retirement_study import ScientificLibrary as ticket_capability_retirement_study
+from gambit_smp.scientific_typed_binding_witness import ScientificLibrary as typed_binding_witness
+from gambit_smp.scientific_vm_arena_collector_study import ScientificLibrary as vm_arena_collector_study
+from gambit_smp.scientific_vm_root_registry_study import ScientificLibrary as vm_root_registry_study
+from gambit_smp.scientific_will_action_drain_projection import ScientificLibrary as will_action_drain_projection
+from gambit_smp.scientific_will_action_drain_study import ScientificLibrary as will_action_drain_study
+from gambit_smp.scientific_will_action_study import ScientificLibrary as will_action_study
+from gambit_smp.scientific_will_domain_migration_study import ScientificLibrary as will_domain_migration_study
+from gambit_smp.scientific_will_strong_cut_study import ScientificLibrary as will_strong_cut_study
+
+LIBRARIES = {
+    'advantage_architecture_study': advantage_architecture_study,
+    'alias_workspace_reconstruction_study': alias_workspace_reconstruction_study,
+    'allocation_capture_guard_projection': allocation_capture_guard_projection,
+    'allocation_capture_guard_study': allocation_capture_guard_study,
+    'allocation_ticket_handoff_projection': allocation_ticket_handoff_projection,
+    'allocation_ticket_handoff_study': allocation_ticket_handoff_study,
+    'binding_observer_reentry_projection': binding_observer_reentry_projection,
+    'binding_observer_reentry_study': binding_observer_reentry_study,
+    'bundle_root_publication_study': bundle_root_publication_study,
+    'c23_development_design_study': c23_development_design_study,
+    'cache_ready_publication_projection': cache_ready_publication_projection,
+    'cache_ready_publication_study': cache_ready_publication_study,
+    'callback_carry_closure_projection': callback_carry_closure_projection,
+    'callback_carry_closure_study': callback_carry_closure_study,
+    'callback_producer_projection': callback_producer_projection,
+    'callback_producer_study': callback_producer_study,
+    'carrier_slot_mapping_projection': carrier_slot_mapping_projection,
+    'carrier_slot_mapping_study': carrier_slot_mapping_study,
+    'catcher_landing_marker_settlement_projection': catcher_landing_marker_settlement_projection,
+    'catcher_landing_marker_settlement_study': catcher_landing_marker_settlement_study,
+    'chain_seal_will_cut_projection': chain_seal_will_cut_projection,
+    'chain_seal_will_cut_study': chain_seal_will_cut_study,
+    'chunk_capacity_charge_projection': chunk_capacity_charge_projection,
+    'chunk_capacity_charge_study': chunk_capacity_charge_study,
+    'chunk_node_pool_projection': chunk_node_pool_projection,
+    'chunk_node_pool_study': chunk_node_pool_study,
+    'chunk_transport_ledger_projection': chunk_transport_ledger_projection,
+    'chunk_transport_ledger_study': chunk_transport_ledger_study,
+    'cleanup_ingress_projection': cleanup_ingress_projection,
+    'cleanup_ingress_study': cleanup_ingress_study,
+    'cohort_retirement_projection': cohort_retirement_projection,
+    'cohort_retirement_study': cohort_retirement_study,
+    'continuation_restore_admission_projection': continuation_restore_admission_projection,
+    'continuation_restore_admission_study': continuation_restore_admission_study,
+    'copy_producer_envelope_projection': copy_producer_envelope_projection,
+    'copy_producer_envelope_study': copy_producer_envelope_study,
+    'darwin_force_binding_study': darwin_force_binding_study,
+    'darwin_target_lease_projection': darwin_target_lease_projection,
+    'darwin_target_lease_study': darwin_target_lease_study,
+    'darwin_turbo_generated_module_study': darwin_turbo_generated_module_study,
+    'darwin_turbo_literal_study': darwin_turbo_literal_study,
+    'declaration_specialization_context_study': declaration_specialization_context_study,
+    'decrement_restore_closure_study': decrement_restore_closure_study,
+    'dedicated_copy_capacity_projection': dedicated_copy_capacity_projection,
+    'dedicated_copy_capacity_study': dedicated_copy_capacity_study,
+    'default_lease_admission_projection': default_lease_admission_projection,
+    'default_lease_admission_study': default_lease_admission_study,
+    'derivation_receipt_environment_study': derivation_receipt_environment_study,
+    'derivation_receipt_projection': derivation_receipt_projection,
+    'device_cleanup_wait_study': device_cleanup_wait_study,
+    'dispatch_joint_admission_projection': dispatch_joint_admission_projection,
+    'dispatch_joint_admission_study': dispatch_joint_admission_study,
+    'emission_pipe_refinement_projection': emission_pipe_refinement_projection,
+    'emission_pipe_refinement_study': emission_pipe_refinement_study,
+    'emission_view_correspondence_projection': emission_view_correspondence_projection,
+    'emission_view_correspondence_study': emission_view_correspondence_study,
+    'escrow_critical_tail_projection': escrow_critical_tail_projection,
+    'escrow_critical_tail_study': escrow_critical_tail_study,
+    'exit_domain_drain_projection': exit_domain_drain_projection,
+    'exit_domain_drain_study': exit_domain_drain_study,
+    'ffi_scan_ready_handoff_study': ffi_scan_ready_handoff_study,
+    'ffi_scope_root_admission_projection': ffi_scope_root_admission_projection,
+    'ffi_scope_root_admission_study': ffi_scope_root_admission_study,
+    'force_maintenance_fidelity_study': force_maintenance_fidelity_study,
+    'foreign_cleanup_closure_study': foreign_cleanup_closure_study,
+    'formal_study': formal_study,
+    'formatter_legal_output_projection': formatter_legal_output_projection,
+    'formatter_legal_output_study': formatter_legal_output_study,
+    'formatter_restore_reentry_projection': formatter_restore_reentry_projection,
+    'formatter_restore_reentry_study': formatter_restore_reentry_study,
+    'frame_chunk_weak_producers_projection': frame_chunk_weak_producers_projection,
+    'frame_chunk_weak_producers_study': frame_chunk_weak_producers_study,
+    'frame_cursor_projection': frame_cursor_projection,
+    'frame_seal_root_scope_projection': frame_seal_root_scope_projection,
+    'frame_seal_root_scope_study': frame_seal_root_scope_study,
+    'frame_seal_start_retire_projection': frame_seal_start_retire_projection,
+    'frame_seal_start_retire_study': frame_seal_start_retire_study,
+    'frame_weak_coverage_projection': frame_weak_coverage_projection,
+    'frame_weak_coverage_study': frame_weak_coverage_study,
+    'future_atomic_owner_projection': future_atomic_owner_projection,
+    'future_control_word_projection': future_control_word_projection,
+    'future_frame_activation_projection': future_frame_activation_projection,
+    'future_frame_commit_projection': future_frame_commit_projection,
+    'future_frame_commit_study': future_frame_commit_study,
+    'gate_empty_root_materialization_study': gate_empty_root_materialization_study,
+    'gc_drain_cut_study': gc_drain_cut_study,
+    'global_module_unload_projection': global_module_unload_projection,
+    'global_module_unload_study': global_module_unload_study,
+    'guard_thread_admission_projection': guard_thread_admission_projection,
+    'guard_thread_admission_study': guard_thread_admission_study,
+    'image_membership_enrollment_projection': image_membership_enrollment_projection,
+    'image_membership_enrollment_study': image_membership_enrollment_study,
+    'incremental_compiler_study': incremental_compiler_study,
+    'ingress_carrier_transfer_projection': ingress_carrier_transfer_projection,
+    'ingress_carrier_transfer_study': ingress_carrier_transfer_study,
+    'inspect_action_descriptors': inspect_action_descriptors,
+    'interrupt_custody_handoff_study': interrupt_custody_handoff_study,
+    'iter_compiler_service_study': iter_compiler_service_study,
+    'lazy_future_split_projection': lazy_future_split_projection,
+    'lazy_future_split_study': lazy_future_split_study,
+    'logical_cursor_study': logical_cursor_study,
+    'manifest_scan_qualification_projection': manifest_scan_qualification_projection,
+    'manifest_scan_qualification_study': manifest_scan_qualification_study,
+    'map_expression_projection': map_expression_projection,
+    'map_frame_abi_study': map_frame_abi_study,
+    'marker_alias_revocation_study': marker_alias_revocation_study,
+    'marker_audit_quiescence_study': marker_audit_quiescence_study,
+    'module_spec_handle_migration_projection': module_spec_handle_migration_projection,
+    'module_spec_handle_migration_study': module_spec_handle_migration_study,
+    'native_binding_plan_retirement_projection': native_binding_plan_retirement_projection,
+    'native_binding_plan_retirement_study': native_binding_plan_retirement_study,
+    'native_entry_admission_projection': native_entry_admission_projection,
+    'native_entry_admission_study': native_entry_admission_study,
+    'native_prefix_permission_projection': native_prefix_permission_projection,
+    'native_prefix_permission_study': native_prefix_permission_study,
+    'native_return_domains_projection': native_return_domains_projection,
+    'native_return_domains_study': native_return_domains_study,
+    'native_scope_writers_projection': native_scope_writers_projection,
+    'native_scope_writers_study': native_scope_writers_study,
+    'native_wake_channel_study': native_wake_channel_study,
+    'nested_domain_root_retirement_projection': nested_domain_root_retirement_projection,
+    'nested_domain_root_retirement_study': nested_domain_root_retirement_study,
+    'node_storage_authority_projection': node_storage_authority_projection,
+    'node_storage_authority_study': node_storage_authority_study,
+    'notifier_root_study': notifier_root_study,
+    'nr_anchor_retirement_projection': nr_anchor_retirement_projection,
+    'nr_anchor_retirement_study': nr_anchor_retirement_study,
+    'nr_inflight_handoff_projection': nr_inflight_handoff_projection,
+    'nr_inflight_handoff_study': nr_inflight_handoff_study,
+    'object_scan_custody_projection': object_scan_custody_projection,
+    'object_scan_custody_study': object_scan_custody_study,
+    'ordered_registry_delivery_study': ordered_registry_delivery_study,
+    'outer_completion_landing_study': outer_completion_landing_study,
+    'owner_notifier_study': owner_notifier_study,
+    'package_development_benchmark_study': package_development_benchmark_study,
+    'pending_start_composition_projection': pending_start_composition_projection,
+    'pending_start_composition_study': pending_start_composition_study,
+    'persistent_carrier_coverage_projection': persistent_carrier_coverage_projection,
+    'persistent_carrier_coverage_study': persistent_carrier_coverage_study,
+    'pin_roster_detachment_projection': pin_roster_detachment_projection,
+    'pin_roster_detachment_study': pin_roster_detachment_study,
+    'primitive_header_binding_projection': primitive_header_binding_projection,
+    'primitive_header_binding_study': primitive_header_binding_study,
+    'putobjs_custody_projection': putobjs_custody_projection,
+    'putobjs_custody_study': putobjs_custody_study,
+    'putobjs_move_graph_projection': putobjs_move_graph_projection,
+    'putobjs_move_graph_study': putobjs_move_graph_study,
+    'rc_reader_grace_projection': rc_reader_grace_projection,
+    'rc_reader_grace_study': rc_reader_grace_study,
+    'rc_root_release_projection': rc_root_release_projection,
+    'rc_root_release_study': rc_root_release_study,
+    'rc_storage_lifecycle_projection': rc_storage_lifecycle_projection,
+    'rc_storage_lifecycle_study': rc_storage_lifecycle_study,
+    'reader_span_study': reader_span_study,
+    'registry_atomic_commit_study': registry_atomic_commit_study,
+    'registry_slot_issuance_projection': registry_slot_issuance_projection,
+    'registry_slot_issuance_study': registry_slot_issuance_study,
+    'registry_view_sealing_study': registry_view_sealing_study,
+    'release_commit_custody_study': release_commit_custody_study,
+    'repair_driven_gc_smp_study': repair_driven_gc_smp_study,
+    'restore_entry_guard_projection': restore_entry_guard_projection,
+    'restore_entry_guard_study': restore_entry_guard_study,
+    'restore_entry_issuers_projection': restore_entry_issuers_projection,
+    'restore_entry_issuers_study': restore_entry_issuers_study,
+    'reti_ofd_semantics_study': reti_ofd_semantics_study,
+    'root_producer_census_study': root_producer_census_study,
+    'root_producer_closure_study': root_producer_closure_study,
+    'runtime_ownership_study': runtime_ownership_study,
+    'runtime_tls_ready_projection': runtime_tls_ready_projection,
+    'runtime_tls_ready_study': runtime_tls_ready_study,
+    'saved_result_retirement_projection': saved_result_retirement_projection,
+    'saved_result_retirement_study': saved_result_retirement_study,
+    'sfun_admission_refusal_projection': sfun_admission_refusal_projection,
+    'sfun_admission_refusal_study': sfun_admission_refusal_study,
+    'sfun_converter_use_closure_projection': sfun_converter_use_closure_projection,
+    'sfun_converter_use_closure_study': sfun_converter_use_closure_study,
+    'sfun_converter_use_inventory': sfun_converter_use_inventory,
+    'sfun_owner_use_closure_projection': sfun_owner_use_closure_projection,
+    'sfun_owner_use_closure_study': sfun_owner_use_closure_study,
+    'sigint_delivery_semantics_study': sigint_delivery_semantics_study,
+    'signal_gate_mailbox_study': signal_gate_mailbox_study,
+    'signal_route_retirement_study': signal_route_retirement_study,
+    'size_family_guard_gc_projection': size_family_guard_gc_projection,
+    'size_family_guard_gc_study': size_family_guard_gc_study,
+    'size_family_hold_balance_projection': size_family_hold_balance_projection,
+    'size_family_hold_balance_study': size_family_hold_balance_study,
+    'snapshot_observer_projection': snapshot_observer_projection,
+    'snapshot_observer_refinement_study': snapshot_observer_refinement_study,
+    'source_owner_registry_projection': source_owner_registry_projection,
+    'source_owner_registry_study': source_owner_registry_study,
+    'source_pin_handoff_projection': source_pin_handoff_projection,
+    'source_pin_handoff_study': source_pin_handoff_study,
+    'span_storage_study': span_storage_study,
+    'specializer_provider_semantics_study': specializer_provider_semantics_study,
+    'stable_copy_publication_study': stable_copy_publication_study,
+    'stable_guard_settlement_study': stable_guard_settlement_study,
+    'stage_reconstruction_study': stage_reconstruction_study,
+    'storage_handoff_receipt_study': storage_handoff_receipt_study,
+    'storage_index_transactions_projection': storage_index_transactions_projection,
+    'storage_index_transactions_study': storage_index_transactions_study,
+    'stream_release_study': stream_release_study,
+    'strong_closure_receipt_study': strong_closure_receipt_study,
+    'syncop_guard_custody_study': syncop_guard_custody_study,
+    'target_stage_sealing_study': target_stage_sealing_study,
+    'tcl_checked_refusal_projection': tcl_checked_refusal_projection,
+    'tcl_source_borrow_projection': tcl_source_borrow_projection,
+    'tcl_source_borrow_study': tcl_source_borrow_study,
+    'thread_cache_tail_projection': thread_cache_tail_projection,
+    'thread_cache_tail_study': thread_cache_tail_study,
+    'thread_thunk_frozen_roots_projection': thread_thunk_frozen_roots_projection,
+    'thread_thunk_frozen_roots_study': thread_thunk_frozen_roots_study,
+    'ticket_capability_retirement_projection': ticket_capability_retirement_projection,
+    'ticket_capability_retirement_study': ticket_capability_retirement_study,
+    'typed_binding_witness': typed_binding_witness,
+    'vm_arena_collector_study': vm_arena_collector_study,
+    'vm_root_registry_study': vm_root_registry_study,
+    'will_action_drain_projection': will_action_drain_projection,
+    'will_action_drain_study': will_action_drain_study,
+    'will_action_study': will_action_study,
+    'will_domain_migration_study': will_domain_migration_study,
+    'will_strong_cut_study': will_strong_cut_study,
+}
+ENTRIES = {
+    'advantage_architecture_study': LIBRARIES['advantage_architecture_study'],
+    'alias_workspace_reconstruction_study': LIBRARIES['alias_workspace_reconstruction_study'],
+    'allocation_capture_guard_study': LIBRARIES['allocation_capture_guard_study'],
+    'allocation_ticket_handoff_study': LIBRARIES['allocation_ticket_handoff_study'],
+    'binding_observer_reentry_study': LIBRARIES['binding_observer_reentry_study'],
+    'bundle_root_publication_study': LIBRARIES['bundle_root_publication_study'],
+    'c23_development_design_study': LIBRARIES['c23_development_design_study'],
+    'cache_ready_publication_study': LIBRARIES['cache_ready_publication_study'],
+    'callback_carry_closure_study': LIBRARIES['callback_carry_closure_study'],
+    'callback_producer_study': LIBRARIES['callback_producer_study'],
+    'carrier_slot_mapping_study': LIBRARIES['carrier_slot_mapping_study'],
+    'catcher_landing_marker_settlement_study': LIBRARIES['catcher_landing_marker_settlement_study'],
+    'chain_seal_will_cut_study': LIBRARIES['chain_seal_will_cut_study'],
+    'chunk_capacity_charge_study': LIBRARIES['chunk_capacity_charge_study'],
+    'chunk_node_pool_study': LIBRARIES['chunk_node_pool_study'],
+    'chunk_transport_ledger_study': LIBRARIES['chunk_transport_ledger_study'],
+    'cleanup_ingress_study': LIBRARIES['cleanup_ingress_study'],
+    'cohort_retirement_study': LIBRARIES['cohort_retirement_study'],
+    'continuation_restore_admission_study': LIBRARIES['continuation_restore_admission_study'],
+    'copy_producer_envelope_study': LIBRARIES['copy_producer_envelope_study'],
+    'darwin_force_binding_study': LIBRARIES['darwin_force_binding_study'],
+    'darwin_target_lease_study': LIBRARIES['darwin_target_lease_study'],
+    'darwin_turbo_generated_module_study': LIBRARIES['darwin_turbo_generated_module_study'],
+    'darwin_turbo_literal_study': LIBRARIES['darwin_turbo_literal_study'],
+    'declaration_specialization_context_study': LIBRARIES['declaration_specialization_context_study'],
+    'decrement_restore_closure_study': LIBRARIES['decrement_restore_closure_study'],
+    'dedicated_copy_capacity_study': LIBRARIES['dedicated_copy_capacity_study'],
+    'default_lease_admission_study': LIBRARIES['default_lease_admission_study'],
+    'derivation_receipt_environment_study': LIBRARIES['derivation_receipt_environment_study'],
+    'device_cleanup_wait_study': LIBRARIES['device_cleanup_wait_study'],
+    'dispatch_joint_admission_study': LIBRARIES['dispatch_joint_admission_study'],
+    'emission_pipe_refinement_study': LIBRARIES['emission_pipe_refinement_study'],
+    'emission_view_correspondence_study': LIBRARIES['emission_view_correspondence_study'],
+    'escrow_critical_tail_study': LIBRARIES['escrow_critical_tail_study'],
+    'exit_domain_drain_study': LIBRARIES['exit_domain_drain_study'],
+    'ffi_scan_ready_handoff_study': LIBRARIES['ffi_scan_ready_handoff_study'],
+    'ffi_scope_root_admission_study': LIBRARIES['ffi_scope_root_admission_study'],
+    'force_maintenance_fidelity_study': LIBRARIES['force_maintenance_fidelity_study'],
+    'foreign_cleanup_closure_study': LIBRARIES['foreign_cleanup_closure_study'],
+    'formatter_legal_output_study': LIBRARIES['formatter_legal_output_study'],
+    'formatter_restore_reentry_study': LIBRARIES['formatter_restore_reentry_study'],
+    'frame_chunk_weak_producers_study': LIBRARIES['frame_chunk_weak_producers_study'],
+    'frame_seal_root_scope_study': LIBRARIES['frame_seal_root_scope_study'],
+    'frame_seal_start_retire_study': LIBRARIES['frame_seal_start_retire_study'],
+    'frame_weak_coverage_study': LIBRARIES['frame_weak_coverage_study'],
+    'future_frame_commit_study': LIBRARIES['future_frame_commit_study'],
+    'gate_empty_root_materialization_study': LIBRARIES['gate_empty_root_materialization_study'],
+    'gc_drain_cut_study': LIBRARIES['gc_drain_cut_study'],
+    'global_module_unload_study': LIBRARIES['global_module_unload_study'],
+    'guard_thread_admission_study': LIBRARIES['guard_thread_admission_study'],
+    'image_membership_enrollment_study': LIBRARIES['image_membership_enrollment_study'],
+    'incremental_compiler_study': LIBRARIES['incremental_compiler_study'],
+    'ingress_carrier_transfer_study': LIBRARIES['ingress_carrier_transfer_study'],
+    'interrupt_custody_handoff_study': LIBRARIES['interrupt_custody_handoff_study'],
+    'iter_compiler_service_study': LIBRARIES['iter_compiler_service_study'],
+    'lazy_future_split_study': LIBRARIES['lazy_future_split_study'],
+    'logical_cursor_study': LIBRARIES['logical_cursor_study'],
+    'manifest_scan_qualification_study': LIBRARIES['manifest_scan_qualification_study'],
+    'map_frame_abi_study': LIBRARIES['map_frame_abi_study'],
+    'marker_alias_revocation_study': LIBRARIES['marker_alias_revocation_study'],
+    'marker_audit_quiescence_study': LIBRARIES['marker_audit_quiescence_study'],
+    'module_spec_handle_migration_study': LIBRARIES['module_spec_handle_migration_study'],
+    'native_binding_plan_retirement_study': LIBRARIES['native_binding_plan_retirement_study'],
+    'native_entry_admission_study': LIBRARIES['native_entry_admission_study'],
+    'native_prefix_permission_study': LIBRARIES['native_prefix_permission_study'],
+    'native_return_domains_study': LIBRARIES['native_return_domains_study'],
+    'native_scope_writers_study': LIBRARIES['native_scope_writers_study'],
+    'native_wake_channel_study': LIBRARIES['native_wake_channel_study'],
+    'nested_domain_root_retirement_study': LIBRARIES['nested_domain_root_retirement_study'],
+    'node_storage_authority_study': LIBRARIES['node_storage_authority_study'],
+    'notifier_root_study': LIBRARIES['notifier_root_study'],
+    'nr_anchor_retirement_study': LIBRARIES['nr_anchor_retirement_study'],
+    'nr_inflight_handoff_study': LIBRARIES['nr_inflight_handoff_study'],
+    'object_scan_custody_study': LIBRARIES['object_scan_custody_study'],
+    'ordered_registry_delivery_study': LIBRARIES['ordered_registry_delivery_study'],
+    'outer_completion_landing_study': LIBRARIES['outer_completion_landing_study'],
+    'owner_notifier_study': LIBRARIES['owner_notifier_study'],
+    'package_development_benchmark_study': LIBRARIES['package_development_benchmark_study'],
+    'pending_start_composition_study': LIBRARIES['pending_start_composition_study'],
+    'persistent_carrier_coverage_study': LIBRARIES['persistent_carrier_coverage_study'],
+    'pin_roster_detachment_study': LIBRARIES['pin_roster_detachment_study'],
+    'primitive_header_binding_study': LIBRARIES['primitive_header_binding_study'],
+    'putobjs_custody_study': LIBRARIES['putobjs_custody_study'],
+    'putobjs_move_graph_study': LIBRARIES['putobjs_move_graph_study'],
+    'rc_reader_grace_study': LIBRARIES['rc_reader_grace_study'],
+    'rc_root_release_study': LIBRARIES['rc_root_release_study'],
+    'rc_storage_lifecycle_study': LIBRARIES['rc_storage_lifecycle_study'],
+    'reader_span_study': LIBRARIES['reader_span_study'],
+    'registry_atomic_commit_study': LIBRARIES['registry_atomic_commit_study'],
+    'registry_slot_issuance_study': LIBRARIES['registry_slot_issuance_study'],
+    'registry_view_sealing_study': LIBRARIES['registry_view_sealing_study'],
+    'release_commit_custody_study': LIBRARIES['release_commit_custody_study'],
+    'repair_driven_gc_smp_study': LIBRARIES['repair_driven_gc_smp_study'],
+    'restore_entry_guard_study': LIBRARIES['restore_entry_guard_study'],
+    'restore_entry_issuers_study': LIBRARIES['restore_entry_issuers_study'],
+    'reti_ofd_semantics_study': LIBRARIES['reti_ofd_semantics_study'],
+    'root_producer_census_study': LIBRARIES['root_producer_census_study'],
+    'root_producer_closure_study': LIBRARIES['root_producer_closure_study'],
+    'runtime_ownership_study': LIBRARIES['runtime_ownership_study'],
+    'runtime_tls_ready_study': LIBRARIES['runtime_tls_ready_study'],
+    'saved_result_retirement_study': LIBRARIES['saved_result_retirement_study'],
+    'sfun_admission_refusal_study': LIBRARIES['sfun_admission_refusal_study'],
+    'sfun_converter_use_closure_study': LIBRARIES['sfun_converter_use_closure_study'],
+    'sfun_owner_use_closure_study': LIBRARIES['sfun_owner_use_closure_study'],
+    'sigint_delivery_semantics_study': LIBRARIES['sigint_delivery_semantics_study'],
+    'signal_gate_mailbox_study': LIBRARIES['signal_gate_mailbox_study'],
+    'signal_route_retirement_study': LIBRARIES['signal_route_retirement_study'],
+    'size_family_guard_gc_study': LIBRARIES['size_family_guard_gc_study'],
+    'size_family_hold_balance_study': LIBRARIES['size_family_hold_balance_study'],
+    'snapshot_observer_refinement_study': LIBRARIES['snapshot_observer_refinement_study'],
+    'source_owner_registry_study': LIBRARIES['source_owner_registry_study'],
+    'source_pin_handoff_study': LIBRARIES['source_pin_handoff_study'],
+    'span_storage_study': LIBRARIES['span_storage_study'],
+    'specializer_provider_semantics_study': LIBRARIES['specializer_provider_semantics_study'],
+    'stable_copy_publication_study': LIBRARIES['stable_copy_publication_study'],
+    'stable_guard_settlement_study': LIBRARIES['stable_guard_settlement_study'],
+    'stage_reconstruction_study': LIBRARIES['stage_reconstruction_study'],
+    'storage_handoff_receipt_study': LIBRARIES['storage_handoff_receipt_study'],
+    'storage_index_transactions_study': LIBRARIES['storage_index_transactions_study'],
+    'stream_release_study': LIBRARIES['stream_release_study'],
+    'strong_closure_receipt_study': LIBRARIES['strong_closure_receipt_study'],
+    'syncop_guard_custody_study': LIBRARIES['syncop_guard_custody_study'],
+    'target_stage_sealing_study': LIBRARIES['target_stage_sealing_study'],
+    'tcl_source_borrow_study': LIBRARIES['tcl_source_borrow_study'],
+    'thread_cache_tail_study': LIBRARIES['thread_cache_tail_study'],
+    'thread_thunk_frozen_roots_study': LIBRARIES['thread_thunk_frozen_roots_study'],
+    'ticket_capability_retirement_study': LIBRARIES['ticket_capability_retirement_study'],
+    'vm_arena_collector_study': LIBRARIES['vm_arena_collector_study'],
+    'vm_root_registry_study': LIBRARIES['vm_root_registry_study'],
+    'will_action_drain_study': LIBRARIES['will_action_drain_study'],
+    'will_action_study': LIBRARIES['will_action_study'],
+    'will_domain_migration_study': LIBRARIES['will_domain_migration_study'],
+    'will_strong_cut_study': LIBRARIES['will_strong_cut_study'],
+}

@@ -114,6 +114,21 @@ class TypedRetryReviewTests(unittest.TestCase):
         self.assertEqual(digest(self.prior), result["inputs"]["evidence/failed.json"])
         self.assertEqual([["known", "suite-step", 8000]], result["facts"]["original_budget"])
 
+    def test_source_change_binds_vendor_bytes_not_a_generated_copy(self):
+        vendor = self.root / "vendor/gambit/lib/mem.c"
+        vendor.parent.mkdir(parents=True)
+        vendor.write_text("reproducible vendor source")
+        vendor_sha = digest(vendor)
+        self.doc["failures"][0]["changes"][0]["after"] = vendor_sha
+        self.save_review()
+        result = self.preflight()
+        self.assertEqual([["known", "repair", "source", "lib/mem.c", self.before, vendor_sha]],
+                         result["facts"]["changed_input"])
+        self.doc["failures"][0]["changes"][0]["after"] = self.after
+        self.save_review()
+        with self.assertRaisesRegex(ValueError, "reproducible vendor bytes"):
+            self.preflight()
+
     def test_current_producer_marker_cannot_enter_literal_review(self):
         for row in self.evidence["claims"]:
             row["candidateReceiptSha256"] = {"binding": "current-producer"}

@@ -7,10 +7,13 @@ from gambit_smp.recipes import read_json
 
 class FailureScopeTests(unittest.TestCase):
     def test_actual_recorded_campaigns_have_closed_nonstress_inventories(self):
-        for filename in ("native-upstream-all-compiled-019-parallel-deny.json",
-                         "native-upstream-all-compiled-020-balanced-deny.json",
-                         "native-upstream-compiled-atomic-023-deny.json"):
-            receipt = read_json(ROOT / "evidence/model-results" / filename)
+        for schema in ("gambit-upstream-suite.v1", "gambit-upstream-atomic-coverage.v1"):
+            selected = ["01-fixnum/fxplus.scm", "03-number/_num.scm"]
+            receipt = {
+                "schema": schema, "status": "DENY",
+                "selectedFiles": selected, "filesPerMode": len(selected),
+                "sourceFiles": {"unit-tests/" + name: "a" * 64 for name in selected},
+            }
             files = failure_campaign_files(receipt)
             self.assertEqual(receipt["filesPerMode"], len(files))
             self.assertFalse(any(name.endswith("_stress.scm") for name in files))
@@ -33,11 +36,21 @@ class FailureScopeTests(unittest.TestCase):
             self.assertIsNone(failure_campaign_files(receipt))
 
     def test_summary_mode_is_not_an_unrelated_compiled_failure(self):
-        receipt = read_json(ROOT / "evidence/model-results/native-upstream-all-interpreted-018-deny.json")
+        receipt = {
+            "schema": "gambit-upstream-suite.v1", "status": "DENY", "mode": "gsi",
+            "results": [{"mode": "gsi", "accepted": False}],
+        }
         self.assertEqual({"gsi"}, failure_modes(receipt))
 
     def test_compiler_phase_is_not_an_interpreter_failure(self):
-        receipt = read_json(ROOT / "evidence/model-results/native-compiler-cost-num-021-deny.json")
+        receipt = {
+            "schema": "gambit-compiler-cost.v1", "diagnosticOnly": True,
+            "status": "DENY", "selection": "03-number/_num.scm",
+            "stages": [
+                {"name": "scheme-to-c", "accepted": True},
+                {"name": "c-to-dynamic-module", "accepted": False},
+            ],
+        }
         self.assertEqual({"gsc"}, failure_modes(receipt))
 
     def test_results_preserve_only_actual_failed_modes(self):
@@ -70,7 +83,7 @@ class FailureCampaignPolicyTests(unittest.TestCase):
                  "current_campaign_file":[["stress.scm"]],
                  "failure_campaign_closed":[["opaque-campaign"]] if closed else [],
                  "failure_campaign_file":[["opaque-campaign", "stress.scm" if overlap else "unit.scm"]]}
-        return query(facts,load_catalog(ROOT/"evidence/research/suite-review-rules.ss"),
+        return query(facts,load_catalog(ROOT/"evidence/dsl/suite-review-rules.ss"),
                      {"selected":"selected_known_failure", "disjoint":"failure_campaign_disjoint"})
 
     def test_only_closed_disjoint_runner_budget_is_excluded(self):

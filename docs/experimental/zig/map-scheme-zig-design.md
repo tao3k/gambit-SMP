@@ -1,0 +1,293 @@
+# Higher-Order Map Through a Gambit Zig Backend
+
+Reviewed: 2026-10-20. Architecture research only. No expansion, GVM generation,
+implementation, Scheme/native/compiler test or performance experiment. This is
+a hand-designed path grounded in existing public map, not newly generated
+output. Read the [evidence](map-scheme-zig-evidence.md),
+[conditional arguments](map-scheme-zig-arguments.md) and
+[report matrix](map-scheme-zig-cost-matrix.md). It extends the
+[real reverse study](scheme-function-zig-design.md).
+
+**Current Gambit is the legacy baseline, not the hypothetical modern C control.
+Both modern C and Zig must pay to build the proposed contracts and services.
+Zig can be a direct carrier of that reconstruction without first implementing
+modern C. Its additional commitment must still be compared with the complete
+cost of an equally capable C reconstruction.**
+
+## Real Source and Preserved Behavior
+
+MP01. Select public `map` at `lib/gambit/list/list.scm:850–929`, including its
+single-list and multi-list branches, procedure/argument checks, rest processing
+and helper/error dependencies [MP-S01/S02]. Do not substitute unchecked
+`##map` at 818–848. The single-list recursive core is:
+
+```scheme
+(define (map-1* lst1)
+  (macro-force-vars (lst1)
+    (if (pair? lst1)
+        (let* ((result (proc (car lst1)))
+               (tail (map-1* (cdr lst1))))
+          (macro-if-checks
+           (and tail (cons result tail))
+           (cons result tail)))
+        (macro-if-checks
+         (if (null? lst1) '() #f)
+         '()))))
+```
+
+The full enclosing wrapper retains the original proc/list arguments for errors.
+The proper-list declaration defers traversal checks; feature-selected force,
+type checks and selected single-value-context behavior remain Scheme-owned
+[MP-S03]. The full graph must preserve the actual value-count convention,
+including exceptional behavior if applicable; this study does not infer that
+zero/multiple callback values are automatically accepted or rejected by Gambit.
+
+MP02. In this single-list core, let* orders callback completion before reading
+the current pair's cdr for recursion, and recursive completion before cons.
+A callback can mutate that cdr. Reading it early is therefore not generally a
+valid transformation of this selected implementation. Calls normally proceed
+toward the input tail; output cons runs on recursive return. The Scheme standard
+allows map application-order freedom, but that does not authorize silently
+changing our selected source/error/poll/continuation behavior contract [MP-P03].
+The argument itself may be invalid or cyclic; no total termination is claimed.
+
+R7RS classifies callback mutation of the input lists as an error. The mutation
+example here is therefore an adversarial **source-preservation envelope**, not
+a portable Scheme guarantee or proof that Gambit promises that extension.
+We conservatively retain the inspected read order until the admitted Gambit
+domain is explicit. A provider may instead qualify a restricted no-input-
+mutation domain and justify additional transformations there; it cannot silently
+use that restriction as evidence of unrestricted source preservation.
+
+MP03. Multi-list map is not simply the same loop with m arguments:
+`cdrs` computes the next list-vector before the current callback, `cars`
+constructs its arguments, `apply` calls proc, then `cdrs rests` prepares the
+following recursive call. The helpers return pair/empty/false or signed fixnum
+sentinels for distinct invalid/mismatch conditions [MP-S02]. The mutable
+`##allow-length-mismatch?` is initialized to true and has a setter in these
+source bytes; it cannot be folded into a fixed Zig configuration without a
+separate binding/stability proof. With checks, sentinel tails propagate without
+output cons. A legitimate callback result of false or a fixnum is an element,
+not the tail/error sentinel. Preserve argument-number diagnostics and mismatch
+exception dependencies rather than importing a different map specification.
+
+MP04. Stored `_std.c` independently shows the public host's physical burden:
+23 dispatch labels, 22 return-descriptor rows, one textual generic-call site,
+three heap-check sites and ten poll sites [MP-S04]. These are textual artifact
+counts, not dynamic counts, active Darwin reproducibility or timings.
+The callback return saves its result, reads the saved pair's cdr and enters
+recursive work; another return point builds cons. No ALLOC_CLO appears in that
+host body. That is evidence against assuming the current implementation creates
+a new internal closure on every iteration, not a whole-runtime allocation claim.
+
+## Scheme Compilation, Closure Identity and Native Calls
+
+![Semantic export and native products](map-native-pipeline.svg)
+[D2 source](map-native-pipeline.d2).
+
+| ID | Owner / stage | Required product and boundary |
+| --- | --- | --- |
+| MP05 | Scheme parse/expand and early semantic export | Bind source, macros, declarations, force/check features, global identities and mutable-policy dependencies. Export call/lambda/capture/effect lineage before primitive expansion or lambda lifting erases useful facts [MP-S03/S05, MP-P01]. |
+| MP06 | Scheme normalization and GVM | Reuse assignment conversion, beta reduction, lambda lifting and frame/closed/live analysis; distinguish known local calls, unknown proc application, ordinary return and captured continuation [MP-S05/S06]. No observed GVM is claimed. |
+| MP07 | Scheme semantic completion before old C scanning | Make callback preparation, saved return point, stack/heap/poll checks, boxing, sentinel branches, constructor completion and exceptional/control successors explicit. Target resource feedback arrives before freeze; no hidden codegen-only safepoint [MP-S07]. |
+| MP08 | Common physical planner / C or Zig service | Realize semantic slots as native/root homes and ordinary/internal frame descriptors. Build points and module products once; independently decode maps. A single frame type cannot replace RETN/RETI merely because both contain words [MP-S08]. |
+| MP09 | Zig native host emission / selected dispatch cohort | Local switch/loop plus explicit VM transfer state; call any Scheme procedure through its admitted closure/entry/arity convention, not an arbitrary Zig function pointer. All returning services distinguish normal, exception and continuation transfer. |
+| MP10 | Gambit runtime and module binder | Own GC, capture/restore, dynamic environment, code/frame lifetimes and global initialization. A single _std manifest supplies map once; new-profile C/native parts require the same contract, not old binary mixing [MP-S09–12]. |
+
+MP11. There are three different closure questions. The user proc is an arbitrary
+first-class Scheme procedure, possibly a closure with mutable captures, and must
+retain its identity/environment. The internal map-1*/map-n* lambdas lexically
+refer to proc, but lambda lifting can carry it as an extra argument/slot instead
+of allocating an environment. A captured continuation is a runtime control
+object, not either of those function closures [MP-S06/S09/S10, MP-P01].
+Use the existing closure object/tag/SELF/entry and captured-cell rules; Zig has
+no substitute automatic Scheme closure representation. Never copy a mutable
+capture's value when the required meaning is shared location identity.
+
+MP12. An unknown proc application receives a Scheme ProcRef, arguments,
+nargs, closure/SELF state and an explicit return point plus complete caller
+frame. The actual header jump macros install SELF and resolve an entry;
+the current C scanner distinguishes known primitive/local/global/generic calls
+and return [MP-S07/S09]. Extract that classification into semantic operations.
+A compile-time known closure may be specialized only after identity, effects,
+capture/mutation, arity, value-count, code lifetime and invalidation facts close.
+Zig comptime cannot evaluate an arbitrary runtime closure or replace that proof.
+
+Illustrative contract data for the one-list callback, not an implemented schema
+or generated GVM/Zig file:
+
+```json
+{
+  "site": "map.one.call-proc",
+  "callee": {"kind": "scheme-procedure", "value": "proc"},
+  "arguments": ["car(current-pair)"],
+  "tail": false,
+  "normalReturn": "map.one.after-proc",
+  "callerFrame": {
+    "recipe": "await-proc",
+    "semanticHomes": ["parent-link", "proc", "current-pair"],
+    "enclosingObligations": ["original-arguments", "dynamic-state", "code-binding"]
+  },
+  "effects": ["may-allocate", "may-mutate", "may-capture", "may-transfer", "may-schedule"],
+  "valueProtocol": "selected Gambit single-value-context convention",
+  "resume": ["restore-runtime-owner", "reload-roots", "acquire-current-allocation-binding"],
+  "laterRead": "cdr(current-pair) only after normal callback completion"
+}
+```
+
+The operation cannot claim a finite callback allocation budget or native-only
+return. Provider implementation distinguishes immutable call/frame recipes
+from actual current root locations and scheduler/VM/processor ownership.
+After yield or control transfer, the runtime selects the permitted owner and
+actual PSTATE binding; a saved native PSTATE pointer is not the authority to
+resume. Unsupported owner/foreign transitions remain unresolved rather than
+being accepted because the ordinary callback path exists.
+
+## Non-Tail Calls, Frames and Roots
+
+![Non-tail calls and captured continuation custody](map-call-continuation-roots.svg)
+[D2 source](map-call-continuation-roots.d2).
+
+MP13. Work this case through the predecessor's **DispatchHostProfile**:
+native host activations return a disposition to an outer dispatcher before the
+next host starts. A Scheme non-tail call first records a Scheme return frame.
+Therefore bounded native activation depth can coexist with **linear pending
+Scheme continuation depth** for this recursive map. Proper tail support does
+not turn its non-tail recursion into constant-space language evaluation.
+TailHostProfile is a separate whole-cohort alternative, not fallback or a
+binary-compatible mixture. No arbitrary C longjmp across live Zig frames.
+
+| Point / frame recipe | Required state, roots and successor |
+| --- | --- |
+| `map.entry` / wrapper | Check proc and arity/rest protocol; retain original proc/list1/lists and incoming continuation for required diagnostics. Rest/partial-argument phases may not collect until their own complete-frame protocol admits it. |
+| `map.one.force` | Optional Scheme force call with its own after-force point; live wrapper/iteration state survives allocation, capture, errors and reentry. |
+| `map.one.call-proc` / `await-proc` | Publish parent link, proc, **current pair** and after-proc point; outgoing car argument and SELF are in the admitted call state. Do not replace the saved pair by a precomputed cdr. |
+| `map.one.after-proc` | Reload moved pair/proc/control homes; receive result under the selected value-count protocol. Save result in a scanned home **before** recursive frame preparation or a collecting helper. Now read cdr and prepare the non-tail recursive call. |
+| `map.one.call-tail` / `await-tail` | Retain result and parent control link; tail recursion here is a non-tail source call because cons follows. The original diagnostic frame remains in the outer chain. Proc/current-tail remain rooted wherever actually live. |
+| `map.one.after-tail` | In checked mode, false tail propagates failure without cons; otherwise cons(result, tail). Allocate a complete pair under the actual local interval bound, publish coverage, then check/reload as required. Return through the saved parent point. |
+| `map.many.prepare` | Preserve original list collection and the cdrs outcome. A pair outcome and a signed sentinel have different successors; hold every argument/rest/helper temporary across its possible collecting call. |
+| `map.many.apply` / `await-apply` | Complete args list, proc and precomputed rests are roots alongside parent link. Invoke the admitted primitive apply service; its argument unpacking and partial-frame phases need their own contracts. |
+| `map.many.after-apply` / `await-cdrs` | Save result before computing cdrs(rests). That helper can allocate, force or fail. Preserve the precomputed rests as required; don't substitute a reread of the original lists. |
+| `map.many.await-tail` | Save result and required control state through recursive processing. Signed tail sentinels propagate; a normal list receives a fresh output cons. |
+| `map.return/error/control` | Ordinary return, diagnostic service, captured-continuation invocation and GC resume are distinct semantic edges. A Scheme exception is not a Zig allocation error, and a continuation transfer is not normal native return. |
+
+MP14. Those are proposed **logical** recipes, not invented physical bitmaps.
+The artifact provides a concrete comparison: save R0/proc/current-list to stack
+homes, ADJFP(8), invoke generic proc, store result at STK(-4), read cdr from
+STK(-5), and return through separate ordinary continuation labels [MP-S04].
+Its descriptor table includes RETN size-5 and RETI size-8 cases with different
+maps. Do not equate that 8-word adjustment with total live-root count or a
+universal new frame extent. Backend-independent FrameSpec must express
+slot meaning/live sets/control link/value protocol; layout and encoding belong
+to the common planner and decoder [MP-S08]. Current register/saved arrays still
+need valid Scheme words even in scanner-visible dead slots.
+
+MP15. Root completeness is transitive across the **whole** suspended call chain:
+callback closure/captured cells, outgoing argument/result, saved pair, earlier
+callback results awaiting cons, original diagnostic arguments, dynamic state
+and code/return metadata. Not all are newly duplicated per iteration: semantic
+liveness decides homes; the enclosing chain may already retain them. GC inside
+proc/force/cars/cdrs/apply can move both data and saved frame storage. After
+each boundary, use reloaded logical homes and current allocation binding.
+Zig stack locals or slices into old frame storage are not GC roots or stable
+continuation handles [MP-S10/S11, MP-P05].
+
+MP16. Capturing inside proc saves the pending after-proc work plus older map
+frames. Existing source reifies call/cc through a Scheme closure over a captured
+continuation, and return/graft compares and unwinds/winds dynamic contexts
+[MP-S10]. Existing GC follows captured stack frames, may copy them to heap
+frames and decodes ordinary/internal descriptors separately [MP-S11].
+The new provider must compose with that algorithm or explicitly migrate its
+format/decoder/restore users together. A PointId alone supplies neither the
+saved values nor dynamic environment.
+
+MP17. Repeated invocation of a captured continuation cannot consume a unique
+Zig-owned frame once and then leave a dangling resume. Each invocation must
+materialize valid logical execution state; underlying runtime frame sharing,
+copying and mutation rules must remain the admitted Gambit rules, not an
+unreviewed memcpy. Existing Scheme heap mutations are not rolled back. Each
+reexecuted cons creates a fresh pair; no unique linear allocation grant, active
+lock, native arena borrow or live C catcher may be embedded as automatically
+replayable captured data. Reacquire actual interval rights on activation.
+Retain binding/code/maps while any captured frame references them.
+Other-thread/other-VM invocation is not newly admitted by this argument.
+
+MP18. Example review trace, **not a new program/test**: proc captures K while
+processing the first element, returns value a and map returns list A. Invoking K
+later with b reexecutes the suffix of the callback continuation and remaining
+map work, producing a new result B. Prior result A is not a mutable construction
+buffer for B. Effects after capture can occur again; effects before capture
+are not automatically undone or repeated. Dynamic-wind hooks follow the
+runtime transfer, not native defer [MP-P03, MP-S10]. Multi-list precomputed
+rests can have been captured **before** the callback, whereas the single-list
+cdr is read **after** it; replay cannot erase that source distinction.
+
+## Allocation Bounds and Quantifiable Work
+
+MP19. An arbitrary callback has no finite source-independent allocation bound.
+Never carry reverse's isolated B=3 across proc, apply, force, recursive calls,
+frame preparation or GC. Split allocation spans at those boundaries and bind
+the actual interval on resume. A single no-handles output cons can still have
+W=P=delta=3 under the predecessor's no-hidden-allocation, provenance, actual
+headroom and complete-init conditions. Stack/captured-frame copying, rest
+construction, flonum materialization and helper allocations have separate
+bounds and owners [MP-S07/S09/S11].
+
+MP20. For n stable finite single-list elements, one normal traversal, no forcing,
+no control reentry, normal one-value callback completion and successful
+allocation, there are n callback applications, n pending output-cons
+obligations and n output pairs (3n pair words under no-handles). Pending Scheme
+control grows O(n); callback allocations and captured-frame storage are extra.
+For equal-length m-list input with m≥2 under the analogous assumptions, the
+source helper evaluation has nm cars-cons and nm successful cdrs-cons, plus n
+output cons and one outer list-of-lists cons: 1+n+2nm logical cons constructions.
+Rest-argument setup, callback/force/apply/frame/GC work is excluded. These are
+source-level counts, not physical lower bounds after legal optimization or a
+whole-map AllocationCheckSpec; the final cdrs call on all empty inputs adds no
+cons. Mutation, mismatch policy changes or replay invalidate these formulas.
+
+MP21. Tail-recursive builders that destructively append new cells can alter
+allocation/effect timing and mutate a list returned by an earlier continuation
+invocation. A new algorithm therefore needs capture/multi-return safety and
+identity/failure/poll proofs; map's name alone does not authorize loop conversion.
+Similarly closure specialization, map fusion, scalar replacement or regions
+need explicit no-capture/no-escape/effect and failure-timing obligations in
+their admitted domain. These are optimization questions for early semantic IR,
+not gifts of Zig syntax or LLVM's optimizer.
+
+## Actual Modernization Decision
+
+MP22. Scheme owns effects, closure/cell identity, call/return/capture semantics
+and roots. The native planner owns physical layout/validation/product emission;
+the runtime owns collector, frame/capture restore, VM ownership and lifecycle.
+Zig may implement the necessary planner and service machinery directly.
+A typed C provider and independent LLVM/MLIR provider consume the same completed
+contract. Earlier MLIR semantic operations must include call/capture/control
+effects beyond ordinary memory reads/writes; low-level provider integration
+does not already prove a legal high-order optimizer [MP-P01/P02/P06].
+
+MP23. Modern C is a **proposed funded reconstruction**, not the current code and
+not a free prerequisite to Zig. Existing generic procedure calls, explicit
+continuations, GC maps and trampoline are real functionality to preserve.
+The gap is that semantic control, physical layout and C text construction are
+still coupled at selected seams [MP-S04/S07/S08/S12]. Those facts identify
+refactoring work, not a blanket claim that every C component is obsolete.
+Compare full delivery paths from today's source, including the modern C
+generator/validation/library integration cost and Zig's corresponding cost.
+
+MP24. A direct Zig reconstruction can win if it realizes those necessary
+services with less total implementation and maintenance work, shares them
+across actual consumers, and retires old responsibilities within a complete
+admitted domain. Do not require an intermediate modern-C rewrite, and do not
+credit a hypothetical C generator as already written. Conversely generated C
+is a credible counterfactual that must be costed honestly; the ability to use
+LLVM or remove duplicated semantics is not exclusive to Zig. The
+[cost matrix](map-scheme-zig-cost-matrix.md) specifies three separate ledgers,
+conservative positive conditions, retirement dependencies and refuters.
+
+## Complete Native-Layer Extension
+
+The [full reconstruction candidate](zig-native-layer-reconstruction.md) extends
+the native implementation scope to GC/VM/OS/FFI while retaining Scheme managed
+memory and a declared C-facing interface. Changing implementation language does
+not remove GC or itself require a different collector algorithm.

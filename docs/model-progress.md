@@ -32,7 +32,7 @@ The positive graph contains 35 distinct / 56 generated states, depth 11,
 two initial states and zero queued states. The control check takes 21.098
 seconds and the positive check 16.750 seconds; these are verifier times, not
 Gambit runtime or build benchmarks. Worker capacity is detected from the host.
-Evidence is in `evidence/model-results/model-progress/sync_resource_users/`.
+Evidence is in `.cache/research/legacy-evidence/evidence/model-results/model-progress/sync_resource_users/`.
 
 The terminal predicate is `s.phase == 4`, meaning destruction after drainage
 or rollback. This finite model allows an optional waiter and one external

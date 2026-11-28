@@ -100,7 +100,7 @@ Host-auto scheduling selected two control checks with six TLC workers each and
 12 workers for the positive check. The campaign took 20.126 seconds.
 
 Portable authoritative evidence is
-`evidence/model-results/fixtures/sync-message-atomic-publication/scheme-thread-drain-bound-contract/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/sync-message-atomic-publication/scheme-thread-drain-bound-contract/receipt.json`.
 The Datalog bundle registry binds this receipt and manifest. Direct fact
 recovery validated one checked model, three controls, four source references,
 six unresolved obligations and 13 bound inputs. Adding the explicit empty

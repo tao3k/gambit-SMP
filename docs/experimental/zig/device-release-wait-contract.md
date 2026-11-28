@@ -1,0 +1,237 @@
+# Device Release: Explicit Waits, Task Delivery and Shutdown Drain
+
+Reviewed: 2026-10-20. Design and source research only. No implementation, native
+test, compiler, model executor, prover or solver ran. Read the
+[evidence ledger](device-release-wait-evidence.md),
+[necessary-support cost matrix](device-release-wait-cost-matrix.md) and
+[trace map](device-release-wait-traceability.json). This refines the
+[foreign release contract](foreign-release-worker-contract.md), especially
+FRA03--FRA09. It does not qualify any independent GC-worker profile or positive
+Zig increment. Names below identify responsibilities, not architecture generations.
+
+The [synchronization refinement](device-release-sync-proof.md) supplies explicit
+lock/pipe ordering, accept/cancel/delivery cuts and counted child reservations.
+It also adds a mandatory boundary to the shutdown sketch below: **remaining
+foreign still-object teardown can produce release work after the last tracing
+GC, and cleanup_rc frees remaining RC storage irrespective of its refcount**.
+A deferred payload must drain or transfer actual storage custody before that
+cleanup. See its [source evidence](device-release-sync-evidence.md); these remain
+conditional paper arguments, not native qualification.
+
+## 1. What the Actual Callers Require
+
+| ID | Real source path | Required distinction / replacement boundary |
+| --- | --- | --- |
+| RWC01 | `device_cleanup`: unlink group -> close RD -> wait on EAGAIN -> close WR -> wait -> release [DW-S01] | Waiting is part of an already destructive lifecycle. Wait interruption is not rollback. Preserve direction/stage/ownership and payload disposition in the coordinator. |
+| RWC02 | `device_select` uses processor fdsets/abort channel and stack-local select state; resize is a VM collective [DW-S02/S03] | Native release wait needs owned buffers and explicit capacity, wake identity, time/signal profile; it cannot borrow another processor's scratch or join its resize collective accidentally. |
+| RWC03 | `os_condvar_select` extracts device/condvar arrays, unlocks a Scheme queue, waits, relocks and writes readiness; kernel saves/restores frame/registers [DW-S05] | This is a managed scheduler adapter, not the native task wait service. Moving GC cannot be allowed while hidden C copies of Scheme values remain unaccounted. Keep its admitted participating-wait/control law until separately reconstructed. |
+| RWC04 | `##wait`/abort and `##thread-check-devices!` update processor/VM queues around managed waits; interrupt raise wakes a processor [DW-S04/S05] | Managed wait enrollment, resource-task cancellation and wake notification are separate. Do not route a private executor through a processor-id wake unless it actually owns that processor lifetime. |
+| RWC05 | TCP TLS close can return EAGAIN; select leaves compute requested readiness; Windows pumps hold refs and have wait/kill/cleanup paths [DW-S06] | Native cleanup can require multiple turns, different interests or another native thread. Preserve admitted leaf behavior and actual users; no unconditional bounded-close or Darwin pump claim. |
+| RWC06 | Ten wrapper registrations, explicit release, typed conversion rollback and group shutdown converge on cleanup [DW-S07] | Accepted task custody must survive the disappearance of a Scheme wrapper, a cancelled observer or a conversion caller. Not ten independently duplicated cleanup bodies. |
+| RWC07 | I/O pstate setup/cleanup and candidate ready/drain repairs; executor join and global OS/module teardown [DW-S08--S11] | Reserve before publication; prevent stale wake on reused fd/context; drain tasks before libraries/code/time/wait resources vanish. Credit the existing C repairs, not a hypothetical absent C cleanup design. |
+
+There is currently no deferred task service in these selected paths: the source
+calls cleanup synchronously. Task delivery below is a proposed replacement
+protocol for an admitted native-only deferred cohort. Arbitrary release_fn,
+managed callbacks and raw nonlocal exits do not acquire deferral permission from
+this design. The wider Scheme/GC/control contracts remain primary.
+
+## 2. Explicit WaitContext
+
+![Wait storage, borrows and wake identity](device-release-wait-context.svg)
+[D2 source](device-release-wait-context.d2).
+
+Split an executor-owned **WaitContext**, an operation-local **WaitFrame**, and an
+independently issued **WakeLease**. A context can serve successive tasks, but one
+mutable WaitFrame/OS buffer set has one active owner. Nested/reentrant waits need
+separate storage or are rejected. No raw Scheme object or stack-frame pointer
+is stored in the native-only wait records.
+
+| ID / record responsibility | Required design fields | Source reason / acceptance rule |
+| --- | --- | --- |
+| WCT01 context identity/owner | ContextId + reuse identity; executor/native-thread policy; Open/Closing/Retained/Closed; context and lookup/wake/wait users | PSTATE currently supplies identity and storage implicitly [DW-S02/S04]. Pin before dereference. A scalar ready bit alone does not prevent late writers or ABA. |
+| WCT02 scratch/capacity | Owned read/write/optional exception bitmaps; selected poll/wait-object buffers; checked capacities, max fd, device count and arithmetic limits | Source allocates two or three fdset buffers and uses MAX_CONDVARS/platform arrays [DW-S02/S03]. Validate complete indexed access, not only allocation size. select/poll profiles need their own bounds. |
+| WCT03 operation frame | Borrowed DeviceId/generation list; read/write/event interests; readiness output; operation phase; payload/OS-handle leases | The source mutates device arrays and readiness sets [DW-S02/S05]. An integer fd is not stable resource identity. Do not close/reuse a watched fd while a waiter still uses it. |
+| WCT04 wake endpoint | Owned pipe/event, endpoint identity, independent resolver, issued writer leases and a reserved stop lease | Source setup creates nonblocking abort endpoints; abort writes ignore error [DW-S04/S08]. Teardown must exclude all late writers, including direct/interrupt users. |
+| WCT05 durable predicate | Task/stop/cancel reasons in synchronized state; request sequence/identity; last observed state; explicit wake failure | Notifications may coalesce; readiness/EINTR is not task cancellation. Predicate is authoritative, the byte/event only prompts rechecking. No silent success on broken endpoint. |
+| WCT06 time and signal profile | Declared clock/deadline conversion, operation timeout, heartbeat/signal policy and TLS/library requirements | `device_select` uses time helpers and masks heartbeat interrupts [DW-S02/S12]. Reuse only a qualified policy; a native thread must not inherit or impersonate arbitrary Gambit runtime signal ownership. |
+| WCT07 result/disposition | Ready, WakeRequested, DeadlineReached, Interrupted, BackendError; stage/partial-effects identity; retry permission | Source maps abort to EINTR if no earlier error [DW-S04]. No enum value alone proves fd close, native drain or safe replay. |
+
+### Lifecycle and resize
+
+Private -> Initialized -> Published -> Closing -> UnresolvedRetained or Closed.
+Build native buffers and endpoint privately, including rollback of partial pipe
+and nonblocking setup. Publish only after valid identity/custody and stop/wake
+mechanisms exist. Candidate C patches already handle ready publication and setup
+failure cleanup [DW-S08]; those mechanisms are baseline reuse.
+
+Capacity is attached to the context. A larger demanded fd/count either uses a
+pre-reserved admitted bound, grows owned scratch while no active WaitFrame uses
+it, or fails/retains the task under its explicit policy. It must not invoke
+Gambit's processor-count fdset-resize collective from a nonmember executor.
+Existing managed waits keep their current resize protocol outside this cohort.
+A new backend such as kqueue would need a separate semantic/target justification;
+renaming this record does not automatically replace the OS wait algorithm.
+
+Close is permitted only when no accepted task still requires the context, or
+when that task and its dependencies have an explicit surviving custodian. It is
+not a way to cancel an in-flight native close.
+
+WaitContext close withdraws independent resolution/wake issuance first. Already
+issued waiters/wakers and a reserved final-stop issuer retain it until they
+finish. The executor is signalled with the reserved lease, exits, and is joined
+successfully; then remaining protected readers/writers drain before descriptors
+and buffers can be closed/freed. If join/drain fails, keep the actual dependency
+closure. Do not close a wake fd to force an active waiter or writer to stop.
+
+### Wake and predicate protocol (design, not a native proof)
+
+Under the chosen synchronization, a requester publishes its durable reason before
+notification. The waiter enrolls its wait, snapshots/arms, rechecks the predicate
+before sleeping, then rechecks after every return and after draining a wake.
+Publication/check ordering and a persistent pending wake must exclude the
+check-to-sleep lost-wake window. One consumer owns endpoint draining; no unrelated
+waiter consumes its notifications. Counter/identity wrap is either bounded and
+refused or separately proved, not ignored.
+
+If a nonblocking write is full, coalescing is valid only with evidence of an
+already-pending readable notification and the durable predicate/recheck law.
+A fatal write error, invalid endpoint or unknown signal-safe path makes wake
+progress unresolved. Neither a sequence counter by itself nor a successful write
+proves that a task was accepted or finished. Async signal/interrupt callers need
+preissued stable leases and an async-safe mechanism; they cannot allocate, take
+this ordinary service mutex or resolve an unpinned freed directory entry. No
+such new signal-path implementation is qualified here [DW-S04/S08, DW-P01].
+
+## 3. Deferred Release Task Delivery
+
+![Custody transfer, cancellation and partial failure](device-release-task-delivery.svg)
+[D2 source](device-release-task-delivery.d2).
+
+Task delivery is one-process ownership transfer. This study introduces no IPC,
+persistent journal or crash-recovery service. TaskId/AttemptId validation serves
+in-process concurrent/lost-ack resolution, not survival of process failure.
+
+| ID | Step and commit boundary | Custodian / required failure handling |
+| --- | --- | --- |
+| DLT01 prepare | Creator owns ResourceId's unique release authority, issued effect/origin policy, native action inputs, code/library pins, completion identity and a reserved task cell | Reject unknown effects. Preparation failure keeps creator custody; a collecting path cannot free the only wrapper and then allocate its delivery record. Required reservation occurs before the unsafe epoch. |
+| DLT02 commit acceptance | In one specified service metadata order, validate producer/attempt/phase, attach owned record to coordinator ledger and queue or retained work state, and transfer release authority | Release commit must return definite Accepted(TaskId), RejectedWithOwnership or resolve the attempt before caller cleanup. No half-accepted error that lets both sides free. No allocator, wait, callback or GC inside the short metadata gate. |
+| DLT03 notify | After commit, publish wake request to a pinned endpoint | Wake failure leaves the task accepted and coordinator-owned; record scheduling failure/retain. It is not a rejected submission and never returns payload ownership implicitly. |
+| DLT04 execute/await | Executor claims an accepted record exactly once; uses explicit WaitContext and per-resource exclusive close-stage state | Track queued, running, waiting, pending publication and authorized descendants. A wait result resumes only the admitted leaf stage; it does not replay the entire foreign destructor. |
+| DLT05 publish outcome | Record scalar primary/cleanup errors, completed effects, payload disposition and remaining dependencies before observer notification | ReleasedWithError can have freed native storage. AlivePartial/Unknown retain custody. Queue entry removal and dropping observer are not native completion. |
+| DLT06 consume/transfer | Observer consumes a stable native result; optional managed delivery occurs only through an admitted rooted reentry/reload frontier | Cancelled/missing observer leaves a coordinator-owned sink/retainer. Release task/control storage only after outcome readers, payload/code dependencies and attempt resolution readers drain. Unknown disposition is not NativeReleaseDrained. |
+
+Different release triggers for one ResourceId must converge on its existing
+accepted TaskId or an explicit already-released/retained disposition; they do
+not each acquire a destructive attempt. Repeated submission/observer attachment
+cannot enqueue another release. Rejection with ownership applies only to a
+validated creator's still-owned input; an invalid/forged issuer gains no new
+ownership by receiving a rejection response. Resource claim and queue acceptance
+must have one coherent commit law, rather than two locks with an unproved gap.
+
+Accepted jobs use immutable operation identity and owned inputs; close-stage state
+is mutable only under the coordinator's execution ownership. No unrooted managed
+closure is captured in a queued native callback. A callback requiring Scheme is
+outside the native-only cohort unless its managed invocation/root/effect protocol
+is separately admitted. Required managed dependencies must be registered before
+the final root cut, not discovered in an arbitrary void* during sweep.
+
+With an in-process interrupted submission response, the issuer queries/recovers
+the same AttemptId under protected resolution before cleaning up or resubmitting.
+The task cannot be destroyed while a response-resolution user still depends on
+it. Multiple managed observers can share an immutable outcome only with their
+own read/custody law; this does not create additional release authority.
+
+## 4. Cancellation and Partial Failure
+
+| ID | Actual source pressure / race | New contract and remaining evidence |
+| --- | --- | --- |
+| WCN01 wake versus cancel | Managed interrupt/wait-abort wakes `device_select`; abort becomes EINTR [DW-S04/S05] | WakeRequested is notification, not TaskCancelled or resource released. Managed scheduler wake protocol is retained until separately reconstructed. |
+| WCN02 private preparation cancelled | Native resources may exist before wrapper conversion succeeds [DW-S07] | Creator performs admitted rollback or transfers to retainer. No queue claim exists yet. Raw nonlocal exits crossing new native frames remain outside admission. |
+| WCN03 accepted queued observer cancelled | Scheme wrapper/explicit caller may disappear after acceptance | Detach the observer/result destination while the task remains coordinator-owned. Administrative withdrawal requires a real replacement custodian before the old pin drops; it cannot erase the cleanup obligation. |
+| WCN04 running/waiting cancellation | Cleanup may already unlink group or close one direction before EINTR/error [DW-S01/S04] | Cooperative request is checked at safe stage boundaries. Complete the admitted stage, suspend with retained disposition, or follow a specified leaf cancellation law. No arbitrary thread kill, restart-from-zero or flag restoration. |
+| WCN05 timeout/deadline | Source waits can be infinite; TLS/native pumps may need peer/thread progress [DW-S01/S06] | Deadline limits waiting/observer policy; it does not prove destruction. Keep partial native effects and dependency closure; scarce-resource retry may remain blocked. |
+| WCN06 cleanup error after storage free | `device_release` can free device after a virtual-release error; group unlink precedes other errors [DW-S01] | Track freed native allocation separately from unconfirmed external effects. Never retry a freed pointer or equate group absence with successful release. OS close retry/disposition needs actual target/leaf evidence [DW-S13/P01]. |
+| WCN07 executor exits or join fails | Source thread_join and candidate retained-join handling [DW-S09/S11] | A successful thread join establishes target exit, not task success, descendant drain or last callback use. Failed join/unknown in-flight record retains dependent resources; no automatic replay after uncertain irreversible calls. |
+| WCN08 concurrent stop/delivery | Shutdown may race accepted work and internally spawned cleanup | Closing outside producers must not erase preaccepted producers/reservations or unaccounted descendants. Parent transfers child work credit before returning its own credit. |
+
+Cancellation is cooperative in this proposed service. An executor's asynchronous
+pthread cancellation/forced kill has no implicit cleanup correctness guarantee.
+Supporting it would require separate native all-exit and lock/resource recovery
+proofs; Zig defer and C cleanup labels do not supply them. The selected Gambit
+thread wrapper exposes create/join/exit, not a qualified service cancellation API
+[DW-S09]. No platform's EINTR/close rules are generalized across targets.
+
+## 5. Shutdown Is Dependency Drain, Not a Single Empty Queue
+
+![Producer closure and dependency-aware teardown](device-release-shutdown.svg)
+[D2 source](device-release-shutdown.d2).
+
+| ID | Required phase | What must remain alive / why |
+| --- | --- | --- |
+| RSD01 close external issuance | Stop new independent resource creation/entry and task producers under the supported domain; close public registrations | Existing creators, release origins and resolver readers still own pins. Destructor/GC-derived work may still legitimately arise. |
+| RSD02 quiesce enrolled producers | Finish or retain active creators/rollback, final-GC discovery, remaining foreign still-object teardown, explicit releases and origin adapters | Native executor/queue/reservation, roots and libraries stay live. Final-GC and later still-object teardown submissions retain producer permits until discovery finishes; RC addref alone cannot survive cleanup_rc. Drain or transfer actual payload custody first. |
+| RSD03 seal root producers | No fresh independent release issuer can enter; all issued root/registration/discovery permits must discharge, and descendants are tracked through prior child reservation | A running native cleanup may emit an admitted child only with a counted reservation before construction/publication and before parent completion, bounded effect policy and reserved capacity. Closing all queue insertion early can deadlock or leak. |
+| RSD04 drain work/dependencies | Drain queued, active, waiting, pending-to-publish, descendant and completion-reader obligations; stop normal device borrows | Keep required native pumps, owner executors, clocks/abort channels, callback images, vtables and libraries available. Do not stop the very owner a cleanup needs to progress. |
+| RSD05 resolve retained state | Known native dispositions complete, or transfer retained partial/unknown records and their entire real dependency closure to a surviving custodian | A retained diagnostic is not NativeReleaseDrained. If it still depends on this VM/library/executor, that dependency cannot be torn down. Unrelated independent domains may close. No fiction that process exit proves semantic drain. |
+| RSD06 stop and join executor | After no task/descendant requires execution, withdraw independent wake resolution; issue final stop through a reserved pin and join the worker | WaitContext storage and wake handles remain until target exit and remaining readers/wakers drain. Self-join, failed join and late producer paths are not accepted. |
+| RSD07 release physical service | Close wake descriptors and free WaitContext/queue/control storage only after actual users drain | Device-group and shared storage have independent reader/borrow conditions. Existing group error exit/free is not a sufficient drain protocol [DW-S10]. |
+| RSD08 release libraries/images/runtime | Remove code or global platform/TLS/time/thread support only when no dependent task, destructor, return/map use or retained record remains | Source has synchronous module teardown order [DW-S10]. New deferred work must not outlive those dependencies. Do not infer that adding a queue preserves shutdown correctness. |
+
+These are a partial order over actual dependencies, not a rigid global order for
+all VMs. Retained state requires explicit surviving ownership; if its dependencies
+cannot survive, the supported domain's shutdown remains unresolved/blocked by
+that state. A bounded native-only orphan sink can outlive a VM only when it has
+no remaining managed/VM-specific dependency. Unbounded descendants, an unknown
+callback, a peer that never cooperates or an unavailable owner defeats an
+unconditional termination claim.
+
+### Conditional conservation/drain argument
+
+After root producers close, every admitted nonterminal work obligation is in
+exactly one custody state: reserved/preparing, accepted queued, executing,
+waiting, pending publication/delivery, or retained under an identified owner.
+Before a parent releases its work credit, child credit is installed. Transfers
+between states never create an unaccounted interval. Completion/result readers
+are included until they leave. This is a logical conservation premise requiring
+native synchronization and source refinement, not an implemented counter.
+
+If all root issuers are closed, no source/descendant publication or execution
+remains, required outcome readers drain, and no retained dependency still
+requires this service, then a later admitted job/use would require a root
+issuer, outstanding parent or protected reader, contradicting those conditions.
+The service can close its physical resources after its separate wake/wait/join
+frontier. Queue-empty alone omits executing/pending/descendant work. Dijkstra and
+Scholten's termination-detection manuscript supports accounting for work in
+transit/descendants; we do not claim to implement its algorithm or inherit its
+proof [DW-P02]. Safety remains conditional; progress additionally requires finite
+admitted work, cooperative native dependencies and live/fair executors.
+
+## 6. Full Reconstruction and Remaining Theory Gates
+
+The selected cohort needs an explicit native wait service, transactional task
+custody and source-aware shutdown. It must replace implicit processor scratch
+ownership and synchronous-wrapper lifetime assumptions for migrated callers;
+a Zig wrapper continuing to use all old authorities does not do this.
+
+For a migrated cleanup caller, the current `device_cleanup` cannot be treated
+as an opaque reusable leaf: its internal wait invokes implicit-PSTATE
+`device_select`, and calling it again after a wait/error sees an already removed
+group. The new runner must own unlink/read-close/wait/write-close/final-release
+stages explicitly, reusing qualified close/release mechanics beneath it rather
+than replaying that whole helper. Similarly, unchanged `device_group_cleanup`
+cannot implement the new drain contract because its error exit frees group
+storage. These are concrete old bodies/authorities to replace for the selected
+cohort; bounded legacy consumers keep their priced path until migrated.
+
+Scheme keeps origin/control/root/error semantics. The shared native coordinator
+owns physical wait buffers, task records, queue/executor state and disposal under
+issued policy. Mature OS/library leaf functions and required C/nonlocal islands
+remain bounded dependencies. Modern C can implement the same split. The
+accompanying support matrix identifies the residual work rather than assigning
+all reconstruction gains to Zig.
+
+Unknown custom callbacks, actual target/signal/SSL profiles, complete host/alias
+issuers, native publication/wakeup refinement, final-GC/descendant closure and
+cost bounds remain unresolved. No current row grants implementation/native
+execution authority or closes AG05/AG06/AG07.

@@ -1,0 +1,80 @@
+#+TITLE: Incremental Compiler Architecture, Retirement and Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: incremental-compiler-matrix
+:AUTHORITY: IncrementalCompilerArchitecture
+:END:
+
+Derived from native SysML. Proposed compiler-service architecture is not current implementation.
+
+** Component
+
+| key | anchor | responsibility | replacement |
+|---+---+---+---|
+| snapshot-broker | std/make.ss:246-290; runtime/loader.ss:14-30 | Resolve all files, absence, paths, environment and admitted native reads in an immutable input epoch | Replace temporary global path/timestamp authority with tracked observations; opaque effects stay owned and nonreusable |
+| query-engine | std/make.ss:299-343; compiler/driver.ss:621-641 | Demand phase-specific compiler results; record dynamic reads and validate prior traces | Replaces whole-module completion as the sole dependency boundary; no top-level form caching without separate semantic proof |
+| semantic-session | compiler/driver.ss:119-139,621-641; expander/module.ss:102-181 | Instantiate binding/mark/module identity and mutable overlays per session | Rebuild semantic versus instance versus attempt identity (driver timestamp/base gensym); migrate deep optimizer/expander state before retiring mutex |
+| artifact-publisher | compiler/driver.ss:707-747; gsc/_t-c-1.scm | Commit a coherent result manifest containing typed interface, executable support, semantic IR and native products | Replaces independent direct output writes only after all consumers use exact manifests |
+| resource-scheduler | std/make.ss:220-232,345-358; compiler/base.ss:287-335 | Single-flight result keys, suspension on discovered dependencies, resource budgets and cancellation custody | Replace redundant pools and global completion waits; independent processes can parallelize before same-VM SMP qualifies |
+| backend-runtime | GVM/FrameSpec/ModuleSpec; mem.c; include/gambit.h.in | Generated modern C consumes the semantic result and runtime contract; LLVM/MLIR optional consumers use the same contract | Runtime GC/SMP redesign is a separate T0 lane; retirement/notifier work is an admission subproblem, not a build speed result |
+
+** Placement
+
+| key | owner | anchor | responsibility | boundary |
+|---+---+---+---+---|
+| gambit-foundation | Gambit Scheme compiler and modern C runtime | gsc/_front.scm:194-250,317-437; gsc/_t-c-1.scm | Own explicit compiler context, normalized Scheme to GVM, FrameSpec/ModuleSpec/PointId and backend/runtime ABI; expose stage results and traced demands | Shared compiler service contract; standalone gsc remains a client; no Gerbil-specific hygiene moved into Gambit |
+| gerbil-service | Gerbil Scheme modules on Gambit | compiler/driver.ss:119-139,621-747; std/make.ss:207-358,502 | Own phase-query graph, macro support and session identities, capability broker, trace validation, result manifests and unified scheduling | Consumes Gambit typed stages; replacing opaque gsc invocation requires a new service interface, not process pooling alone |
+| client-bootstrap | gxi/gxc clients and bootstrap seed | std/make.ss; compiler/base.ss:198-206; gsc/_front.scm | Own requests, diagnostics and a seed-built service artifact; bootstrap graph never depends on its own not-yet-built executable | One engine for CLI and interactive use; seed and rebuilt compiler identities kept distinct; seed does not certify reproducibility |
+| execution-host | Owned compiler workers on Gambit | gsc/_front.scm:326-334; compiler/driver.ss:119-139 | Process workers initially isolate global state; same-VM parallel workers require owned compiler globals and qualified GC/FFI/SMP | Parallel task graph correctness does not imply same-VM multicore safety; IPC and memory costs remain explicit |
+
+** Stage
+
+| key | role | inputs | result |
+|---+---+---+---|
+| source-syntax | Reader and source resolution | Input cohort + dialect/reader/effect identity | Syntax with locations/identity; no mutable port state in a reusable result |
+| binding-interface | Module export/binding contract | Module + phase + canonical binding identities + producer inputs | Consumer-specific projection; signature stability alone cannot validate transformer code |
+| phase-program | Executable macro support closure | Transformer bytes + positive-phase dependencies + native helper ABI + initializer plan | Reusable program instructions; initialization effects and mutable instances are separately owned |
+| session-instance | Context/overlay instantiation | Phase program + fresh session identity + dependency instances + effect order | Per-session state; no cross-session cache of live mutable closure graphs |
+| expanded-semantic-ir | Expand and normalize | Syntax + interface + executable support + owned instance + traced capabilities | Completed semantic graph plus origin/control/failure observations; consumed projections include relevant diagnostics |
+| gvm-contract | Analyze/optimize and lower | Semantic IR + optimizer/SSXI facts + options + target semantic contract | GVM with explicit ModuleSpec/FrameSpec/PointId/root/effect duties |
+| generated-modern-c | Native C emission | GVM contract + emitter/version + layout/ABI policy | Modern C units and shared runtime descriptors; LLVM upgrade does not automatically invalidate expansion |
+| native-manifest | C compilation and link | Generated C + effective headers/defines/compiler + link closure | Content-addressed native artifacts and atomic publication manifest |
+
+** Node
+
+| key | number | dependencySet | anchor | contract |
+|---+---+---+---+---|
+| iter-interface | 0 | Set() | iter/macros.ss; iter/api.ss; iter.ss | Coherent binding interface projection |
+| iter-support | 1 | Set(0) | expander/module.ss:839-875; compiler/driver.ss:707-747 | Executable positive-phase closure, not only SSI existence |
+| expand-misc | 2 | Set(0,1) | std/string/misc.ss:227-234 | Fresh session; dynamic extra support may be discovered |
+| expand-wg | 3 | Set(0,1) | std/sync/wg.ss:37-38 | Independent owned session with full support closure |
+| native-misc | 4 | Set(2) | compiler/driver.ss:647-705 | Bounded model groups GVM/C/native stages; production graph splits them |
+| native-wg | 5 | Set(3) | compiler/driver.ss:647-705 | May overlap expand-misc or native-misc when dependencies and budget permit |
+| target-link | 6 | Set(4,5) | compiler/driver.ss native consumer boundary | One demanded target; same result requested twice joins one producer |
+| dynamic-support | 7 | Set() | Capability broker design; actual initializer closure unresolved | Hypothetical discovered dependency; not a claim of an observed extra import |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| observational-semantics | False | Clean-build equivalence includes binding identity, expansion, diagnostics, exceptions and relevant effects; arbitrary syntax/macro heap serialization is not admitted |
+| tracked-inputs | False | All dynamic reads, negative lookups, compiler/tool descriptions and source epochs tracked; opaque native/time/random/network effects deny reusable credentials |
+| session-isolation | False | Deep expander/optimizer/loader/phase instance state owned or proven immutable; lock deletion follows caller migration |
+| projection-cutoff | False | Each consumer names exactly the interface/support/IR/native observations it consumes; unchanged signature cannot hide changed transformer code |
+| scheduler-publication | False | Single-flight keys, suspension/resource release, cycle diagnostics, unknown/cancel custody and atomic result groups refine to actual code |
+| backend-cohort | False | Modern-C runtime/GC/SMP and generation/compile/link cohorts qualified independently; binary GC maps do not prove dead registers or build acceleration |
+| production-refinement | False | Eight-node model refines actual module/phase/action population; observed avoided work, critical path and added overhead must establish benefit |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| no-change | Re-execution of unchanged demanded compiler/native stages | Trace validation, file/absence validation and result materialization | Zero recomputation only for admitted unchanged queries, not zero filesystem or validation work |
+| leaf-edit | Unrelated module expansion/native generation and unnecessary whole-module barriers | Invalidate affected trace closure; compare consumer-visible outputs | Unchanged wg may already be skipped today; no new gain credited for that alone. New opportunity is finer phase cutoff and less import/support reconstruction, pending actual baseline evidence |
+| macro-edit | Downstream work after genuinely unchanged consumed projections | Recompute changed macro support; invalidate both consumers when transformer semantics change | An unchanged interface alone is insufficient; no false early cutoff |
+| parallel-span | Waiting for unrelated runtime object completion before independent consumer expansion | Owned sessions/processes, memory budgets, IPC and broker contention | T >= max(W/P,S); reducing span S differs from reducing total work W; no claimed 12-core speedup |
+| shared-support | Duplicated immutable phase-program preparation across otherwise isolated sessions | Program serialization/validation and fresh per-session instance/identity work remain | Positive work saving only if avoided work R exceeds H_validation + H_instantiation + H_transfer; current sticky reuse is baseline |
+| native-cost | Repeated generated-C/native work for unchanged semantic/native keys | ABI/header/compiler-specific keys and atomic manifests; emitter refactoring can affect GCC work | Darwin macro tracking costs and frontend dependency costs are separate; 5x observation is unverified here |

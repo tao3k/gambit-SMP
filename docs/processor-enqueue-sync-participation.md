@@ -22,7 +22,7 @@ TRACE:pinned-lock-enter
 No target-lock return, queue publication or VM-lock acquisition followed. The
 diagnostic does not identify the target lock's owner or its actual GC round.
 It is not a release repair. The diagnostic identities, exact fixture bytes and
-receipts are in `evidence/source-results/fixtures/idle-processor-thread-start-lock-trace/`.
+receipts are in `.cache/research/legacy-evidence/evidence/source-results/fixtures/idle-processor-thread-start-lock-trace/`.
 
 ## QNT Extension
 
@@ -90,7 +90,7 @@ proof or a reason to repeat this unchanged failure.
 The base regression receipt passes, but the aggregate candidate is DENY because
 the broader lifecycle receipt fails. No full bootstrap, upstream suite, Gerbil
 or release admission follows. Bootstrap was not launched after fail-fast.
-Receipts are under `evidence/source-results/fixtures/processor-enqueue-sync-participation/`.
+Receipts are under `.cache/research/legacy-evidence/evidence/source-results/fixtures/processor-enqueue-sync-participation/`.
 
 ## Remaining Requirements
 

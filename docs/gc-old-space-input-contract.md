@@ -112,7 +112,7 @@ same logical object across visits. At the old-space abort `scanActive=0` and
 the abort cannot be directly attributed to that stale scan context. The source
 and binary differ from the later current-source BTQ failure. A bounded portable
 context with exact original hashes is
-`evidence/source-results/compiled-stress-failure/historical-scan-origin.json`.
+`.cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/historical-scan-origin.json`.
 
 This refines the diagnostic requirement: establish queue owner and physical
 allocation generation, not merely another origin label. It does not erase the

@@ -1,0 +1,88 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-publication-fragment-bytes",
+  "scope": "Ask gambit.materialize to stage the publication source lock inside this attempt, then source.project and source.bind to re-read collector.h, collection-round.inc and allocation-limits.inc from that source tree. The .inc paths are source-artifact names, not recipe inputs. No buildWorkspace, configure, source-core, buildMigration or prior is declared. Attempt-local task trees are not a maintained build product; a source-capacity denial means the fragments were not read. Declared SHA-256 values are the executor's comparison contract, not a manual proof. A projection PASS would be byte origin only, with sourceRefinementAdmitted false.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "evidence/fixtures/dev-publication-reserve/source.lock.json",
+    "patches/fixtures/dev-publication-reserve.patch",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-publication-fragment/binding.json",
+    "evidence/fixtures/dev-publication-fragment/observations.json"
+  ],
+  "steps": [
+    {
+      "id": "materialize",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-publication-reserve/source.lock.json"
+      }
+    },
+    {
+      "id": "project",
+      "capability": "source.project",
+      "dependsOn": ["materialize"],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": {"step": "materialize", "output": "source"},
+        "files": [
+          {
+            "target": "lib/collector.h",
+            "origin": {"kind": "source-artifact", "path": "lib/collector.h"},
+            "sha256": "74529785e3c843ae3bb90eb736b446791e26ace77acf9c5eec7f26a6fadf9b9a"
+          },
+          {
+            "target": "lib/_mem/collection-round.inc",
+            "origin": {"kind": "source-artifact", "path": "lib/_mem/collection-round.inc"},
+            "sha256": "6ff42a100960fbfc5f0b9ba3075390e3d38fbd10b05375bdeff47be9e8a769aa"
+          },
+          {
+            "target": "lib/_mem/allocation-limits.inc",
+            "origin": {"kind": "source-artifact", "path": "lib/_mem/allocation-limits.inc"},
+            "sha256": "db47067e1fa2b1999734cf8c6763f3b2554fe40de162e700bb1a88f583f0c962"
+          }
+        ]
+      }
+    },
+    {
+      "id": "bind",
+      "capability": "source.bind",
+      "dependsOn": ["project"],
+      "budgetSeconds": 20,
+      "arguments": {
+        "workspace": {"step": "project", "output": "workspace"}
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["materialize", "project", "bind"],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-publication-fragment/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

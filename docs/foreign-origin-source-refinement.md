@@ -33,7 +33,7 @@ release after a successful admission preserves exact accounting. Negative
 controls actually wrap each counter and break the accounting invariant.
 
 Recipe: `foreign-origin-word-bounds-model`, under
-`evidence/research/vm-registry-reader-lease/foreign-origin-word-bounds.recipe.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/foreign-origin-word-bounds.recipe.json`.
 
 - Final run: `.data/fixtures/foreign-origin-word-bounds/explicit-initializers-model-run`.
 - PASS in 41.909375916 seconds; original whole budget 300 seconds, no new bootstrap.

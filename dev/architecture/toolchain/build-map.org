@@ -1,0 +1,55 @@
+#+TITLE: Incremental and Parallel Build Contract Map
+#+SETUPFILE: ../../modeling/org/setup.org
+
+* Toolchain-owned projection
+:PROPERTIES:
+:CUSTOM_ID: incremental-build-map
+:AUTHORITY: GambitToolchain
+:EVIDENCE_CLASS: derived-design-and-source
+:END:
+
+Semantic unit boundaries belong to Scheme producers. This graph defines artifact dependency and publication contracts, not a newly implemented scheduler or cache. Existing parallel executors and valid dependency edges must be reused.
+
+#+BEGIN: sysml-view :kind incremental-build-artifacts :source architecture/toolchain/models/sysml/architecture.sysml
+#+NAME: incremental-build-artifacts
+| Node | Dependencies | Product | Relevant inputs | Reuse rule | Boundary |
+|---+---+---+---+---+---|
+| closure |  | Scheme/Gerbil semantic dependency closure | Ordered forms, includes/imports, phase/macro/FFI context, negative lookup and directory observations; producer identity | One correct module or inseparable coupled group; mutable phase state requires widening | Semantic cycles grouped only by real elaboration dependencies; do not merge ordinary runtime call cycles |
+| plan | closure | Completed semantic plan | Closure digests, semantic compiler, options, module identity and relevant target projection | Reuse only with complete semantic dependencies; fresh context instantiation remains separate | Native compiler change need not invalidate a plan unless the plan reads its identity or relevant target decisions |
+| generated | plan | C, frame/root/layout metadata and module records | Plan, generator/schema, target layout and ordered foreign text | Publish as one generated output group; compare actual bytes before propagating | Equivalent output early cutoff is valid only for every downstream-observed output, including metadata |
+| configured |  | Configured RTS/header capability | RTS source, configuration rules, target/SDK, configure inputs, requested and effective profile | Requested flags and goal overlays are distinct from effective configured capability | Profile mismatch invalidates affected declarations/objects and native acceptance |
+| objects | generated; configured; linkPlan | Module and runtime objects | C/header/depfile closure, compiler/tool bytes, argv, env, cwd, target and ABI projection | Compile independent ready objects under one CPU/memory budget | A monolithic generated module remains a serial action until a semantics-safe producer split exists |
+| link | objects; linkPlan | Archives, shared libraries and executable | Ordered module demand/supply/init data, objects, linker, flags and runtime ABI | No alphabetical reordering or unordered set hashing of link inputs | Successful interpreter behavior does not validate compiled archive identity |
+| publish | link | Complete artifact-set manifest | All expected output bytes, successful exit, sealed input generation and lineage | Atomic visibility of manifest after all products verify; attempt logs remain independent | Cancellation or partial output never supplies a cache success or current native acceptance |
+| linkPlan | generated | Semantic module link plan and generated linkfile C | Ordered module demand/supply/init/flags metadata, semantic linker identity and relevant target projection | Generate linkfile before its own object; independent module objects do not depend on this plan | This is an artifact-family projection; instantiate only real per-product edges, never all-to-all family dependencies |
+#+END:
+
+** Delta acceptance cases
+#+BEGIN: sysml-view :kind incremental-build-deltas :source architecture/toolchain/models/sysml/architecture.sysml
+#+NAME: incremental-build-deltas
+| Case | Change | Expected work | Limit |
+|---+---+---+---|
+| noOp | All declared semantic/native inputs and expected outputs identical | Validate previous dependency cut and output identity; no eligible generation/compile/link actions | Metadata/hash checking still costs work; live import/context instantiation not automatically reused |
+| leafScheme | One independent module implementation changes | Reelaborate correct semantic unit; regenerate it; compile changed output; link affected closure | If module metadata/semantic exports unchanged, avoid unrelated generation; strong dependencies still propagate |
+| macroOrInclude | A used macro, include or compile-time dependency changes | Invalidate its actual semantic consumers; regenerate their affected descendants | Unsealed dynamic context means widen unit or deny cache admission |
+| sameOutput | A valid producer reruns and all consumed output bytes are unchanged | Retain new lineage but stop downstream recomputation at output identity boundary | Compare C, side metadata and link records, not only one .c file |
+| compilerOnly | Only native compiler identity or native flags change | Recompile affected objects and relink; retain independently valid semantic plans | Target/layout effects read by plan or generator also invalidate those projections |
+| frameAbi | Frame/root/layout schema changes | Regenerate affected declarations and rebuild every ABI consumer through final link | Never mix old descriptors with new scanners or suppress this necessary rebuild |
+| linkOnly | Only link mode or flags change | Relink affected closure using ordered unchanged objects | LTO or codegen-affecting options may also invalidate object/backend stages |
+| bootstrapCompiler | Bootstrap producer changes | Distinct compiler-stage keys; rebuild their actual dependents | Two passes for qualification or self-hosting are not redundant merely because source is equal |
+| cancelOrFail | A task fails, is cancelled, or loses input-generation validity | Drain/cancel owned children, discard unpublished staging, retain failed attempt | Never mark old output current because a file happens to exist |
+| resourcePressure | Nested generator/compiler/link work competes for CPU or memory | Share one token pool; parent awaiting child returns or delegates capacity | Actual compiler-internal parallelism must be declared or conservatively bounded; no throughput claim here |
+#+END:
+
+** Existing support and source evidence
+#+BEGIN: sysml-view :kind incremental-build-sources :source architecture/toolchain/models/sysml/architecture.sysml
+| Fact | Source | Observation | Limit |
+|---+---+---+---|
+| makePhases | [[file:../../../vendor/gambit/makefile.in::105][vendor/gambit/makefile.in:105-149]] | Make uses jobserver-sensitive phases and a global four-phase sequence; from-scratch explicitly cleans/builds twice | There is existing parallelism; necessity of each whole-phase edge must be audited before removing it |
+| moduleRules | [[file:../../../vendor/gambit/lib/makefile.in::184][vendor/gambit/lib/makefile.in:184-202]] | Per-module Scheme-to-C rule and archive composition already exist | Preserve correct compilation units; do not replace with an opaque full-project action |
+| compilerRules | [[file:../../../vendor/gambit/gsc/makefile.in::268][vendor/gambit/gsc/makefile.in:268-324]] | Generation, semantic linkfile and object/library/executable stages have distinct dependencies | Phase flattening needs explicit producer and bootstrap ordering, not deletion of all barriers |
+| cpuBudget | [[file:../../../src/gambit_smp/gambit_build_primitives.py::18][src/gambit_smp/gambit_build_primitives.py:18-30]]; [[file:../../../src/gambit_smp/gambit_build_primitives.py::65][src/gambit_smp/gambit_build_primitives.py:65-70]] | Current makeJobs and compilerProcessors share a host-derived CPU budget | Existing support should be reused; no proof of all downstream nested schedulers |
+| profileProjection | [[file:../../../src/gambit_smp/build_profile.py::18][src/gambit_smp/build_profile.py:18-43]] | Literal source profile and required threaded-VM overlay are distinct | No active configured-header or runtime capability inferred from flags alone |
+| streamExecutor | [[file:../../../../../patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch::1][../../patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch:1-20]]; [[file:../../../../../patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch::59][../../patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch:59-79]] | Parent patch already streams native jobs and permits follow-up jobs while closing the producer | This is source/patch intent, not a newly qualified build speedup |
+| sourceToolchain | [[file:../../../../../tools/ci/build_source_toolchain.sh::55][../../tools/ci/build_source_toolchain.sh:55-62]]; [[file:../../../../../tools/ci/build_source_toolchain.sh::101][../../tools/ci/build_source_toolchain.sh:101-134]] | Compiler/patch identity and phased construction exist; script checks artifacts after an upstream wrapper can hide failure | Extend actual support; no duplicate generic executor justified by ignoring these checks |
+#+END:

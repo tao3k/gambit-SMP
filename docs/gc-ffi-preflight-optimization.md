@@ -35,7 +35,7 @@ rehashes the seal after worker exit.
 
 Engine: `3839170633ac53bbed5afbce891db89fd912941dc5fd94b3e279b219e0426631`
 (`.data/research-engine-gc-ffi-023`). Library bytes are unchanged.
-Recipe: `evidence/research/experimental-scheme-ffi/managed-workspace.recipe.json`.
+Recipe: `.cache/research/legacy-evidence/evidence/research/experimental-scheme-ffi/managed-workspace.recipe.json`.
 Actual run: `.data/experimental-scheme-ffi-014`.
 
 - Parent: PASS, exit 0, timeout false, 16.259082/20 seconds including final

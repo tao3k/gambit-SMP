@@ -76,7 +76,7 @@ host inputs, not cryptographically authenticated causal proofs. A typed label
 is not a source refinement proof; explicit reasoning must be reviewed against
 the original failure and actual source before authoring that label.
 
-The policy is `evidence/research/suite-review-rules.ss`, copied into the engine
+The policy is `evidence/dsl/suite-review-rules.ss`, copied into the engine
 seal and hash-checked by preflight. Recipes cannot supply a weaker replacement
 policy. The canonical `evidence/native-failures.json` is mandatory; an alternate
 empty or reduced inventory is rejected. All overlapping known failures retain

@@ -11,6 +11,7 @@ from gambit_smp import debug_capture
 from gambit_smp import upstream_audit
 
 from gambit_smp import check_gambit as gate
+from gambit_smp.evidence_index import export
 
 
 class GateTests(unittest.TestCase):
@@ -98,13 +99,19 @@ class GateTests(unittest.TestCase):
 
     def test_gc_closure_controls_are_publication_count_ownership_and_phase_faults(self):
         model = "gc_work_closure"
+        history = {row["path"]: row for row in json.loads(
+            (gate.ROOT / "evidence/frozen-trace-history.json").read_text())["traces"]}
+        current_sha = gate.digest(gate.MODELS / (model + ".qnt"))
         for invariant, fault in (("publicationSafe", 1), ("terminationSafe", 2),
                                  ("ownershipSafe", 3), ("phaseSafe", 4)):
             with self.subTest(invariant=invariant):
-                trace = json.loads((gate.MODELS / "counterexamples" /
-                                    f"{model}-{invariant}-shared-contract.json").read_text())
-                self.assertEqual(gate.digest(gate.MODELS / (model + ".qnt")),
-                                 trace["modelSha256"])
+                rel = f"models/gambit/counterexamples/{model}-{invariant}-shared-contract.json"
+                trace_path = gate.ROOT / rel
+                trace = json.loads(trace_path.read_text())
+                expected_sha = history[rel]["modelSha256"] if rel in history else current_sha
+                if rel in history:
+                    self.assertEqual(gate.digest(trace_path), history[rel]["sha256"])
+                self.assertEqual(expected_sha, trace["modelSha256"])
                 final = trace["states"][-1]["s"]
                 self.assertEqual(fault, final["fault"])
                 if invariant == "publicationSafe":
@@ -152,14 +159,15 @@ class GateTests(unittest.TestCase):
         self.assertLess(free, 131072)
 
     def test_first_unadmitted_model_stops_remaining_checks_and_native_execution(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            out = Path(temporary) / "attempt"
+        from tests.support import task_fixture
+        with task_fixture('model-stop') as (_, cache):
+            out = cache / 'attempt'
             version = json.loads((gate.MODELS / "cases.json").read_text())["quintVersion"]
             argv = ["gambit_smp.check_gambit.py", "--case", "gc_table_header_lifetime", "--out", str(out),
                     "--native-gsi", str(out / "unused-gsi"),
                     "--toolchain-receipt", str(out / "unused-identity")]
             with patch.object(sys, "argv", argv), \
-                    patch.object(gate.subprocess, "check_output", return_value=version), \
+                    patch.object(gate, "_task_check_output", return_value=version), \
                     patch.object(gate, "check_model", return_value=(
                         {"accepted": False, "exit": 1, "timeout": False, "seconds": 0.1},
                         "checker infrastructure failed", None)) as run, \
@@ -211,15 +219,28 @@ class GateTests(unittest.TestCase):
                 self.assertFalse(any(s["phase"] == 1 and s["error"] == 2 for s in states))
 
     def test_ffi_gc_controls_separate_roots_reload_and_return_address(self):
+        history = export()["facts"]["historical_frozen_negative"]
         predicates = {
             "rootsSafe": lambda s: s["badRoots"] or (s["phase"] == 7 and s["processorRoot"] != 7 + s["epoch"]),
             "reloadSafe": lambda s: s["phase"] == 7 and (s["processorFrame"] != s["epoch"] or s["processorRoot"] != 7 + s["epoch"]),
             "returnSafe": lambda s: s["phase"] >= 6 and s["returnedRA"] != 9,
         }
         for fault, (invariant, violates) in enumerate(predicates.items(), 1):
-            trace = json.loads((gate.MODELS / "counterexamples" /
-                ("ffi_gc_frame_protocol-" + invariant + ".json")).read_text())
-            self.assertEqual(gate.digest(gate.MODELS / "ffi_gc_frame_protocol.qnt"), trace["modelSha256"])
+            path = gate.MODELS / "counterexamples" / ("ffi_gc_frame_protocol-" + invariant + ".json")
+            trace = json.loads(path.read_text())
+            bindings = [row for row in history if tuple(row[:3]) ==
+                        ("ffi_gc_frame_protocol", invariant, gate.digest(path))]
+            self.assertEqual(len(bindings), 1)
+            snapshot_rel = bindings[0][3]
+            snapshot_path = gate.ROOT / snapshot_rel
+            if snapshot_path.is_file():
+                snapshot_sha = gate.digest(snapshot_path)
+            else:
+                import hashlib, subprocess
+                orig = snapshot_rel.removeprefix(".cache/research/legacy-evidence/")
+                raw = subprocess.check_output(["git", "-C", str(gate.ROOT), "show", f"0891fea6c2:{orig}"], timeout=10)
+                snapshot_sha = hashlib.sha256(raw).hexdigest()
+            self.assertEqual(snapshot_sha, trace["modelSha256"])
             states = [row["s"] for row in trace["states"]]
             self.assertTrue(all(s["fault"] == fault for s in states))
             self.assertFalse(any(violates(s) for s in states[:-1]))

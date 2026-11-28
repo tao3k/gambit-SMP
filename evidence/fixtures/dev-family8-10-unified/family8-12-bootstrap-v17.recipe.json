@@ -1,0 +1,167 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "family8-12-bootstrap-v17-clean",
+  "scope": "Unified Families 8-12 full 2-pass from-scratch Gambit bootstrap on v17 (rebased over f1ef23ec Opt A1-B3 + 22-file surgical delta incl. SMP os_io reaping, ___BINDING_NOINLINE, zero-growth budgeted rest-parameter nursery TLAB refill, SMP device close-vs-select borrow-fence, and async idle-processor scheduler-error delivery) under strict <8 GiB RSS.",
+  "timeoutPolicy": {
+    "mode": "per-stage",
+    "overheadSeconds": 30
+  },
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/dev-family8-10-unified/family8-12-v17.lock.json",
+    "evidence/fixtures/dev-family8-10-unified/family8-12-v17.patch",
+    "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/native-failures.json",
+    "evidence/dsl/suite-review-rules.ss",
+    "evidence/fixtures/dev-rest-candidate-source/binding.json",
+    "evidence/fixtures/dev-rest-candidate-source/observations.json",
+    "evidence/fixtures/dev-family8-10-unified/family8-12-v17-bootstrap-review.json",
+    "evidence/fixtures/dev-family8-10-unified/family8-12-v17-bootstrap-review-evidence.json",
+    "evidence/fixtures/dev-family6-engineering/observation-successor-binding.json",
+    "evidence/fixtures/dev-family6-engineering/observation-successor-cflags.json"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-family8-10-unified/family8-12-v17.lock.json",
+        "buildWorkspace": "gambit-core"
+      },
+      "budgetSeconds": 60
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "buildProfile": "evidence/research/retained/modern-c/activation-storage/qualified-existing-profile.json",
+        "cflagsBinding": "evidence/fixtures/dev-family6-engineering/observation-successor-cflags.json"
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      },
+      "budgetSeconds": 3600
+    },
+    {
+      "id": "source-core",
+      "capability": "gambit.source-core",
+      "dependsOn": [
+        "seed"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      },
+      "budgetSeconds": 3600
+    },
+    {
+      "id": "review",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "source-core"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "intent": "evidence/fixtures/dev-family8-10-unified/family8-12-v17-bootstrap-review.json",
+        "target": "bootstrap",
+        "failureIds": [
+          "018-bootstrap-budget",
+          "019-bootstrap-budget",
+          "023-bootstrap-budget"
+        ]
+      }
+    },
+    {
+      "id": "bootstrap",
+      "capability": "gambit.bootstrap",
+      "dependsOn": [
+        "source-core",
+        "review"
+      ],
+      "budgetSeconds": 3600,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/dsl/suite-review-rules.ss",
+        "retryReview": {
+          "step": "review",
+          "output": "review"
+        },
+        "makeLineage": true
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "source-core",
+        "review",
+        "bootstrap"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-rest-candidate-source/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

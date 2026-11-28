@@ -1,0 +1,61 @@
+#+TITLE: Native Wake Channel — Custody, Memory Order and Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: native-wake-channel-matrix
+:AUTHORITY: NativeWakeChannel
+:STATUS: conditional-models-source-open
+:END:
+
+Derived by native SysML queries. Benefits are conditional work/capacity bounds, not timings.
+
+** Contract
+
+| key | anchor | actionName | lemmaName | duty | status |
+|---+---+---+---+---+---|
+| derived-credit | setup.c:66-106,283,392,1147; os_setup.c:3037-3056 | publish | publicationConserves | Requests own durable identities independently of pipe bytes; notification retries never republish semantic work | new shared authority |
+| full | os_io.c:1472-1495,1543; os_setup.c:424-485 | writeFull | fullRetainsWake | Full-channel coalescing requires pinned endpoints, unique owner drain and mandatory pending recheck after drain | kernel/profile premise |
+| eintr | os_io.c:1543; os_setup.c:203-221 | writeEintr | eintrRetainsOwner | Interrupted notification retains generation pin and delivery credit; retry same wake right or use qualified rescue | write adapter required |
+| storage-commit | os_io.c:11780-11828; os_setup.c:468-486 | acquire | takePinRetainsGeneration | Acquire endpoint plus generation under lifecycle gate; both descriptors remain alive through syscall and response settlement | no check-then-pin race |
+| arm | os_io.c:973-1004,1472-1528; _thread.scm:2530-2562 | block | pendingBlocksSleep | Arm and recheck durable pending under owner gate; drain does not clear request identity; finite wait bounds missed notification detection conditionally | new native wait contract |
+| failure | os_io.c:1543; os_time.c:987-996; os_tty.c:8700-8713 | writeHard | failureRetainsCustody | Hard/unknown notification keeps producer or rescue custody; signal lane uses prepinned lifetime and quiescence instead of mutex acquisition | signal lane refinement open |
+| participant | setup.c:1049-1149; _kernel.scm:1448-1471 | enterCollective | rosterEveryParticipant | Return from OS wait then release borrow, publish roots and join old roster; acknowledge only selected request snapshot | prior sync-op contract |
+| retirement | os_io.c:11808-11828; setup.c:932-978; gambit.h.in:11327-11340 | closeEndpoints | pinBlocksClose | Withdraw admission, drain producer/wait/signal users, settle request and prior roster receipts, then close; uncertain close quarantines generation | staged destruction |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| coalescing | B notification bytes need not encode N semantic requests | Durable request ledger and post-drain recheck | For N requests an already-full channel may add zero bytes; request multiplicity is preserved by semantic ledger, not byte count |
+| latency | Avoid indefinite old-roster stall from a lost notification under admitted fallback | Native wait timeout/recheck and scheduling overhead | Conditional detection bound T plus scheduling delay; not measured latency or arbitrary OS progress guarantee |
+| lifetime | Avoid fd-generation ABA, premature endpoint close and duplicate semantic submission | Producer/wait pins, signal-generation fence and close journal | O(P+W+S) control records plus payload roots; retained unknown close may quarantine VM services |
+| language | One modern C wake authority can serve cleanup, FFI waits and scheduler | Typed outcomes, control gate, lock-free signal ingress where qualified | Zig cannot remove synchronization, signal ABI, root or retirement obligations; extra language value not established |
+
+** Gate
+
+| key | qualified | duty |
+|---+---+---|
+| native-write | False | Exact Darwin pipe/socketpair semantics, return classification and signal interruption refined |
+| memory-order | False | All participating accesses migrated together; volatile plus fence is not a C11 proof; weak-memory/source simulation open |
+| signal-lifetime | False | Signal-safe immutable endpoint, required lock-free atomics, route withdrawal and all-thread handler grace period qualified |
+| generation-pin | False | Raw fd aliases, dup/close paths and PSTATE reuse all obey endpoint gate |
+| finite-fallback | False | Actual monotonic native timeout and scheduler fairness support detection; unqualified infinite waits refused |
+| old-roster | False | Root handoff, every participant, request selection/NOOP and resize deferral refined |
+| retirement | False | Sender/wait/signal users, unknown close, VM/global services and inherited attestation remain unqualified |
+
+** Shared-contract dependencies
+
+| dependent | prerequisite | obligation |
+|---+---+---|
+| full | derived-credit | Bytes are not semantic request debt |
+| full | storage-commit | Full-channel witness requires pinned lifetime |
+| eintr | storage-commit | Retry retains exact endpoint generation |
+| arm | derived-credit | Recheck sees published semantic requests |
+| arm | full | Drain is followed by durable recheck |
+| failure | storage-commit | Failure retains endpoint lifetime |
+| participant | arm | Wake reaches rooted old owner |
+| retirement | storage-commit | Pins drain before descriptor close |
+| retirement | failure | Signal grace and rescue responsibility settled |
+| retirement | participant | Old roster receipt precedes retirement |

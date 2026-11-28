@@ -18,7 +18,7 @@ driver selected CPU/memory capacity automatically and retained the original
 artifacts, typed traces, safety and completed temporal logs.
 
 Portable evidence is under
-`evidence/model-results/fixtures/abandoned-result-state/interrupt-delivery-composition`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/abandoned-result-state/interrupt-delivery-composition`.
 The manifest is
 `evidence/fixtures/abandoned-result-state/interrupt-delivery-contract.json`.
 After the separately coordinated graph qualification became terminal, the

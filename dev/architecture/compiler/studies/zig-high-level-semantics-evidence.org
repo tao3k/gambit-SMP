@@ -1,0 +1,343 @@
+#+TITLE: High-Level Semantic Path: Evidence and Quantitative Boundaries
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: compiler
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN High-Level Semantic Path: Evidence and Quantitative Boundaries :compiler:
+:PROPERTIES:
+:ID: e395d48e-0e7e-5f28-8930-2f6f38d0d12a
+:CUSTOM_ID: high-level-semantic-path-evidence-and-quantitative-boundaries
+:SOURCE_PATH: docs/experimental/zig/zig-high-level-semantics-evidence.md
+:SOURCE_SHA256: 7d6e7e7113742ac90a3dfec1d18f7c9bc112394fe456b3cd3dcac4661e89d6fe
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Date: 2026-10-19. Companion to the
+[[file:zig-high-level-semantics-design.org][selected architecture]].
+
+This ledger separates direct source observations, literature mechanisms, retained
+finite controls, architecture proposals and unmeasured outcomes. Reading sources,
+checking document links and rendering D2 diagrams are the only new verification
+activities in this research update. No compiler/native benchmark or model is run.
+
+*** 1. Source Evidence and Limits
+:PROPERTIES:
+:ID: 24b754e1-3bc2-51d8-a932-3875ede7ced3
+:CUSTOM_ID: 1-source-evidence-and-limits
+:END:
+
+Vendor baseline: ~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~.
+Paths below are relative to ~vendor/gambit/~. The
+[[file:../../../refactoring/zig/studies/zig-native-contract-design.org::#2-source-authority-and-observed-seams][native-contract provenance]]
+records the separate runtime overlay; these compiler observations do not admit it
+as a working MLIR runtime. Line anchors refer to the baseline bytes below.
+
+| ID | Source anchor | Direct observation | Architectural consequence, not implementation evidence |
+|-
+| S1 | ~gsc/_front.scm:225-250~ | Parse result and context precede ~normalize-program~ | Proposed primary hook between ~c-intf~ and ~parsed-program~ bindings |
+| S2 | ~gsc/_ptree2.scm:28-35~ | Six normalization calls, including two dead-definition passes | Primary export precedes all six; phase count is not a speedup measurement |
+| S3 | ~gsc/_ptree2.scm:162-240~ | Primitive expansion queries target info and can construct a global-binding identity test | Preserve effective primitive policy and guard obligations; pre-expansion export needs their explicit description |
+| S4 | ~gsc/_ptree2.scm:481-520~ | Lexical mutation becomes unbox/set-box operations; global assignment remains explicit | Preserve cell identity but delay physical boxing |
+| S5 | ~gsc/_ptree2.scm:1518-1527~ | Lambda-lift commentary discusses weakening captures and selected higher-order calls | Late export cannot be assumed to retain original nesting |
+| S6 | ~gsc/_ptreeadt.scm:116-143~ | Procedure fields include ordered parameters, optional defaults, keywords and rest mode | A simple fixed-arity function signature is insufficient |
+| S7 | ~gsc/_ptree1.scm:616-617~ | Effective declaration can require closures even without free variables | Closure identity/generativity is an optimization precondition |
+| S8 | ~gsc/_front.scm:3923-3990~ | Argument order depends on triviality and free-variable heuristics | Define order policy explicitly; parse argument order is not the current scheduling contract |
+| S9 | ~lib/_thread.scm:4621-4706~ | call/cc capture creates a callable continuation wrapper | First-class continuation semantics cannot be replaced by local labels |
+| S10 | ~lib/_thread.scm:4794-4819,4914-4970~ | Dynamic-wind records capture context and unwind/wind paths call after/before procedures | Effects/lifetimes must account for exit and reentry |
+
+| Input | SHA-256, read during this update |
+|-
+| ~gsc/_front.scm~ | ~e05dd9b2370da0e1a7baa3c8b7ea1d212fc3efe23e0e90e8fce3db69119c63de~ |
+| ~gsc/_ptree1.scm~ | ~1d0f218192d9531d85b5269dd54ba6cd01326446e51e38d538a51eba92b4e2b7~ |
+| ~gsc/_ptree2.scm~ | ~8dbf9c446430752ce106bc1c650e2eaab5d2f399170ba81677fda76f568b7905~ |
+| ~gsc/_ptreeadt.scm~ | ~70c9dc143172c3fefbcaf5078a59661ea071b407582545d02e2c557f6e15f8d7~ |
+| ~lib/_thread.scm~ | ~810f58f679d745826dd18f81f39c84dc3c6e4bb3dd7c6f505a453ca5331e4515~ |
+
+These are targeted source reads, not a complete primitive/foreign-form inventory.
+The design's coverage specification remains unfinished until that inventory is
+written. A byte hash identifies evidence; it does not prove semantic equivalence.
+
+*** 2. Primary Literature: What Transfers
+:PROPERTIES:
+:ID: 0c4a14ce-1cf7-5ffc-9a69-3704f2909d3a
+:CUSTOM_ID: 2-primary-literature-what-transfers
+:END:
+
+**** L1. Higher-order Region Analysis
+:PROPERTIES:
+:ID: 7e6e741e-ecf3-5ef4-9842-21027e4b7404
+:CUSTOM_ID: l1-higher-order-region-analysis
+:END:
+
+Alexander Aiken, Manuel Fähndrich and Raph Levien,
+*Better Static Memory Management: Improving Region-Based Analysis of Higher-Order
+Languages*, PLDI 1995 extended abstract.
+[[https://www.microsoft.com/en-us/research/wp-content/uploads/1995/06/afl-pldi95.pdf][Author-hosted PDF]].
+Read abstract and introduction, including the two-phase description.
+
+The work combines closure analysis with constraints for allocation/deallocation
+placement, relaxing lexical lifetimes. It supports researching call-target and
+lifetime analysis together. Its typed applicative setting does not establish
+soundness for Gambit's unrestricted control, rebinding, FFI or moving collector.
+No memory-reduction figure is transferred to Gambit.
+
+**** L2. Checkable Explicit Memory Permissions
+:PROPERTIES:
+:ID: ca34bd85-887f-55c1-b89a-8298cf6a103f
+:CUSTOM_ID: l2-checkable-explicit-memory-permissions
+:END:
+
+Karl Crary, David Walker and Greg Morrisett,
+*Typed Memory Management in a Calculus of Capabilities*, POPL 1999 author version.
+[[https://www.cs.cornell.edu/talc/papers/capabilities.pdf][Primary PDF]].
+Read abstract and sections 1–1.2.
+
+Static capabilities and alias tracking provide a model for checking permission
+to access/free storage with nonlexical lifetimes. This motivates separating
+inference from checking the resulting allocation decisions. The paper does not
+provide an MLIR verifier, a Scheme continuation contract or a compatible Gambit
+region implementation. The proposed allocation verifier remains new work.
+
+**** L3. Region Inference Combined with Tracing GC
+:PROPERTIES:
+:ID: 79b2537d-2132-599b-bae5-76945f19c7fa
+:CUSTOM_ID: l3-region-inference-combined-with-tracing-gc
+:END:
+
+Martin Elsman, *Garbage-Collection Safety for Region-Based Type-Polymorphic
+Programs*, PACMPL 7, PLDI, Article 115, 2023, DOI ~10.1145/3591229~.
+[[https://elsman.com/mlkit/pdf/gcsafe-pldi23.pdf][Author-hosted PDF]].
+Read abstract and sections 1–2, including Figures 1–2; later proofs and benchmark
+tables are not independently audited here.
+
+The paper exhibits a higher-order polymorphic example whose live closure retains
+a pointer into a freed region even though the program will not use that field.
+A tracing collector can still encounter it. Its revised type/effect treatment
+addresses this GC-safety issue. The transferable requirement is to account for
+collector-visible edges as well as future program reads. The MLKit result is not
+a proof for Gambit's continuations or collector. It supports a conservative hybrid
+policy rather than immediate replacement of GC.
+
+**** L4. Continuations Through LLVM
+:PROPERTIES:
+:ID: 6e3fe2db-62ee-57b2-9c49-a0f66aee6514
+:CUSTOM_ID: l4-continuations-through-llvm
+:END:
+
+Kavon Farvardin and John Reppy, *Compiling with Continuations and LLVM*, EPTCS 285,
+2018, pp. 131–142, DOI ~10.4204/EPTCS.285.5~.
+[[https://arxiv.org/pdf/1805.08842][Author paper]].
+Read sections 2–3.5 and evaluation discussion in section 4.
+
+The PML pipeline separates normalized lambda, CPS, closure conversion and CFG
+before LLVM. Its runtime integration explicitly handles tail calls, roots and
+preemption. Heap continuations simplify its collector interface; Gambit's physical
+stack protocol cannot inherit that property. The historical custom calling
+convention and LLVM API limitations are not current API claims. The evaluation
+contains workload/hardware-dependent regressions and a known comparator register
+allocation defect, so its results supply no Gambit speedup forecast.
+
+**** L5. MLIR's Effect Boundary
+:PROPERTIES:
+:ID: d43c6d8e-25a0-5a8e-b844-9bd9ff35eafa
+:CUSTOM_ID: l5-mlirs-effect-boundary
+:END:
+
+[[https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/][Official Side Effects & Speculation rationale]],
+read 2026-10-19, overview, categorization and modeling sections.
+
+The documented memory/speculation interfaces do not fully model nonlocal control;
+the rationale applies to CFG regions. Resource hierarchy is also not a substitute
+for detailed alias analysis. The design therefore selects custom control summaries
+and an approved-pass policy, rather than claiming ordinary memory-effect annotations
+make call/cc safe for generic transformations.
+
+Earlier general MLIR, LLVM, Zig, Polygeist and build-system sources remain in the
+[[file:../../../refactoring/zig/studies/zig-system-engineering-sources.org][broader bibliography]]. Unavailable full papers
+there retain their metadata-only status; this update does not turn them into read
+technical evidence.
+
+*** 3. Retained Local Controls, Without a New Run
+:PROPERTIES:
+:ID: 1f379d97-f246-5e1a-9a66-526f17d1f132
+:CUSTOM_ID: 3-retained-local-controls-without-a-new-run
+:END:
+
+The existing [[file:../../../../docs/experimental/reader-resumption-validation.md][reader-resumption validation]]
+reports the following finite controls:
+
+| Retained result | Count | Relevance to this architecture |
+|-
+| Return-site free counterexample | 5 states | Original return does not prove saved-continuation storage dead |
+| Untraced retention counterexample | 6 states | Retained bytes without tracing do not establish GC reachability |
+| Imported one-shot consumption counterexample | 7 states | First use does not discharge a supported multi-shot continuation |
+| Positive resumption projection | 52 distinct / 88 generated states | Bounded normal/error origins, optional collection/membership growth, two resumptions and discard, under its stated assumptions |
+
+These are document-reported historical observations, not new verifier receipts.
+The finite model assumes traced reachability and valid control origin; it does not
+prove physical maps, moving-GC relocation, arbitrary FFI reentry or this proposed
+region analysis. No native acceptance follows from the counts.
+
+| Read input | SHA-256 |
+|-
+| ~docs/experimental/reader-resumption-validation.md~ | ~12d42f2b20de936eb848b2f03073612c27db1ac5db4700a3d6c26c7a94529d0a~ |
+| ~models/gambit/gc_table_iteration.qnt~ | ~70f604d64bdb89eb36638db27fab0f4f2b4710b699135c452b5ccf1757208c19~ |
+| ~evidence/scenarios/parallel-gc/runtime-entry-replay.manifest.json~ | ~f1498d322624ff1d725a75a5bb33c8c761f75c7197267ca8b069bd1396cef3a4~ |
+
+The model/manifest digests match the values reported by that document when read.
+The report can evolve independently; preserve these identities when citing this
+research snapshot. Its stored receipt identities remain in the original report.
+
+*** 4. Quantifying Engineering Decoupling
+:PROPERTIES:
+:ID: e3795a69-9eae-5d77-b4b4-92d23e13c823
+:CUSTOM_ID: 4-quantifying-engineering-decoupling
+:END:
+
+The central potential benefit is reuse across native services and platforms.
+The mechanism is visible in [[file:../../../research/diagrams/engineering-boundary.svg][the boundary diagram]]:
+language records and runtime descriptors are outside service-private MLIR APIs;
+toolchain/process/artifact operations are outside language semantics.
+
+An illustrative relationship-count model compares ~m~ producer profiles with ~n~
+service bundles. Duplicated transport/build integration can require ~m*n~
+relationships; a common contract can reduce that part to ~m+n~. With hypothetical
+~m=3,n=4~, that is 12 versus 7, five fewer relationships (41.7%). These are invented
+scenario counts, not measured LOC, engineering hours or current project inventory.
+For ~m=1,n=1~, the common layer adds an edge instead of saving one. A shared
+contract can be implemented in other languages too; this is not a Zig-only theorem.
+
+The semantic/runtime qualification matrix can still contain ~m*n~ combinations.
+A more honest maintenance model is:
+
+#+BEGIN_SRC text :eval never
+C_direct = sum(pair-specific engineering adaptation) + C_semantics + C_qualification
+C_shared = C_contract + sum(producer adapters) + sum(service adapters)
+           + C_semantics + C_qualification + C_version_migration
+#+END_SRC
+
+The potential reduction is in repeated engineering adaptation. Costs for language
+correctness, target/runtime testing and service-version migration remain. Pinning
+MLIR in a separate process reduces the blast radius of its C++/C API changes;
+it does not remove rebuilding that service or checking its emitted artifacts.
+
+| Benefit/cost dimension | Quantity to record later | Present evidence |
+|-
+| Engineering reuse | Distinct adapter responsibilities, duplicated platform rules, upgrade-touched files/hours | Ownership design only; no measured saving |
+| Reproducibility | Cache hit validation, rebuild causes, input closure and invalidation correctness | Required native contract; no new build result |
+| Isolation | Service crash/cancellation containment and language-runtime cleanup | Selected process boundary; not fault-tested |
+| Semantic opportunity | Reachable function targets, remaining closures/cells/guards, rejection reasons | Source proves information is available earlier; no program census |
+| Compile latency | Cold/warm stage times, export size, service RSS/startup and pass time | Historical C-route diagnostic only |
+| Execution | Matched wall/CPU time, allocation bytes, peak live/RSS, GC pauses, polls and boundary conversions | No Zig/MLIR comparison |
+| Long-term burden | Dialect/verifier changes, supported profiles and upgrade regressions | Explicit work inventory; no schedule/cost estimate |
+
+*** 5. Compile-Time and Execution Benefit Models
+:PROPERTIES:
+:ID: 12bcaf40-ec61-581f-a5c4-c8246601669d
+:CUSTOM_ID: 5-compile-time-and-execution-benefit-models
+:END:
+
+**** 5.1 Historical Cost Is Censored
+:PROPERTIES:
+:ID: 394aa6ea-e0fc-59aa-95ec-517159bf0d71
+:CUSTOM_ID: 51-historical-cost-is-censored
+:END:
+
+The [[file:../../../../docs/compiler-cost-boundaries.md][compiler-cost report]] records a corrected
+numeric probe: Scheme-to-C completed in *30.818 s*, producing *152,462 C lines*.
+C-to-module was killed after *59.250 s*, with whole duration *90.384 s*, DENY;
+compiled execution never started. The earlier full campaign remains DENY at
+300.316 s. These are retained report observations, not rerun or independently
+re-admitted native results.
+
+The 59.250 s phase is right-censored, not a completed compiler time. The report
+also says this probe predates the later driver-hash guard. Do not derive a percent
+speedup, a completed baseline total, a cache benefit or a maximum achievable gain
+by dividing these times. C line count measures emitted volume, not recoverable
+high-level optimization or a linear predictor of build time.
+
+For a future matched comparison, account for all selected-path costs:
+
+#+BEGIN_SRC text :eval never
+T_C_path   = parse + normalize + C_emit + C_compile + semantic/platform_link + admission
+T_MLIR_path = parse + export + service_start/transport + semantic_passes
+              + runtime_lowering + native_codegen + semantic/platform_link + admission
+#+END_SRC
+
+Each term must be measured without double-counting. The historical Scheme-to-C
+number is a combined stage, not the ~parse~ term. Zig caching may reduce repeated
+construction, but does not remove cold frontend, pass or code-generation cost.
+Persistent services amortize startup only if their process/context isolation and
+memory-growth rules hold. Cross-process marshalling is an added cost.
+
+**** 5.2 Allocation and GC Sensitivity, Not Predictions
+:PROPERTIES:
+:ID: 725c578d-05df-5809-8bd6-f4550a0057a8
+:CUSTOM_ID: 52-allocation-and-gc-sensitivity-not-predictions
+:END:
+
+Let ~A~ be baseline allocated bytes, ~p~ the fraction belonging to eligible sites,
+and ~r~ the fraction of those bytes eliminated. Ignoring new allocations and layout
+changes, saved bytes are ~A*p*r~. For illustrative ~r=0.5~:
+
+| Assumed eligible share ~p~ | Reduction in total allocated bytes |
+|-
+| 10% | 5% |
+| 30% | 15% |
+| 60% | 30% |
+
+This is arithmetic over assumptions. Allocation reduction is not the same as peak
+memory reduction or proportional GC-time reduction. Regions can retain otherwise
+dead objects longer; specialization can increase code size and duplicate constants.
+
+If GC takes fraction ~g~ of baseline execution and a transformation removes fraction
+~q~ of that time while other costs are unchanged, speedup is ~1/(1-g*q)~.
+With assumed ~q=0.5~, ~g=0.1,0.3,0.5~ gives approximately *1.053x, 1.176x, 1.333x*.
+These are scenario values, not claims about Gambit. Added per-run overhead fraction
+~h~ changes the denominator to ~1-g*q+h~; the change can lose overall. No evidence
+currently supplies ~g~, ~q~, ~h~, ~p~ or ~r~ for this architecture.
+
+For extra compilation cost ~DeltaC~ and verified per-execution saving ~DeltaR>0~,
+the repeated-use break-even count satisfies ~N > DeltaC/DeltaR~. If execution is
+slower, amortization cannot rescue it. Whole-workload comparisons must include
+Scheme/native transitions, conversion, linking, loading and required validation.
+
+*** 6. What Is Concluded
+:PROPERTIES:
+:ID: f36aafeb-daa5-53ac-bc63-08484a5b8e50
+:CUSTOM_ID: 6-what-is-concluded
+:END:
+
+Source evidence selects a concrete earlier export and identifies semantic obligations.
+Primary literature supports the relevance of higher-order/control/lifetime analyses
+and exposes GC integration traps. Retained finite controls reject specific unsafe
+storage policies. Together they justify the proposed research architecture.
+
+They do not establish complete form coverage, a sound implemented optimizer,
+Gambit-compatible LLVM objects, safe traced regions, native acceptance or acceleration.
+The next design deliverable is the coverage/semantic specification and pass matrix,
+not an implementation or minimum prototype. Quantitative claims remain equations,
+explicit scenarios or labeled historical observations until matched evidence exists.
+
+*** 7. Documentation Verification
+:PROPERTIES:
+:ID: 9e7f2f5f-c0f8-527b-8d11-c00a701eeed5
+:CUSTOM_ID: 7-documentation-verification
+:END:
+
+All four earlier Zig documents were moved into this directory with relative links
+rebased. The experimental index now points here. A local reference check covered
+95 file/heading links across the collection and its parent index, with no missing
+targets. D2 v0.9.0 rendered all three diagram sources with the dagre layout; SVGs
+were rasterized for visual inspection, and the final renders were inspected for
+clipping and responsibility labels. No language/runtime test was appropriate to
+these documentation and diagram changes.

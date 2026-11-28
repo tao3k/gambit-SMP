@@ -56,7 +56,7 @@ generated header/preprocessor selects multiple VMs and multiple-threaded VMs;
 the inherited configure command includes SMP. This is not a rebuilt-executable
 or runtime flag qualification. Compilation elapsed time was not recorded.
 Artifact hashes and the explicit acceptance boundary are in
-`evidence/model-results/pstate-init-candidate-027.json`.
+`.cache/research/legacy-evidence/evidence/model-results/pstate-init-candidate-027.json`.
 
 ## Required Next Gates
 
@@ -72,7 +72,7 @@ execution). These use mocked primitive resources and layout, not native POSIX
 threads or a Windows OS run. A named injected policy which ignores sync init
 errors compiled successfully and failed the expected-error assertion at runtime
 (0.452 seconds). Evidence is `pstate-init-source-027-pass.json` and three portable
-logs under `evidence/model-results/`. The preceding fixture compile denial is
+logs under `.cache/research/legacy-evidence/evidence/model-results/`. The preceding fixture compile denial is
 preserved separately; missing mock handler fields and inherited signed-index
 warnings were corrected in the fixture, not candidate C.
 

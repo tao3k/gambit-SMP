@@ -1,0 +1,318 @@
+# Planner and Service Facade: Zig / Modern-C Support Cost
+
+Reviewed: 2026-10-20. Design and source research only. No implementation,
+native test, performance measurement or research-engine run. See the
+[source/library evidence](planner-facade-support-evidence.md) and the preceding
+[necessary-work inventory NP01-NP12](native-layout-provider-design.md).
+
+## 1. Scope and Fair Comparators
+
+Compare two **necessary** operations after the earlier simplifications:
+
+```text
+realize_frame(FrameSpec, NativeRealizationProfile) -> DescriptorDecision or Diagnostic
+emit_object(PhysicalPlan, ProviderProfile) -> OwnedArtifact or Diagnostic
+```
+
+These are logical requests, not implemented signatures. Scheme owns semantic
+roots/control; one native planner owns the physical decisions; the selected
+LLVM/MLIR service owns its mechanics. Runtime publication, arbitrary Scheme
+callbacks, asynchronous jobs and cross-language nonlocal escapes are excluded
+from this ordinary-return slice and retain their existing separate gates.
+
+Use two serious C controls, without changing capabilities, transport, provider,
+runtime or diagnostic/ownership requirements:
+
+| Control | Native implementation and support | What comparison isolates |
+| --- | --- | --- |
+| C-G | Modern C with admitted GCC/Clang profile, checked builtins or bounded fallbacks, opaque/generated APIs, one cleanup path and selected reusable libraries | Zig language/library/import support plus any genuinely additional tool distribution |
+| C-ZT | Same capable C design with the **same selected Zig external IR/bitcode tool** as Z1 | Planner-language/library/translation difference; shared Zig driver monitoring and qualification cancel |
+| Z1 | Zig planner using bounded private types, explicit checked operations, selected standard support, ordinary-return cleanup and a C-facing facade | Must preserve the same diagnostics, failure outputs, ownership and target facts |
+
+C-ZT does not imply GCC has retired or the C planner is compiled by Zig. Those
+are separate choices. Count the entire Zig release/toolchain burden only if it
+is actually incremental to the selected control; charge language/stdlib/import
+use separately even when the driver is already common. Conversely a previously
+unused C helper/library also has an integration cost. No baseline is free.
+
+## 2. Concrete Support Ledger
+
+For each row, “avoided” means a proposed project implementation becomes
+unnecessary in the specified pair. It does not mean existing code was deleted.
+No C support family below is claimed already implemented in the repository.
+
+| ID / support | Modern C mechanism | Zig mechanism | Exact saving, condition and counterexample |
+| --- | --- | --- | --- |
+| PS01 checked primitive arithmetic | Profile-qualified GCC overflow builtins, or reusable checked integer functions | Reviewed std.math checked helpers | A custom primitive-helper body can be avoided **if** C must own one. With GCC builtins/reused support the residual difference may be tiny/zero. Target-width/packing laws remain |
+| PS02 units, target widths and alignment | Distinct wrapper structs, explicit-width intermediates, validated profile and policy functions | Distinct wrapper structs, typed intermediates, same validated profile/policy | No unit-law family eliminated. Naming integer aliases is not an independent proof of unit separation; both designs must constrain conversions |
+| PS03 private result/payload association | Opaque/generated result constructors and checked access/visitors | Private typed success/error/variant representation | Selected association machinery may be unnecessary. This is the earlier SC-ADT-C family, **not another full saving per result type**. A stable C generator or no resident sum removes the lower bound |
+| PS04 internal error propagation | Explicit status branches to a shared cleanup, or one reusable propagation convention | Language propagation and ordinary cleanup syntax | Can reduce expression/control wiring. No separate mandatory C propagation library is demonstrated; an optional macro is not a cost forced on the best C design |
+| PS05 native table/buffer growth | Exact allocation where counts are known, bounded reusable C storage, or selected container | Exact allocation or reviewed generic ArrayList/Allocator support | A project growth implementation can be avoided when it would otherwise be necessary. Fixed-size tables, existing C libraries and retained Scheme collections defeat blanket reuse credit |
+| PS06 provider-handle ownership | Typed owner/ledger, null-initialized fields, one cleanup path, explicit transfer | Typed owner/ledger and scope cleanup with explicit transfer | Same resource relations remain. No affine ownership, complete close state machine or failure-output law is supplied by syntax |
+| PS07 rich diagnostics / public status | Explicit status IDs plus owned/bounded diagnostic records and mapping | Same public records/mapping; private error codes where useful | No diagnostic protocol eliminated. A private error code does not carry PointId, field, offset or provider text; stable exported codes remain project-owned |
+| PS08 C API normalization | Direct C headers plus semantic/error/ownership adapter | C translation/import plus the **same** normalization adapter | No zero-glue saving relative to C. Imported signatures do not encode failure outputs or ownership. Translation/header configuration adds or substitutes support |
+| PS09 session/seal/close legality | Opaque handles, generation guards, transition checks and scoped APIs | Private state records/types plus the same generation/transition checks | Copyable tokens/types do not establish unique ownership, freshness, cross-thread legality or close-after-join. Protocol work stays |
+| PS10 independent correspondence and version support | Runtime decoder/ABI and provider checks, C policy updates | Same checks plus incremental Zig language/stdlib/import updates | No deletion credit from a common planner hash; count only truly additional version work against the chosen control |
+
+The ten rows are responsibility categories, not equal cost units. PS03/PS04
+can overlap; so can PS01/PS05 library reuse. Assign every support rule/change
+to one account before aggregation. Generated instances and call sites are not
+independent support implementations.
+
+## 3. Paired Case A: Physical Arithmetic and Typed Results
+
+### A1 — Checked Layout Calculation
+
+The reviewed producer computes actual internal-frame extent, alignment,
+descriptor selection and bitmap chunks in Scheme. A bounded native translation
+must explicitly perform these operations under the selected target widths:
+
+1. Validate frame kind, extent, root map and link against FrameSpec/protocol.
+2. Compute rounded extents and internal saved-state expansion with checked
+   addition/multiplication and explicit representability checks.
+3. Validate descriptor field widths and shifts, then pack words/map chunks in
+   the specified order and byte representation.
+4. Publish one immutable DescriptorDecision for both emitters and counts.
+
+These are shared project laws. Zig's checked library primitives can replace
+small arithmetic mechanisms; they cannot choose Gambit field widths, semantic
+root order or correct rejection points. Default overflow behavior is not a
+recoverable facade error policy: select explicit checked operations in either
+language, including optimized builds. An overflow trap is not structured error
+delivery to Scheme.
+
+A C control can use a sufficiently wide checked intermediate and then validate
+the target width. It need not generate a separate generic implementation for
+every supported width. Zig specialization is optional too. Charge policy
+helpers once; do not claim one eliminated C generator per target/field.
+The positive PS01 domain is specifically **owned primitive support not already
+provided by the admitted compiler/library**, minus Zig residual mapping and
+version support. This domain is not established for the current GCC baseline.
+
+### A2 — Success/Failure and Diagnostic Payload
+
+The private result must distinguish a complete DescriptorDecision from failure;
+failure also needs source/profile identity and a reason. Zig can delegate local
+success/error separation to its language. A C opaque/generated result can
+establish that separation with one support convention. Semantic checks and
+rich Diagnostic construction stay in both.
+
+Do not expose a Zig error-set ordinal as a stable status ID. Define a public
+catalog explicitly and map private failures at the facade. Adding a new public
+failure still requires that catalog, payload/fallback, cleanup and consumer
+review in both designs. Compiler feedback can assist that review; it is not
+a measured reduction in defects or review hours.
+
+The narrow language advantage is removing a selected private association or
+propagation implementation from project code. It does not eliminate the
+required validation result, public status mapping or diagnostics owner.
+
+## 4. Paired Case B: LLVM Object Emission With Failure Outputs
+
+### B1 — Six Resource Kinds, Not Six Removed Obligations
+
+For a self-contained planner/emitter request, the reviewed LLVM interfaces
+provide these possible owned resources. A selected implementation may cache
+some at a service owner instead of acquiring all per request; compare matching
+lifetimes rather than assuming six allocations on every call.
+
+| Resource | Owner rule in this proposed facade | Release / transfer |
+| --- | --- | --- |
+| Context | Private request/service owner | Dispose after all context-dependent objects/users finish |
+| Module | Owner associated with that context; emission may mutate it | Dispose before context destruction; no concurrent/retry reuse inferred |
+| Target machine | Explicit request/service owner for selected target profile | Dispose at that owner's end, not merely because one output failed |
+| TargetData created from the machine | Explicit owner if queried/retained | Dispose independently of borrowing existing layout facts |
+| Output memory buffer | Acquired output inspected on **all ordinary return statuses** | Dispose on rejected/failure result; transfer only accepted success to OwnedArtifact |
+| Provider message | Adapter owns any returned message | Preserve needed diagnostic content, then dispose with provider operation |
+
+The owner/dependency graph is the same under C and Zig. C can use one cleanup
+label over initialized ownership fields; Zig can place cleanup at acquisition
+scopes. Explicit transfer clears/disarms the local owner in either design.
+The number of failure returns does not multiply these lifetime relations.
+
+### B2 — Source Finding: Error Status Does Not Mean No Output
+
+LLVM 21.1.0 `TargetMachineC.cpp:268-324` establishes two concrete details:
+the emitter sets the module DataLayout before a possible error return, and
+the memory-buffer wrapper assigns a copied output buffer independently of
+the returned status. Thus a failed ordinary emission can still produce owned
+output. This is published source behavior, not a locally reproduced failure.
+
+The required normalization sequence is:
+
+```text
+initialize provider outputs and local ownership ledger
+  -> raw provider call
+  -> observe/adopt every produced owned output
+  -> branch on status and validate result postconditions
+       failure: preserve diagnostic -> discard output -> clean local owners
+       success: transfer accepted output -> clean nontransferred owners
+  -> public normalized result (artifact or diagnostic)
+```
+
+A naive Zig wrapper that propagates failure before adopting/discarding the
+raw output can leak it. Registering cleanup only after a success-returning
+helper has already propagated its error is too late for that helper's failure
+outputs. A naive C early return has the same flaw. The adapter's raw-call
+ownership record must precede propagation in **both** designs.
+
+There is also no automatic rollback of the input Module: use a private
+disposable module or an explicitly owned clone where retry/isolation requires
+one. Do not infer identical retry state from a returned error. This is a
+project design restriction motivated by the observed layout assignment; no
+complete audit of every pass mutation or provider failure mode is claimed.
+
+The copied object buffer has its own provider disposal operation. Do not
+extend that local fact into a claim that a full runtime code/metadata product
+can outlive all owners: Gambit module publication and captured continuation
+lifetime remain separate. Process termination, fatal errors and nonreturning
+OOM paths are not made recoverable by this ordinary-return protocol.
+
+### B3 — Real Saving and Hard Counterexample
+
+After the raw normalization layer, Zig can reduce manual status/cleanup wiring
+inside private ordinary-return helpers. It cannot retire the six resource-kind
+rules, the failure-output adapter or the public transfer/diagnostic contract.
+If the C design already centralizes those rules in a small stable owner API,
+there may be little remaining support to remove. If a Zig version merely
+wraps that C owner API and leaves it maintained, whole-owner retirement credit
+is zero. Count only changed/removed private support, not a second wrapper layer.
+
+Gambit's `release_foreign` also invalidates fields before calling release;
+`os_dyn.c` retains loaded handles beyond helper scope. These are independent
+current-source examples of why lexical cleanup is not a substitute for an
+external ownership/state contract. They are not proposed for blanket Zig
+replacement by this slice.
+
+![Adopt raw failure outputs before propagating status](provider-failure-ownership.svg)
+
+## 5. What Can Actually Disappear From Project Support
+
+| Candidate | Constructive local result | Condition before credit | Reversal |
+| --- | --- | --- | --- |
+| C-only private association support, including typed result access | Selected typed Zig design can omit that project association implementation | It is necessary in the selected C topology and not already eliminated by generator/opaque reuse; no duplicate semantic schema | Stable shared C generator, streaming/no sum, or retained raw tags/casts |
+| Owned checked-primitive helper body | Reviewed Zig library supplies checked primitive operations | C really maintains the missing mechanism; compare GCC builtins/reusable support and retained policy mappings | Admitted C compiler/library already supplies it |
+| Owned native growth/container implementation | Reviewed Zig container/allocator supplies mechanics | Native growth is required and adequate C reuse is unavailable/costlier in the selected scope; no retained parallel implementation | Known exact counts, small fixed-width design, suitable existing C library |
+| Repeated private propagation/exit wiring | Selected Zig syntax can express it more directly | An actual paired change removes maintained wiring after fair C cleanup/propagation consolidation | One stable C cleanup path/convention matches it; number of exits alone proves nothing |
+
+These are conditional **support-implementation** savings. No existing project
+helper has retired here. No whole ownership, diagnostic, target-layout, GC,
+state-machine, C-normalization or provider-version duty is shown unnecessary.
+Library reuse is upstream delegation with retained integration cost, not zero
+maintenance. Preserve the previously established SC-ADT-C identity to prevent
+counting product and result associations as unrelated full savings.
+
+## 6. Change and Maintenance Work, Including Upgrade Boundaries
+
+| Event | Common review/work that survives | Differential question / counterexample |
+| --- | --- | --- |
+| CE01 new frame rule or target profile | Scheme meaning, physical policy, field/range/ABI correspondence and both outputs | Did a generic helper implementation actually change? A new instantiation is not another generator edit |
+| CE02 new private result alternative | Meaning, handlers and validity conditions | Zig may avoid association support changes; stable C generation may already need only the shared case declaration |
+| CE03 new rich diagnostic/public error | Stable status catalog, PointId/offset/provenance, allocation-failure fallback and delivery | Private error inference does not remove public mapping or payload review |
+| CE04 new provider failure output/ownership law | Raw adapter, transfer/cleanup/retry rules and source-version review | C and Zig must both handle the failed-emission buffer case; syntax supplies no external law |
+| CE05 new ordinary failure exit with unchanged ownership | Error classification and existing acquisition/transfer policy | A shared C cleanup path and Zig scopes may both require no new lifetime rule |
+| CE06 growth/allocator policy change | Pointer invalidation, stable handles, resource budget and output transfer | Reused library can save primitive support; still charge wrapper/policy and upstream change review |
+| CE07 provider/header/SDK upgrade | C API semantics/ABI, target capabilities and affected artifact invalidation | Same provider review cancels; Zig import/translation adaptations are incremental only where used |
+| CE08 Zig release/library change | Selected Zig driver's common review if both use it | Incremental language, stdlib, error/build/import use remains; do not charge all common driver work twice |
+| CE09 callbacks, parallel use or cancellation added | New control/GC/lifetime/close protocol and admission | Out of current ordinary-return scope; neither language's cleanup makes it a free extension |
+
+Independent obligations are a better structural unit than generated LOC or
+diagnostic counts. Work is charged for a unique event/owner, not once per row
+whose explanation mentions it. Compiler/library support can be shared across
+several components; allocate it once at the portfolio level with an explicit
+marginal attribution, not in full to every helper and again to the driver.
+
+Published Zig migration examples show a real source of upgrade work. They do
+not establish a frequency or hour estimate. A stable facade limits the source
+surface that changes, but preserving it has a cost and its implementation is
+still affected by header/profile/provider semantics. Rebuilding versus reusing
+semantic/layout content follows the existing full-input identity/invalidation
+contract; matching public signatures alone cannot authorize cache reuse.
+
+## 7. Conditions for Theoretical Net Benefit
+
+Let `K_C(H)` and `K_Z(H)` be supported work over the selected horizon for the
+same necessary component and capability set. Separate common protocol work
+from the implementation support catalog above. Relative to control `B`:
+
+A duty shared in meaning is not assumed to have identical implementation or
+review cost. Any real difference remains in private-change/residual work. Cancel
+a common cost only when the paired design justifies that it is actually common.
+
+```text
+Net_Zig(B,H) = Avoided_C_Support(B,H) + Reduced_Private_Change_Work(B,H)
+            - Residual_Zig_Support(B,H) - Incremental_Migration(B,H)
+            - Incremental_Language_Library_Import_Upgrade(B,H)
+            - Added_Control_And_Facade_Burden(B,H)
+```
+
+Avoided support and reduced change work are alternative accounts for the same
+rule/event where they overlap, not automatically additive. All terms need a
+compatible cost unit before subtraction. Source counts and support-family
+counts are not hours; no monetary or staffing conversion is invented.
+
+Three levels of conclusion must stay separate:
+
+1. **Mechanism:** in a specified pair, language/library operations can replace
+   a particular project support implementation. The cases above establish
+   bounded design mechanisms, not observed engineering savings.
+2. **Selected-component positive domain:** establish that the avoided support
+   remains necessary after the strongest admitted C reuse/simplification,
+   bound its change/setup/support demand, and show a conservative saving lower
+   bound exceeds all differential cost upper bounds. No arbitrary multiplier
+   over generated types/fields/exits is allowed.
+3. **Portfolio adoption:** aggregate disjoint component deltas and charge shared
+   language/provider migration/support once. Some components can remain C.
+   A smaller ordinary-return Zig subsystem may be worthwhile even if whole
+   planner replacement is not; that is a different explicitly scoped decision.
+
+**Conditional positive case.** Necessary, repeatedly maintained C association
+and native generic support really remain; the selected Zig implementation
+eliminates them without a shadow schema or retained wrapper implementation;
+diagnostic/owner/control laws stay intact; incremental migration and selected
+version support have justified upper bounds; the net inequality is positive
+under the declared demand range. This is a sufficient condition, not a claim
+that its premises already hold in this repository.
+
+**Concrete nonpositive countermodel.** A bounded planner needs one fixed-width
+checked arithmetic layer supplied by its admitted C compiler, exact-size output
+tables, opaque provider handles and one stable cleanup/diagnostic adapter. It
+uses no separately maintained native generic/association support that Zig can
+remove. If there is no other private-change saving and incremental Zig support
+or migration is positive, the differential net is nonpositive. This is a valid
+design counterexample, not an observed cost estimate or proof all C designs win.
+
+**Mixed outcome.** A larger native subsystem with many genuinely required
+typed builders/containers may supply a positive domain; a small provider shim
+may not. Credit that difference through named support and events, not “modern
+syntax,” LLVM availability, no-GC, alleged automatic ownership or replacing GCC
+with another driver alone.
+
+## 8. Gate Disposition and Research Closure
+
+| Question | Current result |
+| --- | --- |
+| What can Zig actually omit? | Conditional private association/propagation and primitive/growth implementation work; exact catalog and overlap rules above |
+| What must remain? | Semantic/physical laws, external ownership including failure outputs, rich diagnostics/public status, state/GC/control and provider qualification |
+| Can the C comparator obtain the same safety mechanisms? | Checked builtins, opaque/generated results, fixed allocation/reusable libraries and shared cleanup cover serious alternatives; profile support is still qualified separately |
+| Is an unconditional net-positive claim valid? | No; the fixed-width/small-shim countermodel defeats it |
+| Is a selected positive domain established? | Not yet: no justified component work bounds or accepted cost tradeoff; TG5 remains open |
+| Is native work authorized by this study? | No implementation/test is undertaken; the user requested theory/source design only |
+
+The missing certificate is now specific: identify which of PS01/PS03/PS05/PS04
+remains necessary in the selected C design, with actual reuse and CE01-CE09
+support demand, then bound the *incremental* Z1 costs against C-G or C-ZT. The
+failed-emission ownership law is a required common adapter rule, not a Zig
+benefit. Source/reference checks cannot stand in for either cost bounds or
+native admission.
+
+The [selected RFD case](return-frame-planner-case.md) and its
+[multi-dimensional report](return-frame-benefit-matrix.md) now instantiate
+these conditions on the actual return-frame descriptor source chain. All
+three designs use homogeneous exact-sized chunk storage, so hypothetical
+visitor/growth/bignum retirement does not contribute a positive Zig delta
+there. RF01-RF07 identify real route replacement boundaries; FM01-FM06 define
+remaining maintenance work. This is a bounded concrete finding, not a
+whole-system verdict or native qualification.
+
+![Paired support mechanisms and net-benefit conditions](planner-facade-support-cost.svg)

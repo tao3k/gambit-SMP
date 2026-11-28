@@ -1,0 +1,115 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-interrupt-admission",
+  "scope": "Quint controls for external interrupt admission and fault disposition: a closing refusal does not touch the caller, an accepted wake fault is not rewritten as a refusal, and a callback error does not unlock twice. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 160,
+  "inputs": [
+    "models/gambit/external_interrupt_admission.qnt",
+    "models/gambit/external_interrupt_admission_tests.qnt",
+    "models/gambit/interrupt_fault_disposition.qnt",
+    "models/gambit/interrupt_fault_disposition_tests.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-interrupt-admission/binding.json",
+    "evidence/fixtures/dev-interrupt-admission/observations.json",
+    "evidence/fixtures/dev-interrupt-admission/interrupt.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "admit-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/external_interrupt_admission_tests.qnt"
+      }
+    },
+    {
+      "id": "admit",
+      "capability": "quint.test",
+      "dependsOn": [
+        "admit-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/external_interrupt_admission_tests.qnt",
+        "parsed": "admit-parse",
+        "main": "external_interrupt_admission_tests",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "closingRefusalDoesNotTouchCallerNodeTest",
+          "acceptedWakeFaultNeverBecomesRefusalTest",
+          "stalePointerAddressIsNotAnInstanceTokenTest",
+          "tlsDoesNotSupplyAnOwnerReferenceTest",
+          "foreignThreadCanEnqueueNativeNodeWithOwnerTest",
+          "vmOwnerDoesNotRootSchemeRequestTest"
+        ]
+      }
+    },
+    {
+      "id": "fault-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/interrupt_fault_disposition_tests.qnt"
+      }
+    },
+    {
+      "id": "fault",
+      "capability": "quint.test",
+      "dependsOn": [
+        "fault-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/interrupt_fault_disposition_tests.qnt",
+        "parsed": "fault-parse",
+        "main": "interrupt_fault_disposition_tests",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "callbackErrorReturnsWithoutSecondUnlockTest",
+          "oldErrorBranchAttemptsAnUnheldUnlockTest",
+          "pendingReleaseRunsOutsideQueueMutexTest",
+          "onlyAuthorizedTargetEndAbandonsSchemeReplyTest",
+          "joinedOwnerKeepsExistingLockedReleaseContractTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "admit-parse",
+        "admit",
+        "fault-parse",
+        "fault"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-interrupt-admission/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

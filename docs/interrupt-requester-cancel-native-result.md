@@ -26,8 +26,8 @@ the callback executes once, and the target joins normally. No sleeps, synthetic
 heartbeats, timeout widening or runtime source change were used.
 
 Portable exact logs, fixture snapshots and identity are retained separately at
-`evidence/source-results/fixtures/interrupt-requester-cancel/native-diagnostic`
-and `evidence/source-results/fixtures/interrupt-requester-cancel/post-cancel-gc`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-requester-cancel/native-diagnostic`
+and `.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-requester-cancel/post-cancel-gc`.
 The first fixture is not overwritten by the added collection. The previously
 published compile-only archive remains an accurate earlier-stage observation.
 
@@ -40,7 +40,7 @@ transport ran two independent processes concurrently, assigning six requested
 processors per child from observed host capacity twelve. The whole batch kept
 the same 60-second limit, including queue time; this is not a throughput claim.
 Portable evidence is at
-`evidence/source-results/fixtures/interrupt-requester-cancel/cancel-outcomes`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/interrupt-requester-cancel/cancel-outcomes`.
 This newer observation is not yet added to the frozen audit registration.
 
 The companion `models/gambit/interrupt_requester_cancel_schedules.qnt` imports

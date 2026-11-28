@@ -96,7 +96,7 @@ temporal check at 296,413 distinct states, not a complete-state-space result.
 Four framework boundary tests passed; they are not the missing positive proof.
 The manifest is registered with no checked receipt, so its source/refinement and
 native gates remain open. Compact portable summaries preserve all three rejected
-campaigns in `evidence/model-results/`; the raw receipts stay identity-bound.
+campaigns in `.cache/research/legacy-evidence/evidence/model-results/`; the raw receipts stay identity-bound.
 
 Before another attempt, inspect the supported toolchain configuration for
 final-only temporal scheduling or sound complete policy partitioning. All
@@ -133,7 +133,7 @@ positive partitions exhausted their queues and completed final temporal checks:
 All three negative controls also yielded counterexamples. Their state counts
 are diagnostic stopping points, not exhausted positive exploration. Portable
 logs, traces and the full five-check receipt are in
-`evidence/model-results/gc-queue-wait-composition/`. The model receipt now closes
+`.cache/research/legacy-evidence/evidence/model-results/gc-queue-wait-composition/`. The model receipt now closes
 the bounded protocol-check gate, not the source-refinement, C-ordering,
 resource/resize or native gates. Wall time differences versus earlier campaigns
 are not attributed solely to partitioning or claimed as runtime speedup.

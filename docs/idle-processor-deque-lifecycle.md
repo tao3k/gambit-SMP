@@ -32,7 +32,7 @@ Neither deque defect is yet proved to be the unique cause of that timeout.
 | Proposed retirement VM lock / peer GC / P0 join cycle | Counterexample, 7 distinct states, 3.733 s | 7 distinct states, 3.779 s |
 
 Portable receipts are registered in `evidence/protocol-bundles.json`, under
-`evidence/model-results/fixtures/interrupt-dequeue-detachment/`. The roles in
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/interrupt-dequeue-detachment/`. The roles in
 these finite models are not a runtime CPU limit. TLC workers are host-selected.
 The repeated-removal parser error and initial loopback permission failure are
 execution diagnostics, not counterexamples or accepted checks.
@@ -71,7 +71,7 @@ or later table-GC test was run after this failure. The prior epoch-seven timeout
 remains separate evidence, not replaced by this observation.
 
 Receipts and identity are in
-`evidence/source-results/fixtures/idle-processor-idempotent-removal/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/idle-processor-idempotent-removal/`.
 Thirty protocol-evidence/build-capacity framework tests passed with no skips;
 they do not qualify runtime correctness. The next source audit must address
 retirement membership and lock ordering before another reuse campaign.
@@ -110,7 +110,7 @@ run timed out at 30.005 seconds after epoch one's grow-return, exit -9, with a
 quiescent process group. The whole candidate is DENY; table GC was not run after
 fail-fast. Two positives do not establish stability or isolate either change's
 benefit. Receipts and current binary identity are under
-`evidence/source-results/fixtures/idle-processor-retirement-detachment/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/idle-processor-retirement-detachment/`.
 
 A subsequent startup publication audit found that `##startup-processor!` already
 initializes queues before `___processor_startup_complete`; the old cohort waits

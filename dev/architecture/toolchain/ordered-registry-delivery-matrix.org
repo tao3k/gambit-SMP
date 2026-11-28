@@ -1,0 +1,71 @@
+#+TITLE: Ordered Registry Effects, Retry and Semantic Activation Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: ordered-registry-delivery-matrix
+:AUTHORITY: OrderedRegistryDelivery
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** Caller
+
+| key | anchor | condition |
+|---+---+---|
+| top-level | _ptree1.scm:659-739 | Expand current macro, insert its returned form before remaining forms; add-macro and add-declarations complete before recursion |
+| body-definitions | _ptree1.scm:1489-1568 | Leading definition scan expands macros in order; after first nondefinition it defers forms with their environment |
+| expression | _ptree1.scm:949-951,1004-1012 | Expression macro expands recursively; expander return is not proof that all arbitrary effects are cacheable |
+| macro-install | _ptree1.scm:2931-2962; _host.scm:852-853 | Evaluating expander definition may itself have effects; installation and invocation are separate event occurrences |
+| gerbil-user | gerbil/expander/core.ss:430-490; compiler/driver.ss:134-136 | Gerbil iter transformer uses binding/marks/phase context before generated Scheme reaches Gambit; do not merge the two macro engines |
+
+** Delivery
+
+| key | anchor | condition |
+|---+---+---|
+| identity | _env.scm:296-314; proposed service | EventId includes semantic invocation/activation, ordinal and owner domain; retry of one event retains identity; new invocation is not a duplicate |
+| commit | _env.scm:296-314; proposed service | Managed registry root transition and immutable event receipt commit under one authority; current helpers have no such ledger |
+| unknown | proposed service | Lost acknowledgement retrieves exact committed receipt; unavailable authoritative state means retain custody and block automatic effect replay |
+| exception-prefix | _utils.scm:426-434,506-507; _ptree1.scm:754-765 | Preserve completed registration prefix on error; existing handler/scope restoration is not a registry transaction rollback |
+| continuation | _ptree1.scm:760-765,1563-1568; gerbil/expander/core.ss:484-490 | Transport retry is not semantic continuation replay; new legitimate activation may register again; root/unknown holders must drain explicitly |
+
+** Route
+
+| key | anchor | qntAction | leanLemma | condition |
+|---+---+---+---+---|
+| deduplicated-delivery | _env.scm:296-314; proposed seam | retryDelivery | commitIdempotent | Duplicate delivery of same semantic EventId leaves registry unchanged and returns same receipt |
+| distinct-occurrence | _env.scm:296-314; _ptree1.scm:1004-1012 | prepareEffect | equalPayloadDistinct | Equal names/payloads in distinct real occurrences remain separate ordered registrations |
+| parse-boundary | _ptree1.scm:664-739,1501-1549 | parseNext | parseGeneration | Later form sees registry after all preceding committed effects; cached output alone is not that receipt |
+| failure-prefix | _utils.scm:426-434,506-507 | failMacro | failureRetainsPrefix | Failure does not erase committed prefix or unknown delivery responsibility |
+| custody | _ptree1.scm:754-765,1557-1568; proposed seam | drain | holdersBlockDrain | Unknown delivery and retained continuation keep result/root custody until resolved |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| transport-retry | Repeated registration after acknowledgement loss in managed delivery | Event ledger, identity, retained receipt and authoritative resolution | Existing raw helper calls cannot gain this property without replacing actual write authority |
+| pure-query-reuse | Repeated pure expansion/parsing/downstream work under equivalent qualified inputs | Dynamic effect boundary, lexical identity reconstruction, keys and ledger validation | Only effect-closed observer-equivalent work can be skipped; arbitrary macro effects deny receipt |
+| ordered-context-parallelism | Serialization across independent contexts | Per-context ordered effect lanes and shared immutable inputs | Within-context effect order stays serial; speed depends on independent ready work rather than core count |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| event | prepareEffect;commitEffect;retryDelivery | commitIdempotent;commitOrder;equalPayloadDistinct | Bind actual registry write and ledger atomically; no generic exactly-once macro claim |
+| parser | returnMacro;parseNext | parseGeneration;receiptGeneration | Actual expansion queue, declaration category semantics and subsequent read simulation |
+| unwind | failMacro;resolveFailure;resumeActivation;drain | failureRetainsPrefix;holdersBlockDrain | Exception observer, semantic activation identity, root/multishot continuation lifetime |
+| value | cacheAttach | costPositive | Effect replay equivalence, demand and work/span/memory; no native or timing evidence |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| effect-closure | False | All actual macro eval/call effects, binding and native reachability admitted |
+| atomic-owner | False | Registry transition and EventId/receipt journal share a truthful authoritative commit |
+| source-order | False | Full parser queue, nested scopes and deferred body forms refine event order |
+| cache-observer | False | Macro result/source/marks/diagnostics/effects and context reconstruction equivalent |
+| continuation | False | Semantic activation versus transport retry, exception/root/unknown holders source refinement |
+| retirement | False | All direct/indirect registry writers and real consumers migrate; no second global authority |
+| platform | False | Native synchronization, GC/FFI, host registration and measured performance remain unqualified |

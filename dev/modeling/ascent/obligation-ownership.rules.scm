@@ -1,0 +1,37 @@
+;; Reusable research rule: semantic obligations have one verification owner.
+;; Quint: transition schedules/permit lifetime. Lean: algebra/data proofs.
+;; Semantic-key normalization is authored/reviewed in the current LLM workflow;
+;; this DSL detects declared collisions, not arbitrary theorem equivalence.
+(relation verificationObligation (id semantic owner artifact digest scope))
+(relation verificationDomain (owner domain))
+(relation verificationKeyDomain (semantic domain))
+(relation verificationObservation (id owner artifact digest scope))
+(relation verificationUse (component obligation))
+(relation verificationSame (left right))
+((verificationSame I I) <-- (verificationObligation I _ _ _ _ _))
+((verificationSame O O) <-- (verificationObligation _ _ O _ _ _))
+(relation verificationOwnerConflict (id left right))
+((verificationOwnerConflict I A B) <--
+ (verificationObligation I _ A _ _ _) (verificationObligation I _ B _ _ _) (not (verificationSame A B)))
+(relation verificationSemanticOverlap (semantic left right))
+((verificationSemanticOverlap K A B) <--
+ (verificationObligation A K _ _ _ _) (verificationObligation B K _ _ _ _) (not (verificationSame A B)))
+(relation verificationRoleMismatch (id owner domain))
+((verificationRoleMismatch I O D) <-- (verificationObligation I K O _ _ _)
+ (verificationKeyDomain K D) (not (verificationDomain O D)))
+(relation verificationChecked (id))
+((verificationChecked I) <-- (verificationObligation I _ O A H S)
+ (verificationObservation I O A H S) (not (verificationOwnerConflict I _ _))
+ (not (verificationRoleMismatch I _ _)))
+(relation verificationMissing (id owner))
+((verificationMissing I O) <-- (verificationObligation I _ O _ _ _)
+ (not (verificationChecked I)))
+(relation verificationComponentGap (component obligation))
+((verificationComponentGap C I) <-- (verificationUse C I) (verificationMissing I _))
+(relation verificationCandidate (id))
+(relation verificationReady (id))
+((verificationReady C) <-- (verificationCandidate C)
+ (not (verificationMissing _ _)) (not (verificationOwnerConflict _ _ _))
+ (not (verificationSemanticOverlap _ _ _)) (not (verificationRoleMismatch _ _ _)))
+(relation question (claim))
+((question C) <-- (verificationCandidate C))

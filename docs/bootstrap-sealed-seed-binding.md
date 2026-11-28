@@ -48,7 +48,7 @@ configuration retains SMP, multiple VMs and multiple threaded VMs with GNU GCC
 and O0 diagnostic optimization. All three rebuilt artifact hashes are archived.
 
 Portable receipt, candidate identity, adapter snapshot and redacted log are in
-`evidence/source-results/fixtures/sfun-owned-unwind/two-pass-bootstrap`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/two-pass-bootstrap`.
 `tests/test_sfun_bootstrap_evidence.py` checks these identities and both phase
 inventories. This is actual bootstrap completion, not a performance comparison.
 

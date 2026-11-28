@@ -1,0 +1,122 @@
+#+TITLE: Modern C Tcl Entry, Parent Park and Run Cleanup Matrix
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:2 num:nil
+
+* Native-evaluated illustrative root payload
+Payload equations only; not ABI size, measured allocation, mandatory extra roots or whole-round peak.
+| Shape | Slots | Depth | Word bytes | Slot payload bytes |
+|---+---+---+---+---|
+| flat | 2 | 1 | 8 | 16 |
+| nested | 2 | 2 | 8 | 32 |
+
+* Typed source-to-need routes
+| Need | Actual source | Projection duty | Failure custodian | Status |
+|---+---+---+---+---|
+| EC-TOKEN | tcltk.scm:135-195;Tcl tclBasic.c:2533-2565,3154-3325 | Owner-scoped token pin/close before payload; preserve trace-before-hook cut | Owner/registry retain token; last accepted callback retires payload | source-and-C-order-refinement-open |
+| EC-PARENT | gambit.h.in:10325-10338;setup.c:1117-1200 | Full parent stop/freeze/context-ready/reload; W_ALL alone insufficient | Parent until child acceptance; unknown borrower keeps source | source-and-C-order-refinement-open |
+| EC-RUN | setup.c:763-835,3350-3423,6395-6440;c_intf.c:6511-6564 | Both run source thunks including worker publication/pre-run synchronization and every outer-catcher exit | Canonical NativeActivation guard | source-and-C-order-refinement-open |
+| EC-CLEANUP | c_intf.c:6553-6564;gambit.h.in:9979-9988 | Marker clear/count/root/status progress with defined setjmp state | Unique cleanup claimant; unknown count retains root | source-and-C-order-refinement-open |
+| EC-DRAIN | Tcl tclBasic.c:2094-2234,4465-4519;tcltk.scm:290-340 | Real creation/captured dispatch and native quiescence | Owner acceptor/registry retains tombstone | source-and-C-order-refinement-open |
+| EC-ORDER | setup.c/c_intf.c/mem.c root/activation paths;gambit.h.in lock/catcher adapters | C happens-before and storage-lifetime refinement | VM control domain and participating owner | source-and-C-order-refinement-open |
+| EC-CUT | setup.c:3390-3423;mem.c root scanning;gambit.h.in internal types | Future NativeActivationScope vertical slice, not unconsumed API | Modern C runtime/producer owner | source-and-C-order-refinement-open |
+
+* Actual caller producers
+| Family | Source | Actual chain | Required change | Qualification |
+|---+---+---+---+---|
+| TCL-ENTRY | vendor/gambit/examples/tcltk/tcltk.scm:135-177;Tcl tclBasic.c:2533-2565,4465-4519 | TclInvokeStringCommand -> proc(clientData) -> scheme_call_cmd -> data_rc -> tcltk_call -> Scheme apply | Acquire owner-scoped token/entry pin before data_rc, marker or conversion; no callback/GC/layout effect before accepted raw access. | Token storage lifetime must already cover first hook. Same-owner Tcl dispatch is selected; arbitrary cross-thread Tcl use and saved raw callbacks are excluded. |
+| TCL-DELETE | vendor/gambit/examples/tcltk/tcltk.scm:180-195;Tcl tclBasic.c:3154-3325 | delete traces and imported command deletion -> deleteProc -> hash/Command cleanup | Close at replacement scheme_delete_cmd first non-reentrant action; return without waiting for pins held by the deleting callback itself. Release payload after pins/results retire. | Tcl Command reference counts do not defer extension deleteProc or preserve ClientData. Closing before Tcl traces would change allowed reentry; retain pre-deleteProc trace behavior. |
+| TCL-CREATE | vendor/gambit/examples/tcltk/tcltk.scm:290-340;Tcl tclBasic.c:2094-2234 | alloc_rc + still vector -> Tcl_CreateCommand; name conflict invokes old delete; recreated command may be discarded | Construction transaction must distinguish never installed, installed, displaced and unknown token ownership. Retain tombstones until actual owner/dispatch quiescence. | CreateCommand return NULL, reentrant replacement and private/raw dispatch remain open routes; no universal drain receipt derived from pins==0. |
+| PARENT-PARK | vendor/gambit/include/gambit.h.in:10325-10338;lib/setup.c:1117-1200;examples/tcltk/tcltk.scm:103-124,221-228 | CFUN state materialization -> Tcl_Eval -> callback -> child registration attempt during GC close | Freeze complete mapped parent locations, stop raw access and preserve native argv/catcher/activation; service only admitted VM wait work, then context seal, reload, same-call retry. | W_ALL and service_sync_op are source mechanisms, not complete freeze/map/binding receipts. Do not pump Tcl events under the gate or keep a raw borrow while waiting for reopen. |
+| RUN-STARTUP | vendor/gambit/lib/setup.c:6395-6440 | thread binding -> program descriptor module thunk -> ___run -> cleanup on nonzero error | First slice roots the already selected thunk before allocating marker and uses canonical NativeActivation cleanup after END_TRY for every outcome. | Input source root authority from program descriptor must be proved, not inferred from the C local thunk parameter. |
+| RUN-PROCESSOR | vendor/gambit/lib/setup.c:763-835,977-1003 | thread data_scmobj -> resize synchronization -> ___run_and_throw_error_on_processor_0 -> ___run -> OP_PROCESSOR_0_THROW_ERROR -> sync service loop | Keep worker source root from thread publication through the pre-___run synchronization loop, root reload, marker allocation and guard cleanup; deliver the original error only after activation retirement is settled. | start_processor_execution loads thunk before execute_sync_op_loop; a guard only inside ___run does not cover that interval. Thread data_scmobj alone is not a root-scanner proof. Zero/nonzero processors and source handoff remain separate admission obligations. |
+| RUN-ESCAPE | vendor/gambit/lib/setup.c:3350-3423;lib/c_intf.c:6511-6564;include/gambit.h.in:9979-9988 | ___call catches then rethrows to ___run outer catcher; inline kill after ___call is skipped | Root/marker ownership state survives setjmp; after catcher restoration one cleanup claimant invalidates marker, drops owned count once, settles root/result backing, then returns original status. | Unknown marker decrement cannot be replayed or assumed done. Do not broadly restore arbitrary GVM state or replace language exception/continuation behavior. |
+
+* Origin and custody transitions
+| Path | Source | Current behavior | New contract | Failure boundary | Custodian |
+|---+---+---+---+---+---|
+| PIN-DELETE | Tcl owner profile; tcltk.scm:135-195 | Pin/close before payload dereference | Pin and close share one control domain, token address is stable independently of payload. Pin winner may finish; close winner returns defined adapter rejection without reading payload. | Delete hook never waits for its own active pin. | Last native return/result acceptor owns pin retirement; deferred payload release runs outside control lock. |
+| TOKEN-PAYLOAD | Tcl tclBasic.c:3284,3313-3325; wrapper path2533-2565 | Extension payload and Tcl Command storage retire at different points | Payload can retire at closed+zero accepted readers; closed token/tombstone survives already captured or unknown future entry. | Zero active pins is not owner dispatch drain or interpreter physical destruction. | Registry/owner anchor retains token until the selected native producer inventory and quiescence receipt close. |
+| PARK-RELOAD | gambit.h.in:10325-10338;setup.c:1117-1200 | Stop raw writes/reads -> full view freeze -> collector update -> context ready -> reload | Freeze exact location map and continuation/denv, native activation and same invocation; no raw copies live across the moving epoch. | Unknown borrower stop refuses freeze and source-ack retirement. A GC-done signal without context-ready/binding/reload is insufficient. | Parent retains source until child canonical acceptance; lost ACK queries same activation and keeps overlap. |
+| RUN-FINALIZER | setup.c:3390-3423;gambit.h.in:9979-9988 | One exit funnel after outer END_TRY | VM-owned activation state records root acceptance, marker creation, cleanup claim and error/return intent. No sole progress flag in a modified nonvolatile setjmp local. | Known marker failure still retires source root. Unknown close/decrement retains root and must be settled from actual progress evidence. | Exactly one cleanup custodian; marker invalidation precedes owned count decrement and root release. |
+| FIRST-CUT | setup.c ___run; c_intf.c marker pair; mem.c root scan; gambit.h.in internal declarations | NativeActivationScope for both actual ___run callers | Introduce the typed per-VM/context activation/root contract and all-context scan adapter; integrate every ___run exit, preserving external signature and error propagation. | A post-call kill-only patch or unused new API is not this refactor. Source/C-order/native qualification gates remain required. | Next consumer is Scheme-generated SFUN; Tcl adapter follows with owner pin/delete/creation semantics. No runtime path retires in this study. |
+
+* C memory order
+| Edge | Required order | Rejected shortcut |
+|---+---+---|
+| OWNER-PIN | Run Tcl interpreter APIs only on their owner thread; use short bridge lock for pin/close versus GC metadata. | GC worker never calls Tcl delete API. No bridge lock held across Tcl/Scheme callbacks or native waits. |
+| DELETE-CUT | Preserve Tcl delete traces before deleteProc; close bridge admission at hook entry, publish close before returning. | Changing the public deletion cut to before traces requires separate semantic change, not claimed compatibility. |
+| TOMBSTONE | Pin storage and logical open/generation validation precede data_rc read; retirement acquires actual reader/owner-drain evidence. | Command refCount, Tcl_Preserve(interp) and zero payload pins are three different lifetimes. None alone proves token storage safe. |
+| PARK-HB | Stop raw accesses and complete mapped spills precede release PARKED; collector acquire precedes scan/update. | A root registration or borrower counter decrement without complete view/stop proof does not admit independent scan. |
+| RESUME-HB | Collector relocation and context/binding preparation precede release resume seal; owner acquire reloads mapped roots before same-call use. | No re-evaluation of Scheme inputs, duplicate native invocation or reuse of old raw fp/hp/SCMOBJ copies. |
+| RUN-CLEANUP | Outer catcher restored before canonical cleanup; claim, marker clear, count drop, root retirement and status delivery have explicit progress. | The existing no-allocation kill body is source material for effect qualification, not proof of concurrent atomicity or idempotent decrement. |
+| FAILURE | Known cleanup failure retains duty; unknown write/count outcome requires stop/result settlement before reclamation or replay. | C longjmp state and object lifetime must refine actual C ordering; no timeout clears uncertainty. |
+
+* Benefits and added overhead
+| Capability | Removed work | Bound | Added cost | Positive condition or falsifier |
+|---+---+---+---+---|
+| Tcl payload lifetime | Avoid retaining payload merely because Command structure remains referenced | Closed+zero accepted pins can release payload separately from token | Entry pin/close transitions and deferred last-pin release | Owner profile, result custody and no raw reader must close first. No measured speedup. |
+| Tcl token lifetime | Avoid UAF in late or captured entry | Tombstone metadata remains until dispatch/owner quiescence | Potential long-lived token metadata and registry lookup | Unbounded token/producer history means no bounded total memory theorem. |
+| Self-delete | Remove self-wait cycle in deleting callback | Delete hook waits for 0 callback pins: no waiting is permitted there | Deferred release and outer callback retirement bookkeeping | No callback, cleanup or Tcl event pump under bridge lock. |
+| Parent location reuse | Reuse mapped source locations instead of copying every root | 0 duplicate value evaluations/native calls on qualified retry | Freeze/reload, map validation and activation pin | Cannot reuse an unmapped raw C local or unknown borrower. |
+| Run root payload | Explicit thunk/marker custody for selected zero-arg run | Illustrative two SCMOBJ slots: 16B at64; nested2:32B | Registry/map/control/native frame and marker allocation excluded | Existing program root or owned-still marker may alias/elide extra slots; not mandatory net allocation. |
+| Run error path | Retire normal-only inline marker ownership assumption | One cleanup claimant, marker clear and owned count drop each at most once | VM-canonical progress record and exit-funnel control work | Original error codes, catcher and continuation behavior must remain; native acceptance still required. |
+| Still ownership reuse | Reuse positive-refcount marker/vector/converter retention | No forced copying of every stable still payload | Typed ownership transfer and scan/write qualification | Stable address does not imply all root fields or arbitrary owner writes are safe. |
+| Peak accounting | Count separate token/root/native backing once | Peak=max_t(unique backing + separate roots/maps + token/native escrow) | Overlap on lost ACK, tombstones and unknown cleanup can increase peak | No net peak reduction or bounded GC latency proved. |
+| Retirement scope | Replace real ___run ownership logic before broad FFI migration | Two actual caller families; no external ___run signature change planned | Internal root scanner, marker ownership and producer migration obligations | SFUN/Tcl/raw ___call remain separate next routes; zero retired runtime paths now. |
+| Modern C leverage | Share one activation/root/exit contract across runtime and Scheme generators | One language-level runtime contract reused by multiple consumers | Typed metadata and generated effect/location plans | Not another advisory wrapper over unchanged unsafe producer assumptions. |
+
+* Obligations and closure
+| Need | Kind | Exact scope | Premise | Status |
+|---+---+---+---+---|
+| EC-H | interleaving | native_entry_close_cleanup:24-histories;safe;three-protocol-projections;seed17;3x100x100 | 14 positive and 10 unsafe controls; one queued Tcl entry and pin, one parent epoch and one run cleanup. Opaque Tcl/run root contents, live owner/token and external drain/settlement are premises; not a shared-VM evaluator/ABI/weak-memory proof. | Conditional local model checked |
+| EC-I | induction | GambitSMP.NativeEntryCloseCleanup:14-conditional-declarations | Conditional pin/delete lifetime, park/epoch, run return/cleanup/count and payload equations; selective operation laws, no complete QNT trace/source simulation. | Conditional local model checked |
+| EC-TOKEN | source-refinement | EC-TOKEN:actual-owner-ClientData-entry-delete | Live token anchor, owner-thread callback entry pin before data_rc, deleteProc close without self-wait, preserve trace/replacement behavior and separate Command versus ClientData lifetime. | OPEN: source or C-memory refinement |
+| EC-PARENT | source-refinement | EC-PARENT:actual-full-view-park-context-reload | Every parent raw borrower stops, full map includes continuation/denv/native activation, context preparation and same-owner reload; no Tcl event pumping or duplicate call to avoid wait cycle. | OPEN: source or C-memory refinement |
+| EC-RUN | source-refinement | EC-RUN:both-run-callers-and-all-exits | Transfer registered startup/worker thunk origin before worker publication/read/synchronization, then root before marker; cover ___call rethrow and known marker failure with post-END_TRY canonical cleanup; source data_scmobj alone is not root coverage. | OPEN: source or C-memory refinement |
+| EC-CLEANUP | source-refinement | EC-CLEANUP:marker-clear-count-root-terminal | One custodian records marker initialized/cleared/count drop and root/status transfer; preserve setjmp-defined state, original error, frame/catcher and unknown-progress custody. | OPEN: source or C-memory refinement |
+| EC-DRAIN | source-refinement | EC-DRAIN:Tcl-captured-entry-creation-quiescence | Actual Tcl version/installed match, trace reentry, queued/raw dispatch and reentrant CreateCommand installation/discard paths; no drain inferred from zero active entries. | OPEN: source or C-memory refinement |
+| EC-ORDER | native-memory-order | EC-ORDER:C-pin-close-park-finalizer | Concrete lock/lifetime/read-from, release/acquire park/reload, effect-qualified marker stores and scanner/root registry order; no native C refinement receipt. | OPEN: source or C-memory refinement |
+| EC-CUT | source-refinement | EC-CUT:NativeActivationScope-first-slice | First future source slice spans ___run plus activation-root/scanner/marker contracts; not kill-only repair or unconsumed API. Scheme SFUN generator and Tcl adapter have explicit later gates. | OPEN: source or C-memory refinement |
+| NI-PARENT | source-refinement | NI-PARENT:parent-source-borrow-close | Mapped parent source lease exists before foreign export; child acceptance covers roots before source release; park complete parent on close without keeping raw borrower active or violating synchronous C ABI. | OPEN: source or C-memory refinement |
+| NI-EXIT | source-refinement | NI-EXIT:catcher-and-terminal-custody | Normal/conversion error and ___call/___run rethrow paths need canonical cleanup progress, nested duty, accepted result/error and data-write closure before freeing roots/marker/code. | OPEN: source or C-memory refinement |
+| NI-ORDER | native-memory-order | NI-ORDER:C-HB-origin-and-custody | Actual C pin/retire, source-to-child acceptance, close/park, scan/update/reload and reclaim edges; ordinary C object lifetime, setjmp automatic-local rules and lock adapters still require refinement. | OPEN: source or C-memory refinement |
+| ARP-ROOT | source-refinement | ARP-ROOT:all-context-updatable-root-and-freeze | Collector-updateable RootView scanner for every context, nested view lifetime, native borrow exclusion, old-reader pin and relocation reload; processor0 RC scanning does not close arbitrary-owner roots. | OPEN: source or C-memory refinement |
+
+* Refinement dependencies
+| Dependent | Prerequisite |
+|---+---|
+| EC-TOKEN | EC-H |
+| EC-TOKEN | EC-I |
+| EC-PARENT | EC-H |
+| EC-PARENT | EC-I |
+| EC-RUN | EC-H |
+| EC-RUN | EC-I |
+| EC-CLEANUP | EC-H |
+| EC-CLEANUP | EC-I |
+| EC-DRAIN | EC-H |
+| EC-DRAIN | EC-I |
+| EC-ORDER | EC-H |
+| EC-ORDER | EC-I |
+| EC-CUT | EC-H |
+| EC-CUT | EC-I |
+| EC-TOKEN | EC-CLEANUP |
+| EC-TOKEN | EC-DRAIN |
+| EC-TOKEN | EC-ORDER |
+| EC-PARENT | EC-CLEANUP |
+| EC-PARENT | EC-DRAIN |
+| EC-PARENT | EC-ORDER |
+| EC-RUN | EC-CLEANUP |
+| EC-RUN | EC-DRAIN |
+| EC-RUN | EC-ORDER |
+| EC-CUT | EC-CLEANUP |
+| EC-CUT | EC-DRAIN |
+| EC-CUT | EC-ORDER |
+| EC-PARENT | NI-PARENT |
+| EC-CLEANUP | NI-EXIT |
+| EC-ORDER | NI-ORDER |
+| EC-RUN | ARP-ROOT |
+| EC-CUT | EC-RUN |
+
+* Admission boundary
+Only EC-H and EC-I qualify locally. No current component is fully ready. No runtime implementation, native test or performance measurement. Imported open premises are not promoted.

@@ -1,0 +1,158 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-publication-work-exit",
+  "scope": "Quint controls for one promotion residual, one resource exit, and one collection work contract: an unpublished residual is refunded, an unknown exit keeps custody, and private collection debt is not finished early. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 200,
+  "inputs": [
+    "models/gambit/promotion_residual.qnt",
+    "models/gambit/resource_exit_contract.qnt",
+    "models/library/gc/CollectionContract.qnt",
+    "models/gambit/gc_work_contract.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-publication-work-exit/binding.json",
+    "evidence/fixtures/dev-publication-work-exit/observations.json",
+    "evidence/fixtures/dev-publication-work-exit/exit.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "resid-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/promotion_residual.qnt"
+      }
+    },
+    {
+      "id": "resid",
+      "capability": "quint.test",
+      "dependsOn": [
+        "resid-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/promotion_residual.qnt",
+        "parsed": "resid-parse",
+        "main": "promotion_residual",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "exactBudgetTest",
+          "duplicateClaimControlTest",
+          "refundBeforeForwardTest",
+          "forwardRefundControlTest",
+          "partialFailureTest",
+          "preflightRetainsTest",
+          "pendingWriterTest",
+          "earlySealControlTest",
+          "residualFallbackTest",
+          "zeroResidualTest",
+          "orphanSeedControlTest",
+          "unknownInstallControlTest",
+          "clearBeforeInstallControlTest",
+          "staleEpochControlTest",
+          "earlyFreeControlTest",
+          "failedStagingTest",
+          "quarantineReopenControlTest"
+        ]
+      }
+    },
+    {
+      "id": "exit-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/resource_exit_contract.qnt"
+      }
+    },
+    {
+      "id": "exit",
+      "capability": "quint.test",
+      "dependsOn": [
+        "exit-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/resource_exit_contract.qnt",
+        "parsed": "exit-parse",
+        "main": "resource_exit_contract",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "completeDrainTest",
+          "unknownRetainsCustodyTest",
+          "unknownResolvedTest",
+          "stalePermitControlTest",
+          "phaseOmissionControlTest"
+        ]
+      }
+    },
+    {
+      "id": "work-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/gc_work_contract.qnt"
+      }
+    },
+    {
+      "id": "work",
+      "capability": "quint.test",
+      "dependsOn": [
+        "work-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/gc_work_contract.qnt",
+        "parsed": "work-parse",
+        "main": "gc_work_contract",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "completeWorkTest",
+          "rescanBeforeFinishTest",
+          "privateDebtRetainedTest",
+          "earlyFinishControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "resid-parse",
+        "resid",
+        "exit-parse",
+        "exit",
+        "work-parse",
+        "work"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-publication-work-exit/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

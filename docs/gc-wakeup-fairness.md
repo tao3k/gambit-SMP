@@ -25,7 +25,7 @@ not just the focused Next relation. Public IR checks bind this branch structure;
 they are not a proof of C wake semantics or general semantic equivalence.
 
 The supplementary public-IR audit in
-`evidence/model-results/gc-wakeup-subrelation-ir/` expands the focused helper
+`.cache/research/legacy-evidence/evidence/model-results/gc-wakeup-subrelation-ir/` expands the focused helper
 disjunction and checks its ten primitive actions are a subset of the complete
 22-action variant. The bounded control has exactly the same focused branches
 with only the wake action replaced. Missing, duplicate, aliased, recursive or
@@ -54,7 +54,7 @@ The complete six-check campaign took 13.997 seconds; individual durations are
 concurrent, not additive wall time. All queues drained in checker exploration;
 `focusSafe` passed in both temporal counterexamples. Logs, compiled TLA+/CFG,
 model snapshots and decoded loops are archived in
-`evidence/model-results/gc-wakeup-fairness/`.
+`.cache/research/legacy-evidence/evidence/model-results/gc-wakeup-fairness/`.
 
 The source-policy loop begins at original Init. Worker 3 probes all four empty
 queues, takes the termination mutex, decrements count 4 to 3, registers a wait,

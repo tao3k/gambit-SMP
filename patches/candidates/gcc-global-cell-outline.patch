@@ -1,0 +1,30 @@
+Candidate diagnostic cloned-header control. Do not apply to the runtime.
+GCC-only noinline on the existing static ___glo_cell_in_vm declarator.
+Clang and every other compiler keep static inline. The K&R ___P
+declaration and the function body are unchanged. No pure, const, malloc,
+or other alias attribute. External ABI stays static. No other macro changes.
+
+diff --git a/include/gambit.h b/include/gambit.h
+--- a/include/gambit.h
++++ b/include/gambit.h
+@@ -12111,15 +12111,19 @@
+ #ifndef ___SINGLE_VM
+-static inline ___SCMOBJ *___glo_cell_in_vm
++#if defined(__GNUC__) && !defined(__clang__)
++static __attribute__((noinline)) ___SCMOBJ *___glo_cell_in_vm
++#else
++static inline ___SCMOBJ *___glo_cell_in_vm
++#endif
+    ___P((___virtual_machine_state vm,
+          ___SIZE_T index),
+         (vm, index)
+ ___virtual_machine_state vm;
+ ___SIZE_T index;)
+ {
+   ___glo_table *table = __atomic_load_n (&vm->glos, __ATOMIC_ACQUIRE);
+   ___SCMOBJ *segment =
+     __atomic_load_n (&table->segments[index >> ___GLO_SEGMENT_SHIFT],
+                      __ATOMIC_ACQUIRE);
+   return &segment[index & ___GLO_SEGMENT_MASK];
+ }
+ #endif

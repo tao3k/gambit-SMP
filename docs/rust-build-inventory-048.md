@@ -22,7 +22,7 @@ report a gap without blocking relational execution. No Scheme fallback is used.
 
 ## Local Qualification
 
-Raw receipts are in `evidence/library/rust-build-048/`. Each retains actual exit,
+Raw receipts are in `.cache/research/legacy-evidence/evidence/library/rust-build-048/`. Each retains actual exit,
 timeout, timestamps, duration, stdout/stderr and process-group observations.
 
 - Bridge005: one ASP gate plus 27 integration tests, zero skipped, exit 0,

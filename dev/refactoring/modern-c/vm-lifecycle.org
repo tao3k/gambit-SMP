@@ -1,0 +1,225 @@
+#+TITLE: Owned VM lifecycle and native retirement
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: OPEN CHECKED | ADMITTED
+
+* ADMITTED Complete lifecycle delivery :modern_c:ownership:
+:PROPERTIES:
+:CUSTOM_ID: vm-lifecycle-global-reclaim
+:AUTHORITY: GambitOwnedLifetime
+:STATE: QUALIFIED_MANAGED_C_TARGET
+:END:
+
+[[file:models/sysml/owned-lifetime.sysml][SysML]] owns the complete22-obligation delivery and its graph. The
+[[file:delivery-contract.org::#OWNED-LIFETIME-DELIVERY][delivery gate]] includes both previously admitted root/collector results.
+The runtime implementation is in =vendor/gambit=; this document and the models
+are maintained in SMP/dev. Historical mixed-tree prototypes remain history,
+not native evidence for this candidate. The current exact-source receipts cover all22. ASCENT submission still checks
+all five gates against this cohort; local architecture progress is3/4 after
+that admission, while independent SMP remains1/12.
+
+** Actual responsibility replacement
+
+| Owner | Actual source | Required handoff | Retired responsibility |
+|-------+---------------+------------------+------------------------|
+| Request | =lib/setup.c:___current_vm_resize= | Borrowed traced RC cell before collective; reload after GC; release on success/throw | Raw Scheme thunk copied into collective arguments |
+| Startup transaction | =lib/_mem/startup-reservation.inc= | All stack/heap pairs and restoration allowance before initialization | Per-slot opportunistic publication/allocation |
+| Native descriptor | =lib/lifecycle.h= and =start_processor_execution= | Stable VM/id/generation; PARKED -> RUN or ABORT under the native gate | Native =data_ptr= borrowing a PSTATE before acceptance |
+| Membership view | =lib/_setup/vm-registry.inc= and OP_SET handler | Reader close before count change or OS cleanup; notification producer and opener both attempt delivery | Unpinned interrupt access to retired/reused processor slots |
+| Execution entry | =___lifecycle_enter= and =lib/c_intf.c= | Owner/TLS check, entry lease and activation record before allocating marker | Untracked marker/root window and abandoned invalidation responsibility |
+| Retirement | =lib/_setup/vm-lifecycle.inc= | Close entry/root/scan obligations, transfer ordinary still nodes, drain affine effects on owner, publish data closure, then native join | Treating a smaller count or a join error as universal destruction permission |
+| Registry | =vm_registry_* = | Fully initialized VM publication; pinned topology; unlink only after DRAINED | Allocator-side early insertion/removal and =vm_list_mut= use |
+| Global reclaim | =cleanup_runtime= | No secondary VM, unknown descriptor, reader, root debt or failed owner cleanup | Ignored void cleanup refusal followed by global destruction |
+
+The original RC consumer exposed another concrete failure: one reused
+coordinator status word made a slow member interpret the next RC rejection as
+the previous reader-close decision and skip a barrier. =resize_decision= now
+transports one immutable value per cut through the existing message slots.
+Capacity need is decided before GC changes counters, and join custody returns
+to every survivor, including a nonzero requester. The unchanged RC consumer
+hangs with the old implementation and passes in0.653s with the new setup object;
+that shadow-link diagnosis does not replace final-cohort qualification.
+
+The public Scheme names and official build entries remain. The existing two
+sync-op slots are sufficient: the consumed target slot returns the retry
+disposition. The first candidate wrote a nonexistent third slot; native
+bootstrap exposed the resulting exit-time corruption. Its failure is retained.
+The public =___run= declaration now agrees with its existing implementation
+and GSTATE function-pointer signature, including the configured =___PSD=.
+Native clients must rebuild with the matching generated header.
+
+** Three different facts, never one stopped flag
+
+1. ABORT before RUN proves a native actor cannot acquire PSTATE or Scheme roots.
+   An unknown create/join retains its descriptor and forbids slot reuse/global
+   free; the unpublished initialization grants and roots can be refunded.
+2. A previously RUN actor needs owner-side data closure before a smaller member
+   set may collect without it. An unknown join keeps native identity in custody.
+3. Native join success is the OS resource acknowledgement. Data closure alone
+   never permits freeing the VM/control record or replaying an uncertain join.
+
+Known constructor rollback releases only completed setup stages, in reverse
+order, before any LIVE publication. An unknown foreign release keeps its
+in-flight object, original function/payload and charge, and never replays it.
+Live affine foreign resources refuse migration; ordinary still nodes transfer
+under the stopped old membership. Arbitrary unregistered aliases, asynchronous
+native death, permanently blocking destructors and forced resource reclamation
+are not admitted by a timeout or by these receipts.
+
+** Exit capability is narrower than an owner-thread match
+
+Only =run_startup_root= marks its exact activation as the terminal native
+stack. Public SFUN/host entries default to a nonterminal record. Retirement
+requires either no native activation/borrow or the sole startup marker plus
+its =___call= lease; a nested host marker cannot lose its external C return.
+The actual lifecycle fixture constructs and kills a host marker and checks
+retirement/cleanup refusal before the debt is released. Arbitrary direct
+private-C calls into the collective outside the managed entry contract are
+not granted safe abandonment.
+
+The handoff result distinguishes READY, GC-retryable foreign garbage and
+BUSY owner/request/effect debt. Only the second class permits one complete
+GC/owner-drain retry. Unknown effects and live host calls do not become safe
+because GC ran or because a wait expired. The original QNT native-pin law
+supplies the temporal obligation; this role/lease adapter is a C source and
+native-consumer premise, not a repeated Lean state machine.
+
+** Root completion and owner-effect completion are different receipts
+
+The original collector consumer checked all owner release counts immediately
+when processor0 returned from GC. That was a dependency on callbacks executing
+inside the stopped collective. The replacement deliberately removes it.
+
+The existing =collector-on-owner= pinned task/join path now collects a query-only
+receipt on each real owner after that owner resumes. It does not call the drain
+function, poll, sleep or extend a deadline. The original all-owner/thread/once
+assertion remains after those receipts. The callback also rejects an active
+root scan lease or joined GC round. This verifies both that the runtime delivers
+the effect and that arbitrary native code runs after root ownership reopens.
+A general GC caller does not wait for arbitrary callbacks, so an indefinitely
+blocked/unknown native release cannot become a whole-VM GC completion dependency.
+
+Retained failures and bounded mix diagnostics are in
+[[file:../../../evidence/research/retained/modern-c/owned-lifetime/counterexamples.json][the public counterexample record]]. A40-second combined mix diagnostic and the
+first120-second Make observation failed; a separated actual mix compilation
+and execution passed16.490/0.990s. Concurrent external compiler load is an
+observation, not a causal proof. Only a fresh full original Make receipt can
+qualify the consumer requirement; this diagnostic cannot replace it.
+
+** Model and implementation evidence have distinct duties
+
+- [[file:models/quint/vm_resize_transaction.qnt][Quint resize]] owns create/publication/abort/refund/native-debt schedules.
+  Sampling found an old abort receipt carried into a reused RUN generation.
+  The model now resets generation-local abort/stop receipts only when no native
+  debt exists, matching the guarded descriptor reset. The invariant remains;
+  reused-generation and stale-generation negative histories are retained.
+- [[file:models/quint/vm_registry.qnt][Quint registry]] owns finite reader/writer and pending-notification schedules.
+  Its C refinement also maps to the member gate; it proves no arbitrary signal
+  liveness or universal weak-memory theorem.
+- [[file:models/quint/capacity_collective.qnt][Quint decision publication]] also models a later coordinator cut while a
+  slower member consumes the earlier value. The mutable-word delivery is an
+  explicit negative control; C uses a message value rather than the changing
+  ledger word. This extends the existing result-publication model.
+- [[file:models/quint/runtime_ownership.qnt][Quint ownership]] keeps root-task custody, carrier retirement and multi-shot
+  restoration schedules. Lean's existing conditional root/interval algebra is
+  unchanged. The source adapter must establish its premises; no duplicate Lean
+  state machine or model-only C admission is introduced.
+- Actual C/Make consumers exercise known failure, unknown creation, unknown
+  pre-RUN join, RUN data-close with lost join receipt, R3/W1 healthy GC,
+  multi-shot map restoration, root leases, owner effects and host teardown.
+  Their exact final source/artifact receipts remain mandatory.
+
+** DRAINED is a retryable control state
+
+The topology/control pin =___lifecycle_registry_begin/end= replaces private
+list access. It does not authorize PSTATE/root dereferences. A native owner
+callback can retain that pin after physical VM data is drained, so the final
+registry writer may legitimately refuse. A retry must keep the DRAINED control
+record and request only unlink/global permission; it must not resize, recreate
+roots or replay any destructor.
+
+The real library-style host fixture now covers both cuts: a pin before close
+refuses without draining; a pin acquired by the actual owner callback permits
+data drain but refuses global free. Releasing that pin lets the same cleanup
+request complete with one callback execution. Existing registry QNT owns this
+schedule and its resize-after-drain negative history; no new Lean state machine
+is introduced. Native owner/TLS checks still apply to the final permit retry.
+
+** Real consumers and build context
+
+The primitive-override fixture still used separate PSTATE cleanup and the old
+private =vm_list_mut=, then called VM cleanup from the parent TLS binding.
+It now calls the BOOL whole-VM cleanup API on the actual owner and checks its
+receipt before restoring the parent. All three same-address VM reuse/isolation
+cycles remain. Production =vm_list_mut= use is retired, rather than aliased.
+
+The nested lifecycle fixtures exposed a separate consumer-context defect:
+Make redefines inherited =GAMBITDIR_INCLUDE= and =GAMBITDIR_LIB= as relative
+paths. The C builder interprets them from the generated file's directory.
+The new target alone exports the same variables as absolute paths. Official
+names, workflow, profile and limits stay intact; no alternate executor is added.
+The actual Make target now executes both fixtures, including successful global
+reclamation after secondary acknowledgement and duplicate/refused teardown.
+
+** Benefit and additional cost
+
+#+NAME: owned-lifetime-benefit-cost
+| Dimension | Concrete benefit | Added work / boundary |
+|-----------+------------------+-----------------------|
+| Unknown startup | Healthy roots can collect while an ABORT-only descriptor is quarantined | Retained native handle/control storage; no forced reclamation |
+| Native entry | Marker/root protection precedes allocating constructors; exit invalidates only owned activations |32 bytes per activation record on the measured Darwin profile, allocation and entry/registry CAS |
+| VM control | One bounded owner record replaces resize-only lifetime and carrier borrowing |15,560 bytes for MAX_PROCESSORS64 on the measured profile; private pointer storage is unchanged for SMP |
+| Effects | No arbitrary foreign callback runs inside a stopped GC collective or registry writer | Deferred still-object charge, owner drain latency and indefinite uncertain payload custody |
+| Publication | Readers exclude retirement; late notifications cannot be stranded by opener ordering | Member view admission/pending CAS; callbacks must obey the admitted native contract |
+| Control semantics | Shared precise frames and multi-shot continuation retain repeated map restoration | No one-shot restriction or per-actor heap conversion; no assumed throughput gain |
+| Build | Same cache, Bazel-derived C23 profile, configure/Make and exact test-only producer reuse | Full production-source changes still require the complete producer; no new executor/profile |
+
+The byte counts are layout/accounting observations, not RSS/peak or statistical
+performance measurements. Native payload size under an unknown destructor is
+not bounded by the control record. Throughput, latency distributions and whole
+VM peak remain unmeasured until matched product workloads exist. Result4 owns
+request/service/FIFO and complete product qualification; lifecycle safety does
+not qualify its scheduler work or increment the independent SMP12 families.
+
+** Reproduce with the existing build, not a second executor
+:PROPERTIES:
+:CUSTOM_ID: LIFETIME-REPRODUCTION
+:END:
+
+Recover the exact vendor source tree and profile/tool identities from the public
+receipt and source manifest. Use the existing Bazel source-toolchain profile,
+configure/Make and Modern C workspace supervisor. Underlying commands are below;
+apply the existing600/300/120-second domains and40/30-second fixture limits.
+=JOBS= and =CC= come from that environment/profile, never a hardcoded binary.
+
+#+NAME: lifetime-official-build-consumers
+#+begin_src sh :eval never :exports code
+# In the fixed configured SDK source; GAMBOPT=p1 throughout.
+make bootstrap
+make -j"${JOBS:?}" GAMBOPT=p1 from-scratch
+make clean
+make dummy-gsc-boot
+make -j"${JOBS:?}" core
+# Each existing product builds once when its actual Make inputs change.
+cd tests
+make root-task
+make root-task-bank
+make root-task-primitive
+make mutex-suspension
+make vm-lifecycle
+make vm-lifecycle-host
+make -q root-task root-task-bank root-task-primitive mutex-suspension vm-lifecycle vm-lifecycle-host
+make test11
+# Only the already-executed, exact-identity test11 is composed separately.
+make -o test11 check
+make test-startup-publication
+#+end_src
+
+All new test bodies remain phony and execute every time. Only the six existing
+compiled products persist in the same SDK. Their common Make/tool/runtime/header
+inputs plus their own Scheme sources determine invalidation. No second fixture framework,
+profile or runtime test runner or official test-name change is required.
+The packet records product preparation cost separately; unchanged before/after
+product hashes and the full check transcript establish actual reuse.

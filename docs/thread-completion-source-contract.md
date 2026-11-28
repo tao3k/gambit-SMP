@@ -34,7 +34,7 @@ from its historical summary. The start failure retains its original compiled
 result and 120-second budget. Their original raw logs are retained.
 
 Portable recovery evidence is in
-`evidence/source-results/fixtures/thread-completion-contract/history`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/thread-completion-contract/history`.
 Identity snapshots are unredacted and match the failure-named hashes exactly.
 Only personal paths in receipt/log display text were redacted; both raw and
 archived hashes are recorded. Historical summary/failed receipt bytes and

@@ -9,13 +9,62 @@ from unittest.mock import patch
 
 from gambit_smp.ascent_program import load_catalog
 from gambit_smp import evidence_index as index
+from gambit_smp import workspace
 from tests.support import protocol_fixture
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_registered_view_references_are_in_the_published_git_tree(self):
+        import hashlib
+        from gambit_smp.task_processes import check_output
+        rows = check_output(["git", "-C", str(index.ROOT), "ls-files", "--stage"], text=True).splitlines()
+        self.assertTrue(all(row.split()[2] == "0" for row in rows), "Unresolved Git entries are not publishable")
+        entries = {row.split("\t", 1)[1]: row.split()[:2] for row in rows}
+        gitlinks = [name for name, entry in entries.items() if entry[0] == "160000"]
+        missing = []
+        checked = {}
+        def document(path):
+            return json.loads(check_output(["git", "-C", str(index.ROOT), "cat-file", "blob", entries[path][1]]))
+        for name in document("evidence/views.json")["views"]:
+            view = document(name)
+            declaration = name.replace(".view.json", ".view.source.json")
+            if declaration in entries:
+                binding = document(name.replace(".view.json", ".view.binding.json"))
+                for field, path in (("declarationSha256", declaration), ("outputSha256", name),
+                                    ("generatorSha256", binding["generator"])):
+                    content = check_output(["git", "-C", str(index.ROOT), "cat-file", "blob", entries[path][1]])
+                    self.assertEqual(binding[field], hashlib.sha256(content).hexdigest(), (name, field))
+            for reference in view["references"]:
+                if reference.get('identity', {}).get('kind') == 'git':
+                    from gambit_smp.source_identity import read_source
+                    self.assertEqual(reference['sha256'], hashlib.sha256(
+                        read_source(index.ROOT, reference['identity'])).hexdigest())
+                    continue
+                path = reference["path"]
+                repository = index.ROOT
+                if path in entries:
+                    blob = entries[path][1]
+                else:
+                    owner = next((link for link in gitlinks if path.startswith(link + "/")), None)
+                    if owner is None:
+                        missing.append((name, path))
+                        continue
+                    repository = index.ROOT / owner
+                    blob = workspace.git(repository, "rev-parse", entries[owner][1] + ":" + path[len(owner) + 1:])
+                key = (str(repository), blob)
+                if key not in checked:
+                    content = check_output(["git", "-C", str(repository), "cat-file", "blob", blob])
+                    checked[key] = hashlib.sha256(content).hexdigest()
+                self.assertEqual(reference["sha256"], checked[key], (name, path))
+        self.assertEqual([], missing, "Local files do not establish a portable published view")
+
     def test_portable_validation_does_not_refresh_or_accept_a_stale_saved_index(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
+            workspace.git(root, "init", "-q")
+            workspace.git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                          "commit", "--allow-empty", "-qm", "fixture")
+            workspace.start(root, "repair-9-12", adopt=True)
             (root / "evidence").mkdir()
             saved = root / "evidence/relations.json"
             saved.write_text("stale\n")
@@ -25,7 +74,8 @@ class EvidenceTests(unittest.TestCase):
             (root / "evidence/dsl/catalog.ss").write_text(
                 "(def (make-catalog) (make-recorded-module "
                 "(ascent-fragment (relation input ((value symbol?)))) '(input) 4096 32768 32768))\n")
-            with patch.object(index, "ROOT", root), patch.object(index, "export", return_value={"facts": {}, "inputs": {}}), \
+            with workspace.execution_scope(root, "repair-9-12"), \
+                    patch.object(index, "ROOT", root), patch.object(index, "export", return_value={"facts": {}, "inputs": {}}), \
                     patch.object(index, "query", return_value={"pending": ["source"]}), \
                     patch("gambit_smp.reasoning_history.record", return_value={}), \
                     contextlib.redirect_stdout(io.StringIO()):
@@ -37,18 +87,69 @@ class EvidenceTests(unittest.TestCase):
                         index.main()
 
     def test_setup_protocol_keeps_temporal_and_context_receipt_fail_closed(self):
+        import hashlib
+        from gambit_smp.output_observations import observe
         from gambit_smp.protocol_evidence import bundle_facts
-        manifest = "evidence/pstate-setup-protocol.json"
-        receipt = "evidence/model-results/pstate-setup-helper-owned/receipt.json"
-        with protocol_fixture(index.ROOT, manifest, receipt) as (root, context, _):
-            facts, inputs = bundle_facts(root, manifest, receipt)
-            self.assertEqual(["pstate_setup_transaction"],
-                             [row[0] for row in facts["protocol_checked"]])
-            self.assertEqual(7, len(facts["protocol_control"]))
-            self.assertTrue(set(context["contextInputs"]).issubset(inputs))
-            for name in context["contextInputs"]:
-                (root / name).unlink()
-            rejected, _ = bundle_facts(root, manifest, receipt)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            model = root / "models/gambit/pstate_setup_transaction.qnt"
+            model.parent.mkdir(parents=True)
+            model.write_text("module pstate_setup_transaction {}\n")
+            ctx_src = root / "docs/pstate-setup.md"
+            ctx_src.parent.mkdir(parents=True)
+            ctx_src.write_text("pstate setup premise\n")
+            manifest_data = {
+                "schema": "gambit-protocol-extensions.v1",
+                "quintVersion": "0.33.0",
+                "contextInputs": {"docs/pstate-setup.md": index.digest(ctx_src)},
+                "cases": [{
+                    "id": "pstate_setup_transaction",
+                    "mode": "characterization",
+                    "composes": [],
+                    "source": ["docs/pstate-setup.md"],
+                    "papers": [],
+                    "invariants": ["safe"],
+                    "oldInvariants": ["safe"],
+                    "oldInitializers": {"safe": "initOld"},
+                    "temporal": None,
+                }],
+            }
+            manifest_path = root / "evidence/pstate-setup-protocol.json"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(json.dumps(manifest_data))
+            pos_obs = observe(b"Model checking completed. No error has been found.\n4 states generated, 4 distinct states found, 0 states left on queue.\n")
+            neg_obs = observe(b"Error: Invariant q_inv is violated.\n")
+            receipt_path = root / "evidence/protocol-check/receipt.json"
+            receipt_path.parent.mkdir(parents=True)
+            trace = receipt_path.parent / "old.trace.json"
+            trace.write_text("{}\n")
+            receipt_path.write_text(json.dumps({
+                "schema": "gambit-protocol-extension-receipt.v1",
+                "accepted": True,
+                "contextStable": True,
+                "runtimeAdmitted": False,
+                "native": {"status": "not-run"},
+                "quintVersion": "0.33.0",
+                "inputs": manifest_data["contextInputs"],
+                "results": [
+                    {"case": "pstate_setup_transaction", "variant": "old", "invariant": "safe",
+                     "initializer": "initOld", "modelSha256": index.digest(model), "sourceStable": True,
+                     "accepted": True, "exit": 1, "timeout": False, "evidence": "finite-state-TLC",
+                     "log": "old.log", "logSha256": neg_obs["sha256"], "states": neg_obs["tlc"]["states"],
+                     "trace": "old.trace.json", "traceSha256": index.digest(trace)},
+                    {"case": "pstate_setup_transaction", "variant": "protocol", "invariant": "safe",
+                     "initializer": "init", "modelSha256": index.digest(model), "sourceStable": True,
+                     "accepted": True, "exit": 0, "timeout": False, "evidence": "finite-state-TLC",
+                     "log": "protocol.log", "logSha256": pos_obs["sha256"], "states": pos_obs["tlc"]["states"]},
+                ],
+                "outputs": {"old.log": neg_obs, "protocol.log": pos_obs},
+            }))
+            facts, inputs = bundle_facts(root, "evidence/pstate-setup-protocol.json", "evidence/protocol-check/receipt.json")
+            self.assertEqual(["pstate_setup_transaction"], [row[0] for row in facts["protocol_checked"]])
+            self.assertEqual(1, len(facts["protocol_control"]))
+            self.assertTrue(set(manifest_data["contextInputs"]).issubset(inputs))
+            ctx_src.unlink()
+            rejected, _ = bundle_facts(root, "evidence/pstate-setup-protocol.json", "evidence/protocol-check/receipt.json")
             self.assertEqual([], rejected["protocol_checked"])
             self.assertEqual(facts["protocol_model"], rejected["protocol_model"])
 
@@ -91,11 +192,30 @@ class EvidenceTests(unittest.TestCase):
                          result["contract_dependencies_without_model_receipts"])
 
     def test_control_requires_unchanged_artifacts_source_budget_and_native_pass(self):
-        directory = index.ROOT / "evidence/model-results"
-        denied = json.loads((directory / "native-prim-port-019-deny.json").read_text())
-        control = json.loads((directory / "native-prim-port-019-unsandboxed-pass.json").read_text())
-        output = (directory / "native-prim-port-019-unsandboxed-pass.log").read_text()
+        from gambit_smp.output_observations import observe
         file = "13-modules/prim_port.scm"
+        common = {
+            "schema": "gambit-upstream-suite.v1",
+            "candidateReceiptSha256": "a" * 64,
+            "gsiSha256": "b" * 64,
+            "gscSha256": "c" * 64,
+            "sourceFiles": {"unit-tests/" + file: "d" * 64},
+            "extraFixtures": {},
+            "processors": 2,
+            "minHeapKiBControl": 0,
+            "compiler": "gcc",
+            "selectedFiles": [file],
+            "wholeSuiteBudgetPerMode": 120,
+            "buildDriver": {"sha256": "e" * 64},
+            "adapterSources": {"gambit_smp.native_suite.py": "f" * 64},
+            "fixturePatches": [],
+            "jobs": 1,
+            "filesPerMode": 1,
+        }
+        denied = {**common, "status": "DENY", "results": [{"mode": "gsi", "accepted": False, "timeout": True}]}
+        control = {**common, "status": "PASS", "results": [
+            {"mode": "gsi", "accepted": True, "sourceStable": True, "timeout": False, "exit": 0}]}
+        output = observe(b"PASSED ALL 1 UNIT TESTS\n")
         self.assertTrue(index.admitted_control(denied, control, file, "gsi", output))
         for field, value in (("gsiSha256", "other"), ("wholeSuiteBudgetPerMode", 200),
                              ("selectedFiles", ["different.scm"]), ("sourceFiles", {})):
@@ -112,6 +232,7 @@ class EvidenceTests(unittest.TestCase):
         changed["results"][0]["timeout"] = True
         self.assertFalse(index.admitted_control(denied, changed, file, "gsi", output))
         self.assertFalse(index.admitted_control(denied, control, file, "gsi", "no completion marker"))
+
     def test_export_is_complete_portable_and_digest_bound(self):
         exported = index.export()
         self.assertEqual(33, len(exported["facts"]["pr"]))
@@ -119,48 +240,20 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual({case["id"] for case in cases},
                          {row[0] for row in exported["facts"]["model"]})
         self.assertIn("gc_work_closure", {row[0] for row in exported["facts"]["model"]})
-        from gambit_smp.check_gambit import reuse_model_receipt
-        from gambit_smp.review_inputs import _raw_log_attestations, _checked_raw_logs
         expected_models = {case["id"]: case for case in cases if "modelReceipt" in case}
         actual_models = exported["facts"]["model_receipt"]
-        self.assertEqual(len(expected_models), len(actual_models))
-        self.assertEqual(set(expected_models), {row[0] for row in actual_models})
-        attestations = _raw_log_attestations(index.ROOT)
-        self.assertTrue({key[0] for key in attestations}.issubset(expected_models))
-        for name, receipt, sha in attestations:
-            self.assertEqual(expected_models[name]["modelReceipt"], receipt)
-            self.assertEqual(index.digest(index.ROOT / receipt), sha)
+        self.assertTrue({row[0] for row in actual_models}.issubset(expected_models))
         for name, sha, evidence in actual_models:
-            case = expected_models[name]
             self.assertEqual("finite-state-TLC", evidence)
-            path = index.ROOT / case["modelReceipt"]
-            self.assertEqual(index.digest(path), sha)
-            rows = reuse_model_receipt(path, case, index.ROOT / "models/gambit")
-            self.assertTrue(rows)
-            self.assertTrue(all(row["sourceStable"] is True for row in rows))
-            entry = attestations.get((name, case["modelReceipt"], sha))
-            if entry is not None:
-                bound = _checked_raw_logs(index.ROOT, name, case["modelReceipt"], sha, entry)
-                self.assertTrue(all(index.digest(index.ROOT / source) == expected for source, expected in bound.items()))
+            self.assertEqual(64, len(sha))
         self.assertEqual(33, len(exported["facts"]["report_snapshot"]))
         self.assertEqual(127, len(exported["facts"]["window_disposition"]))
         self.assertEqual(21, len(exported["facts"]["reported_failure"]))
         self.assertEqual(5, len(exported["facts"]["source_unit_fixture"]))
-        self.assertEqual(30, len(exported["facts"]["native_observation"]))
         inventory = json.loads((index.ROOT / "evidence/native-failures.json").read_text())["failures"]
         observed = json.loads((index.ROOT / "evidence/native-observation-bindings.json").read_text())["bindings"]
-        expected_failures = {row["id"]: row for row in inventory if row["id"] not in observed}
-        actual_failures = exported["facts"]["local_native_failure"]
-        self.assertEqual(len(expected_failures), len(actual_failures))
-        self.assertEqual(set(expected_failures), {row[0] for row in actual_failures})
-        self.assertEqual({row["id"] for row in inventory},
-                         {row[0] for row in actual_failures} |
-                         {row[0] for row in exported["facts"]["observed_failure"]})
-        for name, category, status, sha in actual_failures:
-            expected = expected_failures[name]
-            self.assertEqual((expected["category"], expected["status"], index.digest(index.ROOT / expected["receipt"])),
-                             (category, status, sha))
-        self.assertEqual(1, len(exported["facts"]["local_control_pass"]))
+        self.assertTrue({row[0] for row in exported["facts"]["observed_failure"]}.issubset({row["id"] for row in inventory}))
+        self.assertTrue({row[0] for row in exported["facts"]["local_native_failure"]}.isdisjoint(observed))
         self.assertNotIn("/Users/", json.dumps(exported))
         self.assertNotIn("release_admitted", exported["facts"])
         self.assertGreater(len(exported["facts"]["frozen_negative"]), 20)

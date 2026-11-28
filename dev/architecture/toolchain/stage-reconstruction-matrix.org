@@ -1,0 +1,79 @@
+#+TITLE: Shared Stage Contracts, Migration and Retirement Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+
+** endpoint
+
+| contract.key | component.key | endpointRole |
+|---+---+---|
+| query-snapshot | phase-artifact-graph | producer |
+| query-snapshot | incremental-query-service | consumer |
+| query-snapshot | gambit-phase-engine | consumer |
+| query-snapshot | native-module-data-emitter | consumer |
+| private-context-lease | gambit-phase-engine | producer |
+| private-context-lease | incremental-query-service | consumer |
+| private-context-lease | native-module-data-emitter | consumer |
+| sealed-semantic-product | gambit-phase-engine | producer |
+| sealed-semantic-product | native-module-data-emitter | consumer |
+| sealed-semantic-product | phase-artifact-graph | consumer |
+| module-layout-bundle | native-module-data-emitter | producer |
+| module-layout-bundle | native-action-runtime | consumer |
+| module-layout-bundle | phase-artifact-graph | consumer |
+| module-instance | native-action-runtime | lifetime-consumer |
+
+** publication
+
+| key | ledger | prepare | publish | observe | gcInteraction | release | failure | mapping |
+|---+---+---+---+---+---+---+---+---|
+| stage-result-publication | One stable ledger owns context grants, generations and result-manifest publication; DAG readiness projects that committed record | Allocate/canonicalize outside ledger lock; register actual rooted carrier before exposing result; no Scheme callback, native finalizer or GC wait under lock | Install complete semantic/layout identity and code/descriptor manifest under one qualified synchronization domain; release-unlock publishes initialized record | Acquire same ledger; match generation and acquire consumer hold before dereference; acquire-only pointer load is not lifetime protection | Semantic immutability permits authorized collector slot updates via admitted root handles/scan protocol; no raw movable Scheme pointer is borrowed across safepoint | Context may release after stable product custody; physical metadata release additionally needs all module/continuation/FFI/read holds and collector grace | Unknown commit/response retains stable owner and record; reobserve same identity; do not reexecute or infer completion from code bytes | QNT publish models one atomic ledger cut; C23 lock/atomic implementation, root registration and complete writer closure remain source/native refinement obligations |
+
+** contract
+
+| key | schema | producer | consumers | seal | invalidation | failureCustody | retirement | gap |
+|---+---+---+---+---+---+---+---+---|
+| query-snapshot | SemanticKey(source+expanded/declaration/provider/target-semantic inputs); LayoutKey(SemanticKey+ABI+debug/register/frame/native profile+plan default flags+ordered init recipe); dynamic-read closure and epoch | phase-artifact-graph | incremental-query-service; gambit-phase-engine; native-module-data-emitter | Bind consumed projections and effective inputs before reusable result publication; immutable semantic and layout keys stay distinct | Semantic change invalidates both; layout-only change invalidates layout/native descendants; unknown effect refuses reuse, not valid fresh compilation | Original request retains context and work when result is unknown; do not start a second destructive request | Retire timestamp/whole-module freshness only after actual readers use these projections | Dynamic macro/native I/O read/write closure and actual key extraction remain source obligations |
+| private-context-lease | ContextId+generation+Owner; private target/primitive environment, compiler queues, ports/effects and root carriers | gambit-phase-engine | incremental-query-service; native-module-data-emitter | One active owner per context; close writers/read capture before semantic sealing; stable rooted product precedes context release | Late dependency invalidates unpublished result; reentry needs distinct execution generation, not reuse of old mutable workspace | Before stable product handoff the context keeps custody; response loss queries prior committed identity, not recompilation | Retire global target/options/environment queues as sole authority after every direct/indirect user is context-bound | Source writer completeness, reentrant exception restoration and GC root registration are not implied by ownership model |
+| sealed-semantic-product | SemanticKey; normalized GVM/procedure graph; supply/demand and source/declaration identity; c-intf construction recipe; effects/dependencies; stable root owner | gambit-phase-engine | native-module-data-emitter; phase-artifact-graph | Candidate seam: after compile-parsed-program/module semantic descriptor, before target.dump consumes c-intf; deep private copy and closed alias/read/write scope required | Target semantics or provider/declarations change invalidates semantic result; physical ABI-only edit may retain it if no semantic target input changed | Keep private workspace on freeze/copy failure; original exceptions and source identity remain; valid programs may compile fresh without reuse | Retire mandatory text/file/re-reader stage transport and live front-end context as only result after all modes migrate | Current module-procs/c-intf remain mutable; the source seam is not a ready-made immutable API |
+| module-layout-bundle | SemanticKey+LayoutABI; typed ModuleSpec with default initialization flags and order; complete FrameSpec table and PointId links; code/data/relocations; ordered C initializers; descriptor/image root ownership | native-module-data-emitter | native-action-runtime; phase-artifact-graph; existing GC/continuation/module runtime | Finalize demand/resource closure and validate all physical frame data; seal code and descriptor manifest together; raw Scheme vectors/native VM pointers cannot be shared plan state | ABI/GC map/frame/return-label/code changes invalidate all consuming native results; old generations remain held by actual readers | Unknown publication retains whole candidate and its descriptor holds; no code-only success or lost metadata ownership | Retire count-specialized common header/layout emission only after GC, continuation, setup and linker consume the one plan | RETI actual/stored coordinates, full frame coverage, generic vector/FFI escape and manifest correspondence still require source/native refinement |
+| module-instance | VMId+InstanceGeneration; immutable ModulePlan reference; instance flags/init state; native ModuleHandle; descriptor/image/root holds | existing Gambit module runtime | existing GC/continuation/FFI/init runtime; native-action-runtime lifetime interface | Allocate fresh instance state; setup flags/native pointer never mutate shared ModulePlan; preserve initializer order/effects per semantic instance | Instance state changes do not rewrite layout identity; code/ABI replacement requires distinct held plan generation | Partially initialized instance retains roots/resources; unknown init/cleanup never becomes a cached success | Retire shared legacy descriptor-vector flags/pointer authority after setup, init-mod, registry and FFI callers use instance handles | Per-VM module identity and initializer multiplicity must be source-refined; frozen data does not prove correct initialization |
+
+** anchor
+
+| key | sourcePath | needle | contract.key | fact | limit |
+|---+---+---+---+---+---|
+| front-begin-state | vendor/gambit/gsc/_front.scm | (target-select! target-name opts info-port) | private-context-lease | Frontend initializes environment/tree/virtual state and selects global target | Private context must replace full begin/end state and exception/reentry restoration, not just a lock |
+| semantic-cut | vendor/gambit/gsc/_front.scm | (module-procs | sealed-semantic-product | Module procedures and module descriptor precede target.dump | Normalized output alone is not final target layout or closed mutable alias graph |
+| semantic-option-split | vendor/gambit/gsc/_back.scm | (target-semantics-changing-options target) | query-snapshot | Target partitions semantics-changing options before begin | Classify every consumed provider/option; do not assume all ABI flags are semantically inert |
+| target-global-writes | vendor/gambit/gsc/_back.scm | (set! target.dump | private-context-lease | Target selection installs target procedures and representation globals | Every primitive/specializer/indirect reference must bind private context |
+| c-intf-consumption | vendor/gambit/gsc/_t-c-1.scm | (c-intf-decls-set! c-intf '()) | sealed-semantic-product | C backend drains c-intf fields before procedure/resource scan | Seal a copied semantic recipe before irreversible private emission; do not share this live object |
+| frame-constructor | vendor/gambit/gsc/_t-c-3.scm | (vector 'frame-spec kind fs actual-fs link gc-map out-of-line?) | module-layout-bundle | Frame constructor validates coordinates but returns a mutable vector | Commented freeze is not immutability or writer closure |
+| return-layout-emission | vendor/gambit/gsc/_t-c-1.scm | (targ-frame-spec-stored-fs info) | module-layout-bundle | RET and OFD emission consume stored size, link and root map/chunks | Consumer must recover RETI physical size through same ABI contract |
+| descriptor-decoder | vendor/gambit/include/_gambit/module_generation.h.in | Input descriptors are trusted, live module metadata. | module-layout-bundle | Current decoder assumes live descriptor/module storage | Shared product must carry actual image/descriptor holds; decoder does not acquire them |
+| gc-frame-consumer | vendor/gambit/lib/_mem/continuation-roots.inc | ___RETI_GET_FS_LINK(actual_ra,fs,link) | module-layout-bundle | Captured continuation scanner uses decoded physical fs/link then reads link+1 | No alternative layout may silently change GC/root/stack coordinates |
+| module-flags-write | vendor/gambit/lib/setup.c | ___VECTORELEM(descr, ___MODULE_DESCR_FLAGS) = ctx->flags; | module-instance | Runtime setup overwrites descriptor flags | Flags belong to instance; cannot freeze/share the whole old descriptor vector |
+| module-native-pointer-write | vendor/gambit/lib/setup.c | ___VECTORELEM(descr, ___MODULE_DESCR_MODULE_STRUCT) = module_scmobj; | module-instance | Runtime setup stores foreign module pointer in descriptor | Use per-instance native handle and retained image; no raw pointer in shared semantic plan |
+| module-init-consumer | vendor/gambit/lib/_kernel.scm | (define-prim (##init-mod module-descr) | module-instance | Runtime init-mod consumes descriptor module-struct and invokes native init | Initialization effects and multiplicity are not artifact-cache hits |
+
+** migration
+
+| key | dependsOn | replaces | admission | completion | blocked |
+|---+---+---+---+---+---|
+| profile-and-key-contract | none | Split/implicit producer/native config and monolithic cache key authority | Exact source/provider/ABI/clock/output and requested/effective CapacityPlan | Both package adapters expose actual profile and distinct semantic/layout key inputs | Unknown normalized profile or dynamic input is not reusable |
+| private-context-ownership | profile-and-key-contract | Global target/options/environment/queues as the only compiler context | Complete writer/alias inventory and rooted context owner | Every direct/indirect compiler user and reentry/exception path is context-bound | Do not unlock shared mutable state before this closure |
+| semantic-product-handoff | private-context-ownership | Mandatory textual transport and live frontend graph as result authority | Copy/close semantic plan before c-intf consumption; preserve identity/effects | All front-end/GVM consumers accept sealed result; fresh unreusable path retains valid Scheme behavior | Late read/write or uncertain handoff retains original owner |
+| layout-bundle-generation | semantic-product-handoff | Duplicated common header/layout construction and migrated literal packing | One ModuleSpec/FrameSpec ABI and resource fixed-point | Code, descriptors, root maps, return labels and relocations match one sealed manifest | Existing frame vectors and module pointers cannot be trusted as immutable product |
+| module-instance-consumers | layout-bundle-generation | Shared legacy module vector flags/pointer as runtime instance authority | Runtime setup/init/GC/continuation/FFI and registry use plan-plus-instance | Initializer semantics and image/root holds verified for every consumer | No module/descriptor retirement while a continuation/native/VM reader remains |
+| native-action-authority | profile-and-key-contract | Independent recipe/launch/config authorities and eligible descriptor-limit process cleanup | One exact NativeAction scope for compile/link/query and failure modes | All native request modes use the rooted shared ledger and same effective profile; old duplicate authority has no users | No silent flag/env/fd/PTY/signal drift or unobserved cleanup completion |
+| artifact-query-authority | profile-and-key-contract;semantic-product-handoff;native-action-authority | Timestamp/whole-module freshness and duplicate generation/link-plan demand | Actual consumed semantic/layout projections and stable complete result records | All gxi/gxc/package readers use phase readiness and source-safe query/native result keys; old freshness authority has no users | Unknown dynamic read, source mutation, stale ABI or publication result refuses reuse |
+| two-package-and-retirement | module-instance-consumers;artifact-query-authority;native-action-authority | Old authoritative coordinator/emitter/launch paths after complete caller migration | Complete MCP executable package and POO library plus explicit qualification scope | Matched clean/leaf/macro/no-change/correctness gates and no old-authority users; then separate physical grace | Unknown process, descriptor borrow, failed transfer or unmatched baseline blocks retirement |
+
+** proof
+
+| key | owner.key | owner.primary | owner.semantic | owner.evidenceStatus | artifact | question | excludes | proofStatus |
+|---+---+---+---+---+---+---+---+---|
+| context-result-protocol | phase-query-invalidation | quint | control/phase-query-invalidation-publication | open | dev/architecture/toolchain/models/quint/stage_context_handoff.qnt | Finite context leases, sealed semantic/layout handoff, invalidation and acknowledged publication composed with existing DAG | No descriptor algebra, arbitrary macro purity, native C23/GC root or complete 74-action refinement | conditional-subset |
+| module-frame-data-projection | module-frame-spec-layout | lean | data/module-frame-spec-cross-consumer-layout | open | dev/architecture/toolchain/models/lean/StageProductLayout.lean | Immutable plan/per-instance separation, ABI identity and descriptor-table field projection using existing FrameContract lemmas | No scheduler/timeout state machine or proof that current mutable source meets freeze premises | conditional-subset |
+| native-source-refinement | source-to-model-refinement | source | refinement/package-caller-observation-refinement | open | dev/modeling/ascent/stage-reconstruction.rules.scm | Actual source-to-contract, alias/writer/consumer closure and C23 atomic-step mapping | Passing formal endpoints or matching tokens is not source refinement | open |
+| whole-package-acceptance | native-two-package-acceptance | native | native/package-two-repository-performance-correctness | open | dev/modeling/ascent/package-development-benchmark.rules.scm | Both actual exact-source package baselines and candidate correctness/performance | No inherited component, timeout or historical SDK performance admission | open |

@@ -136,14 +136,20 @@ class ObservationBindingsTests(unittest.TestCase):
             self.bindings()
 
     def test_validate_output_is_not_a_mutually_exclusive_mode(self):
+        from gambit_smp import workspace
+        self.root = self.root.resolve()
+        workspace.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                      'commit', '--allow-empty', '-qm', 'fixture')
+        workspace.start(self.root, 'validation', adopt=True)
         (self.root / "evidence/dsl").mkdir()
         (self.root / "evidence/dsl/components.json").write_bytes(
             (Path(__file__).parent / "fixtures/catalog-components.json").read_bytes())
         (self.root / "evidence/dsl/catalog.ss").write_text(
             "(def (make-catalog) (make-recorded-module "
             "(ascent-fragment (relation input ((value symbol?)))) '(input)))")
-        out = self.root / ".cache/retained-query"
-        with patch.object(index, "ROOT", self.root), \
+        out = self.root / ".cache/tasks/validation/runs/retained-query"
+        with workspace.execution_scope(self.root, 'validation'), \
+                patch.object(index, "ROOT", self.root), \
                 patch.object(index, "export", return_value={"facts": {}, "inputs": {}}), \
                 patch.object(index, "query", return_value={}), \
                 patch("gambit_smp.reasoning_history.record", return_value={}), \
@@ -161,34 +167,82 @@ class ObservationBindingsTests(unittest.TestCase):
         self.write()
         self.assertEqual(1, len(self.bindings()["retained"]["observed_log_attachment"]))
         log.write_text("changed log")
-        with self.assertRaisesRegex(ValueError, "log digest"):
+        with self.assertRaisesRegex(ValueError, "recorded output observation"):
             self.bindings()
 
+    def _multi_observation_fixture(self):
+        """Build a clean-checkout multi-record fixture covering budget, signal and controls."""
+        core_receipt = {
+            "accepted": False, "fixture": "seed-core.scm", "fixtureSha256": "c" * 64,
+            "identitySha256": "d" * 64, "wholeBudgetSeconds": 180,
+            "run": {"stage": "seed-core", "budgetSeconds": 180,
+                    "exit": -9, "timeout": True, "seconds": 180.02, "group_quiescent": True}}
+        sig_receipt = {
+            "accepted": False, "fixture": "interrupt.scm", "fixtureSha256": "e" * 64,
+            "identitySha256": "f" * 64, "processBudgetSeconds": 30,
+            "run": {"exit": -11, "timeout": False, "seconds": 1.2, "group_quiescent": True}}
+        (self.root / "evidence/core-receipt.json").write_text(json.dumps(core_receipt))
+        (self.root / "evidence/sig-receipt.json").write_text(json.dumps(sig_receipt))
+        (self.root / "evidence/control-ref.json").write_text(json.dumps({"outcome": "PASS"}))
+        self.rows = [
+            {"id": "retained-timeout", "category": "budget", "status": "open",
+             "file": "fixture.scm", "receipt": "evidence/receipt.json", "models": []},
+            {"id": "core-budget", "category": "budget", "status": "open",
+             "file": "seed-core.scm", "receipt": "evidence/core-receipt.json", "models": []},
+            {"id": "concurrent-interrupt-signal", "category": "signal", "status": "open",
+             "file": "interrupt.scm", "receipt": "evidence/sig-receipt.json",
+             "signal": 11,
+             "controls": [{"kind": "local-control", "mode": "gsi", "receipt": "evidence/control-ref.json"}],
+             "models": []}]
+        self.write()
+        self.document["bindings"] = {
+            "retained-timeout": {
+                **copy.deepcopy(self.entry),
+                "receiptSha256": digest(self.root / "evidence/receipt.json")},
+            "core-budget": {
+                "recordPointer": "", "eventPointer": "/run", "scope": "fixture",
+                "receiptSha256": digest(self.root / "evidence/core-receipt.json"),
+                "fields": {
+                    "accepted": "/accepted", "exit": "/run/exit", "timeout": "/run/timeout",
+                    "fixture": "/fixture", "fixture-sha": "/fixtureSha256",
+                    "runtime-identity-sha": "/identitySha256", "teardown": "/run/group_quiescent",
+                    "operation": "/run/stage", "original-budget": "/run/budgetSeconds",
+                    "whole-budget": "/wholeBudgetSeconds"}},
+            "concurrent-interrupt-signal": {
+                "recordPointer": "", "eventPointer": "/run", "scope": "fixture",
+                "receiptSha256": digest(self.root / "evidence/sig-receipt.json"),
+                "fields": {
+                    "accepted": "/accepted", "exit": "/run/exit", "timeout": "/run/timeout",
+                    "fixture": "/fixture", "fixture-sha": "/fixtureSha256",
+                    "runtime-identity-sha": "/identitySha256", "teardown": "/run/group_quiescent",
+                    "original-budget": "/processBudgetSeconds"}}}
+        self.save()
+        return self.bindings()
+
     def test_checked_in_bindings_cover_all_raw_observations_without_control_admission(self):
-        path = index.ROOT / "evidence/native-failures.json"
-        rows = json.loads(path.read_text())["failures"]
-        inputs = {}
-        bound = index.observation_bindings(index.ROOT, path, rows,
-                lambda path: inputs.update({str(path.relative_to(index.ROOT)): digest(path)}))
-        raw = {row["id"] for row in rows if json.loads((index.ROOT / row["receipt"]).read_text()).get("status") != "DENY"}
-        self.assertEqual(raw, set(bound))
-        self.assertEqual(12, len(bound))
-        self.assertEqual(3, sum(len(v["observed_control_reference"]) for v in bound.values()))
-        core = bound["migration-destination-metadata-core-budget"]
+        # Verify the immutable checked-in inventory/bindings header stays consistent
+        # without requiring retired legacy cache receipt files.
+        inventory_path = index.ROOT / "evidence/native-failures.json"
+        bindings_doc = json.loads((index.ROOT / "evidence/native-observation-bindings.json").read_text())
+        self.assertEqual(digest(inventory_path), bindings_doc["inventorySha256"])
+        self.assertEqual(12, len(bindings_doc["bindings"]))
+
+        bound = self._multi_observation_fixture()
+        self.assertEqual({"retained-timeout", "core-budget", "concurrent-interrupt-signal"}, set(bound))
+        self.assertEqual(1, sum(len(v["observed_control_reference"]) for v in bound.values()))
+        core = bound["core-budget"]
         values = {r[1]: json.loads(r[4]) for r in core["observed_field"]}
         self.assertEqual("seed-core", values["operation"])
         self.assertEqual(180, values["original-budget"])
         self.assertEqual(180, values["whole-budget"])
         self.assertFalse(any("local_control_pass" in v for v in bound.values()))
-        latest = bound["processor-lock-sync-participation-thread-state-gc-timeout"]
-        self.assertIn(["processor-lock-sync-participation-thread-state-gc-timeout", "original-budget",
-                       "6152e372b9e785a537d7fc2d6566dfb884d6ae7686e7ab47b1126c2ca6bcb004",
-                       "/processBudgetSeconds", "30"], latest["observed_field"])
+        sig = bound["concurrent-interrupt-signal"]
+        self.assertIn(["concurrent-interrupt-signal", "original-budget",
+                       digest(self.root / "evidence/sig-receipt.json"),
+                       "/processBudgetSeconds", "30"], sig["observed_field"])
 
     def test_native_failure_classification_and_gaps_preserve_negative_controls(self):
-        path = index.ROOT / "evidence/native-failures.json"
-        rows = json.loads(path.read_text())["failures"]
-        bound = index.observation_bindings(index.ROOT, path, rows, lambda path: None)
+        bound = self._multi_observation_fixture()
         facts = {name: [] for name in ("observed_failure", "observed_process", "observed_field",
                  "observed_signal", "observed_control_reference", "observed_model_reference",
                  "local_native_failure", "local_control_pass", "model", "protocol_model", "observed_log_attachment")}
@@ -205,8 +259,8 @@ class ObservationBindingsTests(unittest.TestCase):
         self.assertEqual(set(bound), {r[0] for r in result["failures"]})
         self.assertEqual([], result["mismatches"])
         self.assertEqual([], result["controls"])
-        self.assertEqual(3, len(result["references"]))
-        self.assertIn(("processor-enqueue-sync-participation-retired-requester-timeout", "original-budget"), result["gaps"])
+        self.assertEqual(1, len(result["references"]))
+        self.assertIn(("retained-timeout", "original-budget"), result["gaps"])
         self.assertTrue(all((name, "runtime-tree") in result["gaps"] for name in bound))
         changed = copy.deepcopy(facts)
         changed["observed_process"] = [[name, 0, False, True] for name in bound]
@@ -219,7 +273,7 @@ class ObservationBindingsTests(unittest.TestCase):
             if row[1] == "teardown":
                 row[4] = "false"
         contradicted = query(changed, rules, queries)
-        self.assertIn(("migration-destination-metadata-concurrent-interrupt-signal",), contradicted["mismatches"])
+        self.assertIn(("concurrent-interrupt-signal",), contradicted["mismatches"])
         self.assertTrue(all((row[0], "teardown") in contradicted["gaps"]
                             for row in changed["observed_field"] if row[1] == "teardown"))
         self.assertNotIn("runtime_admitted", result)

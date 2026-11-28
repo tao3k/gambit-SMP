@@ -1,0 +1,64 @@
+#+TITLE: Standalone C test entry contract
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never-export
+
+* Actual failure and source authority :ci:delivery:
+:PROPERTIES:
+:AUTHORITY: GambitTestEntry
+:SOURCE: models/sysml/test-entry.sysml
+:END:
+
+[[https://github.com/tao3k/gambit/actions/runs/40424048692][The target-integration run]] passed Linux, macOS and both MinGW builds.
+MSVC reached test12 and failed with unresolved =WinMain=. The existing
+configure builder explicitly selects =WinMainCRTStartup=, even with its
+console subsystem flag. The standalone stack, scope and frame controls only
+defined =main(void)=. Repeating bootstrap or changing test limits cannot
+repair that symbol contract.
+
+[[https://learn.microsoft.com/cpp/build/reference/entry-entry-point-symbol?view=msvc-170][Microsoft's entry documentation]] distinguishes the main and WinMain CRT
+entry contracts. Gambit's existing =___MAIN_PROC= gives the corresponding
+typed =WINAPI WinMain= signature and C linkage, but invokes Scheme setup;
+that setup must not replace a standalone C assertion body.
+
+* Shared adapter :source:ownership:
+
+The private [[file:../../../vendor/gambit/tests/test-entry.h][test entry header]] supplies the configured Windows signature
+and calls the original static body once, returning its actual status. Other
+configurations retain =int main(void)=. The three existing bodies are byte
+identical after accounting for the include and declaration replacement.
+The [[file:../../../vendor/gambit/tests/test-entry.c][entry control]] verifies single dispatch and propagation of a nonzero result
+on other hosts, and runs against the real configured entry on Windows. Its
+non-Windows stub is explicitly not evidence of Windows SDK/calling-convention
+compatibility; remote CI supplies that dimension.
+
+The existing Make BUILD_EXE service builds every control. Add both files to
+its source inventory and the entry control to the ordinary check prerequisites.
+No workflow command, assertion, expected output or runtime service changes.
+The pending scope-to-write-authority rename adopts the same entry in its
+working control without reviving its deleted legacy file or publishing the
+unqualified rename with this cut.
+
+* Benefit and cost matrix :assurance:
+
+| Mechanism | Benefit | Added cost | Evidence boundary |
+|-----------+---------+------------+-------------------|
+| One typed entry adapter | All three C controls match configured CRT entry | One static call on configured Windows; direct main elsewhere | Same old assertions and return status |
+| Single-call/nonzero control | Detect swallowed failures or repeated execution | One small C compile/run in original check | Real Windows ABI requires remote result |
+| Existing distribution inventory | Header/control available in source archives | Two private test files | No installed public header or namespace |
+| Exact runtime reuse | No repeated compiler bootstrap for test-only source | Source/product/profile verification and configured-helper refresh | Same completed default runtime; SMP-private output excluded |
+
+* Five-gate scope and exclusions :review:
+
+Native evidence (local locator: =../../../.cache/research/legacy-evidence/evidence/refactoring/modern-c/test-entry/tests.json=; unavailable in a clean checkout) records original controls and frame/continuation/root
+consumers, the entry control, unchanged body comparison and exact reused
+runtime hashes. SysML selects the source/native/learning/process/question
+obligations and shared ASCENT rejection controls. No QNT/Lean protocol is
+duplicated: this adapter adds no GC/control state machine or runtime layout.
+
+The original Scheme thread_interrupt test remains unchanged. The separate
+SMP-profile timing failure blocks the resource batch; the proposed handshake
+was rejected by automatic review and was not executed. This entry cut neither
+weakens that standard nor claims whole-SMP progress. Strict C23 compiler
+admission, header consumers, runtime root/exit custody and modular SMP CI
+remain separately qualified responsibilities.

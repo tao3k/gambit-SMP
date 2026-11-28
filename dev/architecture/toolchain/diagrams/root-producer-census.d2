@@ -1,0 +1,45 @@
+direction: down
+census: "Census / native SysML" {
+ grid-columns: 2
+ n0: "vm-object\nprocessor-zero VM object body; root ownership stable\nuntil strong phase closes"
+ n1: "symbols-keywords\nprocessor-zero symbol/key table roots; table bodies\nuse object scan semantics"
+ n2: "globals\nall processors partition SINGLE_VM sublists or per-VM\nglobal slots using floor endpoints; fixed n and np\nrequired"
+ n3: "continuation-denv\neach processor live stack with frame GC map plus\nbreak-frame captured chain; denv is a traced object\nedge, not a separate arbitrary C root"
+ n4: "registers\neach processor ps->r array; compiler must spill actual\nlive machine values before synchronized GC"
+ n5: "saved\neach processor saved array; explicit SAVE macros\nretain temporary Scheme arguments across allocating\ncalls"
+ n6: "type-cache\neach processor type_cache array"
+ n7: "processor-object\neach processor Scheme object body, including threaded\nlanguage state reachable through its fields"
+ n8: "external-still\neach processor setup traverses still chain and seeds\nobjects with nonzero external refcount; descendants\nare scanned under active credit"
+ n9: "rc-payload\nregistered h->data is a root slot; registration is per\nPSTATE but only processor zero currently walks its RC\nchain"
+ n10: "ffi-temporary\nExplicit marker proc needs a root before allocating;\nimplicit closure relies on RC and c_closure_self; Tcl\nstill vector already has external protection"
+ n11: "weak-exclusion\nWill testators and weak table edges follow weak\npolicy; do not add them as strong roots to make\ncoverage look complete; reachable actions follow\nstrong scan policy"
+}
+protocol: "Protocol / native SysML" {
+ grid-columns: 2
+ n0: "manifest\nEnumerate ten root families plus callback admission\nand weak-phase exclusions; exact physical slot\ncompleteness and supported configuration remain\nseparate obligations"
+ n1: "writer-close\nClose new register/write/read/unlink/exit admission,\ndrain accepted operations without holding GC-required\nlocks, then freeze root membership and payload\nversions; current API does not implement this protocol"
+ n2: "stable-scan\nScanner records stable owner, epoch and payload\nversion; a value read lease alone cannot prevent\nset_data_rc or unlink; stale snapshot never issues a\nreceipt"
+ n3: "idle-custody\nidle decrements only after own root producers and all\nprivate/published/scanner/derived responsibilities\nsettle; active credit transfers before a thief scans"
+ n4: "receipt\nFull root census plus same-epoch stable scans and no\noutstanding owner duties permit a conditional closure\nreceipt; peer-return and storage retirement remain\nseparate"
+}
+settle: "Settle / native SysML" {
+ grid-columns: 2
+ n0: "copy\nForwarding visibility does not discharge payload\ninitialization; copying call returns before caller can\nidle"
+ n1: "tail\nPAIR first field follows inline tail, remaining field\nfollows body scan; tail completion cannot be inferred\nfrom only scan_and_advance"
+ n2: "cursor\nLocal alloc cursor is committed before control\nreturns; incomplete-chunk scan compares against\ncurrent alloc_heap_ptr"
+ n3: "publication\nBody/end marker/link precede published tail; active\nproducer covers synchronous call; independent\nproducers require explicit credit"
+ n4: "scanner\nPopped still node and dequeued chunk remain in live\nnative scanner frames; recursive children settle\nbefore next idle attempt"
+ n5: "still-derived\nMovable scanning may enqueue still objects, so\nstill/movable local loop repeats until no still work\nremains"
+ n6: "idle\nUnder termination mutex, decrement only after local\ndrain/steal; waiter seeing zero returns without\nreacquiring; nonzero wake reacquires first"
+}
+gain: "Gain / native SysML" {
+ grid-columns: 2
+ n0: "root-scan\nNo additional graph traversal is required merely for\nthe receipt; added census bookkeeping and changed RC\ncoverage are real"
+ n1: "credit\nExisting worker count may cover work but cannot cover\nomitted roots or uncontrolled FFI writers"
+ n2: "rc-coverage\nAdditional RC scan cost is proportional to roots\npreviously omitted; this is correctness cost, not a\nperformance regression benchmark"
+}
+proof: "RPC-H/I/S/E -> local ASCENT -> QNT / Lean; source and native gates OPEN"
+census -> protocol
+protocol -> proof
+settle -> proof
+proof -> gain

@@ -1,0 +1,73 @@
+{
+  "candidateTree": "b7bcdcdb2f20f750d94bd75e83aedd42275d85b9",
+  "model": "models/gambit/interrupt_request_lifecycle.qnt",
+  "modelSha256": "94d71c55ffc92e5a54147d180c03221e71beeb780dea1325d30c7974a0ed5b61",
+  "status": "source review, not native or whole integration admission",
+  "obligations": [
+    {
+      "id": "logical-root",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "line": 3653,
+      "sourceSha256": "19a727b6f30b8a155a7916b4471d84487290363ff567ea9e0e1ac7dce7043a14",
+      "mechanism": "Frame header captures caller once after initial mutex unlock. Header.denv=#f; current Thread owns denv. Repark does not execute caller.",
+      "qntStep": "waitServiceEntry / waitRepark",
+      "remainingRefinementPremise": "GC forwarding repairs shared frame cells; no unrestricted concurrent frame writer."
+    },
+    {
+      "id": "registration",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "line": 1813,
+      "sourceSha256": "19a727b6f30b8a155a7916b4471d84487290363ff567ea9e0e1ac7dce7043a14",
+      "mechanism": "Current live Thread and immutable join target/deadline are separate. Original CV/Thread/processor locks arbitrate target-end vs queue insertion.",
+      "qntStep": "waitReleaseDuringService / waitLateRegister",
+      "remainingRefinementPremise": "Sorted Thread locks and end-condvar publication preserve original lock order."
+    },
+    {
+      "id": "physical-root",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "line": 6384,
+      "sourceSha256": "ca72ca131b4508b3b9f61e033664f8c4c3859bdc95616d8541e3942ea9702d1e",
+      "mechanism": "Invalidate overflow undo before replacing context break.Next and physical Thread.cont.frame; no safepoint/allocation in publication fragment. Logical header remains unconsumed.",
+      "qntStep": "waitRepark",
+      "remainingRefinementPremise": "The active execution owns this context; collector scans only a closed root view. These ordinary stores are not arbitrary raw-native-death safe."
+    },
+    {
+      "id": "true-copy",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "line": 1079,
+      "sourceSha256": "2236a85b7945f9a281359ad7d4de17eabc3db1c3cfed90eb3d329dfb175adb74",
+      "mechanism": "Restore installs a link; break handler actually copies caller payload from source stack or heap FRAME and advances link. Repark bypasses this return path until real completion.",
+      "qntStep": "outside temporal model",
+      "remainingRefinementPremise": "FrameSpec layout and existing copy/alias laws must hold; fewer macro calls alone prove no reduced work."
+    },
+    {
+      "id": "gc-materialization",
+      "path": "vendor/gambit/lib/_mem/continuation-roots.inc",
+      "line": 5,
+      "sourceSha256": "826a1471d7ae68cbe49f1d7f3684128857f4d89cbbdd0407049332bc3d9c6fc1",
+      "mechanism": "Existing captured-chain scanner materializes stack frames, forwards aliases and repairs roots. Hidden scheduler header uses ordinary continuation/FRAME layout.",
+      "qntStep": "waitServiceCollect",
+      "remainingRefinementPremise": "RootEpoch update abstracts actual scanner success, not a proof of complete GC or C memory order."
+    },
+    {
+      "id": "census",
+      "path": "vendor/gambit/lib/_mem/copy-planning.inc",
+      "line": 129,
+      "sourceSha256": "6ce2b83705b5830549359019e1ffcea1e54cb5d7f554e5e14e380d393c607e4f",
+      "mechanism": "Frames counts newly materialized source-stack frames. Mature heap FRAME objects contribute ordinary object/copy work. Census count is not all frames visited or RSS.",
+      "qntStep": "outside temporal model",
+      "remainingRefinementPremise": "Counter reset, round idle and p1 observation admission; preserve source/candidate identity."
+    },
+    {
+      "id": "transient-abort",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "line": 3007,
+      "sourceSha256": "19a727b6f30b8a155a7916b4471d84487290363ff567ea9e0e1ac7dce7043a14",
+      "mechanism": "CV and I/O interruption returns#t with no signal/readiness credit. I/O retains post-wake interrupt check; caller condition/read retry remains necessary.",
+      "qntStep": "waitAbortTransient / waitIOPostcheck",
+      "remainingRefinementPremise": "No synthetic CV epoch or false signal. Original wakers keep their distinct timeout/signal/ready ownership."
+    }
+  ],
+  "runtimeProducerTree": "8e425d4ce193c60617d3415bb3cebba7831974f0",
+  "nativeContradiction": "wait-p2-crash.json; source premises not discharged by these bounded histories"
+}

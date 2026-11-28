@@ -1,0 +1,62 @@
+# Learning From OCaml and Reflecting on Gambit
+
+CL01. Use OCaml as a source of questions and mechanisms, not a target to clone.
+Its parallelism work frames sequential behavior/performance and pause/parallel
+tradeoffs as separate requirements, and explains how exposed C heap access
+constrains collector changes. For Gambit this directs attention to actual raw
+writers, native roots and callbacks before selecting a generational algorithm.
+Its benchmark results provide no Gambit speedup estimate. [LP01, LP06; CE05–CE09]
+
+CL02. The historical fiber discussion identifies a scan-versus-activation race.
+The selected OCaml source also treats continuation scanning specially during
+minor promotion and major marking. Reflecting on Gambit reveals a different
+object graph: stack-backed capture, heap FRAME materialization, shared shells
+and repeated restore-by-copy. The transferable lesson is to qualify scanning
+and activation ownership. The proposed leases/stabilization protocol is our
+Gambit-specific candidate, not an assertion that OCaml's continuation layout or
+locking can be copied unchanged. [LP01, LP04–LP05; CE02–CE05]
+
+CL03. OCaml's effect-handler paper explicitly chooses one-shot continuations.
+Gambit's map can retain an ordinary Scheme continuation and return from it more
+than once. Ordinary restore must therefore retain a reusable saved graph and
+must not destructively reuse earlier returned lists. Any one-shot optimization
+needs its own proven restricted domain and a complete general fallback.
+[LP02–LP03; CE01, CE04, CE08]
+
+CL04. The selected OCaml write-barrier source makes old-referent marking and
+new young-edge remembering visible as different duties. This is useful
+mechanism evidence, not a ready Gambit barrier: Gambit's frame cursor/denv
+mutators, GC forwarding links, stack roots, global cells and RC data need their
+own slot/lifetime/access classification. The exact store and CAS ordering in
+one runtime cannot be transplanted as a universal ordering theorem. Our
+generated-C plan must preserve these distinctions explicitly. [LP04; CE03,
+CE05–CE09]
+
+CL05. Reflect on success by asking what should remain Gambit-specific. Preserve
+the paper's front/back negotiation, cheap ordinary capture where safe,
+general Scheme control, C interoperation and existing parallel mechanisms.
+Reconstruct the hidden GC/root/store/owner boundaries that currently couple
+them. Typed records and code generation help make that architecture explicit;
+they are not a collector algorithm or a proof of concurrent safety. Source
+shows that even ordinary frame reconstruction is a real writer, so the
+qualification domain cannot stop at set-cdr!. [LP07; CE01–CE09]
+
+CL06. Select the candidate on its own theory: can unchanged mature graphs skip
+repeated copying/minor traversal while promotion, barriers, roots, activation,
+weak processing and access coordination preserve Gambit's meaning and fit the
+workload's runtime/space bounds? Reject or redesign it where the
+[benefit conditions](map-continuation-gc-benefit-matrix.md) fail. A different
+promotion policy, major strategy or stack representation can be studied if
+the corresponding invariants and work model are changed explicitly. Neither
+“OCaml did it” nor “AI can rewrite it” is an acceptance argument.
+
+## Root Discipline and Historical Preconditions
+
+The [writer study](continuation-writer-closure-design.md) learns from OCaml's
+ordinary versus generational global-root contract: less scanning requires
+cooperative writes and complete source coverage. The
+[evidence](continuation-writer-evidence.md) also reviews Doligez/Leroy's early
+mutability/identity assumptions and reflects on why Gambit's shared mutable
+frames, binding cells and multi-shot control need their own choice/proof.
+The [matrix](continuation-writer-benefit-matrix.md) evaluates those policies
+without transplanting a collector, performance number or one-shot restriction.

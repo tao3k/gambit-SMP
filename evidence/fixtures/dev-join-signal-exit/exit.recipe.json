@@ -1,0 +1,270 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-join-signal-exit",
+  "scope": "Quint controls for retained RC visibility, a failed join, signal retirement, an owner-exit guard, and an FFI exit catcher: a failed join keeps the roots visible, a terminal seal does not replay, and an owner exit does not drop a live guard. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 280,
+  "inputs": [
+    "models/gambit/retired_rc_gc_visibility.qnt",
+    "models/gambit/vm_registry_failed_join_retention.qnt",
+    "models/gambit/root_signal_retirement.qnt",
+    "models/gambit/owner_exit_guard.qnt",
+    "models/gambit/ffi_exit_catcher_closure.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-join-signal-exit/binding.json",
+    "evidence/fixtures/dev-join-signal-exit/observations.json",
+    "evidence/fixtures/dev-join-signal-exit/exit.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "vis-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt"
+      }
+    },
+    {
+      "id": "vis",
+      "capability": "quint.test",
+      "dependsOn": [
+        "vis-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt",
+        "parsed": "vis-parse",
+        "main": "retired_rc_gc_visibility",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "retainedButUnscannedControlTest",
+          "transferWithoutAckControlTest",
+          "failedJoinVisibleRootsTest",
+          "failedJoinRecoveryTest",
+          "successfulJoinTest"
+        ]
+      }
+    },
+    {
+      "id": "join-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/vm_registry_failed_join_retention.qnt"
+      }
+    },
+    {
+      "id": "join",
+      "capability": "quint.test",
+      "dependsOn": [
+        "join-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/vm_registry_failed_join_retention.qnt",
+        "parsed": "join-parse",
+        "main": "vm_registry_failed_join_retention",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "countOnlyControlTest",
+          "failedJoinRetainsTest",
+          "retryBeforeCleanupTest",
+          "normalJoinTest"
+        ]
+      }
+    },
+    {
+      "id": "signal-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/root_signal_retirement.qnt"
+      }
+    },
+    {
+      "id": "signal",
+      "capability": "quint.test",
+      "dependsOn": [
+        "signal-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/root_signal_retirement.qnt",
+        "parsed": "signal-parse",
+        "main": "root_signal_retirement",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "closedSignalDefersTest",
+          "rawRootControlTest",
+          "transientReopenDeliversRootOnlyTest",
+          "admittedReaderBlocksReopenTest",
+          "terminalSealNeverReplaysTest",
+          "failedJoinRetainsThenRetryTest"
+        ]
+      }
+    },
+    {
+      "id": "guard-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/owner_exit_guard.qnt"
+      }
+    },
+    {
+      "id": "guard",
+      "capability": "quint.test",
+      "dependsOn": [
+        "guard-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/owner_exit_guard.qnt",
+        "parsed": "guard-parse",
+        "main": "owner_exit_guard",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "normalSfunExitTest",
+          "internalTrampolineTripRetainsInvocationTest",
+          "normalRunExitTest",
+          "runErrorReturnsCodeTest",
+          "childEscapePreservesTargetTest",
+          "twoLevelEscapeToRunTest",
+          "targetNormalExitAfterEscapeTest",
+          "precommitDutyTransfersTest",
+          "postcommitResultSurvivesEscapeTest",
+          "conversionHandlerMayNestBeforeEscapeTest",
+          "commonPostTrySettlementTest",
+          "catcherRestoredBeforePropagationTest",
+          "escapedRootsStayOffStackTest",
+          "stopUnknownDoesNotTransferTest",
+          "failedPremiseStopsAdmissionTest",
+          "bridgeMustFinishBeforeTargetTest",
+          "cErrorCrossesBothSfunGuardsTest",
+          "normalCommittedResultNeedsNoRollbackTest",
+          "matchedTargetMayLaterInvalidateDuringOwnExitTest",
+          "staleChildFpCounterexampleTest",
+          "killedLiveTargetCounterexampleTest",
+          "discardedCommittedResultCounterexampleTest",
+          "escapedInitializerLostCounterexampleTest",
+          "doubleMarkerKillCounterexampleTest",
+          "rethrowToOwnCatcherCounterexampleTest",
+          "retargetedTransportCounterexampleTest",
+          "reclaimedEscapedRootsCounterexampleTest",
+          "skippedBridgeCounterexampleTest",
+          "crossOwnerGuardCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "ffi-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/ffi_exit_catcher_closure.qnt"
+      }
+    },
+    {
+      "id": "ffi",
+      "capability": "quint.test",
+      "dependsOn": [
+        "ffi-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/ffi_exit_catcher_closure.qnt",
+        "parsed": "ffi-parse",
+        "main": "ffi_exit_catcher_closure",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "normalSfunTest",
+          "resultIsNotCloseTest",
+          "localCloseNotBorrowZeroTest",
+          "reservedForwardSurvivesOriginalDropTest",
+          "throwReceiveRestoreTest",
+          "cfunCallerStillBorrowsTest",
+          "cfunCallerReadThenDetachTest",
+          "pendingTailBeforeExitTest",
+          "nestedCfunPropagationTest",
+          "callbackReserveBeforeCleanupTest",
+          "callbackCanTransferOffSourceTest",
+          "independentCallbackStillOwesDataTest",
+          "sourceCallbackDrainsTest",
+          "lateRegisteredCallbackStillOwedTest",
+          "queryDoesNotRepeatCleanupTest",
+          "registerBeforeCatcherRestoreTest",
+          "resultOnlySealCounterexampleTest",
+          "beforeMarkerClearCounterexampleTest",
+          "beforeCatcherRestoreCounterexampleTest",
+          "cfunBeforeReloadCounterexampleTest",
+          "originalPinEarlyDropCounterexampleTest",
+          "propagationDebtLostCounterexampleTest",
+          "cfunCallerBorrowIgnoredCounterexampleTest",
+          "unregisteredPropagationCounterexampleTest",
+          "unregisteredCallbackCounterexampleTest",
+          "callbackBorrowIgnoredCounterexampleTest",
+          "transferredCallbackNotClosedCounterexampleTest",
+          "wrongCatcherIdentityCounterexampleTest",
+          "markerReopenedAfterCloseCounterexampleTest",
+          "cleanupResponseLostCannotDropDutyCounterexampleTest",
+          "routeWithoutReceiverCounterexampleTest",
+          "futureCallbackRetainsTaskAcrossFreezeTest",
+          "futureCallbackNotRunnableInCurrentEpochTest",
+          "activeCallbackCannotDeferCounterexampleTest",
+          "oolClosePrecedesCallerReloadTest",
+          "inlineRestoreBeforeCloseTest",
+          "oolCallerPinDropCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "vis-parse",
+        "vis",
+        "join-parse",
+        "join",
+        "signal-parse",
+        "signal",
+        "guard-parse",
+        "guard",
+        "ffi-parse",
+        "ffi"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-join-signal-exit/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

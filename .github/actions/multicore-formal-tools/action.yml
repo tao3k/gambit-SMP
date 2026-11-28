@@ -1,0 +1,73 @@
+name: Setup Multicore Formal Verification Tools
+description: Modular composite action installing pinned Quint 0.33.0 (cached Rust evaluator), optional Lean 4, CBMC, and Clang TSan
+inputs:
+  install-quint:
+    description: Install pinned @informalsystems/quint@0.33.0 with cached Rust evaluator
+    required: false
+    default: 'false'
+  install-lean:
+    description: Install pinned Lean 4 toolchain from models/library/lean/lean-toolchain
+    required: false
+    default: 'false'
+  install-cbmc:
+    description: Install CBMC bounded model checker
+    required: false
+    default: 'false'
+  install-clang:
+    description: Install Clang for C23 and ThreadSanitizer checks
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js 22 for Quint
+      if: inputs.install-quint == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Restore cached Quint Rust evaluator
+      if: inputs.install-quint == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.quint
+        key: quint-rust-evaluator-0.33.0-${{ runner.os }}-${{ runner.arch }}
+    - name: Install pinned Quint 0.33.0 CLI
+      if: inputs.install-quint == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p .cache/tasks/repair-9-12/ci/multicore/quint
+        npm install --prefix .cache/tasks/repair-9-12/ci/multicore/quint @informalsystems/quint@0.33.0
+        echo "${GITHUB_WORKSPACE}/.cache/tasks/repair-9-12/ci/multicore/quint/node_modules/.bin" >> "$GITHUB_PATH"
+    - name: Install pinned Lean 4 toolchain
+      if: inputs.install-lean == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
+          https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+        toolchain="$(cat models/library/lean/lean-toolchain)"
+        for attempt in 1 2 3; do
+          if "$HOME/.elan/bin/elan" toolchain install "$toolchain"; then
+            break
+          fi
+          test "$attempt" -lt 3
+          sleep "$attempt"
+        done
+        "$HOME/.elan/bin/elan" default "$toolchain"
+        "$HOME/.elan/bin/elan" run "$toolchain" lean --version
+    - name: Install CBMC
+      if: inputs.install-cbmc == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cbmc
+        cbmc --version
+    - name: Install Clang C23 + TSan
+      if: inputs.install-clang == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang
+        clang --version

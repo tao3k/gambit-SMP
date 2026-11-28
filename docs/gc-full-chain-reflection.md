@@ -51,7 +51,7 @@ contract rather than changing a status string.
 ## Local Validation
 
 The source031 eleven-file composition now has a durable scoped native archive
-at `evidence/source-results/source031-native-gc-fixtures/archive.json`.
+at `.cache/research/legacy-evidence/evidence/source-results/source031-native-gc-fixtures/archive.json`.
 Its exact final identity passed serialization with concurrent forced GC,
 table iteration with forced GC, pipe concurrency and ended-thread interrupts
 in interpreted and compiled modes: four files per mode, respectively 0.660

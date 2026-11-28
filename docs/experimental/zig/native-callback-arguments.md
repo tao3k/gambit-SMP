@@ -1,0 +1,132 @@
+# Native Callback: Conditional Arguments and Counterexamples
+
+These are handwritten architectural arguments, not checked proofs or native
+observations. The [contract](native-callback-custody-contract.md) is proposed;
+the [ledger](native-callback-evidence.md) distinguishes existing mechanisms,
+prior patches, primary literature and unresolved qualification.
+
+## Root and Borrow Safety
+
+NA01. Premises: every incoming managed value is reachable through an accepted
+donor root before the first effect; the invocation adopts precise mutable
+locations under NT03–NT04; all roots, carriers, scan facilities and code images
+outlive their users; the moving cut closes every participant and foreign
+producer; collector writeback finishes before acquire/resume/reload. Under
+these premises, a callback's native managed reference is either in its donor,
+its registered extent, its marker/frame, or a completed transfer destination.
+The handoff never removes the old protection before accepting the new one.
+Moving changes the registered location, and consumers reload that location.
+No reachable object is lost solely through one of these native handoffs.
+
+This establishes neither the rest of the Scheme graph nor all GC phases.
+Interior frame/denv/cache writes need the earlier global writer closure; weak
+references, finalizers, SATB termination, stack layout and signals remain
+additional premises. [NE01–NE05, NE08, NE09; NT01–NT06]
+
+NA02. Counterexamples which invalidate that argument:
+
+| ID | Schedule / omitted condition | Required response |
+| --- | --- | --- |
+| NX01 | Entry copies movable proc into an unregistered C local; marker allocation collects; marker stores the stale local | Protect before allocation and reload; rooting marker afterwards cannot repair it |
+| NX02 | RC cell is mature-classified; raw `set_data_rc` assigns a young k; minor skips the root | Controlled root replacement or enumerate that root at every cut |
+| NX03 | RC data still points to the same old vector, but raw vector slot now points to young proc/k | Heap source barrier or scan the entire sufficient dirty region; root-cell remembering alone fails |
+| NX04 | Root is updated by collector; native code retains an earlier loaded Scheme word/body pointer | Execution/relocation exclusion plus reload; stable root address alone is insufficient |
+| NX05 | Writer stores root while collector reads it; release dirty flag is set after scan | Serialized cell access and closed producer cut; even seq_cst on the flag cannot legalize the plain race |
+| NX06 | Callback deletes its own Tcl command; deletion frees cd while an invocation still needs it | In-flight carrier retention, revocation/drain, release at last use; library contract still needs qualification |
+| NX07 | `cleanup_rc` runs with positive refcount and a live scanner/marker/queued release | Shutdown dependency and scan grace before forced free; refcount does not constrain cleanup_rc |
+| NX08 | A foreign pointer wrapper is released during native use | Resource-use lease or independent native ownership; no-op release_pointer is not protection |
+
+## Minor Elision and Memory Order
+
+NA03. Under NT03–NT05, a native root update linearizes while holding the root
+gate, after any required old-edge protection and young classification are
+secured. A minor cut waits for current writers/borrows, closes new admission
+and acquire-observes their release acknowledgements. The scanner therefore
+sees either the pre-update state with its existing protection or the committed
+post-update state in the appropriate root set. No partially classified young
+root can be observed at the cut. Relocation writes back while native execution
+is excluded, and resumption reloads after completion. Retirement waits for all
+scanner/log generations, so records cannot refer to freed/reused root storage.
+
+For a mature map continuation to skip its graph, apply the earlier first-edge
+argument to **all** paths from roots: the first mature-to-young edge must be a
+remembered typed source or lie in the completely scanned fallback region.
+Enumerating a mature root cell is compatible with skipping its mature graph;
+neither operation alone covers raw writes through another denv/frame alias.
+The gate argument is conditional on no unmodeled gate callbacks/waits,
+complete entry/update admission, language-level synchronization and the actual
+heap writer protocol. It is not a complete concurrent-major proof. [NE04,
+NE11, NP03; continuation-minor-scan-proof.md]
+
+NA04. A known dirty frame/denv region is a valid larger-scan fallback only
+when its boundary contains every otherwise uncovered young edge, storage and
+layout stay valid, writers are stopped, and outside roots/edges are covered.
+Counterexample: k's denv is scanned but another native alias writes a young
+object into a different reachable binding pair after the cut. Neither the
+scanned region nor its timing is sufficient. An unknown native writer needs
+a proven complete VM-wide fallback, or is excluded from the modern profile.
+Scanning the full managed heap cannot find a live young object whose sole
+reference is an unregistered C word. [NC06; prior writer-closure argument]
+
+## Blocking, Nesting and Exit
+
+NA05. The current participating wait is sound with respect to hidden aliases
+only if no relocating phase can complete while those aliases are needed and
+all later moving service occurs after the adapter closes/reconstructs them.
+Wakeup → queue relock → W/R restoration → permitted interrupt checkpoint →
+actual collective service is a chain of obligations, not an assumed atomic
+action. Counterexample: inject service while waiting for the queue lock;
+`condvars[]` retains pre-GC objects subsequently read after relocation.
+An alternative parked context must publish all roots and stop managed access
+before its membership transition; foreign events need a new execution permit
+and reload before callback. Merely changing processor count can deadlock or
+let the collector omit a live context. Finite wakeup/progress is unproven.
+[NE08, NT02, NT06]
+
+NA06. Nested callback B can preserve parent A's roots if A's extent remains
+registered and B adopts independent scratch/marker/carrier state before its
+effects. Counterexample: A owns saved[0]; B or an error handler saves a target
+there; A restores B's value or VOID. TLS does not prevent this same-thread
+clobber. Likewise, re-reading process-global `c_closure_self` after B can select
+B's carrier for A. Invocation-local identity and extent ownership address
+different issues and both are needed. The static Tcl entry demands no dynamic
+trampoline, so replacing that unused provider earns no value for this case.
+[NE03, NE05, NE07]
+
+NA07. An accepted custody claim is represented in a ledger with a live owner
+before any effect that can bypass ordinary return. Every crossed owned scope
+has an admitted C catcher that, after restoring catcher linkage, transfers or
+settles its claims once and rethrows the unchanged target. If these premises
+hold inductively for nesting depth n, a transfer crossing the next owned scope
+preserves them for depth n−1; normal return discharges only its matching scope.
+State is not read from indeterminate changed setjmp locals. An external library
+frame with an unmodeled resource/lock breaks the induction; no claim that the
+current SFUN macros already provide all such scope catchers is made.
+[NE03, NE05, NE10, NP03]
+
+NA08. Three control counterexamples are decisive:
+
+- A captured k survives all GCs, but its original C marker has been killed.
+  Reaching return_to_c must raise the documented error. Giving k another root
+  or restoring Scheme frames cannot restore that C activation.
+- A jump to an outer marker skips an inner SFUN's ordinary END and cleanup.
+  An outer catcher does not establish inner marker invalidation, root removal
+  or library cleanup. Each crossed owned scope needs an exit disposition.
+- A C longjmp crosses Zig code with live native resources. Ordinary defer is
+  not evidence of jump cleanup or a supported mixed-language control ABI.
+  Keep the corridor in qualified C or disallow that edge in the provider.
+
+Gambit's manual explicitly discusses longjump-removal of C activations; this
+is an existing semantic boundary, not a new reason to restrict Scheme to
+one-shot continuations. [NE06, NP03, NP04]
+
+## Remaining Proof Obligations
+
+NA09. Still unresolved: whole-runtime/third-party raw-root and writer census;
+Tcl version/thread/delete/failure/escape contracts; exact configured unwind
+and foreign ABI; complete native root registration before every conversion;
+signal/cancellation behavior; root-gate acquisition progress and lock order;
+major/weak/termination protocol; all parked membership transitions and shutdown
+users; native generated equivalence; measured runtime coefficients and workload
+distribution; positive Zig increment. The design strengthens the question and
+its counterexamples. It does not promote any full acceptance gate.

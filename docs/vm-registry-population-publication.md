@@ -38,7 +38,7 @@ real performance measurement.
   reapplied and checked all 22 selected files.
 - Model: `models/gambit/vm_registry_population_publication.qnt`.
 - Contract: `evidence/fixtures/foreign-origin-resize-domain/population-publication-contract.json`.
-- Portable receipt: `evidence/model-results/fixtures/foreign-origin-resize-domain/population-publication/receipt.json`.
+- Portable receipt: `.cache/research/legacy-evidence/evidence/model-results/fixtures/foreign-origin-resize-domain/population-publication/receipt.json`.
 
 The existing `verify` adapter completed in 14.059 seconds with host-auto
 concurrency and unchanged 15-second per-check limits. Old growth produced an

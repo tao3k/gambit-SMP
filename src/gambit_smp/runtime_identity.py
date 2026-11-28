@@ -1,3 +1,4 @@
+from gambit_smp.task_processes import run as _task_run
 #!/usr/bin/env python3
 """Bind a locally rebuilt candidate; inventories do not prove generated-source parity."""
 import argparse
@@ -125,7 +126,7 @@ def create_delta(runtime, prior, patch, repair_model=None, repair_case="ticket_q
     """Reverse an exact source delta in isolation; reject all other input drift."""
     identity = json.loads(prior.read_text())
     patch_bytes = patch.read_bytes()
-    stats = subprocess.run(["git", "--git-dir=/dev/null", "apply", "--numstat", "-z"], input=patch_bytes,
+    stats = _task_run(["git", "--git-dir=/dev/null", "apply", "--numstat", "-z"], input=patch_bytes,
                            capture_output=True, check=True).stdout
     names = []
     for row in stats.decode().split("\0"):
@@ -148,7 +149,7 @@ def create_delta(runtime, prior, patch, repair_model=None, repair_case="ticket_q
             target = root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes((runtime / name).read_bytes())
-        subprocess.run(["git", "apply", "--reverse", "--whitespace=error"],
+        _task_run(["git", "apply", "--reverse", "--whitespace=error"],
                        input=patch_bytes, cwd=root, capture_output=True, check=True)
         for name, expected in identity["sourceFiles"].items():
             path = root / name if name in names else runtime / name
@@ -279,6 +280,9 @@ def main():
         args.out.write_text(json.dumps(identity, indent=2) + "\n")
     print("CANDIDATE-INVENTORY-OK")
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('identity')(main)
 
 if __name__ == "__main__":
     main()

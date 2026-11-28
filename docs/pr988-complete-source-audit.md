@@ -45,12 +45,20 @@ establish correctness of every change or of our current pinned source.
 
 ## Report Coverage
 
-`smp.md` reports interpreted/compiled table tests at one/two processors,
-box stress, SMP tests 12/15/18, and later broader SMP test success. It also
-describes symbol stress, Gerbil standard-library runs and an `open-process`
-failure rate reduced from roughly 75% to roughly 6%: the residual failure is
-not green. The public follow-up comment describes compiler progress beyond
-initial crashes, not a complete self-bootstrap receipt.
+`smp.md` at the pinned head reports interpreted/compiled table tests at one/two
+processors, box stress, SMP tests 12/15/18 and an author summary of broader
+success. These are historical author reports, not independently retained
+whole-build or modern-SMP acceptance receipts. The single public follow-up
+comment reports progress beyond initial Gerbil compiler crashes, not completed
+self-bootstrap.
+
+Provenance correction (2026-11-05): the previous paragraph attributed symbol
+stress, Gerbil stdlib and an `open-process` 75%-to-6% residual figure to this
+file. The complete current pinned-head report does not contain those claims.
+That attribution is withdrawn; no replacement PR/source attribution is inferred.
+The fresh source/report/check snapshots and the distinction between this PR's
+36 changed files and our one local native test are indexed in
+[`models/gambit/native/pr988/index.org`](../models/gambit/native/pr988/index.org).
 
 One crucial report correction is that a compiled test linked the installed
 archive while the interpreter used the build-tree runtime. Another is stale

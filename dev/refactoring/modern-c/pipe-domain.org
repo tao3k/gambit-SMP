@@ -1,0 +1,220 @@
+#+TITLE: One ownership domain for peer-shared pipes
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:2 num:nil
+#+PROPERTY: header-args :eval never-export
+#+COLUMNS: %42ITEM(Responsibility) %STATUS(Status) %AUTHORITY(Source)
+
+* PUBLISHED Complete pipe-domain ownership :modern_c:io:audit:
+:PROPERTIES:
+:CUSTOM_ID: pipe-domain-owner
+:BASELINE: b299e26768bcdf22a6be5fbf7e05868ef0108eed
+:AUTHORITY: GambitPipeDomain
+:COUNTING_UNIT: one construction/shared-state/wait/close/exit owner
+:END:
+
+[[file:models/sysml/pipe-domain.sysml][SysML]] owns this cut. It refines the remaining shared-pipe source group,
+not the independent twelve-family SMP acceptance axis. The Scheme producer and
+its actual generated C are the runtime change. Existing Make/configure/profile
+and the one leased workspace remain the execution owners.
+
+** Actual old counterexample and replacement
+
+The exact b299e267 runtime returns different actual mutex identities for both
+endpoints of vector, string and u8vector pipes. Those endpoints nevertheless
+share FIFO chunks, reader/writer cursors, peer close flags and wait predicates.
+The old comment claiming exclusive access to one endpoint does not establish
+exclusive access to this shared state. Model negative control =splitLock= maps
+to that actual two-lock witness, not an invented impossible owner value.
+
+The pipe factory now creates one Scheme mutex before either endpoint and passes
+it into the existing three port constructors. Both endpoint graphs receive it
+before peer buffers/links are returned. Standalone constructors retain their
+existing four-argument use with a nonallocating optional sentinel and a fresh
+mutex at its original body position after FIFO construction; public names and buffering
+semantics remain. No native permit registry, extra RC root or cached moving
+Scheme address is introduced.
+
+| Source owner | Actual consumers | Obligation |
+|--------------+------------------+------------|
+|Pipe factory|Three constructor families and both settings branches|One guard before peer publication |
+|Shared state|rbuf-fill, wbuf-drain, force-output, close|One guard covers both endpoint aliases |
+|Waiting|mutex-signal-and-condvar-wait!, retry and timeout hooks|Release before park; reacquire before predicate/cursor reread |
+|Close|Peer condition signals and close options|Publish close and wake under common guard |
+|Failure/GC|Unpublished Scheme locals; managed ports; existing frame/heap tracing|No native resource transfer or early root release |
+
+The close path calls force-output before acquiring its own guard; it does not
+recursively acquire the common mutex while holding it. Existing methods do not
+acquire a second peer lock. Normal waits release the guard and reacquire before
+retry; timeout hooks run while released. Six real throwing read/write timeout hooks can
+subsequently reset the timeout and exchange data. Partial Scheme construction
+is unpublished and collectible. Native allocation failure and asynchronous
+owner death are not inferred from these exception controls.
+
+The initial proposal allocated a default mutex while binding optional arguments,
+unnecessarily changing ordinary port allocation order. Its passing properties,
+costs and whole-population timeout remain evidence. The final design uses =#f=
+as the nonallocating sentinel and allocates inside the established body instead.
+This preserves the original construction/root-view sequence while admitting a
+factory-supplied common mutex.
+
+** Generation is an explicit dependency closure
+
+Changing this Scheme producer requires an actual =_io= generation demand. The
+completed output/object is reused after downstream failure. The native-only
+generation gate correctly exposed missing linker-generation dependencies:
+lib metadata propagates to gsi/gsc library and executable link metadata.
+
+Five real Make link recipes are therefore completed before generation-disabled
+phase3/phase4. Unchanged linker bytes still require publication of completed
+input dependencies; their old timestamps cannot authorize Make reuse. The seed
+is preserved, failed attempts retained and only a changed partial archive is
+restored from the saved completed producer. No generated C is hand-edited.
+The final cohort changes only =lib/_io.c= and reuses the other50 generated
+artifacts by exact identity. This is not a cold bootstrap claim.
+
+** Native/model responsibilities :matrix:
+
+| Evidence | Actual boundary |
+|----------+-----------------|
+|Stateful Scheme PBT|12 histories,408 actions across all three pipe families; real GC and serialized replay |
+|Shrinking|13→1 observation-mutation control; production minimal trace passes; not a claimed minimized runtime defect |
+|Pinned native producer|Processor1 publishes768 values across three families; receiver checks order and EOF |
+|Exception exit|Six public read/write timeout-hook failures, then subsequent successful I/O |
+|QNT|9 directed cases,1000 bounded51-state traces and native TLC exhaustion:125 distinct states, depth17,0 pending |
+|Lean|No new arithmetic/stack/address law; no duplicate pipe or GC lifecycle model |
+|SysML→ASCENT|Source adapter premises, current/missing/stale observations and shared five commit gates |
+
+QNT models one producer/consumer FIFO and domain exclusion, release/wait/reacquire,
+close wake and hook exit. Native Scheme exercises actual chunks, GC and processor
+placement. C/Scheme mutex memory ordering, arbitrary scheduling fairness and all
+GC executions remain existing assumptions or separate obligations; the finite pipe state graph does not prove native implementations or fairness. The official vector-port consumer remains unchanged.
+
+** Predecessor SFUN regression: mechanism and attribution
+
+The actual linked arm64 code, not source-line counting, confirms that b299e267
+adds the call =___sfun_arg → ___store_rc_root=. Successful old/new argument paths
+both have one =___emutls_get_address= call: the compiler removes the apparently
+duplicated TLS lookup in source. There is no native evidence for claiming two
+TLS lookups as the cause. Common index/borrow policy and a call boundary add work;
+correct source ownership is the intended gain.
+
+| Frozen4096-call population | Original change | Independent repeat |
+|----------------------------+-----------------+--------------------|
+|Arity0|+2.065%|+4.985% |
+|Arity1|+1.217%|-0.732% |
+|Arity8|+2.680%|+0.698% |
+
+Both cohorts execute exactly the same retained baseline/candidate binaries,
+without recompilation or larger workloads. Zero arguments do not traverse the
+new argument-store call and still regress; the one-argument sign changes.
+These observations do not identify what fraction of elapsed change the extra
+call causes. Code layout and measurement variation remain plausible, unproved
+contributors. A stable performance loss or gain is unresolved; do not erase the
+first cohort, select the favorable sample or claim universal speedup.
+
+** Pipe benefit and cost matrix
+
+The matched workload creates4096 real pairs and exchanges one value per pair,
+cycling all three families. Two ABBA cycles provide four observations per role;
+each uses its own exact compiler/header/archive. Limits and workload are fixed.
+
+| Measure | b299e267 | Candidate | Interpretation |
+|---------+----------+-----------+----------------|
+|Mutex allocations per pair|2|1|Actual source ownership change |
+|Gambit accounted bytes, body median|22085560|21233592|851968 fewer; this counter doubles movable occupancy, not physical allocation bytes |
+|Mutex-record storage/pair, source-accounted|208|104|12 native structure slots plus one8-byte header, before other frame/allocator costs |
+|Body seconds, median|0.006349921|0.006172538|-2.793%; one noisy cohort, not stable latency gain |
+|Body GC count, median|10|10|No GC-count reduction observed |
+|Peak footprint bytes, median|6455632|6472016|+16384; no peak-memory saving |
+
+The byte-counter path is =##exec-stats → ##process-statistics → ___bytes_allocated=.
+=words_movable_objs= in =lib/_mem/configuration.inc= explicitly multiplies heap
+and stack occupancy by two. =allocation-statistics.inc= combines that accounting
+with still-object counters, so it is not a raw malloc/bump-byte census. Native
+=##structure-length= returns12 slots for a mutex; the real C consumer confirms
+64-bit words. One header plus12 words is104 bytes per mutex record. Removing4096
+records accounts for425984 bytes of record storage; it does not establish net
+physical allocation or a peak reduction after frame and GC costs.
+
+The first allocating-default cohort regresses3.404%; the restored-body-order
+cohort with the earlier test fixture is+0.331%; the final exact fixture cohort is
+-2.793%. All remain evidence with their actual fixture/runtime hashes. Variation
+and source/code-layout changes prohibit combining them into one speedup estimate.
+
+Conditional net gain: shared-state exclusion becomes valid and one mutex object
+per pair is eliminated. Its countercost is contention between peer directions,
+optional constructor dispatch and measured timing variation/footprint
+increase. If independent duplex throughput dominates, this source-domain cost
+needs its own matched measurement before any speed claim. Removing the shared
+guard to regain throughput would reintroduce the actual ownership violation.
+
+* CLOSED Declared-profile five submission gates :audit:
+- [X] Tests: exact source cohort, real properties/p2/exception, unchanged official
+  and existing frame/root/multi-shot consumers, baseline negatives and paired costs.
+- [X] Learning: shared-state ownership and generation completion versus byte identity.
+- [X] Process: complete pipe domain; remaining C word/thread/layout/build work outside.
+- [X] Models: native SysML SDK→ASCENT and disjoint pipe QNT; no duplicate Lean proof.
+- [X] Questions: actual allocation saving, contention, API/GC/exit and unresolved timing.
+
+Foundation4/4 is historical; independent SMP1/12 has11 open. Pending source
+counts are SDK-derived path custody, not additional completed integration items.
+
+** Scope, baseline negatives and net-benefit conditions
+
+All34 unchanged official IO sources pass in original GSI mode and all34 compile
+and execute under the existing production p1 compiler budget, with the original
+test-runtime options and an explicit Scheme failure-flag check. The provisional
+cohort with an additional file-settings option is retained separately and is not
+used for exact-profile admission. No official runner source or default mode is
+changed to obtain this result.
+
+Original default GSC mode completes11/34; the exact b299e267 compiler on the same
+current runtime/header/source completes14/34. Failure sets differ by10 candidate-only
+and7 baseline-only names. The similar read-source heap failures and sensitivity
+to compiler population do not prove a common GC mechanism or exclude introduced
+behavior in that unqualified default mode. That attribution remains UNRESOLVED.
+
+The original408-case invocations also remain negative: both candidate source
+cohorts hit120s; exact b299e267 completes392/408 in96.841s in the new control.
+The final candidate is still in the known numeric/vector failure region when
+stopped. Progress is printed before each named case; elapsed attribution uses
+the following progress boundary. Total wall regression and shared cause remain
+UNRESOLVED. Neither timeout is discarded or treated as full completion.
+
+This is a source/profile-scoped pipe-owner delivery. It does not qualify default
+whole GSC, whole408, arbitrary IO continuation reentry or asynchronous owner death.
+Existing map multi-shot/root/frame regressions pass; no one-shot restriction is
+introduced, but those regressions do not prove every user IO continuation. A
+producer whose peer never drains may remain blocked under preserved soft-capacity
+semantics; there is no new cancellation or fairness guarantee.
+
+For a returned empty pair with the same other reachable graph, one mutex record
+disappears:104 bytes of reachable record storage before unrelated wait/frame
+changes. Time has a different condition:
+=delta T = - avoided mutex construction + optional dispatch + shared-domain contention=.
+The first term is one-time per pair; contention scales with concurrent traffic.
+Serial samples cannot bound the latter or establish universal payback. Distinct
+pipe pairs retain distinct mutexes; no global IO lock is introduced.
+Catalogue stage5 is the publication/scheduling lane. This closes only its peer-pipe
+ownership contract, not the whole stage or any additional independent SMP family.
+
+* Published source/profile REV :audit:
+:PROPERTIES:
+:CUSTOM_ID: pipe-domain-runtime-rev
+:REVISION: 4b9ac8430dcc6021327fb33ff04c68a0fb5cdd34
+:CATALOGUE_STAGE: 5
+:ACCEPTANCE: QUALIFIED_C_TARGET_EXISTING_PRODUCTION_PROFILE
+:END:
+
+The exact four-path producer/generated-C/test/Make cut passes the shared five
+REV gates and46 rejection controls. [[file:../../../evidence/research/retained/modern-c/pipe-domain/submission/admission.json][Admission]] and [[file:../../../evidence/research/retained/modern-c/pipe-domain/qualification.json][qualification]] preserve the
+broader default-mode and whole-run blockers. The commit body carries the matrix
+and references these files, not an inline JSON packet.
+
+The pending queue decreases51 during this cut to48 paths; before this unit the
+queue had49, with two newly introduced paths now delivered. This is source
+custody, not three new SMP results. Nine nonempty responsibility owners remain;
+the former mixed pipe/word bucket now retains only its two unqualified portable
+atomic/test paths as =ordered-word-fallback=. Pipe ownership itself is complete.
+Foundation4/4 remains source-period history; independent SMP remains1/12,11 open.

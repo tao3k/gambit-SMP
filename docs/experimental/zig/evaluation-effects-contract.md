@@ -1,0 +1,164 @@
+# Evaluation Order and Effect Contract
+
+Date: 2026-10-19. Status: selected semantic rules for the proposed export/service.
+No exporter, dialect, analysis or test is implemented here.
+
+This document refines the [high-level architecture](zig-high-level-semantics-design.md)
+and [primitive/FFI coverage](primitive-ffi-coverage.md). All `gs.*` names are
+proposed vocabulary. Baseline source paths refer to vendor commit
+`7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`, whose relevant identities are in
+the [source ledger](zig-high-level-semantics-evidence.md) and coverage companion.
+
+## 1. Observable Behavior and Chosen Order
+
+The semantic service must preserve returned values/value count, shared-location
+mutation, externally visible effects, defined error behavior, termination,
+proper tail behavior and permitted continuation/dynamic-context behavior. Allocation
+count or one unspecified evaluation order is not itself a mandatory observation;
+procedure identity, reachable representation introspection and observable object
+lifetime can still constrain allocation changes. Effective unsafe declarations
+must be carried explicitly, not silently applied to checked source.
+
+For the selected new semantic profile, choose a deterministic sequential policy
+at export: **operator first, then operands in retained argument order** (source
+argument order for an ordinary source application), wherever
+the language permits that choice. Preserve explicit sequence/conditional edges
+from the parsed tree. Freeze this order for all effectful or potentially
+effectful evaluations; subsequent reordering requires the conditions below.
+This is a newly selected profile policy, not a statement about today's C backend.
+
+The standard basis is [R7RS-small, section 4.1.3](https://small.r7rs.org/attachment/r7rs.pdf):
+operator/operand order is unspecified but must agree with some sequential order.
+Gambit's effective dialect/declaration rules remain authoritative for extensions.
+Where they impose a stronger rule, export that rule; unsupported ordering-sensitive
+extensions reject the profile until specified. This does not redefine every
+Gambit dialect as R7RS.
+
+Source `_front.scm:3923-3957` instead divides arguments by triviality and applies
+`free-vars-order`; specialized calls use it at `3245`, and general call setup uses
+it at `3347-3366`. Thus exact C-backend trace parity is not promised where source
+permits alternative order. A workload depending on that incidental order must use
+the existing profile or request a separately specified compatibility policy.
+Source-to-source normalization equivalence is assessed against allowed language
+observations, not byte-identical traces in unspecified cases.
+
+### 1.1 Construct-Specific Rules
+
+| Construct | Selected rule | Existing evidence | Reuse / required change |
+| --- | --- | --- | --- |
+| Ordinary application | Evaluate operator, then each argument once, then perform call with the checked arity/value protocol | `_ptree1.scm:2108-2114`; `_front.scm:3923-3957`; R7RS 4.1.3 | Reuse binding/call meaning; add explicit order record, not inferred from SSA dominance alone |
+| `begin` and procedure body | Finish each preceding expression before starting the next | `_ptree1.scm:1658-1673,2014-2015` constructs `new-seq` | Reuse sequence tree edges; retain ignored-value effects and divergence |
+| `if`, `and`, `or`, `cond` | Evaluate predicate/preceding clause first; execute only selected arm/remainder | `_ptree1.scm:1675-1753` | Reuse conditional tree; no speculative checked call or allocation across an arm without proof |
+| `set!` | Evaluate RHS before storing to the resolved shared/global location | `_ptree1.scm:1161-1171`; `_ptree2.scm:481-520` | Reuse binding identity; add alias/write/barrier facts |
+| Ordinary `let` initializers | Select source initializer order; extend bindings after their values are available | `_ptree1.scm:1792-1844` desugars into applications; R7RS 4.2.2 | Preserve resolved scope and the chosen order; no visibility of newly bound locations in initializer scope |
+| `let*` | Each initializer and binding precedes the next | `_ptree1.scm:1846-1868` nests bindings | Reuse nested tree, not a parallel initializer list |
+| `letrec` / `letrec*` | Preserve already resolved recursive-location/initialization constraints; do not rebuild them as unrestricted SSA cycles | `_ptree1.scm:1870-2009`, especially `*?` order constraints at `1909`; R7RS 4.2.2 | Existing parser dependency/order machinery is authoritative; export surviving structure and initialization facts |
+| Optional/keyword/rest parameters | Preserve accepted arity, defaults, locations and effective parameter-handling behavior | `_ptreeadt.scm:116-143`; `_ptree1.scm:148-168` | Export full descriptor; body inlining must also preserve call prologue behavior |
+| Multiple values | Preserve producer-before-consumer control and receiver value count | `_thread.scm:4762-4792`; `_prims.scm:1459-1471` | Reuse protocol; an unused SSA result is not permission to erase its producer |
+| Primitive expansion/guard | Evaluate source operands once in selected order; apply applicable identity/type guard before specialized behavior; retain valid fallback | `_ptree2.scm:190-240`; `_prims.scm:2663-2703` | Reexpress rules in service; do not duplicate argument effects while constructing branches |
+| FFI conversions/call/cleanup | Preserve wrapper's ordered conversions, call, result handling and all required cleanup/error edges | `_ptree2.scm:3144-3189,3227-3338`; header `10043-10060,10375-10378` | Reuse reviewed wrapper; new direct path needs explicit conversion/exit specification |
+| Continuation invocation | Invoke under existing dynamic context rules; reentry can repeat subsequent effects | `_thread.scm:4621-4706,4794-4819,4914-4970` | Explicit control operation; do not model invocation as single-use or ordinary return |
+
+The hook exports a **resolved, already desugared** tree. It cannot promise
+recovery of every surface syntactic form or C-backend scheduling choice.
+`pt-recursive-let` performs dependency/order decisions before normalization;
+the service preserves those surviving decisions unless a new equivalence argument
+permits changing them. The parse-time FFI record is separately required because
+the returned tree and `c-intf` have already lost some type structure.
+
+The ordering policy concerns run-time expression evaluation. Macro expansion,
+compiler-time side effects, declaration collection and module initialization are
+separate ordered phases, not expressions to interleave with run-time operands.
+Reuse the existing parser/module order; export foreign initialization actions
+explicitly (`_ptree1.scm:793-869`; `_ptree2.scm:2093-2112`).
+
+## 2. Effect Summary Is a Product, Not a Boolean
+
+Each operation/call summary contains independent conservative dimensions below.
+Use `may` facts, known resource sets with an unknown element, and separately
+proved exclusions. Absence of a field means unknown, never false. Resource
+identities describe binding/cell/object/external state; subfield disjointness
+requires actual alias analysis.
+
+| Dimension | Contract | Source or primary evidence | Required adaptation |
+| --- | --- | --- | --- |
+| Read/write and aliases | Which cells/heap/global/native/external resources may be accessed; unknown covers all relevant aliases | `_prims.scm:649,703,889,891,1648-1652`; MLIR effect rationale below | New resource/alias model; legacy Boolean cannot describe mutable reads |
+| Allocation and identity | May create fresh observable storage/procedure; keep allocation kind separate from writes | `_prims.scm:681,878,1574`; `_t-c-2.scm:2606-2639`; `_ptree1.scm:616` | New allocation/escape facts; no folding distinct closures solely by body equality |
+| GC and relocation | May invoke collection, require publication/roots, or invalidate raw addresses | `_t-c-2.scm:2606-2639`; header `8059-8076`; existing root-liveness audit | Runtime-aware liveness and pointer update; no derived `nogc` from `nowrite` |
+| Errors and nonlocal exits | May fail under checked semantics; may exit without ordinary return | `_ptree1.scm:576-583`; `_kernel.scm:3884-3893`; header `10043-10060` | Explicit exceptional/control outcomes, separate from memory effects |
+| Divergence | May not return even without writes | Unknown applications; MLIR effect rationale distinguishes nontermination | Prove totality/termination when required for speculation or dead-call elimination |
+| Capture and resumption | May expose current continuation or transfer to a saved one | `_prims.scm:1591-1622`; `_thread.scm:4621-4706` | Distinguish capture, local join and multi-shot invocation |
+| Dynamic context | May inspect/change dynamic bindings, invoke before/after actions or handlers | `_thread.scm:4794-4819,4914-4970` | Control-context summary and rewrite restrictions |
+| Binding change | May rebind primitive/global identities or load code affecting summaries | `_prims.scm:1648-1652`; `_ptree2.scm:212-240` | Invalidate affected guard/summary facts; preserve fallback |
+| Synchronization/progress | May block/yield, synchronize, poll or participate in runtime progress | `_prims.scm:1710-1716,1765-1768` | Preserve required progress and synchronization edges independently of allocation |
+| Foreign retention/callback | May retain pointer, call Scheme, invoke converter/release action or cross foreign control origin | `_ptree2.scm:2206-2242,2386-2450,3144-3189`; manual `19935-19992` | New foreign-entry contracts; lack of source body does not imply leaf behavior |
+
+MLIR's [Side Effects & Speculation rationale](https://mlir.llvm.org/docs/Rationale/SideEffectsAndSpeculation/)
+separates memory effects, undefined behavior, divergence and nonlocal control,
+and explicitly says nonlocal control is not fully modeled. Its resource hierarchy
+does not supply detailed alias classes. Use existing memory/speculation interfaces
+where their meaning matches, plus Scheme-specific summaries and pass admission.
+This is an architectural requirement, not an existing MLIR capability claim.
+
+### 2.1 Propagation and Unknown Calls
+
+For a finite known target set, join the callee summaries and the effects of
+argument handling/dispatch. Analyze recursive components to a conservative fixed
+point; if a bound is reached, widen to unknown and retain the call. A claim such
+as `no_capture` needs a closed body/dependency argument or a maintained guard;
+the four bits in a sample manifest are not a proof. Reentry through FFI is part
+of that transitive call graph.
+
+An unresolved dynamic/foreign call can read/write/rebind relevant state, allocate,
+GC, error, diverge, capture/resume, callback, retain pointers and block/yield unless
+the runtime/language entry contract excludes a dimension. This conservative top
+prevents transformations. It does not manufacture a valid runtime lowering:
+coverage must still resolve how the call is emitted or reject the profile.
+
+Legacy `side-effects-impossible?` uses `proc-obj-side-effects?` and also considers
+procedure nodes effect-free (`_ptree2.scm:1465-1505`). Reuse it as evidence of
+current normalization policy only. Its result is not interchangeable with the
+new summary, MLIR `Pure`, `readonly`, `nounwind`, `willreturn` or `speculatable`.
+
+### 2.2 Tokens, GC and Multi-Shot Control
+
+Explicit effect/order dependencies may thread through ordinary CFG edges. A
+capture/resume operation must also carry the control-context obligations; a plain
+SSA memory token cannot establish them. Do not expose control operations to
+generic passes as memory-free simply because they return an effect token.
+
+A continuation captures control and relevant locations; it does **not** restore
+the heap/global world to its old contents. On resumption, effects occur in the
+current mutable world. Reentering a suffix can execute its mutations again;
+tokens must not imply rollback or globally exactly-once effects. A static SSA value
+can also represent different dynamic values on repeated entry. Retained
+[resumption controls](../reader-resumption-validation.md) distinguish legal replay
+from unsafe one-shot consumption; their finite scope does not prove this IR.
+
+GC-capable operations invalidate raw-address and relocation-sensitive facts.
+Post-GC references must be the collector-updated values required by the selected
+runtime. A logical immutable Scheme value and its current physical address are
+different facts. Removing an allocation does not authorize removing a required
+poll or moving a GC-visible dangling edge past region destruction. The region
+architecture and Elsman evidence remain applicable.
+
+## 3. Rewrite Obligations and Design Counterexamples
+
+These are paper/source-grounded review cases, not newly executed tests.
+
+| Proposed rewrite | Why the naive version fails | Conditions for reconsideration | Evidence |
+| --- | --- | --- | --- |
+| CSE two `cons` calls | Can merge fresh identities; allocation can require GC | Prove identities/lifetimes unobservable, then remove representation with valid remaining roots/polls | `_prims.scm:681`; `_t-c-2.scm:2606-2639`; `_prims.scm:1722-1728` |
+| CSE `vector-ref` across `vector-set!` | Read observes an intervening write through an alias | Same stable read location/version and no aliasing write or invalidating reentry | `_prims.scm:889-892` |
+| Hoist checked division out of an untaken branch | Introduces an error or invalid behavior on a path that avoided the call | Total, valid, speculatable operation under path-independent premises | `_prims.scm:42-43`; safe declaration at `_ptree1.scm:576`; MLIR speculation rationale |
+| Remove an unused unknown call | May diverge, mutate, throw or capture even when its value is unused | Prove discardability under every relevant dimension | `_ptree1.scm:1658-1673`; `_ptree2.scm:1465-1505` is insufficient alone |
+| Reuse binding guard after callback/global write | Earlier identity fact may no longer hold | Keep guard at use or prove no invalidation along every intervening path | `_ptree2.scm:212-240`; `_prims.scm:1651-1652` |
+| Promote captured mutable cell into ordinary SSA | Multiple closures/resumptions can share a location; overwrites are observable | Prove no captured/escaping/foreign alias and no reentry can observe the eliminated location | `_ptree2.scm:481-520`; `_thread.scm:4621-4706` |
+| Free arena on first return/resume | Saved continuation can still reference it, and GC can still scan a captured field | Prove control and collector reachability closure, or keep existing GC | Resumption controls; [Elsman 2023](https://elsman.com/mlkit/pdf/gcsafe-pldi23.pdf), sections 1–2 |
+| Drop unused-result poll | Scheduler/interrupt progress can remain required | Preserve the runtime's progress policy independently of result use/allocation | `_prims.scm:1766-1768` |
+
+New checks required before implementation admission include arity/value counts,
+shared-location identity, source sequence/branch coverage, binding guards,
+continuation context and foreign lifetime coverage. ODS can provide structural
+verifiers, but a well-formed IR is not an equivalence proof. See the
+[pass contract](mlir-pass-admission.md) for layer-specific admission decisions.

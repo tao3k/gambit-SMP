@@ -84,5 +84,5 @@ URL metadata and historical SHA values were not forged. Early tests can error
 before later assertions run, so zero skips is not complete semantic coverage.
 
 Local raw receipts, full stdout/stderr, stack sample and complete test inventory
-are retained under evidence/library/core-c-abi-055. This is not Git publication,
+are retained under .cache/research/legacy-evidence/evidence/library/core-c-abi-055. This is not Git publication,
 full consumer PASS or performance closure.

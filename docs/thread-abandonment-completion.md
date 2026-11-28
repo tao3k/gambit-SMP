@@ -39,7 +39,7 @@ These are intentionally incomplete repair controls, not three alleged new
 native failures. The fixed contract checks safety and progress over **42
 distinct / 50 generated states, zero queued**, in **29.694 seconds**.
 Receipts and all three traces are in
-`evidence/model-results/thread-abandonment-completion/`.
+`.cache/research/legacy-evidence/evidence/model-results/thread-abandonment-completion/`.
 
 The first run found the four-state join counterexample, but the framework
 rejected its unsupported TLC map syntax. The denied original receipt remains

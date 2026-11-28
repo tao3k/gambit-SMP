@@ -1,0 +1,102 @@
+#+TITLE: Family 7 (7/12: stress-gsc) Closure and Six-Link Cryptographic Audit
+#+STARTUP: showall
+
+* Scope and Non-Claim
+
+This document records the engineering architecture, formal verification, root-cause ABI discovery, and six-link cryptographic closure of *Family 7 (7/12: =stress-gsc=)* on the sealed =v10= candidate producer.
+
+- Standalone Family 7 qualification :: *CLOSED (PASS)* on the sealed =v10= dynamic =.o1= ABI producer (=gsiSha256= =a8f11728da05bca169b90431127012872beaa1dbfaee6d21e380845baf531dc0=, =gscSha256= =65f49569cb9bab04fc1966a18859b92e4fe265dec0711b329c002ddc3c69e41a=). All 6 offline cryptographic links (=sourceLock=, =makeLineage=, =sealedProducer=, =compiledHostValidation=, =formalModelsAndContracts=, =originalCompiledCampaign=) return =PASS= with =gaps=[]=.
+- Same-source 12-family prefix ledger :: Intentionally retained at the frozen =5/12= same-source baseline (Families 1--5 on the prior source period) until Families 8 (=registry=), 9 (=lifecycle=), and 10 (=gc-ffi=) stabilize and Families 2--5 are re-signed on one unified final source tree. No cross-source credit is spliced.
+- Hard host memory envelope :: Strict =< 8 GiB= (=8,589,934,592= bytes) compiler RSS cap enforced throughout bootstrap and compiled-host validation. Observed peaks: =7.249 GiB= during complete two-pass =v10= bootstrap, =149.6 MiB= during Link 4 compilation of all four stress fixtures and native controls.
+
+* Literature Amplification and Architecture Synthesis
+
+Family 7 closes the semantic gap between statically linked interpreted execution (=stress-gsi=) and dynamically loaded compiled C-host modules (=stress-gsc=):
+
+1. *Independent Translation Validation (Pnueli et al. TACAS '98; Leroy CompCert POPL '06)* :: Rather than trusting =gsc/_t-c-2.scm= by inspection, [compiled_host_validator.py](file:../../../src/gambit_smp/compiled_host_validator.py) independently parses each =gsc=-emitted =.c= module and verifies:
+   - Basic-block write-group dominance: every heap store (=___ALLOC=, =___BEGIN_ALLOC_*=, =___ALLOC_CLO=) and stack advance (=___PUSH=, =___ADJFP=) is dominated by =___group_demand_enter(___ps,&___hp,&___fp,S,H,___LBL(L),&___demand_attempt)= with matching =___DEF_SLBL(L,...)=, matching =___group_demand_commit(___ps,___LBL(L),...)=, and sufficient =(S, H)= word budgets.
+   - Frame descriptor soundness: independent bit-field decoding of every =___IFD(___RETI/___RETN, fs, link, gcmap)= and =___OFD(...)= macro ensuring =0 <= link <= fs= and GC root masks stay within =[0, fs)=.
+   - Post-safepoint reload discipline: every allocating procedure defines =#define ___PR_ALL ... ___R_HEAP= (or =___NEED_HEAP=) and performs no heap write after =___POLL= / =___CHECK_HEAP= without reloading =___hp=.
+   - Back-edge safepoint liveness under =(not safe)=: Tarjan SCC detection over each procedure's GVM label CFG confirms every cyclic loop contains a safepoint (=___POLL= / =___CHECK_HEAP=) or non-local call, preventing SMP GC rendezvous starvation even in =(declare (standard-bindings) (fixnum) (not safe))= tight loops (=thread_interrupt_stress.scm=, =thread_terminate_stress.scm=).
+   - RSS-guard bound: =___LBLCOUNT < 6000= on every compiled stress host so inline fast-path guards remain active while keeping GCC =cc1= memory orders of magnitude below the =8 GiB= ceiling.
+
+2. *Dynamic Module Late-Binding ABI (=___GSTATE= / =___EXT=)* :: On Darwin =arm64=, Gambit compiles loadable =.o1= modules as Mach-O bundles (=-bundle -D___DYNAMIC= without =-undefined dynamic_lookup=), where =___BIND_LATE= is defined and =___CAN_IMPORT_DYNAMICALLY= is undefined. Gambit's canonical dynamic ABI (=include/_gambit/module_generation.h.in:450-455=) routes all runtime calls through =___EXT(f)= = =(___GSTATE->f)=.
+
+* Root-Cause Discovery: v9 -> v10 Dynamic =.o1= ABI Fix
+
+Running Link 4 Phase 2 (=c-to-dynamic-module=) on the =v9= (=fdfec33a=) source tree uncovered a genuine dynamic-linking defect invisible to static =stress-gsi= (=Risk R1=): linking any compiled stress =.c= into a Darwin arm64 =-bundle -D___DYNAMIC -D___GAMBIT_REST_OBSERVATION= =.o1= failed with six undefined runtime symbols (=___group_demand_enter=, =___group_demand_commit=, =___gate2_group_site=, =___rest_observation_active=, =___rest_observation_store_fast=, =___rest_observation_adjust_fast=, plus =___rest_observation_pop_fast=).
+
+The surgical four-file =v10= fix in =vendor/gambit= (+97 / -12 lines, zero changes to =gsc/_t-c-2.scm=) brings all write-group and observation hooks onto Gambit's canonical =___GSTATE= / =___EXT= table:
+
+- [[file:../../../vendor/gambit/include/_gambit/global_state.h.in][include/_gambit/global_state.h.in]] :: Added function pointers (=___group_demand_enter=, =___group_demand_commit=, =___rest_observation_room=, =___rest_observation_settled=, =___rest_observation_last_demand=, =___rest_observation_last_entry_room=, =___rest_observation_reset_admission=, and under =___GAMBIT_REST_OBSERVATION=: =___gate2_group_site=, =___rest_observation_store_fast=, =___rest_observation_adjust_fast=, =___rest_observation_pop_fast=, =int *___rest_observation_active_ptr=, =___rest_observation_open=, =___rest_observation_case=, =___rest_observation_case_end=) inside =#ifndef ___CAN_IMPORT_DYNAMICALLY=.
+- [[file:../../../vendor/gambit/include/_gambit/object_access.h.in][include/_gambit/object_access.h.in]] :: Defined =___REST_OBS_ACTIVE= (=*___EXT(___rest_observation_active_ptr)= under late binding, =___rest_observation_active= statically) and routed =___REST_OBS_STORE=, =___REST_OBS_ADJUST=, and =___REST_OBS_POP= through =___EXT(...)= in both =< 6000= and =>= 6000= label-count branches.
+- [[file:../../../vendor/gambit/include/_gambit/runtime_protocols.h.in][include/_gambit/runtime_protocols.h.in]] :: Routed =___group_demand_enter=, =___group_demand_commit= (via =___GROUP_DEMAND_COMMIT_CALL=), =___GATE2_OPEN=, and =___GATE2_ENTER= through =___EXT(...)= and =___REST_OBS_ACTIVE= under =defined(___BIND_LATE) && !defined(___CAN_IMPORT_DYNAMICALLY)=, preserving bit-identical direct calls for static =-D___NONDYNAMIC= builds.
+- [[file:../../../vendor/gambit/lib/setup.c][lib/setup.c]] :: Initialized all exported =___GSTATE->...= entries during runtime setup right alongside =___GSTATE->___bind_primitive=.
+
+Verification confirmed =nm -u= reports *0 undefined Gambit symbols* across all four stress =.o1= bundles under both =+___GAMBIT_REST_OBSERVATION= and =-___GAMBIT_REST_OBSERVATION=.
+
+* Formal Models and Contract Verification (Link 5)
+
+All four formal layers were authored/updated prior to and aligned with the =v10= ABI fix and are SHA-256 bound in [[file:../../../evidence/research/retained/modern-c/stress-gsc/manifest.json][stress-gsc/manifest.json]] (=150c9d5086a8888d9776ac18bc6deca5e7d9442be1a6347757a8b54791d36a7e=):
+
+| Layer | Artifact | SHA-256 (prefix) | Verification Result |
+|-------+----------+------------------+---------------------|
+| SysML | [[file:models/sysml/stress-gsc-acceptance.sysml][stress-gsc-acceptance.sysml]] | =f48b3a559e11= | Strict OpenSysML SDK =v0.10.1= (=strict=True, strict_conformance=True=), 0 errors across 64 models |
+| SysML | [[file:models/sysml/smp-dev-composition.sysml][smp-dev-composition.sysml]] | =f2da55dd7052= | =f7= bound to =compiled_host_admission.qnt= (8 checks) & =stress-gsc/manifest.json=; 79/79 source anchors verified |
+| Quint | [[file:models/quint/compiled_host_admission.qnt][compiled_host_admission.qnt]] | =73c435944ea5= | =quint test=: 8/8 PASS (2 positive + 6 counterexamples incl. =missingDynamicGstateExportFailsLinkTest=); =quint run --invariant=safe --max-samples=2000 --max-steps=25= PASS |
+| Lean 4 | [[file:models/lean/CompiledHostRefinement.lean][CompiledHostRefinement.lean]] | =bf0c9e3d8951= | 4 theorem sections (dominance/reload, descriptor soundness, =<6000=-label equivalence, =-D___DYNAMIC= =___EXT= dispatch equivalence); 0 errors, 0 =sorry= |
+| CBMC | [[file:../../../tests/contracts/modern-c/compiled-host/macro-equivalence/harness.c][macro-equivalence/harness.c]] | =8646abdd02a9= | 3/3 entrypoints (=check_fix1c_register_scrub=, =check_label_guard_macro_equivalence=, =check_dynamic_gstate_ext_dispatch_equiv=) =VERIFICATION SUCCESSFUL=; Wave-0 =path-footprint= 6/6 PASS |
+
+* Six-Link Cryptographic Evidence Chain
+
+** Link 1: Source Lock (=PASS=)
+
+- Lock file :: [[file:../../../evidence/fixtures/dev-family7-stress-gsc/family7-stress-gsc-v10.lock.json][family7-stress-gsc-v10.lock.json]] (=sha256= =cc8668b550fb8b704a044ff28cef87c1695b0beb47ed9ff6ba2043c6b0f46337=)
+- Patch file :: [[file:../../../evidence/fixtures/dev-family7-stress-gsc/family7-stress-gsc-v10.patch][family7-stress-gsc-v10.patch]] (=sha256= =8da8a6eb970b5a8aea2080aba358bc5df470302e461db621c6e98750e2744f32=, 115 locked files against upstream =500c0819e29bc1d4116f1c6120390dcac0eda225=)
+
+** Link 2: Complete Two-Pass Make Lineage (=PASS=)
+
+- Recipe :: [[file:../../../evidence/fixtures/dev-family7-stress-gsc/family7-bootstrap-v10.recipe.json][family7-bootstrap-v10.recipe.json]]
+- Sealed engine :: =.cache/tasks/modern-c-frame-contract/family7-stress-gsc-engine-v10= (=engineId= =9c04c6613cc14cab255003f895e3508e24b90e41473d165d8b9803894f77461c=)
+- Run directory :: =.cache/tasks/modern-c-frame-contract/family7-stress-gsc-bootstrap-v10c= (=outerReceiptSha256= =213d0bbbcf3d896ddcc59c4829a7a0290d590c9521749d4c0e8ee52f0686591c=, =childReceiptSha256= =a4ea2f7b40c415e952cd7a4e8af5c2e240dbbdf28e258b153fc447eeee0a487f=)
+- Duration & Lineage :: =2441.55s=, =fullTwoPassBootstrapEstablished=true=, =lineage.json= (=ea14837ad2f1...=), =actionsPerPass= ={emit: 51, object: 65, archive: 3, index: 3, link: 2}=.
+- Compiler RSS :: Observed =peakGroupRssBytes = 7,783,235,584= bytes (*7.249 GiB* < =8.000 GiB= enforced limit across 282 samples).
+
+** Link 3: Sealed Producer (=PASS=)
+
+- Exported producer :: [[file:../../../evidence/research/retained/modern-c/family7-stress-gsc-v10/completed-producer.json][completed-producer.json]]
+- =gsi/gsi= :: =a8f11728da05bca169b90431127012872beaa1dbfaee6d21e380845baf531dc0=
+- =gsc/gsc= :: =65f49569cb9bab04fc1966a18859b92e4fe265dec0711b329c002ddc3c69e41a=
+- =lib/libgambit.a= :: =a076aef65f9f5541ea87ca24b176ad6ce754c545b48685c58e3abe4239f3c74c=
+- =include/gambit.h= :: =8ba8a6e3752ebe493eb037fc45a74e66d7f1c238ab1f0bfcf3c1e3460e8b0282=
+- =bin/gambuild-C= :: =64d12af44a3dd783a106f40729b7f42fe13108a678ee4720333e0ee92988c495=
+
+** Link 4: Compiled-Host Validation & Native =.o1= Controls (=PASS=)
+
+- Receipt :: [[file:../../../evidence/fixtures/dev-family7-stress-gsc/link4-compiled-host-validation.json][link4-compiled-host-validation.json]] (=sha256= =4f17a79016488460eb2f59ec4b64d3584bf3594df6efe0c2555d8c0e9b2d8425=, =7,704= bytes)
+- Peak Link 4 compiler RSS :: *149.6 MiB* (=156,876,800= bytes < =8 GiB=).
+- Three-phase =.c= / =.o1= binding, Translation Validation, and =dlopen= execution at =p2=:
+
+| Stress Fixture (unchanged) | Labels (<6000) | Write Groups | TV Violations | =dlopen= (=p2=) |
+|----------------------------+----------------+--------------+---------------+-----------------|
+| =06-thread/tfib_stress.scm= | 126 | 43 | 0 | PASS (29.50s) |
+| =06-thread/thread_interrupt2_stress.scm= | 572 | 131 | 0 | PASS (68.42s) |
+| =06-thread/thread_interrupt_stress.scm= | 47 | 8 | 0 | PASS (66.35s) |
+| =06-thread/thread_terminate_stress.scm= | 47 | 8 | 0 | PASS (17.81s) |
+
+- Five mutated-host negative controls on real =v10= =tfib_stress.c= :: *5/5 REJECTED (PASS)* (=drop-group-demand-enter=, =under-computed-heap-demand=, =missing-post-safepoint-reload=, =corrupted-frame-descriptor=, =elided-backedge-poll=).
+- Three native dynamic =.o1= wire-trace controls at =p2= :: *3/3 PASS*:
+  - Control A (compiled =.o1= shortage -> GC -> reload -> write -> commit): Gate-2 trace on =make-worker-closure= label 1 captured =group-open=22779=, =group-enter=22779=, =group-grant=10=, =group-heap-grant=10=, =group-store=432931=, =group-commit=10=, =group-retired=10=; unfiltered trace captured =gc-begin=4=, =gc-end=4=, =grant=27=.
+  - Control B (compiled =.o1= cross-module interrupt & unwind): =normal=200=, =sync-unwind=50=, =async-escape=50=, =CONTROL-B-OK=.
+  - Control C (compiled =.o1= exact 1-word-short physical boundary refusal): =words=12=, =target=11=, =caught=#t=, =sentinels=#t=, wire trace captured =watched-demand=1=, =native-cut=1=, =reload=1=, =reload-installed=1=, =retry-grant=1=, =snapshot=262150=.
+
+** Link 6: Original Compiled Stress Campaign & Offline Audit (=PASS=)
+
+- Recipe :: [[file:../../../evidence/fixtures/dev-family7-stress-gsc/family7-stress-gsc-v10.recipe.json][family7-stress-gsc-v10.recipe.json]]
+- Sealed engine :: =.cache/tasks/modern-c-frame-contract/family7-stress-gsc-engine-v10b= (=engineId= =68512e3a5086f6938d8c8844943afc68af16277b0de013c867ad1bf0a6712fb1=)
+- Run directory :: =.cache/tasks/modern-c-frame-contract/family7-stress-gsc-v10-campaign-b= (=outerReceiptSha256= =934d3e05ff22b8aee0d97fa217810adeac3470dc07ac0c8b5708bb3db333ec20=, =childReceiptSha256= =f9545ed9404b80683c7f5bcb6ea936f4d7c4f2e70a5f701298a8da6cc8915df1=)
+- Shared campaign clock :: =runId= =80a33dfe929f45ff84de8c9ed5420418=, =wholeSeconds = 224.01s= (inner =stress= step =183.15s= <= =295s=, outer <= =300s=).
+- Topologies & natural completions (*8/8 PASS*, strictly sequential =p2= -> =p1= on one monotonic clock):
+  - =p2 / jobs=3=: =p2-suite-0-0= (=tfib_stress= + =thread_terminate_stress=, =50.52s=, PASS), =p2-suite-0-1= (=thread_interrupt2_stress=, =70.66s=, PASS), =p2-suite-0-2= (=thread_interrupt_stress=, =63.04s=, PASS).
+  - =p1 / jobs=4=: =p1-suite-0-0= (=tfib_stress=, =48.06s=, PASS), =p1-suite-0-1= (=thread_interrupt2_stress=, =77.30s=, PASS), =p1-suite-0-2= (=thread_interrupt_stress=, =102.15s=, PASS), =p1-suite-0-3= (=thread_terminate_stress=, =15.34s=, PASS).
+- Offline 6-Link Auditor :: [[file:../../../src/gambit_smp/stress_gsc_audit.py][stress_gsc_audit.py]] returns =passed=True=, =gaps=[]=, all 6 links =PASS=.

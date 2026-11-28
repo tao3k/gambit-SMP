@@ -1,0 +1,36 @@
+direction: down
+classes: {
+  retained: {style.fill: "#e8f1fb"; style.stroke: "#346a98"}
+  proposed: {style.fill: "#eee8fb"; style.stroke: "#7053a1"}
+  gate: {style.fill: "#fff0d9"; style.stroke: "#ad7629"}
+}
+title: "WaitContext: persistent reason and retained wake\nConditional paper argument; no native qualification" {shape: text}
+producer: {
+  label: "Ordinary cooperative producer"
+  direction: down
+  commit: "WSO01 / under L\nPublish durable reason P\nInstall notification debt + WakeLease" {class: proposed}
+  write: "WSO02 / outside L\nOne-byte nonblocking write\nEINTR retry; EAGAIN only if qualified" {class: proposed}
+  settle: "Under L: settle notification debt\nReason remains until accounted" {class: proposed}
+  commit -> write -> settle
+}
+waiter: {
+  label: "One wait owner / private pipe"
+  direction: down
+  drain: "WSO03 / drain bounded batch of bytes\nNonblocking; then check even under traffic" {class: proposed}
+  check: "Under L: check / claim actionable P" {class: proposed}
+  work: "P true: account / run work outside L\nBlocked jobs alone are not runnable P" {class: proposed}
+  wait: "WSO04 / P false: unlock then wait\nWake fd + leased device interests\nNO drain/reset before blocking" {class: proposed}
+  drain -> check
+  check -> work: "true"
+  check -> wait: "false"
+  repeat: "Next cycle begins at DrainThenCheck\nRebuild sets after return / EINTR" {class: proposed}
+  work -> repeat
+  wait -> repeat
+}
+producer.commit -> waiter.check: "same L serializes predicate"
+producer.write -> waiter.wait: "readable token persists\nuntil sole drainer reads"
+proof: "WST01 case cut\nCommit before false check: reason observed/accounted\nCommit after false check: retained wake prompts next check" {class: retained}
+waiter.wait -> proof
+failure: "Open progress premises\nLive notifier + healthy backend + stable endpoint\nFatal wake error cannot wake a sleeping waiter by recording P" {class: gate}
+producer.write -> failure: "error / stalled notifier"
+proof -> failure: "safety is not bounded progress"

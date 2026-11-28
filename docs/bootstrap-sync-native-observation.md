@@ -31,7 +31,7 @@ candidate, fixture and driver identities remained stable. SMP and both
 multiple-VM flags remain in the bound bootstrap configuration.
 
 The portable archive under
-`evidence/source-results/fixtures/sfun-owned-unwind/bootstrap-sync-suite`
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/bootstrap-sync-suite`
 retains exact receipts, identity and shard logs. The archive checker confirms
 those bytes; it does not re-execute the tests. These are eight-file correctness
 observations, not complete threaded-GC, full native-suite, Gerbil, release or

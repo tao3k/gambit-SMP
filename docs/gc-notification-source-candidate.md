@@ -53,9 +53,9 @@ Configure has a 90-second cap and compilation a
 
 Observed GNU GCC 16.2.0: configure 38.277 seconds, full mem.c object 0.997
 seconds, both exit zero. Receipt:
-`evidence/model-results/gc-notification-object-029.json`.
+`.cache/research/legacy-evidence/evidence/model-results/gc-notification-object-029.json`.
 The negative 028 header result remains in
-`evidence/model-results/gc-notification-object-028-header-deny.json`.
+`.cache/research/legacy-evidence/evidence/model-results/gc-notification-object-028-header-deny.json`.
 
 Two initial configure attempts failed before reaching mem.c. The new runner
 had restored the ambient PATH, selecting Nix assembler/linker tools and causing

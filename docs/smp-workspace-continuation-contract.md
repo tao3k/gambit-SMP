@@ -79,7 +79,7 @@ guard rejects another reservation even though arithmetic leaves 0.597 seconds.
 No budget reset, repeated unchanged attempt, reconstructed missing child
 receipt, or new native/performance acceptance is authorized by this result.
 Portable receipt identities and exact observations are retained in
-`evidence/research/continuation-retained-seed-bootstrap/observation.json`.
+`.cache/research/legacy-evidence/evidence/research/continuation-retained-seed-bootstrap/observation.json`.
 
 ## Model Catalog Boundary
 

@@ -1,0 +1,154 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-heap-check-macro-native-controls",
+  "scope": "Standalone C control using separately bound live generated Gambit header and a stub handler; header provenance differs from selected source lock; no production GC or runtime admission.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "evidence/fixtures/dev-resume-limit-568e/source.lock.json",
+    "patches/fixtures/dev-resume-limit-568e.patch",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-heap-check-macro/binding.json",
+    "evidence/fixtures/dev-heap-check-macro/observations.json",
+    "evidence/fixtures/dev-heap-check-macro/check.c",
+    "vendor/gambit/include/gambit.h"
+  ],
+  "steps": [
+    {
+      "id": "materialize",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/dev-resume-limit-568e/source.lock.json",
+        "buildWorkspace": "gambit-core"
+      }
+    },
+    {
+      "id": "project",
+      "capability": "source.project",
+      "dependsOn": [
+        "materialize"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": {
+          "step": "materialize",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "check.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "evidence/fixtures/dev-heap-check-macro/check.c"
+            },
+            "sha256": "b1afb220b24957c74912adc54442a0adfad60b7a349337e97803ad36f3ff4cbe"
+          },
+          {
+            "target": "gambit.h",
+            "origin": {
+              "kind": "research-asset",
+              "path": "vendor/gambit/include/gambit.h"
+            },
+            "sha256": "670ff0b9cacb01b3e2ce8ec0eb39781817b031e03fceaf3de90565dbcdbf7e36"
+          }
+        ]
+      }
+    },
+    {
+      "id": "bind",
+      "capability": "source.bind",
+      "dependsOn": [
+        "project"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "project",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "project",
+        "bind"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "workspace": {
+          "step": "project",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "bind",
+          "output": "binding"
+        },
+        "translationUnit": "check.c",
+        "standard": "c23",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable"
+      }
+    },
+    {
+      "id": "test",
+      "capability": "native.test",
+      "dependsOn": [
+        "build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "heap-check",
+            "integers": [],
+            "stdout": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "materialize",
+        "project",
+        "bind",
+        "build",
+        "test"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-heap-check-macro/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ],
+  "workspacePolicy": "in-place"
+}

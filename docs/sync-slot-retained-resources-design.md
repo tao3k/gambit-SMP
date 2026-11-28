@@ -31,7 +31,7 @@ campaign took 16.481 seconds, under 90 seconds per check; controls use the
 framework's automatic capacity and the positive temporal check stays serial.
 
 Receipt and exact model snapshots are under
-`evidence/model-results/fixtures/pstate-scan-lock-owned-lifecycle/retained-sync-design-contract/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/pstate-scan-lock-owned-lifecycle/retained-sync-design-contract/`.
 The manifest binds the parent source lock/overlay. It describes a proposed
 repair, not an implemented C guarantee. Its round-closure dependency records a
 needed interface, not a joint proof of both models.

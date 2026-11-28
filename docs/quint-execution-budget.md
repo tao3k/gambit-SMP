@@ -39,7 +39,7 @@ uv run --locked gambit-smp verify --manifest evidence/gc-recursive-queue-wait.js
 `accepted=false`, `runtimeAdmitted=false` and `releaseAdmitted=false`. It cannot
 stand in for either positive policy's complete safety/temporal exploration.
 The portable diagnostic archive lives in
-`evidence/model-results/gc-recursive-queue-controls-parallel/`.
+`.cache/research/legacy-evidence/evidence/model-results/gc-recursive-queue-controls-parallel/`.
 
 Logs show Apalache startup/translation before TLC begins. Parallel controls
 overlap this overhead; they do not make a single translation instantaneous.

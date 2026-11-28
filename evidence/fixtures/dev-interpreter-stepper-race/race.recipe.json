@@ -1,0 +1,77 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-interpreter-stepper-race",
+  "scope": "Finite interleaving of a proposed early inlining guard against a mutable stepper. No production implementation, C memory-order proof, or runtime admission.",
+  "budgetSeconds": 60,
+  "inputs": [
+    "dev/refactoring/modern-c/models/quint/smp_interpreter_stepper_race.qnt",
+    "vendor/gambit/lib/_eval.scm",
+    "vendor/gambit/lib/_eval#.scm",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-interpreter-stepper-race/binding.json",
+    "evidence/fixtures/dev-interpreter-stepper-race/observations.json"
+  ],
+  "steps": [
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/smp_interpreter_stepper_race.qnt"
+      }
+    },
+    {
+      "id": "qnt",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/smp_interpreter_stepper_race.qnt",
+        "parsed": "parse",
+        "main": "smp_interpreter_stepper_race",
+        "seed": "0x51",
+        "maxSamples": 1,
+        "expectedTests": [
+          "staleGuardNegativeTest",
+          "lateGuardControlTest",
+          "noStepperControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "parse",
+        "qnt"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-interpreter-stepper-race/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

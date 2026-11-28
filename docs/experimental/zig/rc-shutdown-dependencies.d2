@@ -1,0 +1,30 @@
+direction: down
+classes: {
+  source: {style.fill: "#e8f1fb"; style.stroke: "#346a98"}
+  proposed: {style.fill: "#eee8fb"; style.stroke: "#7053a1"}
+  gate: {style.fill: "#fff0d9"; style.stroke: "#ad7629"}
+}
+title: "Shutdown: lifetime dependencies and blocking waits differ\nRank applies only to a complete admitted operational wait graph" {shape: text}
+counter: {
+  label: "Countermodel / not an admitted native-only profile"
+  direction: right
+  owner: "Owner blocked\nin teardown" {class: gate}
+  task: "Release task\nneeds owner callback" {class: gate}
+  owner -> task: "waits for\ntask"
+  task -> owner: "callback needs\nblocked owner"
+}
+qualified: {
+  label: "Candidate internal blocking-wait discipline"
+  direction: down
+  phase: "Rank 3 / coordinator\nManaged / owner-affine work settles before owner closure" {class: proposed}
+  capture: "Rank 2 / transfer orchestration\nCapture after safe root / borrower cut\nNo G / C / L / registry lock held across waits" {class: proposed}
+  runner: "Rank 1 / native executor continuation\nParent yields for same-lane child\nNo callback wait on a blocked owner" {class: proposed}
+  leaf: "Rank 0 / readiness or admitted leaf dependency\nRequired actors stay runnable\nExternal peer / provider progress is still a premise" {class: proposed}
+  phase -> capture -> runner -> leaf: "strictly decreasing blocking rank"
+}
+counter -> qualified: "must transform or exclude reverse wait"
+users: "Actual keep-live users\nTCP accept -> tls_context_p -> RC strings / SSL_CTX\nC closure -> data root / VM / converter / return code\nWait task -> wake endpoint / clock / provider" {class: source}
+qualified.runner -> users: "pins retain lifetime; not execution progress" {style.stroke-dash: 5}
+cut: "Per-resource cleanup cut\nKnown disposal OR actual independent custody transfer\nComplete producer / user / task / notifier / join closure\nRetained dependency blocks dependent teardown" {class: gate}
+qualified.leaf -> cut
+users -> cut: "all actual users accounted" {style.stroke-dash: 5}

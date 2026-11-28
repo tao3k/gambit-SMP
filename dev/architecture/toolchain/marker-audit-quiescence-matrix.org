@@ -1,0 +1,103 @@
+#+TITLE: Marker Audit Quiescence — Closure and Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-matrix
+:AUTHORITY: MarkerAuditQuiescence
+:STATUS: conditional-models-source-open
+:END:
+
+Derived by native SysML queries. Benefits are conditional work/capacity bounds, not timings.
+
+** Policy
+
+| key | identity | roots | executor |
+|---+---+---+---|
+| marker-audit | activation-generation | scanned-slots | closed-writers-fresh-audit-epoch |
+
+** Writer
+
+| key | kind | anchor | target | admission | status |
+|---+---+---+---+---+---|
+| initial-count | direct field write | mem.c:1683 | fresh still allocation | count set to 1 before publication | not a retained old marker rewrite |
+| native-inc | direct arithmetic writer | mem.c:1447-1453 | arbitrary still object argument | guarded managed writer or reject alias | no intrinsic marker/private-token check |
+| native-dec | direct arithmetic writer | mem.c:1461-1467 | arbitrary still object argument | owned credit and admitted write role | plain non-idempotent decrement |
+| marker-kill | specialized caller | c_intf.c:6555-6562; setup.c:3415; gambit.h.in:10047,10053,10059 | actual marker from make_sfun_stack_marker | old tail and auditor cannot overlap | known in-tree marker decrement route |
+| generic-release | indirect decrement caller | mem.c:1730-1737; gambit.h.in:10194-10645 | allocated still SCMOBJ argument | prove temporary distinct from marker or refuse alias | conversion macros and Tcl use generic API; marker alias not excluded by function |
+| scheme-primitives | indirect inc/dec callers | _kernel.scm:2411-2417; _kernel.c:18157,18187; pthread/mylib.scm:26-31 | Scheme object argument | restrict marker access to unsafe native-count operations | real caller example uses counter, not observed marker |
+| native-exports | function-pointer exposure | setup.c:5931-5944; gambit.h.in:13281-13300,14624-14643 | external native code can pass encoded object | admitted embedding/profile closure | export declaration is capability, not observed marker invocation |
+| raw-layout | unbounded potential bypass | mem.c:525,1452,1466; gambit.h.in body/object macros | native pointer or encoded object alias | reject unmanaged body/header writes | symbol census cannot enumerate arbitrary C pointer arithmetic |
+| gc-and-cleanup | read/lifecycle consumers | mem.c:4221,4387-4451,4928-4935 | still chain storage and metadata | transfer scan/sweep/storage responsibility before exit | GC reads count; cleanup frees without count check, not another arithmetic writer |
+| fresh-body-copy | distinct allocation consumer | _kernel.scm:2390-2398 | new result object from still-copy | track object identity, do not count as marker rewrite | payload copy and new-result drop are not evidence of old marker count mutation |
+| continuation-access | possible alias exposure | setup.c:3340; _kernel.scm:3145-3152,3415-3501; _io.scm:11690-11726 | captured frames and generic slot access | private-marker proof must cover introspection/serialization/native forwarding | source exposes mechanisms; exact executable marker extraction remains unproved |
+
+** Memory
+
+| key | writer | publication | reader | observation | lifetime |
+|---+---+---+---+---+---|
+| close-admission | stable VM directory closes native writer generation | SC gate transition; candidate acq_rel CAS | old and late requesting writers | acquire same closed generation; no unchecked increment after separate open test | raw bypass aliases must be excluded by admitted profile |
+| writer-drain | last admitted writer completes ordinary count/body accesses | release write-lease decrement | collector/audit coordinator | acquire drained same gate after close; preserve reads-from chain | counter zero is meaningful only with closed admission and complete writer set |
+| join-result | OS thread termination and exact join result | platform termination synchronization; capture native return code | guardian | successful matching join; errors/unknown retain lease and custody | native thread death alone does not transfer arena or roots |
+| arena-transfer | old storage owner publishes retained still-list/accounting handoff | release immutable StorageHandoffReceipt | target VM storage/scanner owner | acquire same generation before old cleanup | old free_still_objs cannot run on transferred retained chain |
+| gc-cut | coordinator parks producers and scanner/auditor in disjoint phases | release epoch/root snapshot and matching acknowledgement | collector then exclusive auditor | acquire complete cut; no global root lock across GC wait | count-zero marker remains ordinary root-reachable |
+| audit-read | exclusive auditor with proven native credit baseline | plain count and marker reads after HB/quiescence | same auditor | fresh observation under active lease only | no atomic cast on mixed plain fields; no extra native still reference for audit pin |
+| audit-write | exclusive auditor performs missing invalidation/drop | plain writes then release accounting receipt | query/custodian | acquire same audit/marker generation | if auditor exits before receipt, keep roots and establish a fresh cut before reread |
+| replacement | prior auditor exits, then guardian confirms cessation and visibility | release/drain prior audit lease and invalidate old observation | next auditor | acquire fresh epoch-qualified receipt before touching count | lost response is not cessation; no helper overlap |
+| retirement | physical caller and reader/root grace obligations settle | release Done/root-domain retirement | VM guardian | acquire complete retirement receipt | no free based on count zero, invalid marker, join or audit accounting alone |
+
+** Contract
+
+| key | anchor | actionName | lemmaName | guardName | duty | status |
+|---+---+---+---+---+---+---|
+| derived-credit | mem.c:4210-4248,4432-4451,4928-4935 | retireRoots | retirementNeedsCallerDone | s.callerDone | Accounting completion is not physical caller completion; close roots only after caller and reader/GC grace evidence; audit pin never silently increments marker count | VM guardian retains failed/unknown audit custody |
+| execution-owner | setup.c:931-979; mem.c:4432-4451 | closeWriters | closingDoesNotDrain | s.session | Close generation-aware write admission before drain; pre-admitted original and alias writers retain obligations until stopped or acknowledged | current direct writers lack this gate |
+| writer-closure | mem.c:1447-1480,1730-1737; _kernel.scm:2411-2417; gambit.h.in:13294-13300 | admitClosedProfile | extraCreditDefeatsInference | not(s.foreignWrite) | Exact count=1-ownedDrop requires zero unaccounted native credits; strict private-marker profile rejects generic/reference aliases and raw metadata writes | syntactic census is not alias-complete proof |
+| storage-commit | setup.c:931-979,4666-4673; mem.c:4928-4935 | reclaim | joinDoesNotTransferArena | s.rootGrace | Transfer still arena, scanner ownership and accounting before old PSTATE cleanup; successful join alone cannot preserve already-freed marker storage | existing cleanup order must change for retained markers |
+| audit-receipt | mem.c:1475-1480; os_thread.c:546-556 | certifyAudit | qualificationNeedsAll | qualified | Receipt binds generation, closed writer set, confirmed exit/visibility, root/arena handoff and GC cut; count alone and timeout do not certify | new source-closed proof-carrying admission |
+| auditor-transfer | os_thread.c:546-556; setup.c:979 | confirmAuditExit | unknownKeepsCustody | not(s.auditLive) | Lost response retains audit write lease; replacement only after exact auditor cessation and visibility plus fresh GC cut and reread | no takeover based on unknown or failed join |
+| single-drop | c_intf.c:6555-6562; mem.c:1461-1480 | auditDrop | dropPreserves | s.drops==0 | At exclusive cut, count 1 permits only missing decrement and count 0 permits recording; invalidation and decrement have separate progress | no full-kill replay after zero count |
+| gc-cut | mem.c:4210-4248,4387-4451; setup.c:931-979 | beginGcCut | exclusiveAuditExcludesScan | writersDrained | Serialize plain refcount/body audit with collector; preserve independent scanned root at count zero and keep old storage owned | no global lock held across GC participation wait |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| private-marker-audit | Recover unlogged owned decrement with existing count representation under verified exclusive baseline | Writer-profile closure, same-generation directory, join/visibility and root/arena/GC handoff | Current code does not establish a universal single-reference marker invariant; unsafe/open alias paths reject audit |
+| repeatable-audit | A replacement can reread zero after prior auditor decremented but did not record | Keep guardian root/session; confirm auditor stopped, refresh cut and discard old observation | Failed join or response loss cannot release prior lease or authorize another writer |
+| storage-preservation | Allow processor exit while retained marker remains valid in VM-owned storage | Scanner ownership and still capacity/accounting handoff before cleanup; independent root registration | Join-only or ordinary root pin does not override free_still_objs; cleanup path must be refactored |
+| modern-c-net-benefit | Reuse allocator count and shared root/admission machinery instead of forcing token representation for every eligible marker | Stop/drain/GC latency, verification and unknown retention remain; token path still alternative | Net gain depends on a genuinely closed private-marker domain and shared support; no runtime speed or Zig-specific saving established |
+
+** Gate
+
+| key | qualified | duty |
+|---+---+---|
+| reference-writer-closure | False | Generic C, Scheme primitive, exported function-table and raw native alias writers are closed or marker profile is rejected; census cannot certify this universally |
+| stop-and-visibility | False | Exact old writer and every auditor cessation, admitted join result, happens-before, no late leased writer; current shrink ignores join error |
+| arena-handoff | False | Still list, scanner/sweep and capacity census transfer before cleanup_pstate/free_still_objs; root registration alone is insufficient |
+| audit-qualification | False | Known one-credit baseline, independent root pin without still increment, stable generation, excluded raw aliases, no corrupt/torn state |
+| auditor-retirement | False | No overlap or stale observation after audit helper exit; read leases and root/session guardian outlive unknown outcomes |
+| c11-source-refinement | False | Gate close/drain, ordinary-field quiescence, collector exclusion and native join semantics are mapped to concrete instructions |
+| darwin-native | False | Static SDK macro parity only; installed pthread/GC/SMP object and full source/native registration remain open |
+
+** Profile
+
+| key | driver | header | compiler | declaredMode | macroParity | sourceMatch | status |
+|---+---+---+---+---+---+---+---|
+| installed-darwin-source | /opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/bin/gambuild-C | /opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/include/gambit.h | /opt/homebrew/bin/gcc-16 | C; SINGLE_HOST; INLINE_JUMPS; TRUST_C_TCO; header default SINGLE_THREADED_VMS | Nine literal macro spans match template; effective branch and object relation remain open | False | static installed declarations; no effective argv or SMP object match |
+
+** Shared-contract dependencies
+
+| dependent | prerequisite | obligation |
+|---+---+---|
+| writer-closure | execution-owner | Close admission before writer-profile closure receipt |
+| gc-cut | execution-owner | Drain pre-admitted writers before collector cut |
+| audit-receipt | writer-closure | Count inference needs complete writer/credit provenance |
+| audit-receipt | gc-cut | Audit receipt includes collector and root storage cut |
+| auditor-transfer | audit-receipt | Replacement needs identity-specific audit authority |
+| single-drop | audit-receipt | Only qualified exact-credit observation permits missing decrement |
+| derived-credit | single-drop | Accounting settlement precedes physical root retirement |
+| derived-credit | auditor-transfer | No unresolved auditor lease at retirement |
+| storage-commit | derived-credit | Storage reclaim follows caller and root retirement |
+| audit-receipt | execution-owner | Closed gate and successful cessation precede qualification |

@@ -1,0 +1,91 @@
+#+TITLE: Iter Compiler Service Contracts, Retirement and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: iter-service-matrix
+:AUTHORITY: IterCompilerService
+:STATUS: conditional-models-source-refinement-open
+:END:
+
+Proposed contracts. All source/platform gates stay open; no native performance result.
+
+** Chain
+
+| key | labelText | anchor |
+|---+---+---|
+| helpers | std/interface + list-builder + iter/interface + iter/iterators | std/iter/macros.ss:4-7 |
+| macros | iter/macros: begin-syntax + for / for1 / dispatch | std/iter/macros.ss:10-100 |
+| api | iter/api -> std/iter re-export | std/iter/api.ss:4-22; std/iter.ss:4-5 |
+| misc | string/misc: for + in-range | std/string/misc.ss:227-234 |
+| wg | sync/wg: for + thread-join! | std/sync/wg.ss:37-40 |
+
+** Chainedge
+
+| fromKey | toKey | contract |
+|---+---+---|
+| helpers | macros | Direct source imports; transitive phase/effect closure open |
+| macros | api | Imports and reexports for bindings |
+| api | misc | std/iter import and real for/in-range consumer |
+| api | wg | std/iter import and real for consumer |
+
+** Refinement
+
+| key | qntScope | leanScope | evidenceGap |
+|---+---+---+---|
+| context-owner | acquire;live;pause;resume;close | freshGeneration;releaseNotifies | All real roots, borrowers, callbacks and continuation generations refine the abstract owner map |
+| stage-prefix | scheme;advance;seal;publish | orderedPrefix;failureNotSuccess | Typed graph sealing and GeneratedScheme fidelity remain source obligations |
+| ordered-trace | sequenceFirst;sequenceSecond | projectionNeedsSupport | Toy ordered guard is a negative control, not full trace-interpreter semantics |
+| unknown-custody | unknownOutcome;acknowledge;settle;drain | releaseNotifies;sourceSeparate | Endpoint settlement truth and cleanup failure must be proven from actual execution host |
+
+** Seam
+
+| key | owner | anchor | input | completion |
+|---+---+---+---+---|
+| gerbil-expand | Gerbil | iter/macros.ss:10-100; iter/api.ss:4-22; iter.ss:4-5 | Binding projection + executable support + fresh instance + capability trace | Complete owned semantic expansion; binding equality never substitutes for transformer support |
+| generated-scheme | Gerbil to Gambit | compiler/driver.ss:647-747,787-804 | Structured code + module-scoped declarations + origin map + phi + semantic identity | Not GVM; includes runtime, loader and positive-phase sections; no publication from partial output files |
+| normalize | Gambit | gsc/_front.scm:194-250,317-350 | Owned parse/environment/normalization context; source and demanded modules | Result may retain context references until deep seal or ownership transfer; textual dump is not a typed API |
+| lower-gvm | Gambit | gsc/_front.scm:397-411; gsc/_gvm.scm:3022-3029 | Normalized graph + environment + C interface + target semantic profile | GVM result and ModuleSpec/FrameSpec/PointId share a cohort; optimizer facts tracked |
+| emit-modern-c | Gambit to Gerbil | gsc/_front.scm:435-449; gsc/_back.scm:388-475 | Sealed GVM + layout/ABI + native requirements + diagnostics + outcome | Native tool/profile change need not invalidate expansion; target semantic change may invalidate normalization |
+
+** Context
+
+| key | anchor | stateSet | isolation | retirement |
+|---+---+---+---+---|
+| environment | _env.scm:348-361 | next-var-stamp, ret-var, ret-var-set, closure-env-var, empty-var | Owned per invocation; immutable primitives may be shared only after write census | All references either sealed/relocated or remain rooted in retained context |
+| parse-tree | _ptree1.scm:2980-2995 | ptree port, next-node-stamp, temp-variable-stamp | Session-owned diagnostic sink and counters; identity reconstruction required | Do not close caller-owned info port; deactivate callback authority before freeing context |
+| gvm | _gvm.scm:3022-3029; _front.scm:979-1035 | operand interning plus basic-block/emission state | Own interning tables and emission cursors; begin/end globals cannot overlap | Live result cannot outlast its region without sealing or ownership transfer |
+| target | _back.scm:388-475; _t-c-1.scm | target selection, primitive metadata and target dispatch functions | Separate immutable target description from per-emission mutable data; complete target writer census open | Do not reuse context after unknown cleanup; output files held attempt-private |
+| outcome | _front.scm:336-350,352-462 | input/diagnostic ports, roots, suspended state, errors and result thunk | Guarded one-shot service completion; no cross-owner continuation resume | Cancellation/failure enters draining; release only after root/borrow/callback custody closes |
+
+** Retire
+
+| key | anchor | condition | removed | retained |
+|---+---+---+---+---|
+| module-completion | std/make.ss:299-343 | All import consumers request exact interface/support/native projections | Retire whole-module completion as sole readiness gate | Keep true initializer and phase dependencies; no arbitrary cycle breaking |
+| driver-mutex | compiler/driver.ss:119-136,632-633 | All expander/optimizer/loader writers isolated and binding identity preserved | Retire global import/optimizer serialization only after writer migration | Process isolation is an alternative execution mechanism, not proof of same-VM safety |
+| global-begin-end | _front.scm:326-347; _env/_ptree1/_gvm/_back | Every mutable compiler/target state owner and cleanup endpoint identified | Retire process-global begin/end authority within the new service | Preserve standalone gsc as service client; no claim that current internal procedures are reentrant |
+| scm-file-invoke | compiler/driver.ss:787-804,881-886 | Structured GeneratedSchemeResult + origin/declaration fidelity + stage consumers admitted | Retire intermediate file roundtrip as authoritative service handoff | Optional human-readable export stays possible; textual equality not sufficient semantic evidence |
+| job-and-files | compiler/base.ss:287-335; compiler/driver.ss:686-747 | Every producer/waiter uses one resource budget and atomic manifest | Retire duplicate deferred compile-job authority and direct partial-file acceptance | Native jobs remain; shared scheduler must preserve exit diagnostics, unknown custody and bootstrap |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| no-change | Admitted matching query recomputation: target zero executions | V_trace + materialization | R > H; hidden dynamic reads or clocks invalidate reuse |
+| iter-code-edit | Only unchanged consumed projections can stop propagation | Rebuild support and every affected macro consumer | Unchanged exported for names alone yields no cutoff; output equality must include origins/effects |
+| two-consumers | Unnecessary waiting for unrelated runtime/native completion | Context memory + scheduling + IPC + per-instance initialization | For a proven nonsemantic gate U and branch span B: old span p+U+B; new DAG span p+max(U,B); saved span min(U,B) must exceed added span. Resource limits and real support edges still apply |
+| backend-edit | Frontend re-expansion when only nonsemantic native inputs changed | GVM/C/native cohort validation and changed native work | Target semantics/declarations can cross the boundary; native ABI-only edits require a narrower proven projection |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| phase-closure | False | All iter transformer/helper/initializer/native support and ordered effects captured |
+| generated-scheme-fidelity | False | Code, declarations, phi, identity, source origin and diagnostics refine the current emitter |
+| context-ownership | False | All Gambit and Gerbil mutable writer sets, roots and callback/continuation exits owned |
+| stage-sealing | False | Each cross-stage pointer graph sealed or ownership-transferred without dead references |
+| trace-order | False | Sequential and independent parallel dependency sections preserve macro effects and errors |
+| scheduler-outcome | False | No duplicate producers or stale-epoch result publication; cancellation/unknown drains before release |
+| source-platform | False | Bounded protocol refines real actions; memory, IPC, runtime and actual work/span remain unqualified |

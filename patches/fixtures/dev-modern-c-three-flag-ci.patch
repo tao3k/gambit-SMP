@@ -1,0 +1,117 @@
+diff --git a/lib/_mem/concurrent-major.inc b/lib/_mem/concurrent-major.inc
+index e29e8093..fc8faf14 100644
+--- a/lib/_mem/concurrent-major.inc
++++ b/lib/_mem/concurrent-major.inc
+@@ -470,7 +470,7 @@ ___SCMOBJ old_val;)
+    * to global without allocating). Sticky satb_overflow_ triggers full Remark
+    * recovery if global stack capacity is exceeded (Quint Mutant 7). */
+   vm = ___VMSTATE_FROM_PSTATE(___ps);
+-  if (___WORD_LOAD_ACQUIRE(&vm->mem.major_phase_) != ___GC_MAJOR_MARKING)
++  if (vm == 0 || ___WORD_LOAD_ACQUIRE(&vm->mem.major_phase_) != ___GC_MAJOR_MARKING)
+     {
+       ___ps->mem.satb_count_ = 0;
+       return;
+diff --git a/lib/_mem/copy-planning.inc b/lib/_mem/copy-planning.inc
+index 64dc2fee..9b3fea4c 100644
+--- a/lib/_mem/copy-planning.inc
++++ b/lib/_mem/copy-planning.inc
+@@ -525,6 +525,64 @@ ___HIDDEN int plan_copy_round(___processor_state ps, ___SIZE_TS requested_words_
+        (g->proc_worker[i]<0 && restore_loan_words(length)<___MSECTION_FUDGE+2))goto refuse;
+   }
+ 
++  /* Under a tight explicit max_heap, parallel GC workers each reserve an open
++   * destination section (w buffers), which can exhaust a tight cap even when
++   * single-worker compaction fits cleanly. When requested_workers is not pinned,
++   * demote to serial compaction on the coordinator before the round barrier. */
++  if (!g->is_minor && w > 1 &&
++      ___GSTATE->setup_params.max_heap > 0 &&
++      ___WORD_LOAD_ACQUIRE(&g->requested_workers) == 0 &&
++      g->worker_proc[0] == g->coordinator_id &&
++      the_msections != 0)
++    {
++      ___SIZE_TS cap = ___GSTATE->setup_params.max_heap >> ___LWS;
++      ___SIZE_TS still = occupied_words_still;
++      ___SIZE_TS cap_secs = (still >= 0 && still <= cap)
++        ? ((cap - still) / ___MSECTION_SIZE) : 0;
++      int avail_secs = the_msections->nb_sections;
++      if ((___SIZE_TS)avail_secs < cap_secs)
++        avail_secs = (int)cap_secs;
++      if (n + k + 2 > avail_secs)
++        {
++          int coord_id = g->coordinator_id;
++          int k1 = 0;
++          int loans_ok = (coord_id >= 0 && coord_id < n);
++          for (i = 0; i < n && loans_ok; i++)
++            if (i != coord_id &&
++                restore_loan_words(round->resume[i].source_words) < ___MSECTION_FUDGE + 2)
++              loans_ok = 0;
++          if (loans_ok &&
++              ___gc_copy_section_bound(1, c->small_words, c->small_max,
++                                       c->large_count, capacity,
++                                       ___MSECTION_CHUNK, &k1) &&
++              k1 < k)
++            {
++              for (i = 1; i < w; i++)
++                {
++                  int pid = g->worker_proc[i];
++                  if (pid >= 0 && pid < g->slot_capacity)
++                    g->proc_worker[pid] = -1;
++                  g->worker_proc[i] = 0;
++                }
++              g->worker_count = 1;
++              if (g->promo_tail_count > 1)
++                g->promo_tail_count = 1;
++              for (i = 0; i < n; i++)
++                {
++                  ___root_member *m = &round->members[i];
++                  m->global_task.executor = ps;
++                  m->stack_task.executor = ps;
++                  m->bank_task.executor = ps;
++                  ___RC_LOCK(m->rc);
++                  m->rc->task.executor = ps;
++                  ___RC_UNLOCK(m->rc);
++                }
++              w = 1;
++              k = k1;
++            }
++        }
++    }
++
+   /* Reserve sections according to round mode: Minor GC, segregated Major GC,
+    * or classic non-segregated Major GC. */
+   {
+diff --git a/lib/_mem/generational.inc b/lib/_mem/generational.inc
+index bd8102ec..c3e42bc1 100644
+--- a/lib/_mem/generational.inc
++++ b/lib/_mem/generational.inc
+@@ -69,6 +69,8 @@ ___WORD *slot_ptr;)
+     return;
+ 
+   vm = ___VMSTATE_FROM_PSTATE(___ps);
++  if (vm == 0)
++    return;
+   head = ___HEADER(obj);
+   htyp = ___HD_TYP(head);
+ 
+@@ -209,6 +211,8 @@ ___SIZE_TS words;)
+     return;
+ 
+   vm = ___VMSTATE_FROM_PSTATE(___ps);
++  if (vm == 0)
++    return;
+   head = ___HEADER(obj);
+   htyp = ___HD_TYP(head);
+ 
+diff --git a/tests/makefile.in b/tests/makefile.in
+index c6e68135..34b342a8 100644
+--- a/tests/makefile.in
++++ b/tests/makefile.in
+@@ -131,7 +131,7 @@ test1:
+ 
+ test2:
+ 	@echo "------------ TEST 2 (error handling)"
+-	@SETDLPATH@ $(rootfromhere)/gsi/gsi@exe@ -:m1,h10000,~~bin=$(srcdirpfx)$(rootfromhere)/bin,~~lib=$(srcdirpfx)$(rootfromhere)/lib,~~include=$(srcdirpfx)$(rootfromhere)/include -f error.scm < error.scm > test2.out
++	@SETDLPATH@ $(rootfromhere)/gsi/gsi@exe@ -:m1,h10000,p1,~~bin=$(srcdirpfx)$(rootfromhere)/bin,~~lib=$(srcdirpfx)$(rootfromhere)/lib,~~include=$(srcdirpfx)$(rootfromhere)/include -f error.scm < error.scm > test2.out
+ 	diff $(srcdirpfx)test2.ok test2.out && rm -f test2.out
+ 
+ test3:

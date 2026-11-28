@@ -1,0 +1,109 @@
+#+TITLE: Modern C Native Ingress, Root Custody and Peak-Memory Matrix
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:2 num:nil
+
+* Native-evaluated illustrative root payload
+Payload equations only; not ABI size, measured allocation, mandatory extra roots or whole-round peak.
+| Shape | Inputs | Converted prefix | Depth | Word bytes | Slot payload bytes |
+|---+---+---+---+---+---|
+| flat | 4 | 2 | 1 | 8 | 48 |
+| nested | 4 | 2 | 2 | 8 | 96 |
+
+* Actual caller producers
+| Family | Source | Actual chain | Required change | Qualification |
+|---+---+---+---+---|
+| TCL-CONTEXT | vendor/gambit/examples/tcltk/tcltk.scm:135-195,221-228,290-340 | command create alloc_rc + make_vector + set_data_rc -> scheme_call_cmd data_rc -> tcltk_call SFUN -> apply; delete releases vector and RC | ClientData must carry a stable acceptor/handle origin before data_rc. Pin callback dispatch before raw payload read; nested deletion must close new entry and defer reclaim until in-flight and queued-entry evidence drains. | Vector is explicitly STILL with initial strong retention; do not classify it as an unrooted movable argument. Moving fields, delete lifetime and nonzero RC scan remain separate. |
+| STATIC-CALLBACK | vendor/gambit/tests/mem.scm:245-297;lib/c_intf.c:2887-2940;gsc/_ptree2.scm:3186-3226 | foo function argument hop -> SCMOBJ_to_FUNCTION c-define static host -> foo calls f -> hop converter | Static c-define code identity does not need c_closure_self. Root native SCMOBJ arguments according to their origins; nested C string conversion has its own retained-object ownership. | This retained source is not a new native execution witness; static entry must still validate VM owner/activation and closure/GC admission. |
+| DYNAMIC-CLOSURE | vendor/gambit/lib/c_intf.c:2887-2940,6511-6545;lib/os_dyn.c:633-675,744-791,1048-1059 | non-c-define procedure -> make_c_closure alloc_rc/data -> thunk writes c_closure_self -> converter -> marker reads closure payload | Capture stable export/activation identity before allocating marker, preserve it across nested entry, and drain dispatch before reclaiming executable backing. TLS alone does not supply nested identity or lifetime. | C_CLOSURE_CODE_SIZE in this source covers selected x86-32/ppc32/sparc branches, not a demonstrated Darwin arm64 dynamic thunk. Unsupported targets reject; explicit userdata adapters can avoid this route. |
+| GENERATOR | vendor/gambit/gsc/_ptree2.scm:2773-2843,2902-3008,3145-3226;include/gambit.h.in:10043-10066 | BEGIN_SFUN marker before conversion; SCMOBJ-prioritized conversions; SFUN_ARG then call; generated END conversion releases | Emit an ingress descriptor before marker; classify incoming RootHandle/parent borrow/owned-still/immortal/scalar. Publish child view and conversion prefix before dropping source roots. | A raw SCMOBJ is a representation, not origin evidence. Existing owned-still results may reuse retention rather than adding duplicate root slots. |
+| RUN-BOOTSTRAP | vendor/gambit/lib/setup.c:3390-3423;lib/c_intf.c:6511-6564 | ___run sets R0 -> BEGIN_TRY -> make marker(thunk) -> call -> kill marker -> END_TRY | ___run is another real marker producer outside SFUN. Require a rooted thunk origin and canonical activation cleanup so nonlocal error cannot silently skip kill/custody close. | No claim that adding guards only to generated SFUN covers bootstrap, processor run, or raw direct ___call users. |
+
+* Origin and custody transitions
+| Path | Source | Current behavior | New contract | Failure boundary | Custodian |
+|---+---+---+---+---+---|
+| HANDLE-PIN | VM RootRegistry is proposed; current rc primitives at lib/mem.c:705-831 | registered opaque identity -> namespace/generation lookup -> storage pin -> gate admission -> payload read | Lookup from a live VM anchor; pin/retire serialize. Handle pin protects storage while registered root cell remains scan/update-owned. It does not prohibit GC. | If closed, wait using identity only and reload after round seal; never preserve a raw movable copy across collection. | Registry retains handle cell until pin/readers/terminal drain. Generation wrap must reject reuse or prove a stronger bound. |
+| PARENT-BORROW | include/gambit.h.in:10325-10338;lib/setup.c:3276-3390 | parent frame/root view -> source lease -> child view publish -> acknowledgement | Child publication accepts roots before raw borrow ends; acknowledgement releases parent source duty. Lost ACK queries the same activation/request, never registers twice. | If GC closes before publication, park the complete parent view and stop raw accesses; retaining an active borrow while waiting for OPEN creates a wait cycle. | Parent retains custody until child acceptance; canonical child retains it after acceptance even if response is lost. |
+| OWNED-STILL | lib/c_intf.c:4333-4348,5732-5800;lib/mem.c:1485-1500,1675-1739,4210-4248,6800 | C conversion creates still refcount1 or permanent object; still setup scans positive refcount; release_scmobj drops still count | Reuse known still/permanent ownership with typed cleanup. Initialization must finish before another allocation; stable address does not mean fields can be mutated during scan. | Conversion failure retains or releases the exact initialized prefix once; transfer between existing refcount and managed view needs an explicit receipt. | Original converter owns until child/foreign result acceptor acknowledges; no blanket replacement of every still root by another handle. |
+| NESTED-VIEW | examples/tcltk/tcltk.scm:135-195,221-228;lib/os_dyn.c:744-791;include/gambit.h.in:9979-9988 | callback -> child SFUN -> Scheme -> native/event reentry -> another callback | Stable parent/child activation keys and activation-local selector; freeze/reload all participating views, marker and conversion prefixes. Do not key solely by OS thread or processor number. | Child return restores exact parent binding/control state; parent cannot detach while nested responsibility remains, including unknown exit. | Each view owns its marker, initialized conversions and result/error until the designated acceptor takes custody. |
+| EXIT-RECLAIM | include/gambit.h.in:9959-9988,10043-10059,10288-10324;lib/setup.c:841-866,3350-3423 | normal END cleanup versus ___call rethrow/nonlocal longjmp and propagate_error | Use VM-canonical cleanup progress and terminal receipt; interception must precede escaping to an older catcher. Do not rely only on lexical epilogue or changed nonvolatile automatic locals after longjmp. | Unknown exit keeps roots and native backing; confirmed stop closes writes but does not by itself settle nested tasks/result delivery or library queues. | Reclaim after accepted result/error, no nested roots/readers/pins, no unknown write, and actual dispatch drain. |
+
+* C memory order
+| Edge | Required order | Rejected shortcut |
+|---+---+---|
+| PIN-RETIRE | VM lookup and handle pin/retire share a coherent gate; only read opaque token until accepted. | A pointer to already-freed handle/code/clientData cannot be made safe by addref after entry. External unregister/queued-call drain evidence is required. |
+| BORROW-PUBLISH | Parent source lease covers every read before child root registration. Child acceptance and raw-borrow relinquish are one custody transition; acknowledgement can be later. | Do not decrement parent coverage then link child roots. Lost ACK retains overlapping custody and uses canonical query. |
+| CLOSE-PARK | Close stops new raw-entry claims before waiting. Already pinned handle storage may persist while its payload cell is scanned; parent raw borrow must park/transfer or abort from a full view. | Do not wait for gate reopening while the same active borrow prevents collector entry. Opaque pins and raw execution authority are distinct. |
+| MARKER-CONVERT | Child root acceptance precedes marker allocation; each conversion publishes a safe initialized prefix before the next collecting allocation. | Existing still-owned results are already retained in their qualified profile; stable-address ownership does not prove arbitrary field writes or nonzero RC coverage. |
+| NESTED-IDENTITY | Activation-local selector is captured before allocating/reentering and restored from the parent activation, not reread from mutable global state. | TLS removes cross-thread sharing only; nested overwrite/cleanup still needs stack discipline and executable-entry lifetime. No arm64 support is inferred from inactive thunk code. |
+| EXIT-RESULT | Canonical root/marker/resource cleanup receipt precedes terminal propagation; accepted result/error backing remains pinned until receiver acknowledgement. | A kill call textually after ___call is not guaranteed to run when ___call rethrows. C setjmp cleanup state needs defined lifetime and value rules. |
+| RELOAD-RECLAIM | Collector-exclusive slot updates happen-before acquired resume/reload; reclamation additionally drains all descriptor/code/clientData readers and native dispatch. | Release/acquire visibility is not storage lifetime. Unknown results cannot count as cancelled, reclaimed, or harmless solely by timeout. |
+
+* Benefits and added overhead
+| Capability | Removed work | Bound | Added cost | Positive condition or falsifier |
+|---+---+---+---+---|
+| Handle ingress | Avoid stale raw payload copies across closed epochs | Opaque identity only while waiting; payload load after admission | Registry lookup/pin/retire and root-cell metadata | Benefit is correct decoupled admission; CPU improvement is not established. |
+| Parent root reuse | Avoid copying every live parent value into a new handle | Reuse mapped locations when compiler certificate covers them | Borrow/accept/ack bookkeeping; possible duplicate root coverage until ACK | Positive work reduction requires fewer copies than registration/coordination work. |
+| Existing still ownership | Reuse retained still/permanent converter results | Known still refcount1; no forced duplicate per-result handle | Typed ownership classification and once-only cleanup receipt | A smaller measured profile may need no extra root payload for these results; source/scan closure remains required. |
+| Root slot payload | Explicit root words for input and converted prefix | Illustrative 4 inputs + 2 converted at 8 bytes: 48B; depth2: 96B | Descriptor/map/registry/marker/native backing not included | These are native-evaluated model payload examples, not measured allocation or mandatory net added memory. |
+| Conversion cleanup | Retire implicit nested generated release assumptions for admitted path | O(initialized-prefix) cleanup, exactly one accepted custodian | Progress tracking, result/error receipt, longjmp-safe state | No global GC blocker may be hidden in unknown cleanup effects. |
+| Nested callbacks | Retain precise continuation/native activation ownership | O(depth * live root slots) plus native activation backing | Activation stack, marker/result retention and root reload | Depth/borrow duration bounds are needed for bounded peak; no such general bound is proved. |
+| Tcl userdata adapter | Avoid needing a machine-code closure when API supplies context | Use ClientData as a managed acceptor identity | Adapter changes and delete/in-flight/queued-call drain contract | Does not establish generic C ABI callback closure support or raw ClientData safety after deletion. |
+| Dynamic thunk | Retire global selector dependency only after certified replacement | 0 dynamic-thunk support newly established on Darwin arm64 | Target ABI/backend or mature closure library, executable lifetime, nested selector protocol | Modern C alone cannot synthesize arbitrary context-free callback closures portably. |
+| Peak and unknown exit | Avoid premature reclamation and lost roots | Peak=max_t(unique backing + separate roots/maps + native/dispatch escrow) | Overlapping parent/child roots and unknown native resources may remain retained | No bounded peak reduction or GC latency claim without stop/drain and origin evidence. |
+| Modern C branch | Isolate forthcoming C-layer refactor decisions from language expansion | vendor branch modern-c at recorded unchanged source commit | Future implementation and native qualification are separate tasks | This turn creates the branch only; existing vector edit preserved; no production path retired. |
+
+* Obligations and closure
+| Need | Kind | Exact scope | Premise | Status |
+|---+---+---+---+---|
+| NI-H | interleaving | native_ingress_root_handoff:19-histories;safe;handle-parent-raw;one-GC;one-nested;seed17;3x100x100 | Linearizable custody transitions with complete scan-ready root maps and live dispatch-origin premises; unknown remains retained; externally confirmed stop/drain actions are assumptions, not observed platform events. | Conditional local model checked |
+| NI-I | induction | GambitSMP.NativeIngressRootHandoff:15-declarations;conditional-custody | Conditional publish/ack/collect Step preservation, overlap-before-ack, raw epoch exclusion, identity and reclamation premises; no full QNT/source/C simulation. | Conditional local model checked |
+| NI-ORIGIN | source-refinement | NI-ORIGIN:live-namespace-before-payload | RootHandle namespace/generation lookup from live VM anchor, pin-retire ordering and opaque-only waiting; bare movable SCMOBJ must not be upgraded retroactively; classify immortal/owned-still separately. | OPEN: source or C-memory refinement |
+| NI-PARENT | source-refinement | NI-PARENT:parent-source-borrow-close | Mapped parent source lease exists before foreign export; child acceptance covers roots before source release; park complete parent on close without keeping raw borrower active or violating synchronous C ABI. | OPEN: source or C-memory refinement |
+| NI-MARKER | source-refinement | NI-MARKER:all-marker-producers | Generated SFUN plus ___run marker entry; captured target origin before marker allocation and stable activation identity across nested selector effects; preserve marker and code lifetime. | OPEN: source or C-memory refinement |
+| NI-CONVERT | source-refinement | NI-CONVERT:owned-still-and-prefix | Classify actual converter outputs and cleanup; reuse still/permanent retention where valid, cover initialization and inter-conversion GC, and all-context scanner/FFI writes without assuming every result moves. | OPEN: source or C-memory refinement |
+| NI-DISPATCH | source-refinement | NI-DISPATCH:entry-and-native-drain | Actual Tcl ClientData and function-pointer producers must establish pre-entry lifetime, stable activation selector and delete/queued-call/in-flight drain; inactive os_dyn thunk code is not Darwin arm64 capability. | OPEN: source or C-memory refinement |
+| NI-ORDER | native-memory-order | NI-ORDER:C-HB-origin-and-custody | Actual C pin/retire, source-to-child acceptance, close/park, scan/update/reload and reclaim edges; ordinary C object lifetime, setjmp automatic-local rules and lock adapters still require refinement. | OPEN: source or C-memory refinement |
+| NI-EXIT | source-refinement | NI-EXIT:catcher-and-terminal-custody | Normal/conversion error and ___call/___run rethrow paths need canonical cleanup progress, nested duty, accepted result/error and data-write closure before freeing roots/marker/code. | OPEN: source or C-memory refinement |
+| ARP-NATIVE | source-refinement | ARP-NATIVE:pre-marker-and-pre-SFUN_ARG | Prove RootHandle or inherited parent-borrow origin before any wait/root copy; raw movable SCMOBJ ingress without prior root authority is rejected. Protect proc and incoming SCMOBJ before marker allocation, root each converted prefix; reserve only after collecting conversions and before outgoing stores; prove catcher/cleanup ownership. | OPEN: source or C-memory refinement |
+| ARP-ROOT | source-refinement | ARP-ROOT:all-context-updatable-root-and-freeze | Collector-updateable RootView scanner for every context, nested view lifetime, native borrow exclusion, old-reader pin and relocation reload; processor0 RC scanning does not close arbitrary-owner roots. | OPEN: source or C-memory refinement |
+| ARP-ORDER | native-memory-order | ARP-ORDER:actual-C-HB-lock-and-lifetime | Concrete gate/allocator lock order, C object provenance, reads-from and release/acquire edges, complete writer coverage and descriptor reclamation; current target macros are not automatically qualified. | OPEN: source or C-memory refinement |
+| ARP-FAIL | source-refinement | ARP-FAIL:denial-unknown-close-and-resume | Prove logical root custody despite changed physical layout on denial, close/enter linearization, unknown debt reconciliation and same-call reentry without duplicate construction. | OPEN: source or C-memory refinement |
+
+* Refinement dependencies
+| Dependent | Prerequisite |
+|---+---|
+| NI-ORIGIN | NI-H |
+| NI-ORIGIN | NI-I |
+| NI-PARENT | NI-H |
+| NI-PARENT | NI-I |
+| NI-MARKER | NI-H |
+| NI-MARKER | NI-I |
+| NI-CONVERT | NI-H |
+| NI-CONVERT | NI-I |
+| NI-DISPATCH | NI-H |
+| NI-DISPATCH | NI-I |
+| NI-ORDER | NI-H |
+| NI-ORDER | NI-I |
+| NI-EXIT | NI-H |
+| NI-EXIT | NI-I |
+| NI-PARENT | NI-ORIGIN |
+| NI-PARENT | NI-ORDER |
+| NI-PARENT | NI-DISPATCH |
+| NI-MARKER | NI-ORIGIN |
+| NI-MARKER | NI-ORDER |
+| NI-MARKER | NI-DISPATCH |
+| NI-CONVERT | NI-ORIGIN |
+| NI-CONVERT | NI-ORDER |
+| NI-CONVERT | NI-DISPATCH |
+| NI-EXIT | NI-ORIGIN |
+| NI-EXIT | NI-ORDER |
+| NI-EXIT | NI-DISPATCH |
+| NI-ORIGIN | ARP-ROOT |
+| NI-MARKER | ARP-NATIVE |
+| NI-CONVERT | ARP-ROOT |
+| NI-ORDER | ARP-ORDER |
+| NI-EXIT | ARP-FAIL |
+
+* Admission boundary
+Only NI-H and NI-I qualify locally. No current component is fully ready. No runtime implementation, native test or performance measurement. Imported open premises are not promoted.

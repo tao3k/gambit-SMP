@@ -1,0 +1,157 @@
+#+TITLE: Native entry joint issuers — source cuts, closure and net return
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitNativeEntryAdmission
+:END:
+Finite protocol safety and a fresh NativeScope step join are conditional. Native integration remains unresolved.
+
+** Component
+
+| componentId | actionSlice | sharedContract | proof | source |
+|---+---+---+---+---|
+| root-ingress | pinSource/reserveCarrier/exhaustCarrier | source-eligibility | NativeEntry.closedEntryCannotPin | rc-borrow |
+| root-registration | publishCarrier/loseRegistrationAck/confirmSameRegistration | registration-recovery | NativeEntry.issuerNeedsKnownRegistration | sfun |
+| joint-issuer | jointIssue/writeEntryState/allocateMarker | joint-native-cut | NativeEntry.jointIssueNativeStep | run |
+| native-execution | enterNested/loseCompletion/recoverRecorded | nested-landing | NativeEntry.unknownRetainsCarrier | catcher |
+| root-lifetime | freezeWriters/scanBoth/confirmGrace/retireCarrier | scan-native-cut | NativeEntry.retireNeedsGraceAndDrain | gc-round |
+
+** Authority
+
+| key | source | actionSlice | permission | proof | limit |
+|---+---+---+---+---+---|
+| root-preparation | sfun | pinSource/reserveCarrier/qualifyHost/publishCarrier | prepare registered roots only; no entry PSTATE writes or collecting marker | NativeEntry.preparationCannotExecute | source eligibility and bounded native allocation custody are separate premises |
+| execution | run | jointIssue/writeEntryState/allocateMarker | execute this accepted entry after known root registration | NativeEntry.jointIssueNativeStep | fresh NativeScope instance only; restored-history composition unresolved |
+
+** Cut
+
+| key | source | cutBefore | existing | needed | classification |
+|---+---+---+---+---+---|
+| run-startup | run | context r[0], catcher and marker allocation | startup_thunk and entry_marker are scanned context roots | validate startup generation; publish rooted stable guard before entry writes | reuse rooted source; new joint issuer |
+| run-program | run | legacy by-value marker helper | initial program thunk comes from program_descr; helper uses noncollecting RC bridge | retain program/module descriptor and prove noncollecting interval or use registered source slot | bounded call path; arbitrary raw thunk provenance unresolved |
+| sfun-closure | sfun | root bank allocation and marker construction | closure self root borrow, noncollecting bank allocation and registered bank | pre-reserve stable completion slot; retain source until registered target acknowledged | reuse RC source and bank; no duplicate root bank |
+| sfun-raw-args | argument-order | first collecting representation converter | SCMOBJ argument prefix is registered through BEGIN_SFUN_ARG_SCMOBJ | seal generated raw-input prefix and reject unknown pre-prefix callbacks | existing ordering reusable; complete converter closure unresolved |
+| tcl-pre-dispatch | tcl | ___data_rc snapshot | same-owner callback can reach bank through a noncollecting path | joint Tcl owner lease and Gambit root eligibility; stable owner before raw RC dereference | no demonstrated ordinary same-owner race; new asynchronous profile needs qualification |
+| nested-return | catcher | outer catcher landing and marker invalidation | local catcher restores old catcher; marker detects invalid return | stable parent-linked guard settles or retains entire affected subtree | proposed adapter; no cross-Tcl nonlocal jump assumed |
+| sfun-error | sfun-exit | conversion-error Scheme callback | check_sfun prevents entry after current domain rejection | AdmissionRejected and UnknownCompletion are transport outcomes, not conversion errors | new checked status adapter; marker reuse is not operation identity |
+| sfun-end | sfun-exit | end_sfun returns bank borrow and releases RC | normal cleanup endpoint exists | last use, known completion, closed scanner admission and grace before root retirement | reuse cleanup operations after new ordering proof |
+
+** Issuer
+
+| key | source | fact | signs | limit |
+|---+---+---+---+---|
+| source-owner | rc-borrow | live storage, canonical registered source slot, same-owner eligibility | source lease or qualified noncollecting owner interval | cannot sign VM admission or rely on raw SCMOBJ address |
+| vm-domain | gc-round | current context in frozen manifest and participant execution state | current execution or parked-scannable-root handoff | no waiting for borrower count during GC freeze |
+| native-thread | thread | actual native binding and live C return extent | thread and return identity for this activation | TLS alone insufficient; no C stack migration |
+| guard-registry | sfun | pre-reserved stable record and acknowledged canonical root bundle | same EntryId registration; accepted or unknown custody | no registration retry with new identity after lost response |
+| scanner | rc-root | root slot updated and old scan admission drained | local registry detachment and round grace | new registry-to-current-manifest adapter unresolved |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| entry-safety | conditional-model | 29 guarded actions preserve scoped root coverage and custody |
+| fresh-join | conditional-model | exact paired jointIssue to actual NativeScope.issue; fresh instance only |
+| source-eligibility | unresolved | source owner supplies real storage identity and scanner coverage before carrier registration |
+| noncollect-prefix | unresolved | all enabled converters, allocation hooks and callouts obey declared no-collect/no-abandon interval |
+| joint-native-cut | unresolved | real entry issuer and publication atomicity across source, VM, thread and stable registry |
+| registration-recovery | unresolved | EntryId lookup and stable recipient survive lost publication response and abnormal unwind |
+| tcl-profile | unresolved | same interpreter thread, command/data owner lifetime and installed Tcl source correspondence |
+| scan-native-cut | unresolved | root freeze/manifest enrollment, update and unregister grace refine model atomic actions |
+| nested-landing | unresolved | all caught and escaping exits preserve source/bank/marker and actual C extent |
+| full-product | unresolved | arbitrary nested and resumed NativeScope state coupling, not resetting thread history |
+| c23-refinement | unresolved | actual atomic storage, orders, lock domains and reads-from prove the abstract publication cuts |
+
+** Memory
+
+| key | ordering | condition | obligationId |
+|---+---+---+---|
+| source-before-load | acquire owner lifetime before payload access | root borrow or equivalent qualified owner interval; locking freed RC memory is invalid | source-eligibility |
+| registry-publication | release immutable EntryId/root bundle; acquire acknowledges same bundle | source remains held on unknown publication; partial raw storage is not published | joint-native-cut |
+| entry-close | one linearization for acceptance versus close; accepted count retained | source reservation is not execution permission; losing closure race cannot mutate PSTATE | joint-native-cut |
+| gc-freeze | stop native slot writers; do not wait for root borrows | scanner updates source/carrier canonical cells; reload after thaw before use | scan-native-cut |
+| outcome-before-release | stable record publication precedes dropping execution enrollment | only same operation delivery or reconciliation may settle; no fresh execution on uncertainty | registration-recovery |
+| scanner-retirement | close lookup/enrollment then drain already captured scans | zero native callbacks alone is not a descriptor/root reclamation permit | scan-native-cut |
+
+** Gain
+
+| key | benefit | overhead | positive | refutation |
+|---+---+---+---+---|
+| root-bank-reuse | reuse existing SFUN RC bank and SCMOBJ-first generator prefix | no mandatory second bank; one stable scope record per active entry | approved noncollecting prefix and source lifetime proof | wrapping every argument with duplicate pins adds work without new coverage |
+| gc-progress | GC can update pinned roots without waiting for native borrowers | freeze/thaw and canonical-slot reload; existing scan can supply these | all parked native values are in enumerated slots | drain borrowers during freeze creates collector/callback circular wait |
+| source-transfer | release redundant source lease after registered target coverage | one matching registration acknowledgment; overlap covers handoff | target is included in every applicable GC snapshot | RC refcount alone does not prove target scanner coverage |
+| unknown | zero blind re-registration or call replay after response loss | O(K) stable records for K outstanding entries; retention unbounded on permanent uncertainty | same EntryId/operation lookup works after unwinding | timeout as proof of failure permits double execution or premature release |
+| close-and-drain | one authority for entry closure and local scanner retirement | accepted-operation ledger plus scan admission/grace; closure is not a free operation | reuse actual GC round barriers without merging callback counts | global counter or scan waits can erase concurrency gain |
+| language | C23 can express all required boundaries without introducing a second runtime | Zig would need the same FFI/GC/control refinement in addition to C23 baseline | incremental language benefit must be proved separately | changing language does not remove native extent or root handoff obligations |
+
+** Join
+
+| key | lemma | source | premise | status |
+|---+---+---+---+---|
+| fresh-native-issue | NativeEntry.jointIssueNativeStep | run | fresh generation/owner and remaining NativeScope.initial premises; not arbitrary restored scope | conditional-lemma |
+| root-before-marker | NativeEntry.markerHasRootAndGuard | sfun | initial source eligibility and linearizable root publication | conditional-lemma |
+| close-is-not-drain | NativeEntry.closePreservesEnrolled | rc-freeze | accepted operation retains registry while ingress is closed | conditional-lemma |
+| freeze-with-borrow | NativeEntry.freezeDoesNotWaitForBorrow | rc-freeze | source pin denotes scannable cell; mutator not running while slot updates | conditional-lemma |
+| current-root-transfer | NativeEntry.transferNeedsCurrentSlot | rc-root | freeze invalidates receipt; target root storage remains stable | conditional-lemma |
+| unknown-custody | NativeEntry.unknownRetainsCarrier | catcher | completion record matches same operation; no fabricated oracle | conditional-lemma |
+| grace-before-retire | NativeEntry.retireNeedsGraceAndDrain | gc-round | scan snapshot enrollment and close are atomic model actions | conditional-lemma |
+
+** Route
+
+| actionName | lemma | source | obligationId |
+|---+---+---+---|
+| pinSource | NativeEntry.pinSourcePreserves | rc-borrow | entry-safety |
+| reserveCarrier | NativeEntry.reserveCarrierPreserves | sfun | entry-safety |
+| qualifyHost | NativeEntry.qualifyHostPreserves | sfun | entry-safety |
+| publishCarrier | NativeEntry.publishCarrierPreserves | sfun | entry-safety |
+| loseRegistrationAck | NativeEntry.loseRegistrationAckPreserves | sfun | entry-safety |
+| confirmSameRegistration | NativeEntry.confirmSameRegistrationPreserves | sfun | entry-safety |
+| jointIssue | NativeEntry.jointIssuePreserves | sfun | entry-safety |
+| writeEntryState | NativeEntry.writeEntryStatePreserves | sfun | entry-safety |
+| allocateMarker | NativeEntry.allocateMarkerPreserves | sfun | entry-safety |
+| certifyTransfer | NativeEntry.certifyTransferPreserves | rc-borrow | entry-safety |
+| releaseSource | NativeEntry.releaseSourcePreserves | rc-borrow | entry-safety |
+| closeIngress | NativeEntry.closeIngressPreserves | tcl | entry-safety |
+| exhaustCarrier | NativeEntry.exhaustCarrierPreserves | sfun | entry-safety |
+| rejectClosed | NativeEntry.rejectClosedPreserves | sfun | entry-safety |
+| freezeWriters | NativeEntry.freezeWritersPreserves | gc-round | entry-safety |
+| scanSource | NativeEntry.scanSourcePreserves | gc-round | entry-safety |
+| scanBoth | NativeEntry.scanBothPreserves | gc-round | entry-safety |
+| scanCarrier | NativeEntry.scanCarrierPreserves | gc-round | entry-safety |
+| thawWriters | NativeEntry.thawWritersPreserves | gc-round | entry-safety |
+| enterNested | NativeEntry.enterNestedPreserves | tcl | entry-safety |
+| leaveNested | NativeEntry.leaveNestedPreserves | tcl | entry-safety |
+| recordOutcome | NativeEntry.recordOutcomePreserves | sfun | entry-safety |
+| loseCompletion | NativeEntry.loseCompletionPreserves | catcher | entry-safety |
+| landNested | NativeEntry.landNestedPreserves | catcher | entry-safety |
+| settleKnown | NativeEntry.settleKnownPreserves | sfun | entry-safety |
+| recoverRecorded | NativeEntry.recoverRecordedPreserves | catcher | entry-safety |
+| closeScanAdmission | NativeEntry.closeScanAdmissionPreserves | gc-round | entry-safety |
+| confirmGrace | NativeEntry.confirmGracePreserves | gc-round | entry-safety |
+| retireCarrier | NativeEntry.retireCarrierPreserves | sfun | entry-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| call | vendor/gambit/lib/setup.c | ___EXP_FUNC(___SCMOBJ,___call) | candidate issuer before argument loads; current phase check is not a scope |
+| run | vendor/gambit/lib/setup.c | ___EXP_FUNC(___SCMOBJ,___run) | entry-local writes precede call; must admit before them |
+| sfun | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(___SCMOBJ,___begin_sfun) | existing source borrow and bank are context-bound |
+| catcher | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___BEGIN_TRY | live jmpbuf extent; stable landing issuer still proposed |
+| sfun-exit | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN  | candidate completion adapter; not exception-proof stable guard |
+| rc-write | vendor/gambit/lib/_mem/rc-allocation.inc | ___EXP_FUNC(___BOOL,___set_data_rc) | payload writer, not a future control-word writer |
+| rc-root | vendor/gambit/lib/_mem/rc-roots.inc | mark_array (work, &h->data, 1); | root slot is updated by GC under closed domain |
+| thread | vendor/gambit/lib/os_thread.c | void ___thread_set_pstate | TLS and affinity only; no ticket or extent identity |
+| tcl | vendor/gambit/examples/tcltk/tcltk.scm | ___HIDDEN int scheme_call_cmd | snapshot before SFUN entry; source borrowing gap |
+| extent-paper | evidence/research/source-references/feeley-sfp/8bb2fae8ae4b54d3a86206596f90e9cf73da39846af0f39244a476074cf81ed4.txt | 5       Pra | paper proposes native segment lifetime; not C23 scope protocol |
+| rc-freeze | vendor/gambit/lib/_mem/rc-allocation.inc | Closing writers must never | GC closes writers without draining root borrows |
+| rc-register | vendor/gambit/lib/_mem/rc-allocation.inc | Unregistered allocation remains caller-owned. | registration rejection returns private allocation ownership |
+| rc-borrow | vendor/gambit/lib/_mem/rc-allocation.inc | ___SCMOBJ *___borrow_rc_root | cell pin and context root are distinct from GC participation |
+| root-origin | vendor/gambit/lib/_mem/root-origins.inc | mark_array (work, &context->startup_thunk, 1); | startup source slot already enumerated |
+| gc-round | vendor/gambit/lib/_mem/collection-round.inc | BARRIER(); /* no worker may retain a stopped root view past this cut */ | actual context thaw and reopen path |
+| argument-order | vendor/gambit/gsc/_ptree2.scm | (append (keep scmobj-typ? numbered-param-typs) | SCMOBJ arguments are converted before collecting converters |
+| tcl-dispatch | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | result = cmdPtr->proc(cmdPtr->clientData, interp, objc, argv); | pinned captured source only; not installed Tcl qualification |
+| tcl-delete | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | cmdPtr->deleteProc(cmdPtr->deleteData); | application cleanup runs before final command cleanup |

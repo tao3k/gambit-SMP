@@ -1,0 +1,116 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-scheduler-wait-roots",
+  "scope": "Quint controls for one scheduler wait against collection and one interrupt-delivery root set: a participating condvar may return after reload, a raw condvar does not, and processor, local, and thread roots stay reachable across one collection. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 180,
+  "inputs": [
+    "models/gambit/scheduler_gc_root_cohort_composition.qnt",
+    "models/gambit/scheduler_wait_gc_contract.qnt",
+    "models/gambit/interrupt_delivery_result_composition.qnt",
+    "models/gambit/interrupt_delivery_gc_roots.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-scheduler-wait-roots/binding.json",
+    "evidence/fixtures/dev-scheduler-wait-roots/observations.json",
+    "evidence/fixtures/dev-scheduler-wait-roots/wait.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "wait-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/scheduler_wait_gc_contract.qnt"
+      }
+    },
+    {
+      "id": "wait",
+      "capability": "quint.test",
+      "dependsOn": [
+        "wait-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/scheduler_wait_gc_contract.qnt",
+        "parsed": "wait-parse",
+        "main": "scheduler_wait_gc_contract",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "composedReturnTest",
+          "missingPublicationControlTest",
+          "staleAcknowledgementControlTest",
+          "staleReloadControlTest",
+          "skippedRevalidationControlTest",
+          "retainedErrorTest",
+          "prematureErrorReleaseControlTest",
+          "condvarParticipationReturnTest",
+          "rawCondvarDoesNotReturnTest"
+        ]
+      }
+    },
+    {
+      "id": "roots-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/interrupt_delivery_gc_roots.qnt"
+      }
+    },
+    {
+      "id": "roots",
+      "capability": "quint.test",
+      "dependsOn": [
+        "roots-parse"
+      ],
+      "budgetSeconds": 40,
+      "arguments": {
+        "source": "models/gambit/interrupt_delivery_gc_roots.qnt",
+        "parsed": "roots-parse",
+        "main": "interrupt_delivery_gc_roots",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "queuedProcessorRootTest",
+          "localHandoffRootTest",
+          "threadQueueRootTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "wait-parse",
+        "wait",
+        "roots-parse",
+        "roots"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-scheduler-wait-roots/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

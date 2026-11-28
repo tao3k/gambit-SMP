@@ -43,7 +43,7 @@ values, processor retirement and real C memory; these remain open requirements.
 
 The QNT campaign completed both required counterexamples (5.150 and 5.139
 seconds) and positive safety/fair completion (3.889 seconds). The canonical
-receipt is `evidence/model-results/fixtures/callback-return-owned-result/ownership/receipt.json`.
+receipt is `.cache/research/legacy-evidence/evidence/model-results/fixtures/callback-return-owned-result/ownership/receipt.json`.
 This is a bounded ownership model, not native GC acceptance.
 
 The new baseline fixture forces migration before returning integer 42. Both
@@ -73,7 +73,7 @@ Physical relocation was not recorded, so this is heap-object survival under
 requested GC, not a proof that this particular string moved.
 
 Portable producer summary and separate baseline, integer and hook-GC receipts
-are under `evidence/source-results/fixtures/callback-return-owned-result/`.
+are under `.cache/research/legacy-evidence/evidence/source-results/fixtures/callback-return-owned-result/`.
 All remain non-admitted observations. Native suites, complete embedding error
 paths, nested/multiple-value callbacks, retirement and full bootstrap/Gerbil
 are still open. This threaded return path is platform-independent source logic;

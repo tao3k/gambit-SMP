@@ -62,13 +62,13 @@ builtin. Its snapshot/log/receipt remain in `.data/eager-chain-work-closure-001`
 it contains no accepted protocol evidence. The subsequent model renames only
 the local to `chainLength`, preserving the state transitions and constraints.
 The portable diagnostic summary is
-`evidence/model-results/eager-chain-work-closure-parse-deny.json`; it is not a
+`.cache/research/legacy-evidence/evidence/model-results/eager-chain-work-closure-parse-deny.json`; it is not a
 counterexample or model admission.
 
 Campaign002 has stable model/source/paper context. Both independent controls
 produce invariant violations. Positive safety and weak-fair progress completed
 over 2,664 distinct states, 10,084 generated, zero queued in 32.957 seconds.
-Portable hash-bound evidence is in `evidence/model-results/eager-chain-work-closure/`.
+Portable hash-bound evidence is in `.cache/research/legacy-evidence/evidence/model-results/eager-chain-work-closure/`.
 Host capacity determined the verifier workers; no runtime thread limit was set.
 Native execution was not run; runtime and release admission remain false.
 

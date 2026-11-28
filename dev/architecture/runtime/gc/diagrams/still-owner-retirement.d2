@@ -1,0 +1,27 @@
+direction: down
+isolate: { label: "Before start: independent roots + native-only recipe" }
+stage: { label: "Helper writes private bytes / opaque IDs" }
+unknown: { label: "Unknown owner: retain buffer; GC may scan roots" }
+stop: { label: "Exact stop + all writers/borrowers closed" }
+takeover: { label: "New generation; replay private pending batch only" }
+heap: { label: "Materialize under managed GC/root gate" }
+receipt: { label: "Recipient root + acceptance receipt" }
+drain: { label: "Close ingress; ACK; drain queries/callback children" }
+floor: { label: "Publish retired floor; remove full reply; reject late retry" }
+peak: { label: "Stage + heap + input + root/receipt/fence peak" }
+collector: { label: "GC scans registered roots; never native staging" }
+isolate -> stage: "admit before any native write"
+stage -> unknown: "lost outcome; no heap aliases"
+unknown -> stop: "successful identity-bound stop; not timeout"
+stop -> takeover: "stable effect-free unpublished range"
+takeover -> stage: "preserve prefix; revoke old writer"
+stage -> heap: "stage done; no outstanding writer"
+heap -> receipt: "publish result root before delivery"
+receipt -> drain: "no rollback after acceptance"
+drain -> floor: "no gap and zero admitted-user debt"
+unknown -> peak: "retained native backing"
+stage -> peak: "stage/input overlap"
+heap -> peak: "heap materialization overlap"
+floor -> peak: "compact metadata; fence remains"
+unknown -> collector: "GC does not await helper completion"
+isolate -> collector: "root domain enrolled before helper start"

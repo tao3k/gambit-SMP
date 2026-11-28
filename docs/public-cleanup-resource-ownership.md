@@ -108,7 +108,7 @@ encoded in the model. Context stable and accepted are true; native was not
 run and runtime admission is false.
 
 Portable evidence is in
-`evidence/model-results/fixtures/foreign-origin-population-publication/public-cleanup-resource/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/foreign-origin-population-publication/public-cleanup-resource/`.
 Publication returned `PROTOCOL-EVIDENCE-OK`; the bundle is registered for the
 existing Datalog/ASCENT pipeline. Registration is not a completed full graph
 query. Composition references record obligations, not whole-model refinement.

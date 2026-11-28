@@ -1,0 +1,392 @@
+--- a/lib/_mem/allocation-limits.inc
++++ b/lib/_mem/allocation-limits.inc
+@@ -54,6 +54,7 @@
+        */
+ 
+       ___msection *prev_stack_msection = stack_msection;
++      ___WORD *prev_alloc_stack_limit = alloc_stack_limit;
+       ___WORD *prev_alloc_stack_start = alloc_stack_start;
+       ___WORD *prev_alloc_stack_ptr = alloc_stack_ptr;
+       ___WORD *prev_stack_break = ___ps->context->stack_break;
+@@ -65,17 +66,11 @@
+        * Get a new stack msection.
+        */
+ 
+-      ___msection *ms = msection_free_list;
+-
+-      if (stack_msection != heap_msection &&
+-          ms != NULL)
+-        {
+-          /* we can reuse an existing one */
+-
+-          msection_free_list = ___CAST(___msection*,ms->base[0]);
+-
+-          set_stack_msection (___ps, ms);
+-        }
++      ___msection *ms = stack_msection != heap_msection
++        ? take_released_stack_section(___ps) : 0;
++
++      if (ms != 0)
++        set_stack_msection (___ps, ms);
+       else
+         {
+           /* we need to allocate a new msection */
+@@ -148,6 +143,7 @@
+        */
+ 
+       ___FP_ADJFP(alloc_stack_ptr,___FIRST_BREAK_FRAME_SPACE)
++      ___FP_SET_STK(alloc_stack_ptr,-___FIRST_BREAK_FRAME_STACK_MSECTION,0)
+ 
+       /*
+        * Because ___stack_limit is only called by the stack-limit
+@@ -217,7 +213,7 @@
+                             ___CAST(___WORD,prev_alloc_stack_ptr))
+               ___ps->context->stack_break = alloc_stack_ptr;
+ 
+-              fp = alloc_stack_ptr;
++              fp = prev_alloc_stack_ptr;
+ 
+               break;
+             }
+@@ -265,6 +261,9 @@
+             }
+         }
+ 
++      section_claim *parked=section_claim_at(prev_stack_msection,tospace_offset);
++      parked->stack_floor=prev_alloc_stack_limit;
++      parked->stack_state=STACK_PARKED;
+       stack_msection_stop_using (___ps, prev_alloc_stack_start, fp);
+     }
+ 
+@@ -285,32 +284,34 @@
+ 
+   ___msection *ms;
+ 
+-  if (stack_msection != heap_msection &&
+-      ___ps->context->stack_start == &___STK(-___FIRST_BREAK_FRAME_SPACE) &&
++  if (___ps->context->stack_start == &___STK(-___FIRST_BREAK_FRAME_SPACE) &&
+       (ms = ___CAST(___msection*,___STK(-___FIRST_BREAK_FRAME_STACK_MSECTION)))
+       != NULL)
+     {
+-      /*
+-       * The current stack msection is not shared with the heap and
+-       * the break frame is at the start of the stack msection and it
+-       * was created due to a stack section overflow, so the stack can
+-       * be moved to the previous stack msection.
+-       */
+-
+-      stack_msection->base[0] = ___CAST(___WORD,msection_free_list);
+-      msection_free_list = stack_msection;
++      ___msection *outgoing=stack_msection;
++      section_claim *active=section_claim_at(outgoing,tospace_offset);
++      section_claim *parked=section_claim_at(ms,tospace_offset);
++      ___WORD *break_frame;
++      ___WORD *next_frame;
++      if(active->heap_used)
++        return ___FAL; /* The logical break-handler copy remains available. */
++      if(active->stack_owner!=___ps || active->stack_state!=STACK_ACTIVE ||
++         parked->stack_owner!=___ps || parked->stack_state!=STACK_PARKED ||
++         !parked->stack_floor)
++        { rc_contract_error("Invalid stack section undo claim"); return ___FAL; }
++      break_frame=___CAST(___WORD*,___STK(-___FIRST_BREAK_FRAME_STACK_BREAK));
++      next_frame=___CAST(___WORD*,___STK(-___BREAK_FRAME_NEXT));
++      ___SET_STK(-___FIRST_BREAK_FRAME_STACK_MSECTION,0)
+ 
+       set_stack_msection (___ps, ms);
+-
+-      ___ps->context->stack_break =
+-        ___CAST(___WORD*,___STK(-___FIRST_BREAK_FRAME_STACK_BREAK));
+-
+-      alloc_stack_ptr =
+-        ___CAST(___WORD*,___STK(-___BREAK_FRAME_NEXT));
+-
++      alloc_stack_limit=parked->stack_floor;
++      parked->stack_floor=0;
++      ___ps->context->stack_break=break_frame;
++      alloc_stack_ptr=next_frame;
+       ___ps->context->stack_start = alloc_stack_start;
+ 
+       stack_msection_resume_using (___ps, alloc_stack_start, alloc_stack_ptr);
++      release_stack_section(___ps,outgoing);
+ 
+       prepare_mem_pstate (___ps);
+ 
+@@ -373,15 +374,12 @@
+      * Get a new heap msection.
+      */
+ 
+-    ___msection *ms = msection_free_list;
+-
+-    if (stack_msection != heap_msection &&
+-        ms != NULL)
++    ___msection *ms = stack_msection != heap_msection
++      ? take_released_stack_section(___ps) : 0;
++
++    if (ms != 0)
+       {
+-        /* we can reuse an existing one */
+-
+-        msection_free_list = ___CAST(___msection*,ms->base[0]);
+-
++        words_prev_msections += alloc_heap_ptr-alloc_heap_start;
+         set_heap_msection (___ps, ms);
+       }
+     else
+--- a/lib/_mem/capacity-resize.inc
++++ b/lib/_mem/capacity-resize.inc
+@@ -21,14 +21,20 @@
+   ___ps->context->stack_break = p2 - ___FIRST_BREAK_FRAME_SPACE;
+ 
+   while (p1 != start)
+-    *--p2 = *--p1;
++    {
++#ifdef ___GC_TEST_BEFORE_FINAL_RESTORE_READ
++      if (p1 == start + 1)
++        ___GC_TEST_BEFORE_FINAL_RESTORE_READ (p1 - 1);
++#endif
++      *--p2 = *--p1;
++    }
+ 
+   alloc_stack_ptr = p2;
+ 
+-  ___FP_SET_STK(alloc_stack_ptr,
+-                -___FIRST_BREAK_FRAME_STACK_MSECTION,
+-                ___CAST(___WORD,
+-                        ___CAST(___msection*,NULL))) /* not a stack section overflow */
++  /* The copied overflow link belongs to the first break, not the active
++   * frame at alloc_stack_ptr.  Restoration replaces its physical ownership
++   * just as capture does; use the same canonical first-break projection. */
++  ___INVALIDATE_STACK_OVERFLOW_UNDO
+ }
+ 
+ 
+--- a/lib/_mem/collection-round.inc
++++ b/lib/_mem/collection-round.inc
+@@ -308,6 +308,15 @@
+     rc_contract_error("Frozen root union publication refused");
+ 
+   BARRIER(); /* publishes the one RootTask/worker assignment */
++#if defined(___GC_SLOT_TEST_FROZEN) != defined(___GC_SLOT_TEST_REPAIRED)
++#error "GC slot observation requires both test cuts"
++#endif
++#ifdef ___GC_SLOT_TEST_FROZEN
++  /* Only the coordinator can plan from here. The other members stay at
++   * the decision barrier. No forwarding or parity flip has started. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    ___GC_SLOT_TEST_FROZEN(___ps,rc_epoch);
++#endif
+   if(___PROCESSOR_ID(___ps,___vms)==0)
+     ___COLLECTION(___vms).decision=plan_copy_round(___ps);
+   BARRIER(); /* acquire the one decision; no parity changed */
+@@ -349,8 +358,21 @@
+   BARRIER();
+ 
+ 
++#ifdef ___GC_SLOT_TEST_REPAIRED
++  /* The strong and weak scans have drained. Keep every member out of
++   * continuation restoration and reclamation until the observer returns.
++   * The test callbacks may inspect held slots but must not call Scheme,
++   * allocate managed objects or wait for a member at this barrier. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    ___GC_SLOT_TEST_REPAIRED(___ps,rc_epoch);
++  BARRIER();
++#endif
++
+   /* Weak descendants have drained on all W; each physical owner receives
+    * either one exclusive worker tail or its own disjoint empty resume span. */
++  if (___RESUME(___vms,worker_id).owner != ___ps ||
++      ___RESUME(___vms,worker_id).context != ___ps->context)
++    rc_contract_error("Restoration grant no longer belongs to its processor context");
+   if(active_worker) {
+     /* A final large-object section has no execution fudge. A counted fresh
+      * small grant restores that reserve before physical owner handoff. */
+@@ -375,6 +397,7 @@
+       rc_contract_error("Collector tail handoff lacks drained ownership");
+   } else if(!___gc_resume_without_arena(&___RESUME(___vms,worker_id),rc_epoch))
+     rc_contract_error("Context restoration lacks its physical grant");
++  section_claim_at(heap_msection,tospace_offset)->heap_used=1;
+   move_continuation(___PSPNC);
+   ___RESUME(___vms,worker_id).restored=1;
+   BARRIER();
+@@ -387,6 +410,12 @@
+ 
+   BARRIER();
+ 
++
++  /* Restoration and still/weak cleanup are past their old-space reads.
++   * Mutators stay stopped. Retire source claims before resizing can free a
++   * section or a future round can grant that parity as its destination. */
++  if (___PROCESSOR_ID(___ps,___vms)==0)
++    retire_section_claims(the_msections,(___MSECTION_SIZE>>1)-tospace_offset);
+ 
+   /* Resize heap */
+ 
+--- a/lib/_mem/heap-sections.inc
++++ b/lib/_mem/heap-sections.inc
+@@ -93,6 +93,35 @@
+ }
+ 
+ 
++/* The carrier alone edits its stack claims and private reuse list. A
++ * section used by a heap stays ineligible through the end of this parity,
++ * including after the heap cursor has moved elsewhere. */
++___HIDDEN ___msection *take_released_stack_section(___processor_state ___ps)
++{
++  ___msection *section=msection_free_list;
++  if(section!=0)
++    {
++      section_claim *claim=section_claim_at(section,tospace_offset);
++      if(claim->stack_owner!=___ps || claim->stack_state!=STACK_REUSABLE ||
++         claim->heap_used)
++        { rc_contract_error("Invalid stack section reuse claim"); return 0; }
++      msection_free_list=claim->reuse_next;
++      *claim=(section_claim){0};
++    }
++  return section;
++}
++
++___HIDDEN void release_stack_section(___processor_state ___ps, ___msection *section)
++{
++  section_claim *claim=section_claim_at(section,tospace_offset);
++  if(claim->stack_owner!=___ps || claim->stack_state!=STACK_ACTIVE ||
++     claim->heap_used)
++    { rc_contract_error("Stack section release lacks exclusive ownership"); return; }
++  claim->stack_state=STACK_REUSABLE;
++  claim->reuse_next=msection_free_list;
++  msection_free_list=section;
++}
++
+ ___HIDDEN void set_stack_msection
+    ___P((___processor_state ___ps,
+          ___msection *ms),
+@@ -101,6 +130,9 @@
+ ___processor_state ___ps;
+ ___msection *ms;)
+ {
++  section_claim *claim=section_claim_at(ms,tospace_offset);
++  claim->stack_owner=___ps;
++  claim->stack_state=STACK_ACTIVE;
+   stack_msection = ms;
+ 
+   alloc_stack_limit = start_of_tospace(ms);
+@@ -358,6 +390,7 @@
+ ___processor_state ___ps;
+ ___msection *ms;)
+ {
++  section_claim_at(ms,tospace_offset)->heap_used=1;
+   heap_msection = ms;
+ 
+   alloc_heap_start = start_of_tospace(ms);
+@@ -435,6 +468,7 @@
+  (___collector_worker *work, ___msection *section,
+   ___WORD *base, ___WORD *limit)
+ {
++  section_claim_at(section,___COLLECTION(work->vm).destination_offset)->heap_used=1;
+   work->arena.section = section;
+   work->arena.base = work->arena.cursor = base;
+   work->arena.physical_limit=limit-1;
+@@ -479,6 +513,16 @@
+     }
+   work->arena.refills++;
+   prepare_worker_msection(work,ms,base,limit);
++}
++
++
++/* Old-space roots, work queues, restore readers and cleanup are drained.
++ * The caller runs once, with all mutators still behind the GC barrier. */
++___HIDDEN void retire_section_claims(___msections *sections, ___SIZE_TS offset)
++{
++  ___msection *section;
++  for(section=sections->head; section; section=section->next)
++    *section_claim_at(section,offset)=(section_claim){0};
+ }
+ 
+ 
+--- a/lib/_mem/movable-sections.inc
++++ b/lib/_mem/movable-sections.inc
+@@ -2,6 +2,29 @@
+ /*---------------------------------------------------------------------------*/
+ 
+ /* Allocation of movable objects.  */
++
++/* Private ownership per semispace. Keep the public msection prefix and
++ * its scan bitmap unchanged. Old and destination claims can coexist until
++ * the collector has drained every old-space reader. */
++enum stack_claim_state { STACK_UNCLAIMED, STACK_ACTIVE, STACK_PARKED, STACK_REUSABLE };
++
++typedef struct
++{
++  ___processor_state stack_owner;
++  ___WORD *stack_floor;
++  ___msection *reuse_next;
++  enum stack_claim_state stack_state;
++  unsigned heap_used;
++} section_claim;
++
++#define SECTION_BYTES (___sizeof_msection(___MSECTION_SIZE)+2*sizeof(section_claim))
++
++___HIDDEN section_claim *section_claim_at(___msection *section, ___SIZE_TS offset)
++{
++  return ((section_claim *)(section->base+___MSECTION_SIZE+
++                          ___msection_scan_words(___MSECTION_SIZE)))+
++    (offset != 0);
++}
+ 
+ /*
+  * 'find_msection (ms, ptr)' finds the position in the 'ms->sections'
+@@ -184,7 +207,7 @@
+         {
+           ___msection *s = ___CAST(___msection*,
+                                    alloc_mem_aligned_heap
+-                                     (___WORDS(___sizeof_msection(___MSECTION_SIZE)),
++                                     (___WORDS(SECTION_BYTES),
+                                       1,
+                                       0));
+ 
+@@ -216,6 +239,8 @@
+               s->index = tl->index + 1;
+             }
+ 
++          *section_claim_at(s,0)=(section_claim){0};
++          *section_claim_at(s,___MSECTION_SIZE>>1)=(section_claim){0};
+           s->copy_gate=0;
+           s->pos = i;
+           s->prev = tl;
+--- a/lib/_mem/startup-reservation.inc
++++ b/lib/_mem/startup-reservation.inc
+@@ -70,7 +70,12 @@
+   nb_msections_stacks=r->saved_stacks;
+   alloc_msection=r->saved_cursor;
+   for (i=r->first;i<r->target;++i)
+-    { r->slots[i].stack=0; r->slots[i].heap=0; r->slots[i].phase=___RESIZE_EMPTY; }
++    {
++      ___resize_slot *slot=&r->slots[i];
++      *section_claim_at(slot->stack,tospace_offset)=(section_claim){0};
++      *section_claim_at(slot->heap,tospace_offset)=(section_claim){0};
++      slot->stack=0; slot->heap=0; slot->phase=___RESIZE_EMPTY;
++    }
+   /* Newly allocated free sections remain available, not charged to a context. */
+   heap_size=compute_heap_size();
+ }
+--- a/lib/collector.h
++++ b/lib/collector.h
+@@ -221,7 +221,8 @@
+  (___gc_worker_arena *a, ___gc_resume_space *r, ___WORD epoch)
+ {
+   ___pstate_mem *m;
+-  if (a->handed_off || a->pending || !a->section || !r->context ||
++  if (a->handed_off || a->pending || !a->section || !r->context || !r->owner ||
++      r->owner->context != r->context ||
+       r->accepted || r->source_worker < 0 || a->epoch != epoch || r->epoch != epoch) return 0;
+   m = &r->owner->mem;
+   m->heap_msection_ = a->section;
+@@ -242,7 +243,8 @@
+  (___gc_resume_space *r, ___WORD epoch)
+ {
+   ___pstate_mem *m;
+-  if (!r->context || r->epoch != epoch || r->accepted || r->loan_used ||
++  if (!r->context || !r->owner || r->owner->context != r->context ||
++      r->epoch != epoch || r->accepted || r->loan_used ||
+       r->source_worker != -1 ||
+       !r->stack_section || r->loan_limit-r->loan_base <= 2) return 0;
+   m = &r->owner->mem;

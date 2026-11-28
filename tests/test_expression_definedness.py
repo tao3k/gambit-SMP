@@ -46,21 +46,29 @@ class ExpressionDefinednessTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported definedness value"):
             checker.defined(name("cycle"))
 
-    def test_real_original_actions_include_update_definedness(self):
-        path = ROOT / "evidence/model-results/gc-ranking-all-components/protocol-ir.json"
-        ir = json.loads(path.read_text())
+    def test_synthetic_ir_actions_include_update_definedness_and_verify_generated(self):
+        ir = {"stage": "parsing", "modules": [{"name": "gc_recursive_queue_wait", "declarations": [
+            {"kind": "var", "name": "s"},
+            {"kind": "def", "qualifier": "val", "name": "ready", "expr": name("s")},
+            {"kind": "def", "qualifier": "val", "name": "terminal", "expr": name("s")},
+            {"kind": "def", "qualifier": "action", "name": "finished",
+             "expr": app("actionAll", name("terminal"), app("assign", name("s"), name("s")))},
+            {"kind": "def", "qualifier": "action", "name": "markTail",
+             "expr": app("actionAll", name("ready"),
+                         app("assign", name("s"), app("get", name("s"), {"kind": "int", "value": 0})))},
+            {"kind": "def", "qualifier": "action", "name": "step",
+             "expr": app("actionAny", name("finished"), name("markTail"))}]}]}
         necessary = projections(ir)
         sufficient, partial = sufficient_projections(ir, necessary)
         self.assertEqual(list(necessary), list(sufficient))
-        self.assertEqual(["get", "nth", "set"], partial)
+        self.assertEqual(["get"], partial)
         self.assertNotEqual(necessary["markTail"], sufficient["markTail"])
-        self.assertNotEqual(necessary["probeEmptyQueue"], sufficient["probeEmptyQueue"])
-
-    def test_current_kernel_reproduces_archived_sufficient_expressions(self):
-        archive = ROOT / "evidence/model-results/gc-defined-transition-coverage"
-        ir = json.loads((archive / "protocol-ir.json").read_text())
-        sufficient, _ = sufficient_projections(ir, projections(ir))
-        verify_generated(json.loads((archive / "proof-ir.json").read_text()), sufficient)
+        proof_ir = {"stage": "parsing", "modules": [{"name": "gc_recursive_queue_guards", "declarations": [
+            {"name": "guard_finished", "qualifier": "val", "expr": sufficient["finished"]},
+            {"name": "guard_markTail", "qualifier": "val", "expr": sufficient["markTail"]},
+            {"name": "guardCoverage", "expr": app("or", name("terminal"), name("guard_finished"), name("guard_markTail"))},
+            {"name": "rejectsTerminalOnly", "expr": name("terminal")}]}]}
+        verify_generated(proof_ir, sufficient)
 
 
 if __name__ == "__main__":

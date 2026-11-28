@@ -30,7 +30,7 @@ atomic, so only compiled execution was requested; this is not a gsi pass.
 
 The raw log reports `PASSED ALL 1 UNIT TESTS`. That upstream count is files,
 not the internal six-case count. Portable receipt, logs and exact identity are
-under `evidence/source-results/fixtures/abandoned-result-state/interrupt-delivery-native`.
+under `.cache/research/legacy-evidence/evidence/source-results/fixtures/abandoned-result-state/interrupt-delivery-native`.
 The fixture and source-bound scope review are durable semantic paths.
 
 This is actual combined-path correctness evidence, not a physical GC-root

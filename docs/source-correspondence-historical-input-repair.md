@@ -9,7 +9,7 @@ The selected historical archive omitted that input after the current framework
 changed. The correspondence guard correctly rejected the incomplete binding.
 
 The exact original framework.py is already versioned under
-`evidence/source-results/fixtures/sfun-owned-unwind/historical-seed-inputs/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/historical-seed-inputs/`.
 Its bytes also match the retained producer engine. No new producer run or
 invented receipt field is needed to recover that historical input.
 

@@ -26,12 +26,12 @@ The subsequent source-bound TLC contract reproduced the old admission failure
 in three distinct states. The fixed contract exhausted 24 distinct states
 (32 generated), including all eight initial root/readiness/error combinations,
 and passed safety and temporal completion. The published receipt is
-`evidence/model-results/fixtures/collective-startup-return-outcome/startup-return-contract/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/collective-startup-return-outcome/startup-return-contract/receipt.json`.
 It is registered as finite protocol evidence, not physical source refinement
 or native runtime acceptance. Available CPU/memory capacity selected the
 checker workers; no fixed runtime processor limit follows from the model.
 
-`evidence/model-results/fixtures/collective-startup-ack/startup-return-controls.json`
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/collective-startup-ack/startup-return-controls.json`
 contains the raw observations. Simulation threads are explicitly selected from
 available host CPUs, not a fixed model cardinality.
 
@@ -49,7 +49,7 @@ GNU GCC syntax checking passed using the configured parent header with all
 three SMP/multiple-VM flags enabled. The initial syntax invocation accidentally
 omitted the local include argument; its DENY is retained separately, and the
 corrected invocation is recorded in
-`evidence/source-results/fixtures/collective-startup-return-outcome/syntax.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/collective-startup-return-outcome/syntax.json`.
 
 ## Remaining Requirements
 

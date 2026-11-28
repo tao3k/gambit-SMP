@@ -24,7 +24,7 @@ timeouts in 510.373 native / 587.987 outer seconds. The numerical file retained
 its original generated C, original loader/assertion protocol and 90-second
 inactivity window per real completed phase. The earlier 379/380 DENY remains.
 Current sealed custody and checked ASCENT file coverage are recorded in
-`evidence/source-results/compiled-suite-coverage/receipt.json`.
+`.cache/research/legacy-evidence/evidence/source-results/compiled-suite-coverage/receipt.json`.
 This closes two correctness gates, not release performance or the seven
 remaining gates. See `darwin-dynamic-modulo-candidate.md`.
 
@@ -56,7 +56,7 @@ does not close full lifetime, fault or GC/FFI acceptance. See
 
 ### Earlier Wake-Budget Producer
 
-`evidence/research/current-source-full-bootstrap/completed-producer.json` binds
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/completed-producer.json` binds
 the actual completed bootstrap, original immutable DENY/STALE receipts and
 the sealed stage journal. All original stages passed; all four bootstrap
 phases ran twice. Exact retained predecessors and live final bytes revalidate,

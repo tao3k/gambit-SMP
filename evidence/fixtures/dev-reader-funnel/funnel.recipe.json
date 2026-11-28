@@ -1,0 +1,179 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-reader-funnel",
+  "scope": "Quint controls for one EBNF reader custody, one cursor handoff, and one research funnel: a suspended reader is not a captured port, a cursor prefix is an action boundary, and a lost parent receipt does not turn a recorded failure into a live resume. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 240,
+  "inputs": [
+    "models/build/ebnf_reader_custody.qnt",
+    "models/build/ebnf_cursor_handoff.qnt",
+    "models/library/ResearchFunnel.qnt",
+    "models/build/ebnf_reader_parameters.qnt",
+    "models/build/ebnf_cursor_parameters.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-reader-funnel/binding.json",
+    "evidence/fixtures/dev-reader-funnel/observations.json",
+    "evidence/fixtures/dev-reader-funnel/funnel.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "read-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/build/ebnf_reader_custody.qnt"
+      }
+    },
+    {
+      "id": "read",
+      "capability": "quint.test",
+      "dependsOn": [
+        "read-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/build/ebnf_reader_custody.qnt",
+        "parsed": "read-parse",
+        "main": "ebnf_reader_custody",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "independentPortsTest",
+          "nestedSameInvocationTest",
+          "bufferedReadTest",
+          "directPortEmptyBufferTest",
+          "nonemptyBufferDeniesHandoffTest",
+          "resumeKeepsMutationTest",
+          "repeatResumeKeepsIdentityTest",
+          "failureRootsAndPortRetainedTest",
+          "closedResumeObservedTest",
+          "rootsDrainBeforeReclaimTest",
+          "actualCacheDeniedTest",
+          "qualifiedCacheTest",
+          "changedReadtableDeniedTest",
+          "aliasedPortControlTest",
+          "lostLookaheadControlTest",
+          "continuationRollbackControlTest",
+          "replacementIdentityControlTest",
+          "activeReclaimControlTest",
+          "errorRootReclaimControlTest",
+          "closedPortUseControlTest",
+          "unqualifiedCacheControlTest",
+          "staleReadtableReuseControlTest"
+        ]
+      }
+    },
+    {
+      "id": "hand-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/build/ebnf_cursor_handoff.qnt"
+      }
+    },
+    {
+      "id": "hand",
+      "capability": "quint.test",
+      "dependsOn": [
+        "hand-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/build/ebnf_cursor_handoff.qnt",
+        "parsed": "hand-parse",
+        "main": "ebnf_cursor_handoff",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "nativeCasesConsistentTest",
+          "quoteLegacyWitnessTest",
+          "coherentQuoteDiffersTest",
+          "parenLossEntryTest",
+          "standardSpaceDatumTest",
+          "standardNewlineDatumTest",
+          "selectedParserQuoteTest",
+          "maximalMunchIdentDeniesActionTest",
+          "eofExplicitErrorBoundaryTest",
+          "actualAdapterDeniedTest",
+          "pendingTokenDeniesRawReadTest",
+          "targetRejectRetainsSourceTest",
+          "changedEpochBlocksCommitTest",
+          "unknownCommitSettlesWithoutReplayTest",
+          "completedReadSettlesWithoutReplayTest",
+          "coherentClaimWithLegacyReadControlTest",
+          "legacyClaimWithCorrectedReadControlTest",
+          "lostCharsControlTest",
+          "rootDropControlTest",
+          "tokenAliasCopyControlTest",
+          "earlyOwnerTransferControlTest",
+          "unknownReplayControlTest",
+          "physicalForLogicalLocationControlTest"
+        ]
+      }
+    },
+    {
+      "id": "funnel-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/library/ResearchFunnel.qnt"
+      }
+    },
+    {
+      "id": "funnel",
+      "capability": "quint.test",
+      "dependsOn": [
+        "funnel-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/library/ResearchFunnel.qnt",
+        "parsed": "funnel-parse",
+        "main": "ResearchFunnel",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "discriminationControlsTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "read-parse",
+        "read",
+        "hand-parse",
+        "hand",
+        "funnel-parse",
+        "funnel"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-reader-funnel/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

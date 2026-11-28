@@ -76,7 +76,7 @@ safety and temporal completion over 13 distinct / 18 generated states. These
 checks took 24.048, 25.359 and 29.417 seconds including backend startup.
 
 The source-bound portable receipt is
-`evidence/model-results/fixtures/startup-sync-flag-handoff/saved-stack-retirement-contract/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/startup-sync-flag-handoff/saved-stack-retirement-contract/receipt.json`.
 The Datalog bundle retains both controls and five unresolved obligations. Native
 and release admission remain false. No candidate source change or runtime test
 is inferred from this design result.

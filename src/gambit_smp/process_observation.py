@@ -1,18 +1,21 @@
 """Bounded process observations with distinct stdout, stderr and final exit."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
+from copy import deepcopy
 from datetime import datetime, timezone
+from pathlib import Path
 import os
 import math
 import signal
 import subprocess
+from gambit_smp.task_processes import spawn as _task_spawn
 import time
 
 
 @dataclass(frozen=True)
 class Observation:
-    stdout: str
-    stderr: str
+    stdout: str | bytes
+    stderr: str | bytes
     exit: int
     timeout: bool
     seconds: float
@@ -21,6 +24,111 @@ class Observation:
     ended_at: str
     group_quiescent: bool | None
     group_probes: tuple[str, ...] = ()
+    peak_group_rss_bytes: int | None = None
+    rss_limit_exceeded: bool = False
+    streams_complete: bool = True
+    partial_stdout_bytes: bytes | None = None
+    partial_stderr_bytes: bytes | None = None
+    cpu_snapshot: dict | None = None
+
+
+def terminate_capture(process):
+    """Stop birth-authenticated groups in the capture's POSIX session.
+
+    The unreaped Popen leader anchors the SID. Detached sessions are outside
+    this authority and cannot be signalled using a guessed numeric identity.
+    """
+    from gambit_smp.process_identity import process as identity,pids,same_birth
+    owner=getattr(process,'spawn_birth',{}).get('process',{})
+    try:
+        if same_birth(owner,identity(process.pid)) and os.getsid(process.pid)==process.pid:
+            groups={}
+            for pid in pids(os.getuid()):
+                try:
+                    if os.getsid(pid)!=process.pid:continue
+                    member=identity(pid)
+                    if member and member['pgid']!=process.pid:groups.setdefault(member['pgid'],[]).append(member)
+                except ProcessLookupError:continue
+            for group,members in groups.items():
+                for member in members:
+                    current=identity(member['pid'])
+                    if not same_birth(member,current) or current['pgid']!=group:continue
+                    try:
+                        if os.getsid(member['pid'])==process.pid:os.killpg(group,signal.SIGKILL)
+                    except ProcessLookupError:pass
+                    break
+    finally:
+        # A decoded-stream error can occur after communicate has reaped its
+        # leader. Never signal a reused group number in that state.
+        if owner:
+            current=identity(process.pid)
+            authorized=same_birth(owner,current) and current['pgid']==process.pid
+        else:
+            authorized=process.returncode is None
+        if authorized:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+
+
+def drain_capture(process,text):
+    """Cleanup has a deadline too; preserve partial bytes without admission."""
+    try:
+        stdout,stderr=process.communicate(timeout=5)
+        return stdout,stderr,True,None,None
+    except subprocess.TimeoutExpired as error:
+        raw_out,raw_err=error.output or b'',error.stderr or b''
+        for stream in (process.stdout,process.stderr):
+            if stream is not None:stream.close()
+        try:process.wait(timeout=1)
+        except subprocess.TimeoutExpired:pass
+        out=raw_out.decode(errors='backslashreplace') if text else raw_out
+        err=raw_err.decode(errors='backslashreplace') if text else raw_err
+        return out,err,False,raw_out,raw_err
+
+
+class EvidenceProgress:
+    """Transport caller observations through an existing Scheme Session.
+
+    The observer owns collection, not admission. Cursor rows are the existing
+    checkpoint facts: restoring them never counts as newly completed work.
+    """
+    observation_relations = frozenset(("progress_sample", "progress_attested", "progress_completed"))
+
+    def __init__(self, session, facts, observer):
+        self.session, self.facts, self.observer = session, deepcopy(facts), observer
+        self.cursor = {tuple(row[:-1]): list(row) for row in facts.get("progress_cursor", [])}
+        if len(self.cursor) != len(facts.get("progress_cursor", [])):
+            raise ValueError("one checkpoint cursor per progress stream required")
+        self.renewals = 0
+        self.witness = None
+
+    def __call__(self, stdout, stderr):
+        observations = self.observer(stdout, stderr)
+        if set(observations) - self.observation_relations:
+            raise ValueError("collector cannot replace declared progress context")
+        observations = {name: deepcopy(observations.get(name, []))
+                        for name in self.observation_relations}
+        facts = dict(self.facts, **observations)
+        facts["progress_cursor"] = list(self.cursor.values())
+        self.session.replace(facts)
+        result = self.session.run()
+        if not result["complete"]:
+            raise ValueError("incomplete progress inference cannot renew a watchdog")
+        handle = self.session.result(result)
+        try:
+            advanced = result["relations"]["progress_advanced"]
+            self.witness = {"observations": deepcopy(observations),
+                            "cursorBefore": deepcopy(facts["progress_cursor"]),
+                            "advanced": deepcopy(advanced),
+                            "rejected": deepcopy(result["relations"]["progress_rejected"])}
+            for row in advanced:
+                self.cursor[tuple(row[:5])] = [*row[:5], row[6]]
+            self.witness["cursorAfter"] = deepcopy(list(self.cursor.values()))
+            if advanced:
+                self.renewals += 1
+        finally:
+            handle.close()
+        return self.renewals
 
 
 def probe_group(pid, deadline):
@@ -46,18 +154,39 @@ def probe_group(pid, deadline):
         time.sleep(min(0.01, remaining))
 
 
-def communicate_progress(process, window, progress):
+def probe_session(sid):
+    """A group can be empty while GNU timeout's sibling group is still live."""
+    from gambit_smp.process_identity import pids,process
+    try:
+        for pid in pids(os.getuid()):
+            try:
+                if os.getsid(pid)==sid:
+                    member=process(pid)
+                    if member and member.get('status')!=5:return False
+            except ProcessLookupError:continue
+        return True
+    except OSError:return None
+
+
+def communicate_progress(process, window, progress, *, recorder=None, token=None):
     """Renew only for a strictly increasing completed-work counter."""
+    if isinstance(window, bool) or not math.isfinite(window) or window <= 0:
+        raise ValueError("positive finite progress window required")
     last, completed = time.monotonic(), 0
 
     def observe(stdout, stderr):
         nonlocal last, completed
+        observed_at = time.monotonic()
         text = lambda value: value.decode(errors="replace") if isinstance(value, bytes) else value or ""
         count = progress(text(stdout), text(stderr))
         if type(count) is not int or count < 0:
             raise ValueError("nonnegative completed-work count required")
         if count > completed:
-            completed, last = count, time.monotonic()
+            if recorder is not None:
+                recorder("progress", token, {"count": count,
+                         "observedMonotonic": observed_at,
+                         "witness": getattr(progress, "witness", None)})
+            completed, last = count, observed_at
 
     while True:
         remaining = window - (time.monotonic() - last)
@@ -71,20 +200,131 @@ def communicate_progress(process, window, progress):
             observe(error.output, error.stderr)
 
 
-def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None):
-    if budget <= 0:
-        raise ValueError("positive process budget required")
+def communicate_boundary(process, budget, boundary, started):
+    """Observe phase deadlines without renewing the enclosing wall deadline."""
+    def observe(stdout, stderr):
+        text = lambda value: value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+        boundary(text(stdout), text(stderr))
+    while True:
+        remaining = started + budget - time.monotonic()
+        if remaining <= 0:raise subprocess.TimeoutExpired(process.args, budget)
+        try:
+            stdout, stderr = process.communicate(timeout=min(0.05, remaining))
+            observe(stdout, stderr)
+            return stdout, stderr
+        except subprocess.TimeoutExpired as error:
+            observe(error.output, error.stderr)
+
+
+def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, recorder=None, boundary=None, text=True,
+            rss_limit_bytes=None, cpu_sample=False):
+    if type(text) is not bool:
+        raise ValueError("explicit process stream mode required")
+    if not text and any(value is not None for value in (diagnostic, progress, boundary)):
+        raise ValueError("binary streams require fixed wall-clock observation")
+    if isinstance(budget, bool) or not math.isfinite(budget) or budget <= 0:
+        raise ValueError("positive finite process budget required")
+    if type(cpu_sample) is not bool or (cpu_sample and any(value is not None for value in
+                                                         (diagnostic, progress, boundary, rss_limit_bytes))):
+        raise ValueError("CPU sampling requires a fixed wall-clock observation")
+    if rss_limit_bytes is not None:
+        if type(rss_limit_bytes) is not int or rss_limit_bytes<=0:
+            raise ValueError('positive integer process-group RSS limit required')
+        if any(value is not None for value in (diagnostic,progress)):
+            raise ValueError('RSS guard requires fixed wall-clock observation')
     started = time.monotonic()
     timestamp = datetime.now(timezone.utc).isoformat()
-    process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, start_new_session=True)
-    timeout = False
+    token = os.urandom(16).hex()
     try:
-        if progress is not None:
+        # Popen's DEVNULL sentinel opens O_RDWR, which is a write outside the
+        # scientific owner's cache. The child only needs a read-only EOF input.
+        with open(os.devnull, 'rb') as input_stream:
+            process = _task_spawn(argv,observer=recorder,spawn_token=token,birth_budget=min(10,budget),launch_deadline=started+budget,cwd=cwd,env=environment,stdin=input_stream,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       text=text, start_new_session=True)
+    except OSError:
+        if recorder is not None:
+            recorder("spawn-failed", token, {})
+        raise
+    timeout = False
+    peak_rss = None
+    rss_exceeded = False
+    cpu_snapshot = None
+    streams_complete,partial_stdout,partial_stderr=True,None,None
+    try:
+        if rss_limit_bytes is not None:
+            from gambit_smp.process_identity import group_memory
+            from gambit_smp.task_processes import memory_sample, recorder as task_recorder, stop_run
+            task_resources=task_recorder()
+            task_root=(Path(os.environ['GAMBIT_SMP_TASK_ROOT'])
+                       if task_resources is not None and os.environ.get('GAMBIT_SMP_TASK_ROOT') else None)
+            task_id=os.environ.get('GAMBIT_SMP_TASK_ID') if task_root is not None else None
+            task_run=os.environ.get('GAMBIT_SMP_TASK_RUN') if task_root is not None else None
+            peak_rss=0
+            reported_peak=-8*1024*1024
+            sequence=0
+            sample_interval=.05 if boundary is not None else .25
+            while True:
+                sample=(memory_sample(task_root,task_id,task_run,root_group=process.pid)
+                        if task_root is not None and task_id and task_run
+                        else group_memory(process.pid))
+                peak_rss=max(peak_rss,sample['rssBytes'])
+                if (recorder is not None or task_resources is not None) and (
+                        peak_rss-reported_peak>=8*1024*1024 or sample['rssBytes']>rss_limit_bytes):
+                    sequence+=1;reported_peak=peak_rss
+                    fields=dict(resourceSample=sample,
+                        peakGroupRssBytes=peak_rss,rssLimitBytes=rss_limit_bytes,
+                        samplingIntervalSeconds=sample_interval,resourceSampleSequence=sequence)
+                    if recorder is not None:recorder('resource-sample',token,fields)
+                    if task_resources is not None:task_resources('resource-sample',token,fields)
+                if sample['rssBytes']>rss_limit_bytes:
+                    rss_exceeded=True
+                    if task_root is not None and task_id and task_run:
+                        stop_run(task_root,task_id,task_run,anchors=sample.get('members',()),root_group=process.pid)
+                    terminate_capture(process)
+                    stdout,stderr,streams_complete,partial_stdout,partial_stderr=drain_capture(process,text)
+                    break
+                remaining=started+budget-time.monotonic()
+                if remaining<=0:raise subprocess.TimeoutExpired(argv,budget)
+                try:
+                    stdout,stderr=process.communicate(timeout=min(sample_interval,remaining))
+                    if boundary is not None:
+                        boundary(stdout,stderr)
+                    break
+                except subprocess.TimeoutExpired as error:
+                    if boundary is not None:
+                        decode=lambda value: value.decode(errors='replace') if isinstance(value,bytes) else value or ''
+                        boundary(decode(error.output),decode(error.stderr))
+        elif cpu_sample:
+            from gambit_smp.process_identity import group_cpu_snapshot
+            deadline = started + budget
+            try:
+                stdout, stderr = process.communicate(timeout=max(.001, deadline - .25 - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                observed = time.monotonic()
+                if observed < deadline:
+                    owner = getattr(process, 'spawn_birth', {}).get('process')
+                    try:
+                        if owner is None:
+                            raise ValueError('process birth unavailable')
+                        cpu_snapshot = group_cpu_snapshot(owner)
+                    except (OSError, ValueError) as error:
+                        cpu_snapshot = dict(error=str(error))
+                    cpu_snapshot['startedAtElapsedSeconds'] = observed - started
+                    cpu_snapshot['endedAtElapsedSeconds'] = time.monotonic() - started
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(argv, budget)
+                stdout, stderr = process.communicate(timeout=remaining)
+        elif boundary is not None:
+            if progress is not None or diagnostic is not None:
+                raise ValueError("file boundaries require a fixed wall-clock transport")
+            stdout, stderr = communicate_boundary(process, budget, boundary, started)
+        elif progress is not None:
             if diagnostic is not None:
                 raise ValueError("progress and stack-sampling transports must be selected separately")
-            stdout, stderr = communicate_progress(process, budget, progress)
+            stdout, stderr = communicate_progress(process, budget, progress,
+                                                  recorder=recorder, token=token)
         elif diagnostic is not None:
             try:
                 stdout, stderr = process.communicate(timeout=min(budget, diagnostic["afterSeconds"]))
@@ -98,37 +338,44 @@ def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None):
                     raise subprocess.TimeoutExpired(argv, budget)
                 stdout, stderr = process.communicate(timeout=remaining)
         else:
-            stdout, stderr = process.communicate(timeout=budget)
+            stdout, stderr = process.communicate(timeout=max(.001,started+budget-time.monotonic()))
     except subprocess.TimeoutExpired:
         timeout = True
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        stdout, stderr = process.communicate()
+        terminate_capture(process)
+        stdout,stderr,streams_complete,partial_stdout,partial_stderr=drain_capture(process,text)
     except BaseException:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.communicate()
+        terminate_capture(process)
+        drain_capture(process,text)
         raise
     quiescent, probes = probe_group(process.pid, started + budget)
+    session_quiescent=probe_session(process.pid)
+    probes=(*probes,'session-'+{True:'absent',False:'present',None:'unknown'}[session_quiescent])
+    if session_quiescent is not True:
+        quiescent=False if session_quiescent is False else None
+    if not streams_complete:quiescent=None;probes=(*probes,'stream-drain-unresolved')
     return Observation(stdout, stderr, process.returncode, timeout, time.monotonic() - started,
-                       process.pid, timestamp, datetime.now(timezone.utc).isoformat(), quiescent, probes)
+                       process.pid, timestamp, datetime.now(timezone.utc).isoformat(), quiescent, probes,
+                       peak_rss,rss_exceeded,streams_complete,partial_stdout,partial_stderr,cpu_snapshot)
 
 
-def capture_batch(jobs, *, workers, budget):
+def capture_batch(jobs, *, workers, budget, completed=None):
     """Threaded process transport under one deadline, including queue time.
 
     Each job supplies argv/cwd/environment/budget. Threads only supervise
     independent child processes; no Library runtime crosses an OS thread.
     A queued job that misses the deadline has no invented exit or PID.
+    The optional coordinator callback receives (input_index, observation) as
+    each job settles, including failures. It may retain evidence before slower
+    siblings finish. Returned runs remain in input order. Callback/worker
+    exceptions are raised only after all siblings have settled; they do not
+    discard other completed observations or grant process admission.
     """
     if type(workers) is not int or workers <= 0:
         raise ValueError("positive worker count required")
     if isinstance(budget, bool) or not math.isfinite(budget) or budget <= 0:
         raise ValueError("positive finite batch budget required")
+    if completed is not None and not callable(completed):
+        raise ValueError("callable batch completion observer required")
     jobs = list(jobs)
     for job in jobs:
         ceiling = job["budget"]
@@ -156,8 +403,21 @@ def capture_batch(jobs, *, workers, budget):
                 "observation": asdict(observed)}
 
     if jobs:
+        runs = [None] * len(jobs)
+        failure = None
         with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as pool:
-            runs = list(pool.map(launch, jobs))
+            futures = {pool.submit(launch, job): index for index, job in enumerate(jobs)}
+            for future in as_completed(futures):
+                index = futures[future]
+                try:
+                    runs[index] = future.result()
+                    if completed is not None:
+                        completed(index, deepcopy(runs[index]))
+                except Exception as error:
+                    if failure is None:
+                        failure = error
+        if failure is not None:
+            raise failure
     else:
         runs = []
     return {"workers": min(workers, len(jobs)), "budgetSeconds": budget,
@@ -191,7 +451,15 @@ def main():
                      "environment": dict(os.environ), "budget": job["budgetSeconds"]})
     args.out.mkdir(parents=True, exist_ok=False)
     (args.out / "request.json").write_text(json.dumps(value, indent=2) + "\n")
-    result = capture_batch(jobs, workers=min(available_processors(), len(jobs)), budget=value["budgetSeconds"])
+    def retain(index, row):
+        target = args.out / ("job-" + str(index) + ".json")
+        pending = target.with_suffix(".pending")
+        with pending.open("x") as stream:
+            json.dump(dict(job=index, **row), stream, indent=2)
+            stream.write("\n")
+        pending.replace(target)
+    result = capture_batch(jobs, workers=min(available_processors(), len(jobs)),
+                           budget=value["budgetSeconds"], completed=retain)
     result.update(scope="process-observation-only", runtimeAdmitted=False)
     (args.out / "receipt.json").write_text(json.dumps(result, indent=2) + "\n")
     for index, row in enumerate(result["runs"]):
@@ -202,5 +470,9 @@ def main():
                     and row["observation"]["group_quiescent"] is True for row in result["runs"]) else 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('process-observation')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('process-observation',main))

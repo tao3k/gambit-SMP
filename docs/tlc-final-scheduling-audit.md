@@ -62,14 +62,14 @@ The explicit integration fixture checks three properties under both strategies:
 3. An always-safe, enabled fair cycle must fail only its temporal property.
 
 The first successful diagnostic preserved under
-`evidence/model-results/tlc-final-scheduling-parity/` passed all six expectations;
+`.cache/research/legacy-evidence/evidence/model-results/tlc-final-scheduling-parity/` passed all six expectations;
 the terminating model had two distinct states in each strategy. Its individual
 checks ranged from 3.351 to 3.494 seconds. It remains `accepted=false` for overall
 repair admission and `parityPassed=true` only for this checker diagnostic.
 The current cleanup-enabled framework repeated all six expectations in 21.402
 seconds, with stable inputs and all three final-mode scratch removals recorded.
 That separately bound receipt, logs, safety traces and compiled artifacts live
-in `evidence/model-results/tlc-final-scheduling-parity-cleanup/`. Individual
+in `.cache/research/legacy-evidence/evidence/model-results/tlc-final-scheduling-parity-cleanup/`. Individual
 checks took 3.390-3.546 seconds; this is still diagnostic, not a speed baseline.
 Compiler-IR rejection and an earlier diagnostic message-matching failure are
 not Gambit failures and are not evidence for dropping a temporal obligation.
@@ -78,7 +78,7 @@ The same recursive/eager-field model then hit its unchanged total budget at
 90.141 seconds under `final`. The last logged progress had 2,271,137 distinct
 states and 469,341 queued states. No complete temporal proof occurred; the other
 positive policy was not started. The DENY, generated specification and config
-are preserved in `evidence/model-results/gc-recursive-queue-wait-final-deny/`.
+are preserved in `.cache/research/legacy-evidence/evidence/model-results/gc-recursive-queue-wait-final-deny/`.
 That historical campaign also exposed the subsequently fixed log-name shadowing
 bug; its original receipt is retained, not rewritten as a corrected campaign.
 

@@ -21,8 +21,8 @@ class FailurePremiseReviewTests(unittest.TestCase):
                  "currentDecision": "completed-stages-and-reaped-owner"}},
             {"id": "stress", "capability": "gambit.suite", "outcome": "PASS",
              "arguments": {}, "dependsOn": ["producer"]}]}
-        catalog = load_catalog(ROOT / "evidence/research/execution-rules.ss",
-                               ROOT / "evidence/research/producer-decision-rules.ss")
+        catalog = load_catalog(ROOT / "evidence/dsl/execution-rules.ss",
+                               ROOT / "evidence/dsl/producer-decision-rules.ss")
         queries = {"retired": "retired_producer_decision", "active": "active_historical_producer_denial",
                    "current": "current_producer_admitted", "missing": "missing_step"}
         with engine_api() as (engine, _):

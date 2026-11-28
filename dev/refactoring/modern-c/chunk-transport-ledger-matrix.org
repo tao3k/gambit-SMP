@@ -1,0 +1,217 @@
+#+TITLE: Chunk Transport and Unified Work Custody — Closure and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitChunkTransportLedger
+:STATUS: conditional-model-induction; source-schedule-and-c11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| close-marker | vendor/gambit/lib/mem.c | *work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; | Writes closing marker and first section prefix; both locations must be qualified |
+| append-link | vendor/gambit/lib/mem.c | *heap_chunks_to_scan_tail = ___TAG(new_tail, ___FORW); | Plain write under FIFO gate; may target prior physical terminator |
+| take-link | vendor/gambit/lib/mem.c | node = ___UNTAG_AS(*owner->heap_chunks_to_scan_head_, ___FORW); | Pointer load under successful gate |
+| scan-classifier | vendor/gambit/lib/mem.c | while (!___TESTTYPE(head = *ptr, ___FORW)) | Two raw classifier loads: complete and local frontier |
+| tail-address | vendor/gambit/lib/mem.c | ___WORD *new_tail = alloc_heap_chunk_start-1; | Next chunk prefix aliases preceding terminal word |
+| advance-start | vendor/gambit/lib/mem.c | alloc_heap_chunk_start = work->context->mem.alloc_heap_ptr_; | New start follows prior terminal write/increment |
+| dummy-head | vendor/gambit/lib/mem.c | heap_chunks_to_scan_head = &heap_chunks_to_scan; | Empty queue still retains head/tail address |
+| gate-lock | vendor/gambit/lib/mem.c | while (___COMPARE_AND_SWAP_WORD(&owner->chunk_gate_,0,1) != 0) | Protects FIFO accesses; not all scan loads |
+| gate-take | vendor/gambit/lib/mem.c | if (___COMPARE_AND_SWAP_WORD(&owner->chunk_gate_,0,1) != 0) | Failed steal returns without observing queue |
+| gate-release | vendor/gambit/lib/mem.c | ___FETCH_AND_CLEAR_WORD(&owner->chunk_gate_); | Legacy native adapter release candidate |
+| steal | vendor/gambit/lib/mem.c | ___WORD *ptr = take_heap_chunk(work,victim); | Claim precedes later ungated complete-chunk scanning |
+| scan-done | vendor/gambit/lib/mem.c | require_chunk_transition(work,start,2,3); | Scan completion does not detach FIFO head |
+| frame-pending | vendor/gambit/lib/mem.c | ptr = &___FP_STK(alloc,link+1); | Delayed copied link retains original chunk/epoch responsibility |
+| frame-ready | vendor/gambit/lib/mem.c | publish_object_scan (work, copy_header);\n          work->copied_words += words+___SUBTYPED_BODY; | Current frame READY still precedes later successor fixup |
+| weak-entry | vendor/gambit/lib/mem.c | traverse_weak_refs = 1; | Global cut must precede all weak producers |
+| will-fused | vendor/gambit/lib/mem.c | determine_will_executability (nonexecutable_wills); | Classification and weak retention remain fused |
+| idle | vendor/gambit/lib/mem.c | if (--(*workers_count) == 0) | Active count valid only if every delayed/private/Tail child is covered |
+| gc-reset | vendor/gambit/lib/mem.c | heap_chunks_to_scan = NULL_CHUNK_LINK; | Epoch setup reset; requires all prior observers detached |
+| native-cas | vendor/gambit/include/gambit.h.in | __sync_val_compare_and_swap(p,oldval,newval) | Effective native/C11 adapter mapping remains open |
+| native-fence | vendor/gambit/include/gambit.h.in | __sync_synchronize() | A fence does not order future link stores before prior scan reads |
+| native-word | vendor/gambit/include/gambit.h.in | ___VOLATILE ___WORD chunk_gate_; | Current gate storage is a native-layer contract, not new C11 qualification |
+
+** Option
+
+| key | representation | accessRule | reuse | cost | mechanism | decision |
+|---+---+---+---+---+---+---|
+| unified-atomic | Preserve shared terminal/link storage | Every conflicting access and every undecided classifier uses compatible atomics | No distinct next-link node required in best case | Storage typing/alignment ABI profiles debugging and generated raw access | Convert K+C classifier loads; no speed estimate | Control; promote only after full access/storage qualification |
+| split-record | Immutable in-band terminal plus independently mutable queue record | Reuse central queue gate; scanner reads immutable marker or sealed bound | Start/term/next descriptor plus pool and lifetime custody | Reserve native nodes before close; no recursive Scheme GC; dummy head and late receipts | Selected node has 3 pointer fields; at P=8 at least 24*C bytes before overhead | Main design candidate; pool/lifetime/ABI refinement still open |
+
+** Trace
+
+| key | operationText | consequence | gap |
+|---+---+---+---|
+| close-C0 | Writer closes nonlocal C0 at t0 | C0 becomes eligible for victim queue | Source assumptions; no legal-input compiled witness |
+| start-C1 | C1.start=t0+1; C1.leading=t0 | Same address is previous terminator | Address arithmetic proved by predecessor |
+| queue-C1 | Publishing C1 sets FIFO tail=t0 | Does not yet require storing next link at t0 | Distinguish selecting a tail from later writing it |
+| claim-C0 | Thief claims C0 under gate then scans outside it | Acquire covers earlier stores only | Later append is not ordered by this earlier acquire |
+| queue-C2 | Publishing C2 writes through tail=t0 | Queue gate serializes queue users | No automatically established scanner read happens-before |
+| read-t0 | Thief eventually reads t0 to test FORW | Both old/new tags may be FORW | Tag preservation alone is not a C11 race proof |
+| head-retention | Consumed node becomes FIFO head even when empty | Scan DONE cannot free node or its backing storage | Retention pin is distinct from work debt |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| source-marker | unified-atomic | All classifiers and writers atomically compatible |
+| source-marker | split-record | Immutable marker; mutable queue next separate |
+| unified-atomic | transport-permit | Qualified storage and lifetime |
+| split-record | transport-permit | Reserved node pool and retained dummy head |
+| strong-close | classify-all | No hidden strong delayed debt |
+| classify-all | weak-cut | Same epoch and all context lists |
+| weak-cut | accept-delayed | One task identity and accepted debt |
+| accept-delayed | seal-delayed | Keep original chunk/frame/root pin |
+| seal-delayed | queue-publish | Transport permit plus whole physical seal |
+| transport-permit | queue-publish | Guarded product; real C issuer open |
+| queue-publish | scan-owner | Same work debt; unknown ack not another task |
+| scan-owner | derived-child | Reserve before releasing parent |
+| derived-child | weak-complete | Root admission closed and all work zero |
+| weak-complete | future-users-closed | Cleanup and callbacks must not reuse queue |
+| future-users-closed | head-detached | Drop lifetime pin; no new work |
+| head-detached | epoch-retired | Receipt observers also retired |
+| epoch-retired | storage-free | Product permits transport reclamation only now |
+
+** Obligation
+
+| key | status | scope | gap |
+|---+---+---+---|
+| source-interleaving | source-enabled-under-premises | Three adjacent physical chunks and thief | No exact Scheme/configuration witness or native race claim |
+| atomic-protocol | proved-in-model | Managed shared accesses are atomic and lifetime valid | No C atomic type/profile/weak-memory proof |
+| split-protocol | proved-in-model | Plain reader/writer use distinct locations | Concrete node pool and all scanner callers unmigrated |
+| ledger | proved-in-model | debt=accepted-settled; private to queue is transfer | Real all-producer task mapping open |
+| pins | proved-in-model | Weak completion can retain dummy/receipt pins | Future cleanup user closure is an external premise |
+| phase-refinement | proved-model-step-simulation | 18 new actions map to old weak actions or stutter | Subset safety refinement; no fairness/completeness/source simulation |
+| product | proved-guarded-product | Transport permission and epoch lifetime gates | Native implementation of those guards unproved |
+| spatial-seal | open | Real mixed-span and late-writer closure receipt | Ledger sealed flag is not a source extraction proof |
+| C11 | open | Reads-from HB storage typing mixed metadata and reset | No SC model can qualify the actual Darwin/GCC program |
+| retirement | open | All cleanup and unknown observers detached before pool reuse | No native shutdown/receipt deduplication evidence |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| C payload preservation | Split keeps ordinary object/frame word representation | Extra queue records and native pool | Main candidate only; node storage remains bounded/admitted |
+| atomic alternative | Can avoid out-of-band next-link node | K+C classifier loads become atomic plus atomic metadata access | No plain/atomic concurrent mixture; all storage cases qualified |
+| split space | Avoid whole heap conversion to atomic word storage | 3 pointer fields per selected node plus epoch/pin/pool cost | At 8-byte pointers lower bound 24*C bytes; no measured peak |
+| one work ledger | No extra publication debt when same accepted chunk moves | One identity and child reservation/settlement | Work lifetime spans delayed state through scanning |
+| lifetime distinction | No false weak-stage stall from persistent dummy head pin | Separate lifetime accounting; cannot free at debt zero | All future users closed before node/epoch reuse |
+| will decision | No new strong graph rescan | O(W) classification plus one collective cut or snapshot | Queue alternative alone does not solve global will semantics |
+| net benefit | Useful prefix overlap H | Transport cost A plus phase/custody cost B and retention | Need H>A+B; memory budget separately admits pool |
+| old retirement | Remove shared plain relink/read overlap and frame early READY | Replace all queue readers/writers and seal-aware local frontier | Existing CAS queue gate and suffix reuse get no new credit |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| chunk_marker_transport.chooseAtomic | MarkerTransport.chooseAtomicPreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.chooseSplit | MarkerTransport.chooseSplitPreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.expose | MarkerTransport.exposePreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.plainRead | MarkerTransport.plainReadPreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.atomicRead | MarkerTransport.atomicReadPreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.acquireGate | MarkerTransport.acquireGatePreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.plainWrite | MarkerTransport.plainWritePreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.atomicWrite | MarkerTransport.atomicWritePreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.finishRead | MarkerTransport.finishReadPreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.finishWrite | MarkerTransport.finishWritePreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.releaseGate | MarkerTransport.releaseGatePreserves | Actual restricted typed IR; no C11 qualification |
+| chunk_marker_transport.retireStorage | MarkerTransport.retireStoragePreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.drainStrong | DelayedLedger.drainStrongPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.freezeStrong | DelayedLedger.freezeStrongPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.classifyA | DelayedLedger.classifyAPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.classifyB | DelayedLedger.classifyBPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.enterWeak | DelayedLedger.enterWeakPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.acceptDelayed | DelayedLedger.acceptDelayedPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.sealDelayed | DelayedLedger.sealDelayedPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.publishAccepted | DelayedLedger.publishAcceptedPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.observeReceipt | DelayedLedger.observeReceiptPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.claim | DelayedLedger.claimPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.deriveChild | DelayedLedger.deriveChildPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.settleParent | DelayedLedger.settleParentPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.settleChild | DelayedLedger.settleChildPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.closeRoots | DelayedLedger.closeRootsPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.finishWeak | DelayedLedger.finishWeakPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.closeFutureUsers | DelayedLedger.closeFutureUsersPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.releaseHead | DelayedLedger.releaseHeadPreserves | Actual restricted typed IR; no C11 qualification |
+| delayed_chunk_ledger.retireEpoch | DelayedLedger.retireEpochPreserves | Actual restricted typed IR; no C11 qualification |
+
+** Refinement
+
+| actionName | targetStep | lemma |
+|---+---+---|
+| delayed_chunk_ledger.drainStrong | weak_producer_admission.drainStrong | TransportComposition.drainStrongSimulates |
+| delayed_chunk_ledger.freezeStrong | weak_producer_admission.freezeStrong | TransportComposition.freezeStrongSimulates |
+| delayed_chunk_ledger.classifyA | weak_producer_admission.classifyA | TransportComposition.classifyASimulates |
+| delayed_chunk_ledger.classifyB | weak_producer_admission.classifyB | TransportComposition.classifyBSimulates |
+| delayed_chunk_ledger.enterWeak | weak_producer_admission.openWeak | TransportComposition.enterWeakSimulates |
+| delayed_chunk_ledger.acceptDelayed | weak_producer_admission.continuationProducer | TransportComposition.acceptDelayedSimulates |
+| delayed_chunk_ledger.sealDelayed | weak_producer_admission.stutter | TransportComposition.sealDelayedSimulates |
+| delayed_chunk_ledger.publishAccepted | weak_producer_admission.stutter | TransportComposition.publishAcceptedSimulates |
+| delayed_chunk_ledger.observeReceipt | weak_producer_admission.stutter | TransportComposition.observeReceiptSimulates |
+| delayed_chunk_ledger.claim | weak_producer_admission.stutter | TransportComposition.claimSimulates |
+| delayed_chunk_ledger.deriveChild | weak_producer_admission.deriveChild | TransportComposition.deriveChildSimulates |
+| delayed_chunk_ledger.settleParent | weak_producer_admission.settleTask | TransportComposition.settleParentSimulates |
+| delayed_chunk_ledger.settleChild | weak_producer_admission.settleTask | TransportComposition.settleChildSimulates |
+| delayed_chunk_ledger.closeRoots | weak_producer_admission.closeRoots | TransportComposition.closeRootsSimulates |
+| delayed_chunk_ledger.finishWeak | weak_producer_admission.finishWeak | TransportComposition.finishWeakSimulates |
+| delayed_chunk_ledger.closeFutureUsers | weak_producer_admission.stutter | TransportComposition.closeFutureUsersSimulates |
+| delayed_chunk_ledger.releaseHead | weak_producer_admission.stutter | TransportComposition.releaseHeadSimulates |
+| delayed_chunk_ledger.retireEpoch | weak_producer_admission.stutter | TransportComposition.retireEpochSimulates |
+
+** Composition
+
+| key | lemma | scope |
+|---+---+---|
+| marker-induction | MarkerTransport.reachableSafe | All access protocol steps |
+| mixed-access | MarkerTransport.noMixedSharedAccess | Managed modes only; no weak-memory theorem |
+| ledger-induction | DelayedLedger.reachableSafe | All ledger steps |
+| balance | DelayedLedger.workConservation | Accepted minus settled work |
+| publication | DelayedLedger.publicationPreservesDebt | No new debt at queue visibility |
+| pins | DelayedLedger.retirementRequiresNoPins | Epoch retirement excludes work and storage pins |
+| step-refinement | TransportComposition.stepSimulates | Exact old weak AST actions plus stutter |
+| reachable-refinement | TransportComposition.reachableProjects | New reachability mapped to old reachability |
+| old-safety | TransportComposition.projectedSafety | Old weak invariant reused |
+| product-step | TransportComposition.combinedStepPreserves | Two added admission guards are necessary premises |
+| product-induction | TransportComposition.combinedReachableSafe | Guarded interleaving product |
+| publish-gate | TransportComposition.publicationUsesManagedTransport | Transport permit at new queue publication |
+| free-counterexample | TransportComposition.lifetimeGuardNecessary | Removing lifetime guard admits invalid storage free |
+| publish-counterexample | TransportComposition.transportGuardNecessary | Separate passes alone admit legacy publish |
+
+** Access
+
+| key | source.key | callerName | accessMode | lane | lock | scope |
+|---+---+---+---+---+---+---|
+| marker-initialize | close-marker | end_heap_chunk / prepare_heap_msection | plain write | shared marker | before publication | All initialization before consumer reads |
+| queue-relink | append-link | end_heap_chunk | plain write | shared marker / queue next | FIFO gate | Reader outside gate still needs atomic/separate protocol |
+| queue-consume | take-link | take_heap_chunk | plain read | queue next | FIFO gate | Node survives as new dummy head |
+| complete-classify | scan-classifier | scan_complete_heap_chunk | plain read | object header or terminal | no FIFO gate | Victim may publish later chunks concurrently |
+| local-classify | scan-classifier | scan_movable_objs_to_scan | plain read | object header or terminal | local work owner | Same-carrier writes alone do not establish cross-thread witness |
+| queue-dummy | dummy-head | setup_stack_heap_vmstate | pointer retention | queue dummy/head | epoch setup collective | Work zero does not remove storage reference |
+| address-alias | tail-address | end_heap_chunk | address derivation | previous terminal | not a memory access | Needs adjacent physical chunks and later relink |
+| epoch-reset | gc-reset | setup_stack_heap_vmstate | plain reset | queue root | GC setup collective | All old queue users and receipts retired |
+
+** Seam
+
+| producer.moduleId | consumer.moduleId | contract | modelNeed |
+|---+---+---+---|
+| collector | native | Marker/link storage ABI and accesses | TL-platform |
+| collector | collector | Delayed chunk is one accepted task | TL-weakInduction |
+| collector | control | Frozen list cut and future-user closure | TL-compositionProof |
+| roots | collector | Physical frame seal and retained stack roots | TL-source |
+
+** Proof routing
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| TL-frameHistory | interleaving | dev/refactoring/modern-c/models/quint/chunk_marker_transport.qnt | Legacy overlap atomic and split access intervals |
+| TL-weakHistory | interleaving | dev/refactoring/modern-c/models/quint/delayed_chunk_ledger.qnt | Private queued child work and retained pins |
+| TL-frameInduction | induction | dev/refactoring/modern-c/models/lean/MarkerTransport.lean | All access steps |
+| TL-weakInduction | induction | dev/refactoring/modern-c/models/lean/DelayedLedger.lean | All work and pin steps |
+| TL-compositionProof | induction | dev/refactoring/modern-c/models/lean/TransportComposition.lean | Old AST step simulation and guarded transport/ledger product |
+| TL-projection | restricted-projection | dev/refactoring/modern-c/models/lean/DelayedLedgerAst.lean | Both new ASTs and exact pinned old weak AST |
+| TL-source | source-refinement | dev/refactoring/modern-c/chunk-transport-ledger-design.org | Actual sentinel access node layout and same ledger mapping open |
+| TL-platform | native-memory-order | dev/refactoring/modern-c/chunk-transport-ledger-design.org | Effective storage atomic profile reads-from and epoch reclamation open |

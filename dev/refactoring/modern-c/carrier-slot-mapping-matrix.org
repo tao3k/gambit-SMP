@@ -1,0 +1,269 @@
+#+TITLE: Carrier Registry to Physical Root Slots Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitCarrierSlotMapping
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| tcl-call | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Raw data_rc copy before generated entry; no explicit lease here |
+| tcl-delete-native | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_rc) (___CAST(void*,client_data)); | Delete adapter must close admission and defer physical release while leased |
+| tcl-install | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___set_data_rc) (cd, vect); | Tcl caller initializes payload before command publication; raw setter remains public |
+| rc-register | vendor/gambit/lib/memory/rc-allocation.inc | tail->next = h; | Plain list insertion requires owner and collector exclusion |
+| rc-free | vendor/gambit/lib/memory/rc-allocation.inc | if (--h->refcount == 0) | Nonatomic decrement and unlink are not safe arbitrary-thread admission |
+| rc-read | vendor/gambit/lib/memory/rc-allocation.inc | return h->data; | Raw native copy is not a registered update slot |
+| rc-write | vendor/gambit/lib/memory/rc-allocation.inc | h->data = val; | All semantic writers must join freeze/generation protocol or deny admission |
+| rc-cleanup | vendor/gambit/lib/memory/rc-allocation.inc | ___HIDDEN void cleanup_rc | Bulk cleanup frees chain independent of per-entry leases |
+| rc-scan | vendor/gambit/lib/memory/rc-roots.inc | mark_array (work, &h->data, 1); | Actual GC slot update; target private carrier is not implicitly scanned |
+| retire-refuse | vendor/gambit/lib/memory/capacity-resize.inc | return 0; /* no freeze receipt for external RC/native borrowers */ | Current processor retirement refuses nonempty RC rather than manufacturing a lease |
+| pstate-cleanup | vendor/gambit/lib/memory/memory-lifecycle.inc | free_still_objs (___ps); | cleanup_mem_pstate frees still storage before cleanup_rc; not an active-lease release helper |
+| setter-export | vendor/gambit/lib/setup.c | = ___set_data_rc; | Public GSTATE function pointer permits indirect/out-of-tree callers; lexical sites do not close writer authority |
+| register-export | vendor/gambit/lib/setup.c | = ___register_rc; | Public registration ABI is not a stable VM SourceOwner registry |
+| closure-writer | vendor/gambit/lib/os_dyn.c | ___set_data_rc (c_closure, proc); | Concrete semantic payload installer, architecture conditional |
+| epoch-limit | vendor/gambit/lib/memory/heap-sections.inc | if (___vms->gc_round.epoch >= ___MAX_FIX) | Existing round identity refuses exhaustion; no unchecked wrapping receipt |
+| epoch-new | vendor/gambit/lib/memory/heap-sections.inc | ___vms->gc_round.epoch++; | Round number created at setup, distinct from semantic payload generation |
+| origin-publish | vendor/gambit/lib/memory/heap-sections.inc | !___gc_root_task_publish(&___vms->gc_root_tasks[i], | Publish follows frozen origin; not generic new-source enrollment |
+| origin-claim | vendor/gambit/lib/memory/collection-round.inc | if (___gc_root_task_claim(task,___vms->gc_round.epoch,owner)) | Actual claim checks current round and worker owner |
+| origin-finish | vendor/gambit/lib/memory/collection-round.inc | if (!___gc_root_task_finish(task,___vms->gc_round.epoch,owner)) | Task finish has exact owner and epoch boundary |
+| origin-thaw | vendor/gambit/lib/memory/collection-round.inc | if (!___gc_origin_thaw(&___vms->gc_root_tasks[id],___vms->gc_round.epoch)) | Resume requires completed origin; not a payload-version receipt |
+| view-drain | vendor/gambit/lib/memory/collection-round.inc | BARRIER(); /* no worker may retain a stopped root view past this cut */ | Root view grace cut precedes ordinary execution |
+| shrink-cleanup | vendor/gambit/lib/setup.c | ___transfer_retired_still (ps, ___ps); | Shrink known join transfers still before cleanup; does not qualify arbitrary native roots |
+| vm-root-retained | vendor/gambit/lib/setup.c | return; /* do not erase retained source roots through repeated setup */ | Whole VM cleanup checks resize source requests; generic SourceRegistry not covered |
+| vm-request-slots | vendor/gambit/lib/memory/root-origins.inc | &___vms->resize_requests[i].thunk | All VM request slots scanned independently of participant membership; precedent not generic registry |
+| context-rc-roots | vendor/gambit/lib/memory/root-origins.inc | mark_rc (work, context); | RC roots reached through frozen execution origin |
+| context-startup | vendor/gambit/lib/memory/root-origins.inc | &context->startup_thunk | Startup root remains a stable update slot |
+| root-hook | vendor/gambit/lib/memory/root-origins.inc | ___GC_ROOT_CONTROL(work); | Default hook has no storage or code; not proof of generic carrier coverage |
+| origin-layout | vendor/gambit/include/gambit.h.in | typedef struct ___gc_root_origin_struct | Stable context identity and pinned origin storage, not an arbitrary host lease |
+| task-layout | vendor/gambit/include/gambit.h.in | typedef struct ___gc_root_task_struct | Task contains origin pointer, incarnation, epoch, claim state |
+| origin-freeze-body | vendor/gambit/include/gambit.h.in | ___STARTUP_INLINE int ___gc_origin_freeze | Real publisher requires physical root-writer stop and exclusive round admission |
+| task-publish-body | vendor/gambit/include/gambit.h.in | t->origin = o; t->incarnation = o->incarnation; t->epoch = epoch; | Descriptor publication assumes exclusive slot reuse and drained prior readers |
+| task-claim-body | vendor/gambit/include/gambit.h.in | t->incarnation != t->origin->incarnation | Claim dereferences descriptor/origin before CAS; not a safe retain of freed storage |
+| task-finish-body | vendor/gambit/include/gambit.h.in | ___gc_cas(&t->claim,owner,2) == owner | Exact owner completion within a stable pinned round |
+| origin-thaw-body | vendor/gambit/include/gambit.h.in | ___gc_atomic_load(&t->claim) == 2 | Completion does not itself supply whole-round resume permission |
+| vm-root-layout | vendor/gambit/include/gambit.h.in | ___gc_root_task gc_root_tasks[___MAX_PROCESSORS]; | VM allocation stores task descriptors; current task census is processor origins |
+| incarnation-issuer | vendor/gambit/lib/setup.c | ___vms->gc_origins[i].incarnation++; | Real context incarnation signer after finite exhaustion check |
+| cas-wrapper | vendor/gambit/include/gambit.h.in | return ___COMPARE_AND_SWAP_WORD(p,old_value,new_value); | Platform-selecting CAS is not an explicit C23 atomic ABI |
+| cas-sync-builtins | vendor/gambit/include/gambit.h.in | __sync_val_compare_and_swap(p,oldval,newval) | One alternative implementation; effective Darwin selection remains open |
+| slot-read | vendor/gambit/lib/memory/copy-reservations.inc | ___WORD obj = *cell; | Ordinary root-slot load requires writer and duplicate-scanner exclusion |
+| copy-loser-slot-write | vendor/gambit/lib/memory/copy-reservations.inc | *cell = ___TAG(___UNTAG_AS(head_now, ___FORW), ___TYP(obj)); | Forwarding loser still writes the root slot |
+| copy-winner-slot-write | vendor/gambit/lib/memory/copy-reservations.inc | *cell = ___TAG(alloc - ___REFERENCE_TO_BODY, ___TYP(obj)); | Forwarding winner writes the root slot before copying all payload |
+| already-forwarded-slot-write | vendor/gambit/lib/memory/copy-reservations.inc | *cell = ___TAG(___UNTAG_AS(head, ___FORW), ___TYP(obj)); | Same object in two cells still needs both cell updates |
+| frame-run-lifetime | vendor/gambit/include/gambit.h.in | module or crosses a safepoint.  Runs preserve mark_array | Existing nonallocating root cursor has module and safepoint lifetime constraints |
+| default-root-hook | vendor/gambit/lib/memory/copy-reservations.inc | #define ___GC_ROOT_CONTROL(work) ((void)0) | No general VM carrier registry consumer is supplied by this hook |
+
+** Identity
+
+| key | structure | rule | caveat |
+|---+---+---+---|
+| physical-slot | VM + StorageId + storage generation + word offset | Canonicalize writable cell identity, never SCMOBJ contents | Storage issuer must prove native address/key adequacy over the admitted universe |
+| logical-entry | DescriptorId + descriptor generation + SlotKey runs | Multiple entries can reference the same physical cell | Root-task deduplication does not merge borrowing or storage ownership |
+| snapshot | CollectorRoundId + frozen registry cut + root policy | Exactly one scan authority per canonical cell | Incompatible strong/weak or layout policies must be rejected or separately proved |
+| lookup | Stable VM index plus fixed lookup identity | Pin before descriptor dereference; validate active generation before borrow acceptance | Finite model has fixed identities and no slot reuse; native ABA proof remains open |
+| code | ModuleHandle + scan ABI + layout fingerprint | All descriptor and task readers retain scan code until grace | Module pointer reachability is not native module unload permission |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| storage-key | VM storage registration owner | Existing RC allocation/header and VM fixed arrays; no complete canonical SlotKey issuer found | native gap | Validate extent, alignment, overlap, generation and stable cell storage |
+| registry | VM carrier registry commit owner | register_rc links context RC nodes; GSTATE exports public APIs | native gap | Root candidate, atomically publish complete runs and lifetime references |
+| round | GC origin/round publisher | setup_pstate increments incarnation; heap setup increments epoch and freezes/publishes | partial real source signer | Freeze all writers; snapshot complete root union; pin descriptors |
+| scan | Root-task claimant and completer | gc_root_task_claim and gc_root_task_finish bodies plus mark_execution_roots | real for existing origin tasks only | Unique canonical cell ownership and moving-slot update; parent origin tasks alone insufficient |
+| lookup | Stable registry index admission owner | Raw data_rc/addref_rc paths provide no guarded pre-dereference lookup | native gap | Reject late generation/closed admission without accessing freed descriptor |
+| grace | Collector and native reader grace owners | gc_origin_thaw plus final collective barrier | partial; unrelated FFI readers not covered | Drain root views, lookup pins, borrowers and scan-code readers |
+| cleanup | Slot backing and foreign resource owners | free_still_objs then cleanup_rc; known resize join retains/settles existing resources | partial; no generic registry settlement receipt | Do not free aliased RC root cell or still arena while a retained carrier references it |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| same-cell | One canonical task for aliases of one physical cell | Exact key/address equivalence; policy-compatible immutable snapshot | No concurrent duplicate ordinary writes to the cell | No existing generic carrier alias path identified; native adequacy open |
+| equal-values | Distinct physical keys produce distinct scan tasks | Cell values can be identical and both move | Both roots updated even when forwarding copies object once | Actual addresses and moving GC refinement open |
+| late-lookup | Registry index pins before metadata access then revalidates admission | Lookup accepted before close retains metadata; payload admission after close refused | No retirement until lookup pin and payload borrower drain | Fixed model identities; native generation/ABA and multiplicity not proved |
+| alias-cleanup | Shared SlotKey retains backing independently of retired descriptor | All referencing live or closing entries remain in root union | Source descriptor retirement cannot free an aliased root cell | Native RC-header/arena handoff integration open |
+| generic-census | Finite list mapping and key deduplication preserves membership | Registry complete and canonical keys adequate | No duplicate keys and every live descriptor represented | Not arbitrary concurrent native trace refinement |
+| parent-bridge | Physical coverage implies parent membership obligation | Explicit phase, descriptor and membership relation | Refines prior per-descriptor coverage proposition | Full product, initialization and writer protocol composition open |
+| alias-binding | Alias physical storage only with compatible logical binding policy | Bound payload generation requires source semantic-write lease; otherwise independent copied registered cell | GC relocation changes address without silently rebinding to a new source payload | Model has collector-only slot updates; native setter/payload product refinement remains open |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| registration | Prepare metadata and roots under source pin then publish | Acquire complete descriptor before root mapping | Collector exclusion or registered private slot; no unrooted value copy | Registration plus generation and owner records |
+| census | Freeze registry mutation and physical root writers | Workers acquire immutable interval/root policy snapshot | Expand all overlaps, canonicalize before distributing writable slots | Sorting/index or linear presorted interval sweep |
+| task | READY to owner claim then completed release | Reclaimer acquires exact completion and grace | Forwarding CAS is not root-cell arbitration | One claim per canonical task or proven disjoint batch |
+| lookup | Stable VM index guard before descriptor read | Accept payload only after active generation check | Closing rejects new borrow but retains accepted lookup pins | Guard slots/counters and tombstone retention |
+| storage | Close/unlink descriptor after scan/borrow/lookup drain | Backing owner checks all aliases, including closing entries | Do not confuse descriptor free with physical root-cell or Scheme arena free | Independent slot and payload backing leases |
+| unknown | Unknown lookup/scan remains owned | Exact same-identity resolver observes result | No timeout-based reset or recreation under a new identity | Retention; progress and bounded memory not proved |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| alias-scan | M-S duplicate cell visits per round | Canonicalization and run coalescing | M logical slot references, S canonical physical cells; existing duplicate path not demonstrated |
+| task-granularity | Potential repeated claims for aliases | Pin descriptor/backing references for every dependent logical entry | Task de-dup does not discard any ownership edge |
+| origin-exit | Keeping old processor solely for its root-slot metadata | VM registry, independent storage ownership and grace | Every other context and arena consumer independently settled |
+| bulk-scan | Repeated per-word metadata decoding | Maintain coalesced policy-compatible disjoint intervals | Preserve mark_array bulk runs; native integration and complexity open |
+| language | Shared modern-C root/ABI contract | C23 protocol and proof obligations remain | Zig cannot eliminate lifetime or canonical address authority; additional payoff unproved |
+
+** Cost
+
+| key | avoided | added | positiveCondition | boundary |
+|---+---+---+---+---|
+| scan-work | K*(M-S)*visit_cost | canonicalize + coalesce + K*claim_cost + grace | avoided > added | M-S is a conditional work count, not measured current duplication |
+| task-work | K*(logical_tasks-canonical_batches)*claim_cost | all dependent descriptor/backing pin work | avoided > added | Batching needs disjoint slot coverage and task refinement |
+| retention | Processor-only retained resources after full transfer | Descriptor + index + root-cell/payload storage + source write lease + unresolved leases | All independent dependencies settled; lower retained resources | Aliasing old RC cell can retain its header and arena; no unconditional saving |
+| modern-c-zig | Necessary support actually removed by Zig | Second toolchain + FFI + ownership support | Retired support exceeds new support | No additional positive Zig-specific net benefit established |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| SourceOwner | RegistryCommit | Rooted payload and complete metadata |
+| StorageIssuer | SlotKey | Unique storage identity and validated extent |
+| RegistryCommit | FrozenRootUnion | Keep all active and closing entries |
+| LegacyRootDomains | FrozenRootUnion | Context VM globals frames RC and pending roots |
+| SlotKey | CanonicalRuns | Equal physical cells share a key |
+| FrozenRootUnion | CanonicalRuns | Deduplicate slots never values |
+| CanonicalRuns | RootTasks | Disjoint writable intervals and policy |
+| RootTasks | ScanOwner | Acquire pinned descriptor and code |
+| ScanOwner | UpdatedSlots | Each physical slot updated once |
+| UpdatedSlots | ScanGrace | Finish after last root-slot use |
+| StableIndex | LookupPin | Pin before descriptor access |
+| LookupPin | BorrowDecision | Revalidate generation and admission |
+| CloseAdmission | BorrowDecision | Reject late acceptance |
+| LookupPin | NativeGrace | Unknown lookup retains descriptor |
+| BorrowDecision | NativeGrace | Accepted user must settle |
+| ScanGrace | DescriptorRetirement | No frozen root/task reader |
+| NativeGrace | DescriptorRetirement | No lookup user or code reader |
+| DescriptorRetirement | DescriptorFree | Unlink after grace |
+| CanonicalRuns | SlotBackingPermit | All alias references retained |
+| DescriptorRetirement | SlotBackingPermit | Every referencing entry retired |
+| SlotBackingPermit | RootCellFree | Independent from descriptor free |
+| PayloadArenaReceipt | CleanupPermit | Still arena and destructor responsibility |
+| RootCellFree | CleanupPermit | No aliased RC header slot remains |
+| CleanupPermit | CleanupRC | Only after full storage settlement |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| carrier_slot_mapping.registerAlias | SlotMapping.registerAliasPreserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.registerCopy | SlotMapping.registerCopyPreserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.beginLookup0 | SlotMapping.beginLookup0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.acceptBorrow0 | SlotMapping.acceptBorrow0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.lookupUnknown0 | SlotMapping.lookupUnknown0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.resolveLookup0 | SlotMapping.resolveLookup0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.rejectLookup0 | SlotMapping.rejectLookup0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.returnBorrow0 | SlotMapping.returnBorrow0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.close0 | SlotMapping.close0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.retire0 | SlotMapping.retire0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.lateRequest0 | SlotMapping.lateRequest0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.claim0 | SlotMapping.claim0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.scan0 | SlotMapping.scan0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.scanUnknown0 | SlotMapping.scanUnknown0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.resolveScan0 | SlotMapping.resolveScan0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.beginLookup1 | SlotMapping.beginLookup1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.acceptBorrow1 | SlotMapping.acceptBorrow1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.lookupUnknown1 | SlotMapping.lookupUnknown1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.resolveLookup1 | SlotMapping.resolveLookup1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.rejectLookup1 | SlotMapping.rejectLookup1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.returnBorrow1 | SlotMapping.returnBorrow1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.close1 | SlotMapping.close1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.retire1 | SlotMapping.retire1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.lateRequest1 | SlotMapping.lateRequest1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.claim1 | SlotMapping.claim1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.scan1 | SlotMapping.scan1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.scanUnknown1 | SlotMapping.scanUnknown1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.resolveScan1 | SlotMapping.resolveScan1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeze000 | SlotMapping.freeze000Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeze001 | SlotMapping.freeze001Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeze010 | SlotMapping.freeze010Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeze011 | SlotMapping.freeze011Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeze100 | SlotMapping.freeze100Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeze101 | SlotMapping.freeze101Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeze110 | SlotMapping.freeze110Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeze111 | SlotMapping.freeze111Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.finishRound | SlotMapping.finishRoundPreserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeStore0 | SlotMapping.freeStore0Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.freeStore1 | SlotMapping.freeStore1Preserves | fixed two descriptors and two physical slots; native refinement open |
+| carrier_slot_mapping.exitProcessor | SlotMapping.exitProcessorPreserves | fixed two descriptors and two physical slots; native refinement open |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| stepPreserves | SlotMapping.stepPreserves |
+| reachableSafe | SlotMapping.reachableSafe |
+| sameSlotUsesOneTask | SlotMapping.sameSlotUsesOneTask |
+| bothDistinctCovered | SlotMapping.bothDistinctCovered |
+| lateBorrowDenied | SlotMapping.lateBorrowDenied |
+| unknownLookupBlocksRetirement | SlotMapping.unknownLookupBlocksRetirement |
+| closingAliasRetainsSlot | SlotMapping.closingAliasRetainsSlot |
+| sharedSlotBlocksFree | SlotMapping.sharedSlotBlocksFree |
+| acceptedLookupRetainsDescriptor | SlotMapping.acceptedLookupRetainsDescriptor |
+| secondClaimDenied | SlotMapping.secondClaimDenied |
+| unknownScanBlocksFinish | SlotMapping.unknownScanBlocksFinish |
+| memUnique | SlotCensus.memUnique |
+| uniqueNodup | SlotCensus.uniqueNodup |
+| uniqueLength | SlotCensus.uniqueLength |
+| allRegisteredSlots | SlotCensus.allRegisteredSlots |
+| censusNoDuplicate | SlotCensus.censusNoDuplicate |
+| boundedByEntries | SlotCensus.boundedByEntries |
+| twoKeysBothRepresented | SlotCensus.twoKeysBothRepresented |
+| addressAliasIffKey | SlotCensus.addressAliasIffKey |
+| physicalCarrierCoverage | SlotMappingBridge.physicalCarrierCoverage |
+| parentMembershipObligation | SlotMappingBridge.parentMembershipObligation |
+| allAliasesHoldBacking | SlotMappingBridge.allAliasesHoldBacking |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| registry | carrier_slot_mapping.registerAlias | SlotMapping.registerAliasPreserves | rc-register | SM-source |
+| registry | carrier_slot_mapping.registerCopy | SlotMapping.registerCopyPreserves | tcl-install | SM-source |
+| roots | carrier_slot_mapping.freeze111 | SlotMapping.freeze111Preserves | origin-publish | SM-roots |
+| roots | carrier_slot_mapping.freeze011 | SlotMapping.freeze011Preserves | task-publish-body | SM-roots |
+| roots | carrier_slot_mapping.claim0 | SlotMapping.claim0Preserves | task-claim-body | SM-roots |
+| roots | carrier_slot_mapping.scan0 | SlotMapping.scan0Preserves | copy-winner-slot-write | SM-roots |
+| roots | carrier_slot_mapping.scan1 | SlotMapping.scan1Preserves | already-forwarded-slot-write | SM-roots |
+| lookup | carrier_slot_mapping.beginLookup0 | SlotMapping.beginLookup0Preserves | rc-read | SM-execution |
+| lookup | carrier_slot_mapping.acceptBorrow0 | SlotMapping.acceptBorrow0Preserves | tcl-call | SM-execution |
+| lookup | carrier_slot_mapping.retire0 | SlotMapping.retire0Preserves | task-claim-body | SM-execution |
+| lookup | carrier_slot_mapping.lookupUnknown0 | SlotMapping.lookupUnknown0Preserves | register-export | SM-execution |
+| storage | carrier_slot_mapping.freeStore0 | SlotMapping.freeStore0Preserves | rc-cleanup | SM-storage |
+| storage | carrier_slot_mapping.retire1 | SlotMapping.retire1Preserves | tcl-delete-native | SM-storage |
+| writer | carrier_slot_mapping.close0 | SlotMapping.close0Preserves | setter-export | SM-writers |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| SM-formal | induction | dev/refactoring/modern-c/models/lean/SlotMapping.lean | two descriptors physical alias mapping lookup/borrow and backing safety |
+| SM-bridge | composition | dev/refactoring/modern-c/models/lean/SlotMappingBridge.lean | generic canonical census and conditional parent membership relation |
+| SM-source | source | vendor/gambit/lib/memory/rc-allocation.inc | authoritative VM registry and canonical storage/address adequacy |
+| SM-execution | source | vendor/gambit/lib/c_intf.c | stable pre-dereference lookup guard and every native indirect borrower |
+| SM-roots | source | vendor/gambit/lib/memory/root-origins.inc | complete frozen native slot union; no overlapping scan authorities |
+| SM-writers | source | vendor/gambit/lib/setup.c | public writer closure and GC update exclusion |
+| SM-platform | platform | vendor/gambit/include/gambit.h.in | C23 atomic objects effective Darwin conditional ABI and generated artifacts |
+| SM-storage | source | vendor/gambit/lib/memory/memory-lifecycle.inc | RC root cell still payload arena and scan code grace |
+
+** Closure observation
+
+| Obligation | Owner | Status | Scoped subject |
+|---+---+---+---|
+| SM-formal | lookup | provided: scoped conditional formal receipt | two descriptors physical alias mapping lookup/borrow and backing safety |
+| SM-bridge | lookup | provided: scoped conditional formal receipt | generic canonical census and conditional parent membership relation |
+| SM-source | registry | unresolved | authoritative VM registry and canonical storage/address adequacy |
+| SM-execution | lookup | unresolved | stable pre-dereference lookup guard and every native indirect borrower |
+| SM-roots | roots | unresolved | complete frozen native slot union; no overlapping scan authorities |
+| SM-writers | writer | unresolved | public writer closure and GC update exclusion |
+| SM-platform | lookup | unresolved | C23 atomic objects effective Darwin conditional ABI and generated artifacts |
+| SM-storage | storage | unresolved | RC root cell still payload arena and scan code grace |

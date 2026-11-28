@@ -1,0 +1,124 @@
+#+TITLE: Gambit Advantage Architecture — Benefit and Closure Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: advantage-architecture-matrix
+:AUTHORITY: GambitAdvantageArchitecture
+:STATUS: finite-protocols-pass; whole-source-and-platform-open
+:END:
+
+Native SysML owns these rows; all modern-C responsibilities reference existing owners.
+
+** Owner
+
+| module.moduleId | module.ownerPath | module.owns | module.provides | module.excludes |
+|---+---+---+---+---|
+| semantic | dev/architecture/compiler | Normalization, GVM semantic completion, effects, FrameSpec, PointId and primitive/FFI legality | Closed semantic plan and ordered module contract | Does not choose execution scheduling or native resource ownership |
+| native | dev/refactoring/modern-c | Mechanical lowering and generated frame/root/layout/entry declarations from completed plan | C ABI, trampoline and exact layout adapters | Does not invent a second Scheme semantic policy |
+| execution | dev/architecture/runtime/execution | Execution grants, park/reentry, participant membership, resize and exit admission | Stable context identity with explicit join/leave and last-user closure | A descriptor or published TLS pointer is not an execution grant |
+| roots | dev/architecture/runtime/interfaces | Cross-owner root-cut, slot-update and last-reader agreement; execution/FFI remain value custodians, GC remains scanner | Epoch-bound root slots and scan grants with reload obligations | Does not take semantic ownership away from producer and scanner modules |
+| collector | dev/architecture/runtime/gc | Heap layout, allocation budgets, copy/scan tasks, phases, promotion and reclaim decisions | Complete work context with parent/child/Tail custody and phase closure | Worker identity does not imply processor or native-thread identity |
+| control | dev/architecture/runtime/control | Captured/current/saved frame interpretation, denv mutation, restore and supported nonlocal exits | Root-complete frame traversal and resumption origins | Gambit continuations are not silently restricted to one-shot effect resumptions |
+| foreign | dev/architecture/runtime/ffi | Borrow scopes, root protection before marker allocation, nested callback origin and acquired-effect cleanup | Admitted host entry, block transition and explicit result/control boundary | Raw C pointers do not survive moving GC by language interoperability alone |
+| release | dev/architecture/runtime/ffi | Classified release effects, thread-affine jobs, WaitContext, derived-task accounting and shutdown drain | Accepted task custody and exactly owned completion/result disposition | A drained GC phase is not proof that external resources or borrowers drained |
+| build | dev/architecture/toolchain | Rule planning, dependencies, rebuild decision, CPU/memory scheduling and transactional artifact publication | Source/plan/generated/object/link lineage and effective multicore ABI | Does not define Scheme unit semantics or count build threads as runtime processors |
+
+** Decision
+
+| decision.decisionId | decision.owner.moduleId | decision.replacement | decision.retirement | decision.interleaving.obligationId | decision.interleaving.subjectPath | decision.interleaving.subjectScope | decision.induction.obligationId | decision.induction.subjectPath | decision.induction.subjectScope |
+|---+---+---+---+---+---+---+---+---+---|
+| semantic | semantic | Scheme owns FrameSpec/PointId/ModuleSpec/EffectSpec/AllocationSpec; generate typed C functions/tables and explicit ABI | Retire duplicated semantic macro emission and layout decisions after all generators/runtime consumers use the schema | MW-SEMANTIC-Q | models/gambit/ffi_gc_frame_protocol.qnt | modernization-target:semantic:whole-source-composition-open | MW-SEMANTIC-L | models/gambit/lean/SavedStackRootClosure.lean | modernization-target:semantic:whole-source-composition-open |
+| domain | execution | VM owns membership/heap epochs; ExecutionContext owns Scheme state; GCParticipant freezes roots; CollectorWorkContext owns scan work independent of OS/PSTATE lifetime | Retire implicit PSTATE ownership of collector queues, allocation state and cleanup after exact producer/consumer/lifetime replacement | MW-DOMAIN-Q | models/gambit/scheduler_gc_root_cohort_composition.qnt | modernization-target:domain:whole-source-composition-open | MW-DOMAIN-L | models/gambit/lean/WorkAccounting.lean | modernization-target:domain:whole-source-composition-open |
+| heap | collector | Context-local nurseries, shared mature heap, parallel STW minor, generated remembered writes and explicit promotion budget; isolate major algorithm behind heap/phase contract | Retire full mature-graph minor scanning only after all roots, continuation/denv/FFI writers and sparse/promotion layouts close | MW-HEAP-Q | models/gambit/generational_barrier.qnt | modernization-target:heap:whole-source-composition-open | MW-HEAP-L | models/gambit/lean/GenerationalBarrier.lean | modernization-target:heap:whole-source-composition-open |
+| control | control | One precise frame/root format for running, captured and resumed computation; persistent or copy-on-write captured frames; one-shot optimization only with proven use | Retire carrier-local C control assumptions after repeated resumption, dynamic-wind, exceptions and supported FFI escapes are preserved | MW-CONTROL-Q | models/gambit/captured_heap_frame_operations.qnt | modernization-target:control:whole-source-composition-open | MW-CONTROL-L | models/gambit/lean/SavedStackRootClosure.lean | modernization-target:control:whole-source-composition-open |
+| foreign | foreign | RootRegistry before allocation; generated native entry plans; park/freeze/reload; VM-owned outcomes and effect-classified release tasks outside collector critical phase | Retire raw marker-only lifetime, ad hoc root choreography and inline arbitrary release only after whole real caller coverage | MW-FOREIGN-Q | models/gambit/native_entry_close_cleanup.qnt | modernization-target:foreign:whole-source-composition-open | MW-FOREIGN-L | models/gambit/lean/NativeEntryCloseCleanup.lean | modernization-target:foreign:whole-source-composition-open |
+| build | build | Scheme frontend/session -> semantic module artifacts -> generated C/runtime ABI artifacts; phase-ready dependency DAG, stable snapshots, incremental/parallel scheduling and reusable AOT interface programs | Retire repeated expansion and regenerated/recompiled unaffected units after clean-versus-incremental observational equivalence | MW-BUILD-Q | models/build/incremental_build.qnt | modernization-target:build:whole-source-composition-open | MW-BUILD-L | models/build/IncrementalBuild.lean | modernization-target:build:whole-source-composition-open |
+
+** Advantage
+
+| key | paper | section | basis | frameDesign | control | gcSmp | build | refutation |
+|---+---+---+---+---+---+---+---+---|
+| logical-frames | https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf | 2,2.3 | Logical implementation objects and frame slot coordinates bridge source and machine | Generate stack/heap/internal-return decoders, pointer maps and ABI from one logical schema | Each capture and shot uses same frame identity; mutable exposed frames retain alias semantics | Precise running/saved/native root consumers and promotion interpret the same slots | Cache semantic contract separately from physical layout and native compiler inputs | Fails if duplicated layout decisions remain or frame/reflection observations change |
+| bidirectional-target | https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf | 2 | Target descriptions carry registers, calls, closures, primitives and declarations back to frontend | Separate semantic profile, layout ABI and mechanical C emission; feed legal target facts back before completion | Tail/non-tail and allocating/exceptional successors retain full semantic information | Checkpoint, allocation and barrier obligations are negotiated instead of rediscovered in macros | Gambit supplies sealed stages; Gerbil schedules exact phase products; LLVM/MLIR consumes semantic plan at declared level | Fails if native-only edits unnecessarily redo expansion or semantic edits incorrectly hit old cache |
+| explicit-storage | https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf | 2.1 | Operand classes expose distinct storage; heap-memory operand remains an alias exception | Logical slot kinds and declared alias escapes delimit optimization eligibility | Share eligible immutable captured structure; never clone shared Scheme heap or replay effects | Context nurseries, precise roots and remembered stores allow clean mature graphs to avoid minor traversal | Immutable target/support descriptions may share; mutable registry, expander and context instances remain owned | Fails on any missed mature-to-young writer, unrooted native alias, or shared mutable compiler state |
+| measurement-feedback | https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf | abstract | VM usage measurements can inform representation and optimization decisions | Record emitted/preprocessed bytes, descriptor size and decode work by contract cohort | Count per-shot materialization and required wind/native effects separately from reusable representation | Count mature bytes avoided, remembered scans, promotion, barriers, peak reserve and pause/coordination | Measure executed actions and critical path for no-change, leaf, macro, layout and tool changes | Fails when saved work does not exceed added validation, coordination, copies and retained storage |
+
+** Contract
+
+| key | seam.interfaceId | seam.producerId | seam.consumerId | actionName | guardName | lemmaName | sourcePath | sourceNeedle | premise | retirement | benefit | added | gap |
+|---+---+---+---+---+---+---+---+---+---+---+---+---+---|
+| semantic-seal | PlanAbi | semantic | native | sealPlan | s.traceClosed | sealNeedsSnapshot | vendor/gambit/gsc/_front.scm | (compile-parsed-program | semantic source/target/decl/effect trace closed; result graph detached or ownership transferred | Distributed repeated semantic inference inside C emission after exact schema migration | One semantic completion reused by layout/backend consumers | Deep sealing, origin/declaration fidelity and ABI manifest | Output-to-model encoding and full semantic completion remain unproved |
+| module-cohort | GeneratedCheckpoint | native | execution | bindModule | s.native | bindCompatible | vendor/gambit/gsc/_front.scm | (module-descr | no live old activation/root/borrow is replaced; descriptor/code/runtime cohort checked | Implicit module/label layout assumptions after all loaders and entry consumers migrate | Reject ABI mismatch before execution; keep old cohort pinned for active continuations | Module validation and retained old code/storage | Dynamic module loading and native ABI simulation remain open |
+| captured-roots | ControlRoots | control | collector | capture | s.roots | captureRequiresRoot | vendor/gambit/include/gambit.h.in | #define ___CONTINUATION_CAPTURE | publish all current/saved/register/denv/native roots before collecting transfer | Separate capture/GC/restore/serialization frame interpretations after all consumers migrate | One logical frame schema supports debugger, collector and repeatable control | Root descriptor generation, root updates and materialization | Full root coverage and reflective frame identity are open |
+| remembered-store | ControlRoots | control | collector | storeYoung | s.reserved | storePreserves | vendor/gambit/lib/_kernel.scm | (define-prim (##frame-set! | every mature-to-young store covered; reserve-before-store or conservative fallback; barrier itself cannot GC | Whole mature graph scan per minor only for proven writer-closed eligible graph | Minor scan may depend on young live plus roots and remembered edges | Barriers, logs, promotion and overflow checkpoint | Complete continuation/denv/FFI/native writer inventory and overflow proof remain open |
+| minor-root-cut | RootCut | roots | collector | beginMinor | s.frozen==Set(0,1) | minorNeedsCompleteCut | vendor/gambit/lib/mem.c | mark_continuation ( | VM-owned complete membership and frozen updateable root views; scanners acquire grant | PSTATE as inseparable execution/carrier/root/collector authority after source migration | Parked native carriers can stop blocking admitted GC; contexts outnumber carriers | Epoch close, polls, frozen roots, participation and reload | Fair progress and full nonzero-processor RC closure remain open |
+| copy-publication | WorkClosure | execution | collector | publishCopy | s.copying | copyPublicationConserves | vendor/gambit/lib/mem.c | ___HIDDEN void end_heap_chunk | Initialization and private copy/child responsibility precede publish; no debt loss at handoff | Per-PSTATE private work as untracked lifetime after collector context migration | Independent worker load balance while preserving parent/child custody | Copy reserve, scan queues, CAS and debt accounting | Forwarding/PAIR/Tail and weak-memory source refinement remain open |
+| collector-finish | WorkClosure | execution | collector | finishMinor | s.debt==0 | finishNeedsNoPrivate | vendor/gambit/lib/mem.c | Other processors are still actively scanning chunks | membership closed and all root/private/queued/derived work accounted; no in-flight copies | Empty-queue or idle-only termination inference within new collector | Finish based on global work closure instead of carrier lifetime | Complete producer census and closure acknowledgement | Weak/finalizer phases, failure, capacity and reopening product remain open |
+| ffi-park | Participation | foreign | execution | parkNative | s.roots | unknownRetainsCustody | vendor/gambit/lib/c_intf.c | TODO: proc_or_false may have been GC'd | roots before allocation; surrender derived pointers and borrow, preserve result debt | Per-wrapper ad hoc marker/root ownership after actual caller migration | Share root-safe entry and park/reentry service across FFI wrappers | Handles, affinity, nested activations and conservative raw mode | Arbitrary C-stack continuation escape and native cancellation remain open |
+| native-delivery | OutcomeLifetime | release | execution | settleNative | s.result | reloadMatches | vendor/gambit/lib/setup.c | ___EXP_FUNC(___SCMOBJ,___call) | known rooted outcome plus exact epoch reload and execution grant; no repeated native effect caching | Independent callback/result cleanup authorities after source closure | One outcome custodian survives carrier exit and delivers only to admitted execution | Outcome slots, roots, drain and per-shot effect execution | dynamic-wind, nested callback and exception observations remain open |
+| artifact-reuse | ArtifactClosure | build | native | cacheHit | s.planSource==s.source | backendDoesNotChangePlan | ../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss | (def (compile-scm-file | complete dynamic input trace, support identity, declarations, origins and frozen dependency snapshot | Repeated unaffected expansion/file handoff/native work after producer/consumer equivalence | Backend/tool-only change reuses valid frontend plan; safe consumers run concurrently | Validation, fresh instances, query metadata and bounded scheduling | Complete registry/eval/native-read trace and result encoding remain open |
+| resumption-grant | GeneratedCheckpoint | native | execution | resume | s.restored==s.epoch | resumeKeepsIdentity | vendor/gambit/lib/_thread.scm | (define-prim (##continuation-graft-aux | same captured computation; private execution image per shot; reload and exclusive grant | Opaque carrier ownership and duplicate restore root choreography after alias simulation | Sequential multi-shot semantics remain reusable; effects are reexecuted as required | Per-shot restore, wind, scheduling and possible COW | Finite shots do not prove unbounded or concurrent invocation; semantic simulation open |
+| release-custody | ReleaseDrain | collector | release | loseResult | s.nativeDebt | unknownRetainsCustody | vendor/gambit/lib/mem.c | free_still_objs ( | all resource descendants and real native users retain VM custody after unknown result | Inline arbitrary foreign destruction in GC critical phase after real caller replacement | Admitted GC can finish without owner callback; release can drain separately | Resource affinity queues, roots and potentially unbounded unknown retention | Device/Tcl/still destructor source closure and whole shutdown progress open |
+
+** Use
+
+| advantage.key | contract.key | obligation |
+|---+---+---|
+| logical-frames | semantic-seal | AA-S |
+| logical-frames | module-cohort | AA-S |
+| logical-frames | captured-roots | AA-S |
+| logical-frames | native-delivery | AA-S |
+| logical-frames | resumption-grant | AA-S |
+| bidirectional-target | module-cohort | AA-S |
+| bidirectional-target | semantic-seal | AA-S |
+| bidirectional-target | native-delivery | AA-S |
+| bidirectional-target | minor-root-cut | AA-S |
+| bidirectional-target | artifact-reuse | AA-S |
+| explicit-storage | module-cohort | AA-S |
+| explicit-storage | captured-roots | AA-S |
+| explicit-storage | remembered-store | AA-S |
+| explicit-storage | copy-publication | AA-S |
+| explicit-storage | collector-finish | AA-S |
+| explicit-storage | ffi-park | AA-S |
+| explicit-storage | resumption-grant | AA-S |
+| explicit-storage | release-custody | AA-S |
+| measurement-feedback | remembered-store | AA-S |
+| measurement-feedback | semantic-seal | AA-S |
+| measurement-feedback | copy-publication | AA-S |
+| measurement-feedback | collector-finish | AA-S |
+| measurement-feedback | artifact-reuse | AA-S |
+
+** Benefit
+
+| key | avoided | added | condition | evidence |
+|---+---+---+---+---|
+| frame-support | Duplicated semantic/layout decisions and repeated root choreography | Schema, metadata, checked decoders and bootstrap | Actual old producer/consumer duties retire; not merely a wrapper | Source anchors exist; full encoder/decoder/root equivalence open |
+| multishot | Eligible repeated representation work and clean mature graph minor scans | Private restore, barriers, wind, suffix effects and alias handling | Saved graph work exceeds bookkeeping; effectful suffix is never memoized | Finite two-shot custody and conditional unbounded identity laws; not Scheme simulation |
+| gc-smp | Mature traversal and blocked-owner-dependent collector work | Remembered edges, promotion/copy reserve, synchronization and unknown retention | Avoided mature scan and eliminated waits exceed added work/space; all writers/participants close | Existing GC is parallel copying/still, not proven generational; source refinement open |
+| incremental | Unchanged expansion/emission/native actions and unnecessary readiness waits | Trace validation, private sessions, support instances and memory budget | Delta work is exact transitive consumed projection closure; saved span min(U,B) exceeds added critical path | Two-consumer finite protocol; no 12-core utilization or Darwin speed multiplier established |
+| shared-foundation | Repeated per-module frame/root/FFI/build validation logic | One schema and service authority plus integration proof | If old authorities remain, their cost remains; shared check is charged once per actual cohort | No person-day or guessed speed numbers used |
+| llvm-service | Reanalysis of semantics already present in Scheme/GVM | Dialect/lowering, full effects/GC/statepoint/continuation contract and toolchain invalidation | Semantic input exported before destructive C lowering; service upgrade invalidates only affected contracts | MLIR not required for GC/SMP correctness; Zig has no demonstrated incremental benefit |
+
+** Open
+
+| key | qualified | subjectPath | scope | reason |
+|---+---+---+---+---|
+| frame-simulation | False | dev/refactoring/modern-c/models/sysml/modernization-target.sysml | MW-SEMANTIC-Q/L | All frame kinds, roots, tail/non-tail successors, module linkage and exact encoding |
+| continuation-observations | False | dev/refactoring/modern-c/models/sysml/map-multishot-composition.sysml | MM-SIM; MM-FRAME; MW-CONTROL-Q/L | Values, dynamic-wind, mutation aliases, multiple values, exceptions and unbounded shots |
+| gc-writer-capacity | False | dev/refactoring/modern-c/models/sysml/modernization-target.sysml | MW-HEAP-Q/L; MM-WRITERS | Complete stores, nursery policy, promotion failure, capacity conservation and weak phases |
+| smp-progress-memory | False | dev/refactoring/modern-c/models/sysml/map-multishot-composition.sysml | MW-DOMAIN-Q/L; MM-MEMORY; MM-PROGRESS | Closed membership, private work, finite polls, C11 memory order and no wait cycles |
+| foreign-cleanup | False | dev/architecture/toolchain/models/sysml/marker-alias-revocation.sysml | MAR-S/E; MW-FOREIGN-Q/L | Actual native callers, nonzero roots, callback/exception/continuation last use and resource descendants |
+| build-source-reflection | False | dev/architecture/toolchain/models/sysml/iter-compiler-service.sysml | IS-S/E; MW-BUILD-Q/L | Dynamic dependency and phase/support closure, independent sessions, stable snapshots and observation reflection |
+| native-performance | False | dev/refactoring/modern-c/modernization-target.org | unchanged native acceptance; matched full consumer metrics | Current receipt is design/model only; installed native capability and whole matched performance unresolved |
+
+** Exact scoped model subjects
+
+| id | kind | subject | scope |
+|---+---+---+---|
+| AA-H | interleaving | dev/refactoring/modern-c/models/quint/advantage_architecture.qnt | Finite two-participant/two-consumer/two-shot architecture custody and invalidation histories; no general semantic simulation |
+| AA-I | induction | dev/refactoring/modern-c/models/lean/AdvantageArchitecture.lean | Typed counter/lease-independent product preservation, unbounded captured identity, cache projection and symbolic work/span laws; not all QNT actions |
+| AA-S | source-refinement | dev/refactoring/modern-c/advantage-architecture-design.org | All six existing replacement decisions and nine owners/interfaces; full Gambit/Gerbil source observation and model refinement OPEN |
+| AA-E | environment-refinement | dev/refactoring/modern-c/advantage-architecture-design.org | Modern C memory order, target ABI, Darwin/Linux native equivalence, scheduler progress and measured work/span OPEN |

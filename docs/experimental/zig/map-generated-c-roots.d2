@@ -1,0 +1,25 @@
+direction: down
+entry: "One-list map\nproc, current pair, caller / dynamic state"
+prepare: "Complete callback frame\nmaterialize live homes + checkpoint\nretain code and root descriptors"
+callback: "Arbitrary proc(car(pair))\nmay collect / capture / raise / enter FFI"
+resume: "Callback return: stored L2\nsave result; reload homes\nread cdr after callback"
+recurse: "Non-tail recursive map\npending result rooted across descendants\nnormal return: stored L4"
+cons: "Tail ready -> output cons\ninitialize complete pair before visibility"
+check: "Post-allocation heap checkpoint\nstored L5 -> return after CONS\nnever replay completed allocation"
+entry -> prepare
+prepare -> callback
+callback -> resume: "ordinary return"
+resume -> recurse
+recurse -> cons
+cons -> check
+done: "Return output pair\nouter pending work remains O(n)"
+check -> done
+capture: "Captured Scheme frames\nactive/heap RETN and RETI readers\nvalues + links + dynamic state + code"
+callback -> capture: "capture or nonlocal exit"
+prepare -> capture: "poll handler may capture"
+capture -> resume: "later / repeated resume under control protocol"
+gc: "Modern GC cut / relocation\nscan acknowledged roots\nupdate carriers and reload on resume"
+callback -> gc: "legal safe point"
+check -> gc: "heap slow path"
+gc -> check: "only the post-allocation check origin"
+gc -> callback: "callee-owned safe-point resume"

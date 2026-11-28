@@ -55,5 +55,5 @@ The first stable campaign `.data/vm-heap-partial-model-001` rejected all four
 controls and exhausted 23 distinct / 27 generated positive states, zero queued,
 with safety and temporal progress completed in 21.454 seconds. Portable logs,
 counterexamples and the source-bound receipt are under
-`evidence/model-results/vm-heap-partial-allocation-model/`. This is model-only
+`.cache/research/legacy-evidence/evidence/model-results/vm-heap-partial-allocation-model/`. This is model-only
 evidence, not native allocator failure injection.

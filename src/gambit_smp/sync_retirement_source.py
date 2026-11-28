@@ -56,7 +56,7 @@ def run(args, source_inputs=None):
     helpers = [ROOT / "src/gambit_smp" / name for name in ("framework.py", "source_unit.py")]
     model = ROOT / "models/gambit/sync_retirement_drain.qnt"
     manifest = ROOT / "evidence/protocol-extensions.json"
-    model_receipt = ROOT / "evidence/model-results/protocol-extensions/receipt.json"
+    model_receipt = ROOT / ".cache/research/legacy-evidence/evidence/model-results/protocol-extensions/receipt.json"
     source_hash = digest(source)
     context = json.loads(manifest.read_text())["contextInputs"]
     expected_source = ([sha for name, sha in context.items() if name.endswith("/lib/setup.c")]
@@ -114,5 +114,9 @@ def run(args, source_inputs=None):
     return 0 if admitted else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('sync-schedule')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('sync-schedule', main))

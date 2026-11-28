@@ -1,0 +1,92 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-native-ingress-handoff",
+  "scope": "Quint controls for one native ingress handoff: a pin survives close, a parked parent reloads after collection, and a raw unowned value cannot be registered. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "models/gambit/native_ingress_root_handoff.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-native-ingress-handoff/binding.json",
+    "evidence/fixtures/dev-native-ingress-handoff/observations.json",
+    "evidence/fixtures/dev-native-ingress-handoff/handoff.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/native_ingress_root_handoff.qnt"
+      }
+    },
+    {
+      "id": "qnt",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/native_ingress_root_handoff.qnt",
+        "parsed": "parse",
+        "main": "native_ingress_root_handoff",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "handlePinBeforeCloseTest",
+          "parentBorrowToChildTest",
+          "closeBeforeParentEntryTest",
+          "parentParksWithoutWaitCycleTest",
+          "lostPublicationAckKeepsBothTest",
+          "deletingPinnedHandleKeepsCallTest",
+          "rejectUnownedRawTest",
+          "conversionFailureTransfersErrorTest",
+          "nestedRootsSurviveGcTest",
+          "unknownExitKeepsRootsTest",
+          "knownStopThenErrorDeliveryTest",
+          "parentDropBeforePublishCounterexampleTest",
+          "rawCopyAcrossGcCounterexampleTest",
+          "rawOriginCannotRegisterCounterexampleTest",
+          "markerBeforeChildRootCounterexampleTest",
+          "pinWithoutDispatchDrainCounterexampleTest",
+          "lostAckNoSecondRegistrationCounterexampleTest",
+          "nestedDetachCounterexampleTest",
+          "unknownRootDetachCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "parse",
+        "qnt"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-native-ingress-handoff/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

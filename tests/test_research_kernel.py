@@ -1,12 +1,15 @@
 import copy
+from contextlib import contextmanager
 import hashlib
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import tempfile
 import sys
 import subprocess
+import tarfile
 import time
 import types
 import unittest
@@ -20,6 +23,107 @@ def sha(data):
 
 
 class RuleWorkerBoundaryTests(unittest.TestCase):
+    def test_rg_drift_can_reseal_a_fresh_attempt_without_changing_other_tools(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine, out, rg = root / "old-engine", root / "run", root / "rg"
+            rg.write_bytes(b"replacement rg")
+            old = {"engineId": "previous", "hostTools": {
+                "rg": {"path": str(rg), "sha256": sha(b"old rg")},
+                "gcc": {"path": "/example/gcc", "sha256": "same compiler"},
+                "genmc-declaration": {"path": "/example/genmc.json", "sha256": "same GenMC declaration"},
+                "wp-declaration": {"path": "/example/wp.json", "sha256": "same WP declaration"},
+            }, "providerSources": {}, "genmcRuntime": {"scope": "same GenMC runtime"},
+               "wpRuntime": {"scope": "same WP runtime"}}
+            replacement = {"path": str(rg.resolve()), "sha256": sha(b"replacement rg")}
+            successor = {**old, "hostTools": {**old["hostTools"], "rg": replacement},
+                         "hostToolRepair": {"priorEngineId": "previous", "tool": "rg",
+                                            "previous": old["hostTools"]["rg"], "replacement": replacement}}
+            with (patch.object(research_kernel, "manifest_paths", side_effect=[
+                      research_kernel.HostToolDrift("rg"), old, successor]),
+                  patch.object(research_kernel.shutil, "which", return_value=str(rg)),
+                  patch.object(research_kernel, "seal") as seal):
+                target, current = research_kernel.recover_launch_engine(engine, out)
+            self.assertEqual(target, root / "run.engine")
+            self.assertEqual(current, successor)
+            self.assertEqual(seal.call_args.kwargs["_tool_repair"], (old, replacement))
+            self.assertEqual(seal.call_args.kwargs["genmc_runtime"], Path("/example/genmc.json"))
+            self.assertEqual(seal.call_args.kwargs["wp_runtime"], Path("/example/wp.json"))
+            self.assertEqual(old["hostTools"]["rg"]["sha256"], sha(b"old rg"))
+
+    def test_tool_recovery_leaves_existing_runs_and_compiler_drift_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            out = root / "run"
+            out.mkdir()
+            for tool, target in (("rg", out), ("gcc", root / "new")):
+                with (patch.object(research_kernel, "manifest_paths",
+                                   side_effect=research_kernel.HostToolDrift(tool)),
+                      patch.object(research_kernel, "seal") as seal):
+                    with self.assertRaisesRegex(ValueError, "sealed host tool drift: " + tool):
+                        research_kernel.recover_launch_engine(root / "engine", target)
+                    seal.assert_not_called()
+
+    def test_rg_repair_rejects_a_successor_that_changes_other_identities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine, out, rg = root / 'old-engine', root / 'run', root / 'rg'
+            rg.write_bytes(b'new rg')
+            old = dict(engineId='old', hostTools={
+                'rg': dict(path=str(rg), sha256=sha(b'old rg')),
+                'gcc': dict(path='/example/gcc', sha256='same compiler')},
+                providerSources={'inputs': {'provider': 'same source'}},
+                sysmlProvider={'sha256': 'same sysml'}, genmcRuntime={'scope': 'same GenMC'},
+                wpRuntime={'scope': 'same WP'})
+            replacement = dict(path=str(rg.resolve()), sha256=sha(b'new rg'))
+            repair = dict(priorEngineId='old', tool='rg', previous=old['hostTools']['rg'],
+                          replacement=replacement)
+            good = {**old, 'hostTools': {**old['hostTools'], 'rg': replacement},
+                    'hostToolRepair': repair}
+            for change in ['compiler', 'provider', 'sysml', 'genmc', 'wp', 'prior', 'replacement']:
+                changed = copy.deepcopy(good)
+                if change == 'compiler': changed['hostTools']['gcc']['sha256'] = 'different'
+                elif change == 'provider': changed['providerSources']['inputs']['provider'] = 'different'
+                elif change == 'sysml': changed['sysmlProvider']['sha256'] = 'different'
+                elif change == 'genmc': changed.pop('genmcRuntime')
+                elif change == 'wp': changed['wpRuntime']['scope'] = 'different'
+                elif change == 'prior': changed['hostToolRepair']['priorEngineId'] = 'different'
+                else: changed['hostTools']['rg']['sha256'] = 'different'
+                with self.subTest(change=change), \
+                        patch.object(research_kernel, 'manifest_paths', side_effect=[
+                            research_kernel.HostToolDrift('rg'), old, changed]), \
+                        patch.object(research_kernel.shutil, 'which', return_value=str(rg)), \
+                        patch.object(research_kernel, 'seal'):
+                    with self.assertRaisesRegex(ValueError, 'successor does not match'):
+                        research_kernel.recover_launch_engine(engine, out)
+
+    def test_missing_rg_does_not_modify_or_reseal_the_prior_engine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(research_kernel, 'manifest_paths', side_effect=[
+                    research_kernel.HostToolDrift('rg'), {'engineId': 'old'}]), \
+                    patch.object(research_kernel.shutil, 'which', return_value=None), \
+                    patch.object(research_kernel, 'seal') as seal:
+                with self.assertRaisesRegex(ValueError, 'executable rg on PATH'):
+                    research_kernel.recover_launch_engine(root / 'engine', root / 'run')
+                seal.assert_not_called()
+
+    def test_engine_transport_projection_distinguishes_valid_bytes_from_new_launch_compatibility(self):
+        expected = {'python/gambit_smp/transport.py': 'observed-source-digest'}
+        with patch.object(research_kernel, 'process_transport_identity', return_value=expected):
+            current = research_kernel.transport_compatibility(dict(
+                processProtocol=research_kernel.PROCESS_PROTOCOL, files=expected))
+            legacy = research_kernel.transport_compatibility(dict(files=expected))
+            changed = research_kernel.transport_compatibility(dict(
+                processProtocol=research_kernel.PROCESS_PROTOCOL, files={}))
+        self.assertTrue(current['current'])
+        self.assertEqual([], current['gaps'])
+        self.assertFalse(legacy['current'])
+        self.assertEqual([('protocol',)], legacy['gaps'])
+        self.assertFalse(legacy['runtimeAdmitted'])
+        self.assertEqual([('python/gambit_smp/transport.py',)], changed['gaps'])
+        self.assertFalse(changed['current'])
+
     def test_rule_worker_reuses_only_current_full_before_after_boundary(self):
         from gambit_smp import ascent_program, evidence_capabilities
         with tempfile.TemporaryDirectory() as directory:
@@ -62,6 +166,44 @@ class RuleWorkerBoundaryTests(unittest.TestCase):
 
 
 class ResearchGraphTests(unittest.TestCase):
+    def test_observation_presentation_transports_registered_clues_without_rewriting_receipt(self):
+        original = {'recipe': 'original-stress', 'outcome': 'DENY', 'identityStatus': 'STALE',
+                    'runtimeAdmitted': False}
+        packet = {'brief': {'families': [{'claim': 'unreviewed-model-scope'}],
+                            'runtimeAdmitted': False}, 'checkpoint': 'existing-session-token'}
+        with patch('gambit_smp.trajectory_exploration.repository_clues', return_value=packet) as query:
+            result = cli.observation_evidence(original, Path('/project'))
+        query.assert_called_once_with(Path('/project'), bindings=[['recipe', 'original-stress']])
+        self.assertEqual(result['evidence'], packet)
+        self.assertEqual(result['outcome'], 'DENY')
+        self.assertEqual(result['identityStatus'], 'STALE')
+        self.assertNotIn('evidence', original)
+        with patch('gambit_smp.trajectory_exploration.repository_clues',
+                   side_effect=ValueError('source reference changed')):
+            unavailable = cli.observation_evidence(original, Path('/project'))
+        self.assertNotIn('evidence', unavailable)
+        self.assertEqual(unavailable['evidenceError'], 'source reference changed')
+        self.assertFalse(unavailable['runtimeAdmitted'])
+
+    def test_observation_presentation_uses_real_scheme_slice_and_existing_checkpoint(self):
+        from gambit_smp.framework import ROOT
+        from gambit_smp.trajectory_exploration import repository_clues
+        result = cli.observation_evidence(
+            {'recipe': 'join-condvar-participation-stress', 'outcome': 'DENY'}, ROOT)
+        self.assertNotIn('evidenceError', result)
+        packet = result['evidence']
+        self.assertTrue(packet['brief']['families'])
+        self.assertFalse(packet['brief']['runtimeAdmitted'])
+        resumed = repository_clues(ROOT, bindings=[['recipe', 'join-condvar-participation-stress']],
+                                   checkpoint=packet['checkpoint'])
+        self.assertEqual(resumed['brief']['families'], [])
+        self.assertTrue(resumed['brief']['explorationOpen'])
+        unrelated = cli.observation_evidence({'recipe': 'unregistered-other-workload', 'outcome': 'FAIL'}, ROOT)
+        self.assertEqual(unrelated['evidence']['brief']['families'], [])
+        self.assertIn(['recipe', 'unregistered-other-workload'],
+                      unrelated['evidence']['brief']['association']['unknown_binding'])
+        self.assertEqual(unrelated['outcome'], 'FAIL')
+
     def test_manifest_identity_cache_is_exact_bytes_not_a_file_validation_cache(self):
         research_kernel.manifest_content_identity.cache_clear()
         raw = b'{"engineId":"declared","files":{"a":"sha"}}'
@@ -78,7 +220,8 @@ class ResearchGraphTests(unittest.TestCase):
     def test_sealed_parent_preserves_identity_for_recipe_child(self):
         from gambit_smp import host_environment
         self.load()
-        manifest = {"engineId": "unit-seal", "hostTools": {"python": {"path": sys.executable}}}
+        manifest = {"engineId": "unit-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity(),
+                    "hostTools": {"python": {"path": sys.executable}}}
         with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
                 patch.object(host_environment, "observe", return_value=None), \
                 patch.object(research_kernel, "retain_run_record", return_value={"path": "unit-only"}), \
@@ -88,6 +231,26 @@ class ResearchGraphTests(unittest.TestCase):
         launched.assert_called_once()
         self.assertEqual("fixture-user", launched.call_args.kwargs["env"]["USER"])
         self.assertEqual("DENY", result["outcome"])
+
+    def test_old_engine_remains_inspectable_but_cannot_execute_unguarded_python(self):
+        self.load()
+        with patch.object(research_kernel,'manifest_paths',return_value={'engineId':'historical'}), \
+             patch.object(research_kernel,'execute') as execute:
+            with self.assertRaisesRegex(ValueError,'predates birth/exec admission'):
+                research_kernel.run_sealed(self.root,self.path,self.root/'old-run',self.root/'old-seal')
+            execute.assert_not_called()
+
+    def test_protocol_label_cannot_admit_old_transport_source(self):
+        self.load()
+        manifest=dict(engineId='historical',processProtocol=research_kernel.PROCESS_PROTOCOL,files={})
+        with patch.object(research_kernel,'manifest_paths',return_value=manifest), \
+             patch.object(research_kernel,'execute') as execute:
+            with self.assertRaisesRegex(ValueError,'implementation differs') as denied:
+                research_kernel.run_sealed(self.root,self.path,self.root/'old-transport',self.root/'old-seal')
+            execute.assert_not_called()
+            self.assertIn('python/gambit_smp/storage_policy.py', str(denied.exception))
+            self.assertIn('"runtimeAdmitted": false', str(denied.exception))
+            self.assertFalse((self.root/'old-transport').exists())
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -127,8 +290,36 @@ class ResearchGraphTests(unittest.TestCase):
         self.path.write_text(json.dumps(recipe or self.recipe))
         return recipes.load(self.root, self.path)
 
+    @contextmanager
+    def owned_dispatch_fixture(self):
+        from gambit_smp import workspace
+        (self.root / "models/gambit").mkdir(parents=True, exist_ok=True)
+        (self.root / "models/gambit/cases.json").write_text("{}")
+        workspace.git(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                      "commit", "--allow-empty", "-qm", "owned dispatcher fixture")
+        workspace.start(self.root, "kernel-fixture", adopt=True)
+        with workspace.execution_scope(self.root, "kernel-fixture"), \
+                patch.dict(os.environ, {"GAMBIT_SMP_ROOT": str(self.root),
+                                     "GAMBIT_SMP_TASK_ID": "kernel-fixture",
+                                     "GAMBIT_SMP_TASK_ROOT": str(self.root)}), \
+                patch.object(research_kernel, "ROOT", self.root):
+            yield
+
     def test_artifact_graph_accepts_data_without_feature_registration(self):
         self.assertEqual("different-mechanism", self.load()[0]["id"])
+
+    def test_pure_model_graph_binds_declared_sources_without_materializing_gambit(self):
+        steps = [dict(id='parse', capability='quint.parse', dependsOn=[], arguments={}, budgetSeconds=5),
+                 dict(id='verdict', capability='evidence.evaluate', dependsOn=['parse'],
+                      arguments={'dsl': 'evidence/rules.ss'}, budgetSeconds=5)]
+        declaration = dict(inputs=['evidence/rules.ss'])
+        research_kernel.validate_graph(declaration, steps)
+        for native in ('native.workspace-build', 'gambit.executable-test', 'source.project'):
+            with self.subTest(capability=native):
+                changed = copy.deepcopy(steps)
+                changed[0]['capability'] = native
+                with self.assertRaisesRegex(ValueError, 'locked source producer'):
+                    research_kernel.validate_graph(declaration, changed)
 
     def test_new_lane_rejects_archived_producer_receipts_and_includes(self):
         for name in ("evidence/source-results/old/receipt.json", "models/generated.inc", "models/producer.py"):
@@ -184,13 +375,20 @@ class ResearchGraphTests(unittest.TestCase):
         imported.assert_not_called()
 
     def test_historical_reproduction_requires_explicit_selection(self):
+        from gambit_smp import workspace
+        (self.root / 'models/gambit').mkdir(parents=True)
+        (self.root / 'models/gambit/cases.json').write_text('{}')
+        workspace.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                      'commit', '--allow-empty', '-qm', 'dispatcher fixture')
+        workspace.start(self.root, 'historical-test', adopt=True)
         adapter = types.SimpleNamespace(main=lambda: 7)
-        with patch.object(cli, "import_module", return_value=adapter):
-            self.assertEqual(7, cli.main(["--historical-reproduction", "source-unit"]))
+        with patch.dict(os.environ), patch.object(cli, "import_module", return_value=adapter):
+            self.assertEqual(7, cli.main(["--root", str(self.root), "--task", "historical-test",
+                                         "--historical-reproduction", "source-unit"]))
 
     def test_research_run_executes_declared_recipe_without_extra_native_switch(self):
         arguments = ["research", "--run", "declared", "--engine", "seal", "--out", ".cache/result"]
-        with patch("sys.argv", arguments), \
+        with self.owned_dispatch_fixture(), patch("sys.argv", arguments), \
                 patch.object(recipes, "discover", return_value={"declared": self.path}), \
                 patch.object(research_kernel, "run_sealed", return_value={"outcome": "PASS"}) as launched, \
                 patch("sys.stdout", new_callable=io.StringIO):
@@ -201,7 +399,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.load()
         subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         arguments = ["research", "--run", "evidence/control.recipe.json", "--engine", "seal", "--out", ".cache/result"]
-        with patch("sys.argv", arguments), patch.object(research_kernel, "ROOT", self.root), \
+        with self.owned_dispatch_fixture(), patch("sys.argv", arguments), \
                 patch.object(recipes, "discover", side_effect=AssertionError("unrelated graph")), \
                 patch.object(research_kernel, "run_sealed", return_value={"outcome": "PASS"}) as launched, \
                 patch("sys.stdout", new_callable=io.StringIO):
@@ -209,12 +407,60 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual(self.path.resolve(), launched.call_args.args[1])
 
     def test_research_run_still_requires_sealed_engine(self):
-        with patch("sys.argv", ["research", "--run", "declared", "--out", ".cache/result"]), \
+        with self.owned_dispatch_fixture(), patch("sys.argv", ["research", "--run", "declared", "--out", ".cache/result"]), \
                 patch.object(recipes, "discover", return_value={"declared": self.path}), \
                 patch.object(research_kernel, "run_sealed") as launched, \
                 patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
             research_kernel.main()
         launched.assert_not_called()
+
+    def test_step_cannot_silently_launch_a_complete_recipe(self):
+        arguments = ["research", "--run", "declared", "--engine", "seal",
+                     "--out", ".cache/result", "--step", "model"]
+        with self.owned_dispatch_fixture(), patch("sys.argv", arguments), \
+                patch.object(recipes, "discover") as discovered, \
+                patch.object(research_kernel, "run_sealed") as launched, \
+                patch("sys.stderr", new_callable=io.StringIO) as error, \
+                self.assertRaises(SystemExit) as refused:
+            research_kernel.main()
+        self.assertEqual(2, refused.exception.code)
+        self.assertIn("inspection, export or Recipe projection", error.getvalue())
+        discovered.assert_not_called()
+        launched.assert_not_called()
+
+    def test_engine_read_exposes_validated_tool_bindings_without_execution(self):
+        engine = self.root / "engine"
+        engine.mkdir()
+        (engine / "engine.json").write_text("{}")
+        manifest = {"engineId": "bound-engine", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity(), "hostTools": {
+            "quint": {"path": "/host/quint", "sha256": "bound-tool"},
+            "quint-file:/host/dependency": {"path": "/host/dependency", "sha256": "dependency"}},
+            "capabilities": ["quint.verify"], "files": {"private-inventory": "not-rendered"}}
+        with patch.object(research_kernel, "manifest_paths", return_value=manifest) as checked, \
+                patch.object(research_kernel, "run_sealed") as launched, \
+                patch("sys.argv", ["research", "--read", str(engine)]), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            self.assertEqual(0, research_kernel.main())
+        checked.assert_called_once_with(engine.resolve())
+        launched.assert_not_called()
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["hostTools"], {"quint": manifest["hostTools"]["quint"]})
+        self.assertEqual(result["hostToolDependencyCount"], 1)
+        self.assertEqual(result["capabilities"], ["quint.verify"])
+        self.assertNotIn("files", result)
+        self.assertFalse(result["executionLaunched"])
+        self.assertFalse(result["runtimeAdmitted"])
+
+    def test_engine_read_does_not_hide_drift_or_ambiguous_artifact_identity(self):
+        engine = self.root / "engine"
+        engine.mkdir()
+        (engine / "engine.json").write_text("{}")
+        with patch.object(research_kernel, "manifest_paths", side_effect=ValueError("tool drift")), \
+                self.assertRaisesRegex(ValueError, "tool drift"):
+            research_kernel.inspect(engine)
+        (engine / "receipt.json").write_text("{}")
+        with self.assertRaisesRegex(ValueError, "unambiguous seal"):
+            research_kernel.inspect(engine)
 
     def test_failed_sealed_retry_requires_cause_and_retains_independent_denial(self):
         self.load()
@@ -235,7 +481,7 @@ class ResearchGraphTests(unittest.TestCase):
                 self.recipe["budgetSeconds"] = total
                 self.recipe["steps"][0]["budgetSeconds"] = step_budget
                 self.load()
-                with patch.object(research_kernel, "manifest_paths", return_value={"engineId": "unit-seal"}), \
+                with patch.object(research_kernel, "manifest_paths", return_value={"engineId": "unit-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity()}), \
                         patch.object(research_kernel, "execute") as launched:
                     result = research_kernel.run_sealed(self.root, self.path, self.root / name,
                                                         self.root / "seal", prior=prior, allow_native=True)
@@ -244,6 +490,54 @@ class ResearchGraphTests(unittest.TestCase):
                 self.assertIn(denial, result["denial"])
                 self.assertEqual("DENY", json.loads((self.root / name / "receipt.json").read_text())["outcome"])
         self.assertEqual(original, (prior / "receipt.json").read_bytes())
+
+    def test_recorded_source_sync_timeout_resumes_without_a_new_cause(self):
+        from gambit_smp import host_environment
+        self.load()
+        inputs = {name: recipes.digest(self.root / name)
+                  for name in ["evidence/control.recipe.json", *self.recipe["inputs"]]}
+        source = self.root / ".cache/tasks/unit/build/core/key/source"
+        source.mkdir(parents=True)
+        (source / "keep.txt").write_text("settled")
+        (source.parent / "source-state.json").write_text(json.dumps({
+            "schema": "incremental-source-state.v1", "phase": "building", "inputs": {}}))
+        prior = self.root / "synced"
+        child_dir = prior / "run"
+        child_dir.mkdir(parents=True)
+        child = {"schema": "evidence-recipe-run.v1", "recipe": self.recipe["id"], "outcome": "DENY",
+                 "steps": [{"id": "source", "outcome": "TIMEOUT", "commands": [{"timeout": False}],
+                            "sourceDelta": {"changed": [], "source": str(source)}}]}
+        child_path = child_dir / "receipt.json"
+        child_path.write_text(json.dumps(child))
+        previous = dict(schema="sealed-research-run.v1", recipe=self.recipe["id"], inputs=inputs,
+                        engineId="unit-seal", outcome="DENY", budgetSeconds=40,
+                        stepBudgets={step["id"]: 5 for step in self.recipe["steps"]},
+                        childReceiptSha256=recipes.digest(child_path), executionLaunched=True,
+                        parentReaped=True, processGroupQuiescent=True)
+        (prior / "receipt.json").write_text(json.dumps(previous))
+        manifest = {"engineId": "unit-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL,
+                    "files": research_kernel.process_transport_identity(),
+                    "hostTools": {"python": {"path": sys.executable}, "gcc": {"path": "/usr/bin/false"}}}
+        with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
+                patch.object(host_environment, "observe", return_value=None), \
+                patch.object(research_kernel, "retain_run_record", return_value={"path": "unit-only"}), \
+                patch.object(research_kernel, "execute", return_value=(2, "fixture only", False, .01)) as launched:
+            result = research_kernel.run_sealed(self.root, self.path, self.root / "resume-sync",
+                                                self.root / "seal", prior=prior, allow_native=True)
+        launched.assert_called()
+        self.assertEqual("source", result["prior"]["sourceSyncResumption"]["step"])
+        self.assertEqual("recorded-source-sync-not-a-new-causal-route", result["prior"]["sourceSyncResumption"]["claim"])
+        child["steps"][0]["commands"] = [{"timeout": True}]
+        child_path.write_text(json.dumps(child))
+        previous["childReceiptSha256"] = recipes.digest(child_path)
+        (prior / "receipt.json").write_text(json.dumps(previous))
+        with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
+                patch.object(host_environment, "observe", return_value=None), \
+                patch.object(research_kernel, "execute") as refused:
+            denied = research_kernel.run_sealed(self.root, self.path, self.root / "closed-sync",
+                                                self.root / "seal", prior=prior, allow_native=True)
+        refused.assert_not_called()
+        self.assertIn("unchanged failed", denied["denial"])
 
     def test_stage_retry_retains_interrupted_cost_without_reducing_fresh_timers(self):
         from gambit_smp import host_environment
@@ -260,7 +554,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.recipe.pop("budgetSeconds")
         self.recipe["timeoutPolicy"] = {"mode": "per-stage", "overheadSeconds": 20}
         self.load()
-        manifest = {"engineId": "new-seal", "hostTools": {"python": {"path": sys.executable}}}
+        manifest = {"engineId": "new-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity(), "hostTools": {"python": {"path": sys.executable}}}
         with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
                 patch.object(host_environment, "observe", return_value=None), \
                 patch.object(research_kernel, "retain_run_record", return_value={"path": "unit-only"}), \
@@ -274,6 +568,36 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual(original, previous_path.read_bytes())
         self.assertNotIn("performanceBudgetExceeded", result)
 
+    def test_changed_engine_failed_prefix_launches_fresh_attempt_not_partial_resume(self):
+        from gambit_smp import host_environment
+        self.load()
+        inputs={name:recipes.digest(self.root/name)
+                for name in ['evidence/control.recipe.json',*self.recipe['inputs']]}
+        prior=self.root/'failed-prefix';prior.mkdir()
+        header=dict(recipe=self.recipe['id'],engineId='old-seal',inputs=inputs,
+                    declaration=copy.deepcopy(self.recipe),budgetSeconds=self.recipe['budgetSeconds'],
+                    stepBudgets={step['id']:step['budgetSeconds'] for step in self.recipe['steps']})
+        prefix=dict(prefixIdentity='retained-failure',records=[dict(payload=header)])
+        state=dict(outcome='INCOMPLETE',resumption=dict(executionQuiescence=dict(observed=True),
+            relations=dict(failed=[['fixture','DENY']],failed_attempt_history=[[]])))
+        manifest=dict(engineId='new-seal',processProtocol=research_kernel.PROCESS_PROTOCOL,
+                      files=research_kernel.process_transport_identity(),hostTools={'python':{'path':sys.executable}})
+        def checkpoint(root,path):
+            return prefix if path.resolve()==prior.resolve() else {'records':[]}
+        with patch.object(research_kernel,'manifest_paths',return_value=manifest), \
+             patch.object(host_environment,'observe',return_value=None), \
+             patch('gambit_smp.reasoning_history.read_execution_checkpoint',side_effect=checkpoint), \
+             patch('gambit_smp.step_checkpoint.recovered_resumption',return_value=state), \
+             patch.object(research_kernel,'retain_run_record',return_value={'path':'fixture'}), \
+             patch.object(research_kernel,'execute',return_value=(2,'fixture only',False,.01)) as launched:
+            result=research_kernel.run_sealed(self.root,self.path,self.root/'fresh-prefix',
+                                               self.root/'seal',prior=prior)
+        launched.assert_called_once()
+        self.assertTrue(result['prior']['engineChanged'])
+        self.assertFalse(result['prior']['failedPrefixExpenditure']['parentCompletionObserved'])
+        self.assertIsNone(json.loads((self.root/'fresh-prefix/request.json').read_text())['prior'])
+        self.assertFalse((prior/'receipt.json').exists())
+
     def test_whole_timeout_missing_child_is_accounting_only_with_real_change(self):
         from gambit_smp import host_environment
         self.load()
@@ -285,7 +609,7 @@ class ResearchGraphTests(unittest.TestCase):
                         stepBudgets={step["id"]: 5 for step in self.recipe["steps"]})
         (prior / "receipt.json").write_text(json.dumps(previous))
         original = (prior / "receipt.json").read_bytes()
-        manifest = {"engineId": "new-seal", "hostTools": {"python": {"path": sys.executable}}}
+        manifest = {"engineId": "new-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity(), "hostTools": {"python": {"path": sys.executable}}}
         with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
                 patch.object(host_environment, "observe", return_value=None), \
                 patch.object(research_kernel, "retain_run_record", return_value={"path": "unit-only"}), \
@@ -297,6 +621,46 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIsNone(json.loads((self.root / "whole-new/request.json").read_text())["prior"])
         self.assertEqual(original, (prior / "receipt.json").read_bytes())
         self.assertNotEqual(result["outcome"], "PASS")
+
+    def test_explicit_stop_missing_child_requires_quiescence_and_real_change(self):
+        from gambit_smp import host_environment
+        self.load()
+        inputs = {name: recipes.digest(self.root / name)
+                  for name in ["evidence/control.recipe.json", *self.recipe["inputs"]]}
+        manifest = {"engineId": "new-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL,
+                    "files": research_kernel.process_transport_identity(),
+                    "hostTools": {"python": {"path": sys.executable}}}
+        for name, engine, quiet, expected in (
+                ("stopped-changed", "old-seal", True, None),
+                ("stopped-live", "old-seal", False, "quiescent"),
+                ("stopped-unchanged", "new-seal", True, "unchanged failed")):
+            with self.subTest(name=name):
+                prior = self.root / (name + "-prior")
+                prior.mkdir()
+                previous = dict(schema="sealed-research-run.v1", recipe=self.recipe["id"],
+                                inputs=inputs, engineId=engine, outcome="DENY", budgetSeconds=40,
+                                wholeSeconds=12, timeout=False, executionLaunched=True,
+                                parentReaped=True, processGroupQuiescent=quiet,
+                                stepBudgets={s["id"]: 5 for s in self.recipe["steps"]})
+                path = prior / "receipt.json"
+                path.write_text(json.dumps(previous))
+                original = path.read_bytes()
+                out = self.root / name
+                with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
+                        patch.object(host_environment, "observe", return_value=None), \
+                        patch.object(research_kernel, "retain_run_record", return_value={"path": "unit-only"}), \
+                        patch.object(research_kernel, "execute", return_value=(2, "unit only", False, .01)) as launched:
+                    result = research_kernel.run_sealed(self.root, self.path, out,
+                                                        self.root / "seal", prior=prior)
+                if expected:
+                    launched.assert_not_called()
+                    self.assertIn(expected, result["denial"])
+                else:
+                    launched.assert_called_once()
+                    self.assertIsNone(json.loads((out / "request.json").read_text())["prior"])
+                    self.assertTrue(result["prior"]["interruptedPriorExpenditure"]["accountingOnly"])
+                self.assertEqual(original, path.read_bytes())
+                self.assertNotEqual("PASS", result["outcome"])
 
     def test_timeout_policy_migration_requires_unchanged_graph_and_inputs(self):
         from gambit_smp import host_environment
@@ -319,7 +683,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.recipe["id"] = "stage-policy-migration"
         self.recipe.pop("budgetSeconds")
         self.recipe["timeoutPolicy"] = {"mode": "per-stage", "overheadSeconds": 20}
-        manifest = {"engineId": "new-seal", "hostTools": {"python": {"path": sys.executable}}}
+        manifest = {"engineId": "new-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity(), "hostTools": {"python": {"path": sys.executable}}}
         for changed in (False, True):
             with self.subTest(changed=changed):
                 self.recipe["steps"][0]["budgetSeconds"] = 6 if changed else 5
@@ -343,7 +707,7 @@ class ResearchGraphTests(unittest.TestCase):
         old = {"schema": host.SCHEMA, "operation": "ipv4-loopback-bind", "epoch": "boot",
                "available": False, "errno": 1}
         current = {**old, "available": True, "errno": None}
-        manifest = {"engineId": "unit-seal", "hostTools": {"python": {"path": sys.executable}}}
+        manifest = {"engineId": "unit-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity(), "hostTools": {"python": {"path": sys.executable}}}
         prior = self.root / "host-refused"
         with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
                 patch.object(host, "observe", return_value=old), patch.object(research_kernel, "execute") as launched:
@@ -381,7 +745,7 @@ class ResearchGraphTests(unittest.TestCase):
         old = {"schema": host.SCHEMA, "operation": "ipv4-loopback-bind", "epoch": None,
                "available": False, "errno": 1}
         current = {**old, "epoch": "observed-boot", "available": True, "errno": None}
-        manifest = {"engineId": "unit-seal", "hostTools": {"python": {"path": sys.executable}}}
+        manifest = {"engineId": "unit-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity(), "hostTools": {"python": {"path": sys.executable}}}
         prior = self.root / "progress-host-refused"
         with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
                 patch.object(host, "observe", return_value=old), patch.object(research_kernel, "execute") as launched:
@@ -422,7 +786,7 @@ class ResearchGraphTests(unittest.TestCase):
     def test_interrupted_launch_retains_header_without_terminal_pass_or_head(self):
         from gambit_smp.reasoning_history import read_journal
         self.load()
-        manifest = {"engineId": "unit-seal", "hostTools": {"python": {"path": sys.executable}}}
+        manifest = {"engineId": "unit-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL, "files": research_kernel.process_transport_identity(), "hostTools": {"python": {"path": sys.executable}}}
         out = self.root / "interrupted"
         with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
                 patch.object(research_kernel, "clock_epoch", return_value=None), \
@@ -434,7 +798,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIsNone(header["clockEpoch"])
         self.assertFalse(header["executionCompleted"])
         self.assertNotIn("outcome", header)
-        self.assertEqual(40, header["deadlineMonotonic"] - header["startedMonotonic"])
+        self.assertAlmostEqual(40, header["deadlineMonotonic"] - header["startedMonotonic"], places=9)
         self.assertEqual(header["request"], {key: value for key, value in request.items() if key != "journal"})
         self.assertFalse((out / "receipt.json").exists())
         retained = read_journal(self.root, request["journal"]["scope"])
@@ -478,6 +842,207 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIsNone(retained["head"])
         self.assertEqual({}, retained["results"])
         self.assertFalse(recipes.read_json(self.root / "process-header.json")["executionCompleted"])
+
+
+class FailedPrefixRetryTests(unittest.TestCase):
+    def supervisor_fixture(self,root):
+        prior=root/'.cache/tasks/darwin/processes/audit/runs/run1/outputs/research'
+        prior.mkdir(parents=True)
+        path=root/'.state/work-process-runs/darwin/audit/run1.json'
+        path.parent.mkdir(parents=True)
+        row=dict(task='darwin',process='audit',run='run1',state='interrupted',exit=-9,
+            startedAt='2026-10-31T00:00:00+08:00',endedAt='2026-10-31T00:01:00+08:00',
+            output=str(prior.parent.parent),rssLimitExceeded=True,rssLimitBytes=100,
+            peakRegisteredRssBytes=110,parentReaped=True,reconciliation={'nativeAdmitted':False},
+            registeredGroupCleanup={'unresolved':[]})
+        path.write_text(json.dumps(row))
+        return prior,path,row
+
+    def test_hang_guard_widens_only_the_stage_that_timed_out_while_working(self):
+        previous = {"timeout": True, "stepBudgets": {"bootstrap": 600, "seed": 600}, "steps": [
+            {"id": "seed", "outcome": "PASS", "budgetSeconds": 600},
+            {"id": "bootstrap", "outcome": "TIMEOUT", "budgetSeconds": 600}]}
+        steps = [{"id": "seed", "budgetSeconds": 600}, {"id": "bootstrap", "budgetSeconds": 1800}]
+        widened = recipes.hang_guard_widening(previous, steps)
+        self.assertEqual("bootstrap", widened[0]["step"])
+        self.assertEqual(1800, widened[0]["to"])
+        steps[0]["budgetSeconds"] = 1800
+        with self.assertRaisesRegex(ValueError, "prior step budget cannot expand"):
+            recipes.hang_guard_widening(previous, steps)
+        outer = {"timeout": True, "stepBudgets": {"bootstrap": 600}}
+        widened = recipes.hang_guard_widening(outer, [{"id": "bootstrap", "budgetSeconds": 1800}])
+        self.assertEqual(600, widened[0]["from"])
+
+    def test_reconciled_task_run_stop_is_fresh_expenditure_without_reusing_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = '9b9de93beca94263a11a31a2b614c5cd'
+            prior = root / '.cache/tasks/darwin/runs' / run / 'outputs/research'
+            prior.mkdir(parents=True)
+            record = root / '.state/task-runs/darwin' / (run + '.json')
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps(dict(
+                task='darwin', run=run, state='interrupted', nativeAdmitted=False,
+                startedAt='2026-11-07T21:32:17+08:00', endedAt='2026-11-07T21:36:45+08:00',
+                output=str(prior.parent.parent), supervisorPid=2**31 - 1,
+                reconciliation={'observedAt': '2026-11-07T21:36:45+08:00', 'nativeAdmitted': False})))
+            before = record.read_bytes()
+            interruption = research_kernel.reconciled_task_interruption(root, prior)
+            self.assertEqual('supervisor-interruption', interruption['kind'])
+            self.assertFalse(interruption['nativeOutputsAdmitted'])
+            state, prefix, recipe, steps = self.fixture()
+            result = research_kernel.failed_prefix_retry(state, prefix, recipe, steps,
+                {'source': 'new'}, 'new-engine', interruption=interruption)
+            self.assertTrue(result['failedPrefixExpenditure']['freshAttempt'])
+            self.assertFalse(result['priorArtifactsReusable'])
+            self.assertTrue(result['engineChanged'])
+            self.assertEqual(before, record.read_bytes())
+            self.assertIsNone(research_kernel.reconciled_task_interruption(root, root / 'elsewhere'))
+            same = research_kernel.failed_prefix_retry(state, prefix, recipe, steps,
+                {'source': 'old'}, 'old', interruption=interruption)
+            self.assertTrue(same['failedPrefixExpenditure']['freshAttempt'])
+            self.assertFalse(same['priorArtifactsReusable'])
+            self.assertFalse(same['engineChanged'])
+            longer = copy.deepcopy(steps)
+            longer[0]['budgetSeconds'] = 1800
+            recipe['budgetSeconds'] = 1810
+            prefix['records'][0]['payload']['stepBudgets']['build'] = 600
+            prefix['records'][0]['payload']['budgetSeconds'] = 610
+            research_kernel.failed_prefix_retry(state, prefix, recipe, longer,
+                {'source': 'old'}, 'old', interruption=interruption)
+
+    def test_reconciled_resource_kill_is_history_without_native_or_parent_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);prior,path,row=self.supervisor_fixture(root)
+            before=path.read_bytes()
+            interruption=research_kernel.supervised_interruption(root,prior)
+            state,prefix,recipe,steps=self.fixture()
+            state['resumption']['relations']['failed_attempt_history']=[]
+            result=research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                {'source':'new'},'new',interruption=interruption)
+            self.assertFalse(result['priorArtifactsReusable'])
+            self.assertFalse(result['externalResourceInterruption']['nativeOutputsAdmitted'])
+            self.assertEqual(60,result['externalResourceInterruption']['supervisorWallIntervalSeconds'])
+            self.assertIsNone(result['failedPrefixExpenditure']['oldAggregateOutcome'])
+            self.assertFalse(result['failedPrefixExpenditure']['parentCompletionObserved'])
+            self.assertEqual(before,path.read_bytes())
+            with self.assertRaisesRegex(ValueError,'unchanged'):
+                research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                    {'source':'old'},'old',interruption=interruption)
+            state['resumption']['executionQuiescence']['observed']=False
+            with self.assertRaisesRegex(ValueError,'quiescence'):
+                research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                    {'source':'new'},'new',interruption=interruption)
+
+    def test_resource_interruption_requires_exact_reconciled_measured_custody(self):
+        for field,value in [('parentReaped',False),('reconciliation',None),('exit',0),
+                            ('output','/tmp/unrelated'),('task','other'),
+                            ('registeredGroupCleanup',{'unresolved':['unknown']}),
+                            ('registeredGroupCleanup',{}),
+                            ('registeredGroupCleanup',{'unresolved':None}),
+                            ('peakRegisteredRssBytes',99),('endedAt',None),
+                            ('startedAt','2026-10-31T00:02:00+08:00')]:
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);prior,path,row=self.supervisor_fixture(root)
+                row[field]=value;path.write_text(json.dumps(row))
+                with self.subTest(field=field),self.assertRaises(ValueError):
+                    research_kernel.supervised_interruption(root,prior)
+
+    def test_unknown_supervisor_cause_is_accounting_only_not_resource_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);prior,path,row=self.supervisor_fixture(root)
+            row['rssLimitExceeded']=False;path.write_text(json.dumps(row))
+            result=research_kernel.supervised_interruption(root,prior)
+            self.assertEqual('supervisor-interruption',result['kind'])
+            self.assertFalse(result['nativeOutputsAdmitted'])
+            self.assertIsNone(result['causeRecorded'])
+            path.unlink()
+            self.assertIsNone(research_kernel.supervised_interruption(root,prior))
+
+    def test_planned_spawn_needs_current_exclusive_cancellation_witness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);prior,path,row=self.supervisor_fixture(root)
+            row['rssLimitExceeded']=False
+            record=root/'.state/task-processes/darwin/run1/token.json'
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps(dict(task='darwin',run='run1',token='token')))
+            row['registeredGroupCleanup']['unresolved']=[dict(record=str(record),error='unresolved planned process birth')]
+            path.write_text(json.dumps(row))
+            with patch('gambit_smp.spawn_protocol.reconcile',return_value=dict(
+                    result='cancelled-before-birth',targetExecuted=False)):
+                observation=research_kernel.supervised_interruption(root,prior)
+            self.assertEqual(1,len(observation['reconciledPlannedSpawns']))
+            state,prefix,recipe,steps=self.fixture()
+            state['resumption']['relations']['failed_attempt_history']=[]
+            result=research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                {'source':'new'},'new',interruption=observation)
+            self.assertIn('externalSupervisorInterruption',result)
+            self.assertNotIn('externalResourceInterruption',result)
+            self.assertFalse(result['priorArtifactsReusable'])
+            for witness in (None,dict(result='exited-exec-outcome-unclaimed',targetExecuted=None)):
+                with patch('gambit_smp.spawn_protocol.reconcile',return_value=witness):
+                    with self.assertRaises(ValueError):research_kernel.supervised_interruption(root,prior)
+
+    def fixture(self):
+        steps=[dict(id='build',capability='gambit.source-core',dependsOn=[],budgetSeconds=30),
+               dict(id='test',capability='gambit.executable-test',dependsOn=['build'],budgetSeconds=10)]
+        recipe=dict(id='repair',steps=steps,budgetSeconds=40,
+                    timeoutPolicy=dict(mode='progress',overheadSeconds=5))
+        header=dict(recipe='repair',declaration=copy.deepcopy(recipe),budgetSeconds=40,
+                    stepBudgets={'build':30,'test':10},inputs={'source':'old'},engineId='old')
+        records=[dict(payload=header)]+[dict(payload=dict(schema='research-step-observation.v1',step=row))
+            for row in [dict(steps[0],outcome='DENY'),dict(steps[1],outcome='BLOCKED')]]
+        prefix=dict(prefixIdentity='bound-prefix',records=records)
+        state=dict(resumption=dict(executionQuiescence=dict(observed=True),
+            relations=dict(failed=[['build','DENY']],failed_attempt_history=[[]])))
+        return state,prefix,recipe,steps
+
+    def test_changed_candidate_can_retry_failed_quiescent_prefix_without_faking_parent(self):
+        state,prefix,recipe,steps=self.fixture()
+        before=copy.deepcopy(prefix)
+        result=research_kernel.failed_prefix_retry(state,prefix,recipe,steps,{'source':'new'},'new-consumer')
+        self.assertTrue(result['engineChanged'])
+        self.assertTrue(result['failedPrefixExpenditure']['accountingOnly'])
+        self.assertFalse(result['failedPrefixExpenditure']['parentCompletionObserved'])
+        self.assertIsNone(result['failedPrefixExpenditure']['oldAggregateOutcome'])
+        self.assertFalse(result['runtimeAdmitted'])
+        self.assertNotIn('interruptedContinuation',result)
+        self.assertEqual(before,prefix)
+
+    def test_live_or_unchanged_failure_cannot_be_a_fresh_retry(self):
+        for live in (False,True):
+            state,prefix,recipe,steps=self.fixture()
+            state['resumption']['executionQuiescence']['observed']=not live
+            with self.assertRaises(ValueError):
+                research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
+                    {'source':'new' if live else 'old'},'old')
+
+    def test_changed_framework_can_repair_same_native_inputs_without_resuming_deadline(self):
+        state,prefix,recipe,steps=self.fixture()
+        result=research_kernel.failed_prefix_retry(state,prefix,recipe,steps,{'source':'old'},'new-consumer')
+        self.assertTrue(result['engineChanged'])
+        self.assertEqual({},result['changedInputs'])
+        self.assertTrue(result['failedPrefixExpenditure']['freshAttempt'])
+        self.assertFalse(result['failedPrefixExpenditure']['parentCompletionObserved'])
+        self.assertFalse(result['runtimeAdmitted'])
+
+    def test_incomplete_or_successful_prefix_stays_on_exact_continuation_contract(self):
+        for failed in (False,True):
+            state,prefix,recipe,steps=self.fixture()
+            if failed:prefix['records'].pop()
+            else:state['resumption']['relations']['failed']=[]
+            state['resumption']['relations']['failed_attempt_history']=[]
+            self.assertIsNone(research_kernel.failed_prefix_retry(state,prefix,recipe,steps,{'source':'new'},'new'))
+
+    def test_retry_does_not_expand_graph_or_budgets_or_change_watchdog_semantics(self):
+        for change in ('graph','budget','timeout','recipe'):
+            state,prefix,recipe,steps=self.fixture()
+            if change=='graph':steps[1]['dependsOn']=[]
+            elif change=='budget':steps[0]['budgetSeconds']=31
+            elif change=='timeout':recipe['timeoutPolicy']['overheadSeconds']=6
+            else:recipe['id']='different'
+            with self.assertRaises(ValueError):
+                research_kernel.failed_prefix_retry(state,prefix,recipe,steps,{'source':'new'},'new')
 
 
 class SourceArtifactTests(unittest.TestCase):
@@ -545,6 +1110,23 @@ class SourceArtifactTests(unittest.TestCase):
 
 
 class EngineSealTests(unittest.TestCase):
+    def test_new_seal_contains_every_transport_admission_input(self):
+        manifest=self.seal()
+        self.assertTrue(research_kernel.transport_compatibility(manifest)['current'])
+        for name,sha in research_kernel.process_transport_identity().items():
+            self.assertEqual(manifest['files'][name],sha)
+            self.assertEqual(research_kernel.digest(self.root/'engine'/name),sha)
+
+    def test_disposable_interpreter_alias_is_not_the_sealed_host_tool(self):
+        executable = Path(sys.executable).resolve(strict=True)
+        alias = self.root / "temporary-python"
+        alias.symlink_to(executable)
+        with patch.object(research_kernel.sys, "executable", str(alias)):
+            manifest = self.seal()
+        alias.unlink()
+        self.assertEqual(manifest["hostTools"]["python"]["path"], str(executable))
+        self.assertEqual(research_kernel.manifest_paths(self.root / "engine")["engineId"], manifest["engineId"])
+
     def test_private_source_transfers_do_not_alias_or_chmod_originals(self):
         original = self.source.read_bytes()
         permissions = self.source.stat().st_mode & 0o777
@@ -568,9 +1150,6 @@ class EngineSealTests(unittest.TestCase):
         (self.binding / "_core.abi3.so").write_bytes(b"unit fixture extension")
         self.extension_sha = sha(b"unit fixture extension")
         self.api = self.binding
-        metadata = self.root / "python/gerbil_ascent-0.1.0.dist-info/direct_url.json"
-        metadata.parent.mkdir()
-        metadata.write_text('{"url":"unit-fixture"}')
         self.source_root = self.binding / "_sources"
         self.source_root.mkdir()
         self.source = self.source_root / "example.ss"
@@ -583,16 +1162,6 @@ class EngineSealTests(unittest.TestCase):
             "sourceRoot": str(self.source_root),
             "sourceInputs": {"example.ss": sha(self.source.read_bytes())},
             "runtimeInputs": {str(resource): sha(resource.read_bytes())}}))
-        from gambit_smp.ascent_runtime import LIBRARY_LOCK
-        (self.root / 'pyproject.toml').write_text((research_kernel.ROOT / 'pyproject.toml').read_text())
-        publication = json.loads((research_kernel.ROOT / LIBRARY_LOCK).read_text())
-        inputs = json.loads(self.receipt.read_text())['sourceInputs']
-        publication.update(extensionSha256=self.extension_sha, sourceInputCount=len(inputs),
-                           sourceInputsSha256=sha(json.dumps(inputs, sort_keys=True,
-                                                            separators=(',', ':')).encode()))
-        lock = self.root / LIBRARY_LOCK
-        lock.parent.mkdir(parents=True)
-        lock.write_text(json.dumps(publication))
 
     def test_no_sdk_environment_is_required_or_recorded(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -721,14 +1290,12 @@ class EngineSealTests(unittest.TestCase):
                 raise ModuleNotFoundError('no installed ASCENT provider; no fallback')
             return types.SimpleNamespace(__file__=str(self.binding / (
                 '__init__.py' if name == 'ascent' else '_core.abi3.so')))
-        entry = Path('gerbil_ascent-0.1.0.dist-info/direct_url.json')
         extension = importlib.metadata.PackagePath('ascent/_core.abi3.so')
         extension.hash = importlib.metadata.FileHash('sha256=' + base64.urlsafe_b64encode(
             bytes.fromhex(self.extension_sha)).decode().rstrip('='))
-        distribution = types.SimpleNamespace(files=[entry, extension],
+        distribution = types.SimpleNamespace(files=[extension],
             locate_file=lambda path: self.root / 'python' / path)
         with patch('ascent.build.runtime_identity', side_effect=lambda: json.loads(self.receipt.read_text())), \
-                patch.object(ascent_runtime, 'ROOT', self.root), \
                 patch.object(ascent_runtime.importlib, 'import_module', side_effect=installed), \
                 patch.object(ascent_runtime.importlib.metadata, 'distribution', return_value=distribution), \
                 patch("gambit_smp.provider_contract.inspect_provider", side_effect=probe_error,
@@ -816,6 +1383,23 @@ class EngineSealTests(unittest.TestCase):
         source.write_bytes(b"independent source mutation")
         with self.assertRaisesRegex(ValueError, 'runtime resource drift'):
             research_kernel.manifest_paths(self.root / "engine")
+
+    def test_portable_seal_survives_archive_transfer_without_inode_authority(self):
+        source = self.generation()
+        manifest = self.seal(portable=True)
+        target = self.generation_target(source)
+        self.assertNotEqual(source.stat().st_ino, target.stat().st_ino)
+        self.assertEqual("copied", manifest["resourceOwnership"]["generations"][
+            target.relative_to(self.root / "engine").as_posix()]["mode"])
+        archive = self.root / "engine.tar"
+        with tarfile.open(archive, "w") as tree:
+            tree.add(self.root / "engine", arcname="engine")
+        with tempfile.TemporaryDirectory() as temporary:
+            with tarfile.open(archive) as tree:
+                tree.extractall(temporary, filter="data")
+            restored = research_kernel.manifest_paths(Path(temporary) / "engine")
+            self.assertEqual(manifest["engineId"], restored["engineId"])
+            self.assertEqual(manifest["files"], restored["files"])
 
     def test_unknown_link_io_error_is_not_silently_copied(self):
         import errno
@@ -932,18 +1516,60 @@ class EngineSealTests(unittest.TestCase):
     def test_static_import_closure_cannot_reach_a_historical_producer(self):
         package = self.root / "package"
         package.mkdir()
-        for name in ("__init__", "research_kernel", "recipes", "native_capabilities", "source_capabilities",
+        for name in (*research_kernel.PROCESS_IMPLEMENTATION, "research_kernel", "recipes", "native_capabilities", "source_capabilities",
                      "evidence_capabilities", "process_observation", "ascent_program", "validation_domains"):
             (package / (name + ".py")).write_text("")
         (package / "recipes.py").write_text("from gambit_smp.source_unit import prepare\n")
         with self.assertRaisesRegex(ValueError, "historical producer reachable"):
             research_kernel.implementation_paths(package)
 
+    def test_static_package_closure_keeps_nested_policy_and_excludes_unrelated_code(self):
+        package = self.root / 'package'
+        package.mkdir()
+        for name in (*research_kernel.PROCESS_IMPLEMENTATION, 'research_kernel', 'recipes', 'native_capabilities',
+                     'source_capabilities', 'evidence_capabilities', 'process_observation',
+                     'ascent_program', 'validation_domains'):
+            (package / (name + '.py')).write_text('')
+        (package / 'recipes.py').write_text('from gambit_smp.gerbil_build import check\n')
+        nested = package / 'gerbil_build'
+        nested.mkdir()
+        (nested / '__init__.py').write_text('from gambit_smp.gerbil_build.cli_tests import check\n')
+        (nested / 'cli_tests.py').write_text('from gambit_smp.framework import digest\n')
+        (nested / 'unrelated.py').write_text('from gambit_smp.source_unit import prepare\n')
+        (package / 'framework.py').write_text('')
+        paths = research_kernel.implementation_paths(package)
+        self.assertIn(nested / '__init__.py', paths)
+        self.assertIn(nested / 'cli_tests.py', paths)
+        self.assertNotIn(nested / 'unrelated.py', paths)
+        (nested / 'cli_tests.py').write_text('from gambit_smp.gerbil_build.sources import source_files\n')
+        (nested / 'sources.py').write_text('')
+        resource = package / 'gerbil_compile_products.ss'
+        with self.assertRaisesRegex(ValueError, 'unavailable static research resource'):
+            research_kernel.implementation_paths(package)
+        resource.write_text('(display "source-owned")\n')
+        for name in ('gerbil_library_order.ss', 'gerbil_semantic_graph.ss',
+                     'gerbil_initialization_view.ss', 'gerbil_static_products.ss'):
+            (package / name).write_text('(display "source-owned")\n')
+        self.assertIn(resource, research_kernel.implementation_paths(package))
+        resource.unlink()
+        resource.symlink_to(nested / 'sources.py')
+        with self.assertRaisesRegex(ValueError, 'unavailable static research resource'):
+            research_kernel.implementation_paths(package)
+        (nested / 'cli_tests.py').write_text('from gambit_smp.source_unit import prepare\n')
+        with self.assertRaisesRegex(ValueError, 'historical producer reachable'):
+            research_kernel.implementation_paths(package)
+        (nested / 'cli_tests.py').write_text('')
+        alias = package / 'alias'
+        alias.symlink_to(nested, target_is_directory=True)
+        (package / 'recipes.py').write_text('from gambit_smp.alias import check\n')
+        with self.assertRaisesRegex(ValueError, 'unavailable static research implementation'):
+            research_kernel.implementation_paths(package)
+
     def test_dependency_projection_uses_source_bytes_not_file_metadata(self):
         import os
         package = self.root / 'package'
         package.mkdir()
-        for name in ('__init__', 'research_kernel', 'recipes', 'native_capabilities',
+        for name in (*research_kernel.PROCESS_IMPLEMENTATION, 'research_kernel', 'recipes', 'native_capabilities',
                      'source_capabilities', 'evidence_capabilities', 'process_observation',
                      'ascent_program', 'validation_domains'):
             (package / (name + '.py')).write_text('')
@@ -1029,6 +1655,26 @@ class ProcessObservationTests(unittest.TestCase):
             self.assertEqual("identity\n", text)
             self.assertEqual("warning\n", (root / "identity.stderr").read_text())
             self.assertEqual(sha(b"warning\n"), context.commands[0]["stderrSha256"])
+
+    def test_ordered_campaign_clock_is_retained_in_the_process_receipt(self):
+        import sys
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+            started = time.monotonic()
+            deadline = started + 5
+            context = recipes.ExecutionContext(root, root, root, {}, deadline, {}, {"engine": {}}, {})
+            context.ordered_stress_clock = dict(runId="campaign", clockEpoch="test-epoch", headerSha256="test-header")
+            context.require("p2-topology-runner", [sys.executable, "-c", "print('PROCESSORS:1')"], root, 5)
+            command, = context.commands
+            checkpoint = json.loads((root / "p2-topology-runner.process.json").read_text())
+            clock = command["campaignClock"]
+            self.assertEqual(clock, checkpoint["campaignClock"])
+            self.assertEqual("campaign", clock["runId"])
+            self.assertEqual(deadline, clock["deadlineMonotonic"])
+            self.assertLessEqual(started, clock["startedMonotonic"])
+            self.assertLessEqual(clock["startedMonotonic"], clock["endedMonotonic"])
+            self.assertLessEqual(clock["endedMonotonic"], deadline)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,81 @@
+#+TITLE: RC storage release — benefit, issuer and closure matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitRcRootRelease
+:END:
+Safety-model closure does not certify native caller coverage, C23 execution or performance.
+
+** Gain
+
+| key | saved | added | condition | status |
+|---+---+---+---+---|
+| normal-node-grace | 0 extra whole-GC barriers per admitted node; reuse existing gate | existing gate serialization remains; no speedup measured | synchronous scan; source admission closed; no escaping RC slot | source-bound/conditional |
+| last-borrow | no second per-node borrow census; existing refcount includes borrow | balanced ownership proof and bounded counters | borrow increments and return decrements same node | source-bound |
+| domain-retirement | avoid waiting for unrelated domain borrowers on a single-node release | whole-domain reader/task/owner census still required | node receipt never authorizes gate destruction | unresolved-native |
+| unknown-free | 0 speculative retry frees; 0 GC scans of detached possibly freed storage | O(K) stable records and retained origin holds for K unresolved operations; potentially unbounded retention | pre-reserved independent metadata; authoritative operation reconciliation | conditional-model |
+| legacy-retirement | 0 current runtime paths retired by this research | future typed release adapter and managed source acquisition | all caller and bulk-cleanup refinements pass | design-only |
+
+** Issuer
+
+| key | source | signature | gap |
+|---+---+---+---|
+| source-owner | tcl | source admission closed before header load; existing acquisitions drained | raw ClientData acquisition closure unresolved |
+| rc-domain | unlink | release_rc_locked / return_rc_root: same-gate final zero and unlink; proposed stable record commit | current Boolean is not persistent receipt |
+| scan-authority | copy | mark_rc normal return: completed slot accesses; exported-slot closure needs separate issuer | diagnostic and override reader closure unresolved |
+| origin-service | allocator | proposed release service: original allocator family and one-use OperationId; FREE_MEM return alone is local | free completion receipt is a native premise |
+| roster-owner | root-task | proposed roster authority: pre-claim readers and descendants drained before cleanup_rc gate destruction | whole-domain census unresolved |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| node-safety | conditional-model | same gate; bounded balanced references; managed source acquisition; no escaping normal slot |
+| alias-closure | unresolved | all exported slots, diagnostic overrides and raw FFI readers enrolled or denied |
+| domain-grace | unresolved | pre-claim readers, root tasks, descendants and external owners drained or handed off |
+| native-free | unresolved | non-abandoning capture or authoritative same-operation receipt; never blind retry |
+| c23-refinement | unresolved | gate implementation, release/acquire, source lifetime and native widths qualified |
+
+** Route
+
+| actionName | lemma | source | obligation |
+|---+---+---+---|
+| acquireBorrow | RcRootRelease.acquireBorrowPreserves | unlink | node-safety |
+| exportAlias | RcRootRelease.exportAliasPreserves | unlink | node-safety |
+| closeSource | RcRootRelease.closeSourcePreserves | unlink | node-safety |
+| dropOwner | RcRootRelease.dropOwnerPreserves | unlink | node-safety |
+| returnBorrow | RcRootRelease.returnBorrowPreserves | unlink | node-safety |
+| returnAlias | RcRootRelease.returnAliasPreserves | unlink | node-safety |
+| beginScan | RcRootRelease.beginScanPreserves | scan | node-safety |
+| endScan | RcRootRelease.endScanPreserves | scan | node-safety |
+| enterReader | RcRootRelease.enterReaderPreserves | root-task | node-safety |
+| exitReader | RcRootRelease.exitReaderPreserves | root-task | node-safety |
+| unlinkAndPermit | RcRootRelease.unlinkAndPermitPreserves | unlink | node-safety |
+| beginFree | RcRootRelease.beginFreePreserves | allocator | node-safety |
+| loseFreeResult | RcRootRelease.loseFreeResultPreserves | allocator | node-safety |
+| backendReceipt | RcRootRelease.backendReceiptPreserves | allocator | node-safety |
+| settleFree | RcRootRelease.settleFreePreserves | allocator | node-safety |
+| retireDomain | RcRootRelease.retireDomainPreserves | root-task | node-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| scan | vendor/gambit/lib/_mem/rc-roots.inc | ___SPINLOCK_LOCK(context->mem.rc_gate_); | entire normal list scan under same gate |
+| unlink | vendor/gambit/lib/_mem/rc-allocation.inc | if (--h->refcount != 0) return 0; | zero reference under gate; not stable receipt |
+| free | vendor/gambit/lib/_mem/rc-allocation.inc | if (reclaim) ___FREE_MEM(h); | native free after unlock |
+| borrow | vendor/gambit/lib/_mem/rc-allocation.inc | ___SCMOBJ *___borrow_rc_root | pins storage and contributes to refcount |
+| cleanup | vendor/gambit/lib/_mem/rc-allocation.inc | ___SPINLOCK_DESTROY(___ps->context->mem.rc_gate_); | whole-domain teardown is stronger than node unlink |
+| copy | vendor/gambit/lib/_mem/copy-reservations.inc | work->tail_cell_ = cell; | normal Tail points to destination payload; inspect assignment chain |
+| diagnostic | vendor/gambit/lib/_mem/copy-reservations.inc | invalid_copy_cell = cell; | exceptional source address escape; no recovery qualification |
+| root-task | vendor/gambit/lib/_mem/collection-round.inc | context = task->origin->context; | pre-claim context load must be covered |
+| bank | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(void,___end_sfun) | borrow return then owner release |
+| tcl | vendor/gambit/examples/tcltk/tcltk.scm | scheme_delete_cmd | separate Scheme payload and native storage obligations |
+| allocator | vendor/gambit/lib/os_base.c | free (ptr); | origin-matched provider; backend result receipt remains premise |
+| origin-model | dev/refactoring/modern-c/models/quint/darwin_target_lease.qnt | action beginOriginFree= | existing model lacks explicit root-storage precondition |
+| gate-selection | vendor/gambit/include/_gambit/gvm_operations.h.in | #define ___SPINLOCK_LOCK(lock) ___TICKETLOCK_LOCK(lock) | no-thread, mutex and ticketlock branches; effective atomic backend unresolved |
+| word-atomics | vendor/gambit/include/_gambit/activity_log.h.in | #define ___WORD_LOAD_ACQUIRE(p) __atomic_load_n(p,__ATOMIC_ACQUIRE) | GCC/Clang builtin branch versus fallback; not effective C23 _Atomic qualification |
+| still-order | vendor/gambit/lib/_mem/memory-lifecycle.inc | prepare_rc_cleanup (___ps); | prepare before still-object freeing and RC teardown |

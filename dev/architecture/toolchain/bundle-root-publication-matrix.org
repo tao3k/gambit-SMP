@@ -1,0 +1,71 @@
+#+TITLE: Bundle Root Coverage, Memory Order and Publication Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: bundle-root-publication-matrix
+:AUTHORITY: BundleRootPublication
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** Root
+
+| key | anchor | condition |
+|---+---+---|
+| scheme-roots | mem.c:6511-6537,6591-6645,6852-6858 | Scheme global/continuation/register/saved roots are actual scan paths; service-owned root graph must remain in their qualified closure |
+| rc-scope | mem.c:277,306,723-739,3969-3986,6845-6849 | RC list is per processor but inspected strong phase invokes mark_rc only at processor 0; arbitrary worker RC coverage remains unqualified |
+| rc-mutation | mem.c:760-825 | RC retain/release and data assignment are plain operations; do not treat them as thread-safe handle leases or immutable publication |
+| allocator | mem.c:1487-1497,1647-1648,1742-1813 | Native still allocation may GC/fail; initialize body before next allocation; native pair/vector input constraints forbid arbitrary movable arguments |
+| ffi-gap | c_intf.c:6511-6546 | Real stack-marker creator allocates before assigning proc_or_false and carries a GC-protection TODO; copying this order does not prove candidate input safety |
+
+** Publication
+
+| key | anchor | condition |
+|---+---+---|
+| root-store | proposed service; mem.c:6591-6645 | Service Scheme root graph and future VM-scoped root registry must cover bundle graph/receipts; native descriptor carries identity not raw movable address |
+| reserve-initialize | mem.c:703-719,1487-1497 | Reserve empty scanned slot, protect allocation inputs, initialize each new object before next GC-capable step, then attach through qualified slot store |
+| release-acquire | gambit.h.in:11014-11026; proposed contract | Release publication/acquire observation orders native metadata; separate scanner/lifetime proof still required |
+| pin-retire | proposed contract; mem.c:760-791 | Read descriptor and acquire its lifetime lease under same retirement gate; load then addref is a reclaim gap |
+| fallback | os_thread.c:715-735,788-794; gambit.h.in:11054-11082 | Emulated CAS uses mutex but barrier fallback is empty; sequential branch is not concurrent publication qualification |
+
+** Route
+
+| key | anchor | qntAction | leanLemma | condition |
+|---+---+---+---+---|
+| candidate | mem.c:1487-1497,1742-1813 | initialize | initializedBeforePublish | Input roots precede allocation and complete initialization precedes next collection; failure keeps old authority |
+| scan | mem.c:3969-3986,6591-6645,6845-6858 | collect | gcKeepsRoot | Selected root slots scanned and updated for exactly the owner VM; no unsupported worker RC shortcut |
+| publish | gambit.h.in:11014-11026; proposed seam | publishBundle | receiptCommit | Root transfer and bundle/index/receipt publication form one protocol cut before acknowledgement |
+| borrow | mem.c:760-791; proposed seam | borrow | gateBlocksRetire | Acquire native handle plus root lifetime under gate; GC-aware dereference resolves relocated slot |
+| unwind | c_intf.c:6511-6546; _thread.scm:4623-4639 | abortCandidate | abortKeepsAuthority | Failed/unknown/captured attempts preserve root holders; restoration cannot undo committed receipt |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| shared-root-graph | Per-consumer duplication of identical immutable compiler input graphs | Scanned root store, handles, retired snapshots and leases | Actual avoided copying must exceed root/index/retention overhead; roots alone are correctness, not speedup |
+| independent-contexts | Global cross-context serialization after ownership migration | VM/root domain identity, reader gates and qualified participant mapping | Independent ready work must exceed coordination; current nonzero RC coverage not assumed |
+| failure-recovery | Reexecuting qualified macro work to recover a committed result | Exact receipt retention, root custody and authoritative resolution | No effect rollback/retry on unknown commit; retention and unresolved tasks can negate gains |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| allocation | reserveRoot;allocateCandidate;initialize | initializedBeforePublish;abortKeepsAuthority | Actual allocation/root/map/error refinement including uninitialized-object interval |
+| collection | collect;dereference | gcKeepsRoot;handleResolution | GC relocation and selected scanner domain; no raw address retention across safepoints |
+| publication | publishBundle;borrow;retireOld | receiptCommit;gateBlocksRetire;releaseAcquirePremise | Real C happens-before plus retirement/root scanning participation |
+| control | loseAck;saveCandidate;resumeAfter | retainedCustody;noRollback;costPositive | Native/continuation roots, unknown owner and measured work/span/memory |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| root-domain | False | Every service/FFI/worker holder assigned to a live scanned VM root domain |
+| init-source | False | Allocation input protection, object initialization and failure cleanup source refinement |
+| c-memory | False | Release/acquire/gate protocol proven for actual configured sync branch |
+| relocation | False | GC-aware slot resolution and root registration/retirement synchronization |
+| continuation | False | Saved PCs, native borrowers, unknown result and root retirement closure |
+| retirement | False | Old RC/global/mutable bundle authorities retired only after all consumers migrate |
+| platform | False | Host attestation, native qualification and measured benefit remain independent |

@@ -5,7 +5,7 @@
 The rebuilt parent passed target-lock release but failed both normal and
 exceptional registered result-owner cases: mutex acquisition returned `#t`
 instead of an abandoned exception. The exact native denial is retained under
-`evidence/source-results/fixtures/sfun-owned-unwind/ended-interrupt-result-abandon-denial`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/sfun-owned-unwind/ended-interrupt-result-abandon-denial`.
 
 The extended QNT model now independently rejects leaked target lock, omitted
 owned-mutex abandonment and lost abandoned-result exception. Positive safety

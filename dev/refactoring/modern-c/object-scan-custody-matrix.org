@@ -1,0 +1,131 @@
+#+TITLE: Object Scan Custody — Closure and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitObjectScanCustody
+:STATUS: abstract-induction-closed; source-and-c11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| packed-state | vendor/gambit/lib/mem.c | int shift = 2*(pos % (___WORD_WIDTH/2)); | Per-object coordinate maps to two bits; distinct objects share atomic word |
+| atomic-observe | vendor/gambit/lib/mem.c | ___WORD old = ___COMPARE_AND_SWAP_WORD(cell,0,0); | One initial CAS observation per transition call, including duplicate returns |
+| masked-cas | vendor/gambit/lib/mem.c | (cell,old,(old & ~mask) | | CAS failure retries from observed entire packed word; adjacent bits preserved |
+| ready | vendor/gambit/lib/mem.c | change_object_scan_state(work,header,GC_SCAN_UNPUBLISHED,GC_SCAN_READY) | READY publication follows payload writes; does not settle Tail |
+| ordinary-publish | vendor/gambit/lib/mem.c | publish_object_scan (work, copy_header); | Ordinary copy completion precedes READY; frame caller separately enumerated |
+| copy-tail | vendor/gambit/lib/mem.c | if (cell != 0) goto again; | First field remains copier owned after object readiness and possible chunk publication |
+| scan-own | vendor/gambit/lib/mem.c | (work,body-1,GC_SCAN_READY,GC_SCAN_OWNED); | First successful state transition authorizes graph-field scan |
+| duplicate | vendor/gambit/lib/mem.c | return words; /* no field mutation; the first owner carries debt */ | Duplicate returns no object ownership and cannot discharge first scanner |
+| done | vendor/gambit/lib/mem.c | change_object_scan_state(work,body-1,GC_SCAN_OWNED,GC_SCAN_DONE) | DONE follows subtype field scanner; derived chunks may remain |
+| generic-pair | vendor/gambit/lib/mem.c | #define scan_and_advance(ptr, head) scan_no_fast_path(ptr, head) | Both pair and generic consumers pass the object authorization |
+| tail-exclusion | vendor/gambit/lib/mem.c | mark_array (work, body+1, words-1); | Ordinary movable low-subtype scan excludes copier-owned first field |
+| chunk-publish | vendor/gambit/lib/mem.c | heap_chunks_to_scan_tail = new_tail; | FIFO content/link and tail visibility under lock and barriers |
+| chunk-dequeue | vendor/gambit/lib/mem.c | scan_complete_heap_chunk (work, ptr+1); | Queue head transfer precedes synchronous scan; active carrier retains call stack |
+| last-idle | vendor/gambit/lib/mem.c | if (--(*workers_count) == 0) | Only last decrement decides phase termination; no object-DONE shortcut |
+| reset | vendor/gambit/lib/mem.c | memset (ms->base + ___MSECTION_SIZE, 0, | One round reset requires previous readers and owners drained |
+| trailer | vendor/gambit/include/gambit.h.in | #define ___msection_scan_words(n) | Two bits per destination word allocated for half-section |
+| sync-branch | vendor/gambit/include/gambit.h.in | __sync_val_compare_and_swap(p,oldval,newval) | GCC legacy builtin branch; effective Darwin selection not certified |
+| frame-link-write | vendor/gambit/lib/mem.c | ptr = &___FP_STK(alloc,link+1); | Next iteration can update previous ready frame link; publishability/interference needs proof |
+| weak-phase-entry | vendor/gambit/lib/mem.c | traverse_weak_refs = 1; | Object DONE persists into weak processing; prove later phase field obligations use explicit weak consumers before treating attempts as duplicates |
+
+** Contract
+
+| fromNode | toNode | custody | c11 | premise |
+|---+---+---+---+---|
+| initialize | READY | payload publication | release READY / acquire successful claim | Payload stores before readiness; forwarding alone insufficient |
+| READY | OWNED | one object scan owner | atomic whole-word masked CAS | Queue task ownership is not object scan authority |
+| OWNED | duplicate-return | retain first call frame | no ownership clear on mismatch | An OWNED loser may return while winner and descendants remain active |
+| OWNED | DONE | own subtype field footprint | release completion only after field accesses | DONE excludes copier Tail and unscanned descendants |
+| DONE | local-drain | retain derived work | active carrier remains until local queues/frontiers settle | DONE is not an idle or reclamation receipt |
+| local-drain | idle | local no-debt condition | all last uses before mutex-protected decrement | All real producers must be roster-covered |
+| idle | phase-terminal | zero active with closed input | one termination synchronization domain | Weak round and cleanup are distinct |
+| copier-Tail | local-drain | separate first-field ownership | scanner and Tail footprints disjoint or synchronized | Frame link fixups remain an unresolved non-Tail writer |
+| reset-cut | initialize | new round identity | quiescence before plain memset; no late stale task | Single-epoch model does not prove reset/ABA exclusion |
+| READY | chunk-queued | initialized chunk publication | release visibility before queue read | READY alone does not transfer queue custody |
+| chunk-queued | chunk-claimed | dequeue transfers task custody | FIFO lock then active scan frame | Chunk may contain several object identities |
+| chunk-claimed | OWNED | claim object authority | acquire successful object CAS | Queue and object identities are independent |
+| initialize | copier-Tail | reserve first field | footprint disjointness or synchronization | Tail can remain after READY and DONE |
+| duplicate-return | local-drain | settle occurrence only | original owner remains counted | No release of original object frame or child debt |
+
+** Obligation
+
+| key | status | scope |
+|---+---+---|
+| finite-custody | proved-in-model | Twenty projected atomic actions preserve Safe; induction covers arbitrary finite action histories |
+| duplicates | proved-in-model | One object two occurrences; loser leaves first owner and child debt unchanged |
+| terminal-zero | proved-in-model | Closed input plus zero active implies DONE and no copier Tail or child debt under modeled custody |
+| projection | conditional-checked | Actual typed IR guards updates invariant initial and step roster projected; JSON parser/emitter trusted |
+| real-task-roster | open | All private frontiers chunks synchronous frame stacks and derived producers; arbitrary task counts not refined |
+| frame-post-ready-write | open | Previous captured-frame link may be fixed after READY; legal concurrent queue visibility not proved or ruled out |
+| c11-source | open | Effective config atomic storage lockless prechecks and reset lifetime need source-to-C11 simulation |
+| epoch-and-progress | open | Packed-state reuse late tasks fault/exception paths and lost-wakeup/fairness outside single-round model |
+| phase-footprint | open | Strong and weak rounds share object scan states; later-phase required work must be discharged by process_wills and other specialized consumers before DONE suppression is equivalent |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| duplicate fields | At most D redundant field scans for D duplicate occurrences | D additional state lookups and one observation CAS call each absent interference | Savings only after actual duplicate source/footprint qualification; no throughput claim |
+| unique object cost | One authorized field scan per object | Three state transitions; six CAS API calls plus three section lookups absent retries | Compare equally correct structural task uniqueness; object bitmap is not automatically necessary |
+| scan metadata | No object header or frame coordinate expansion | ceil(ceil(n/2)/(B/2)) words per section plus round clearing; two-bit trailer | For aligned even sections and B=64: 1/64 full payload bytes; relative active half 1/32 |
+| counter fusion | Avoid a second independent publisher counter | Retain copier owner call frame child work and final idle coverage | Every source producer synchronous and covered; no new physical-worker failure tolerance |
+| modern C choice | Explicit ownership shared across pair/generic consumers | C11 atomics generation reset footprint and native proof remain | No Zig-specific saving established; code-generation language does not prove GC closure |
+| typed atomic observation | Replace six CAS API calls per unique object with three loads plus three transition CAS on no-retry path | Explicit atomic storage and observation success/failure ordering; retries remain | Proposed modern C service only; global legacy CAS macro replacement is inadmissible |
+| validated scan coordinates | Potentially remove repeated 3U+D section lookups | Section epoch header bounds trailer mapping and queue-transfer validation | Allocator and chunk producer issue coordinates; stale coordinate refusal required |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| forward | forwardPreserves | Projected full guard and update; native source simulation open |
+| initializeCopy | initializeCopyPreserves | Projected full guard and update; native source simulation open |
+| publishReady | publishReadyPreserves | Projected full guard and update; native source simulation open |
+| publishBatch | publishBatchPreserves | Projected full guard and update; native source simulation open |
+| duplicateTask | duplicateTaskPreserves | Projected full guard and update; native source simulation open |
+| closeInputs | closeInputsPreserves | Projected full guard and update; native source simulation open |
+| finishTail | finishTailPreserves | Projected full guard and update; native source simulation open |
+| claim0 | claim0Preserves | Projected full guard and update; native source simulation open |
+| claim1 | claim1Preserves | Projected full guard and update; native source simulation open |
+| own0 | own0Preserves | Projected full guard and update; native source simulation open |
+| own1 | own1Preserves | Projected full guard and update; native source simulation open |
+| skip0 | skip0Preserves | Projected full guard and update; native source simulation open |
+| skip1 | skip1Preserves | Projected full guard and update; native source simulation open |
+| done0 | done0Preserves | Projected full guard and update; native source simulation open |
+| done1 | done1Preserves | Projected full guard and update; native source simulation open |
+| drain0 | drain0Preserves | Projected full guard and update; native source simulation open |
+| drain1 | drain1Preserves | Projected full guard and update; native source simulation open |
+| idle0 | idle0Preserves | Projected full guard and update; native source simulation open |
+| idle1 | idle1Preserves | Projected full guard and update; native source simulation open |
+| terminate | terminatePreserves | Projected full guard and update; native source simulation open |
+
+** Composition
+
+| key | lemma | scope |
+|---+---+---|
+| induction | reachableSafe | Reachability closure for entire projected step roster |
+| final-cut | finalZeroImpliesNoDebt | No omniscient pending-work guard in terminate |
+| done-boundary | doneNotGlobalClosure | Counterexample to treating DONE as whole closure |
+
+** Seam
+
+| producer.moduleId | consumer.moduleId | contract | modelNeed |
+|---+---+---+---|
+| roots | collector | frozen roots produce copying work | OSC-source |
+| collector | collector | copy/chunk/object/Tail custody | OSC-history |
+| collector | control | phase idle and closed producer roster | OSC-induction |
+| collector | native | atomic packed storage and reset | OSC-platform |
+
+** Proof routing
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| OSC-history | interleaving | dev/refactoring/modern-c/models/quint/object_scan_custody.qnt | One object two tasks two workers one scan phase within a GC round and child debt |
+| OSC-induction | induction | dev/refactoring/modern-c/models/lean/ObjectScanCustody.lean | All twenty projected steps invariant preservation and reachable-state induction |
+| OSC-projection | restricted-projection | dev/refactoring/modern-c/models/lean/ObjectScanAst.lean | Actual typed IR scalar subset; trusted parser and emitter |
+| OSC-source | source-refinement | dev/refactoring/modern-c/object-scan-custody-design.org | Source task and field-footprint refinement unresolved |
+| OSC-platform | c11-refinement | dev/refactoring/modern-c/object-scan-custody-design.org | Effective C11 atomics and reset/drain unresolved |

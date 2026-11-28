@@ -1,0 +1,868 @@
+#+TITLE: Bulk Runtime Interface Contract
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+CATEGORY: modern-c
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never :tangle no
+#+COLUMNS: %42ITEM %22AUTHORITY %24STATUS
+
+* RESEARCH One implementation packet :runtime:gc:roots:control:
+:PROPERTIES:
+:CUSTOM_ID: bulk-runtime-interface
+:AUTHORITY: GambitSharedHeapSmp / bulkRuntimeInterface / root-freeze-handoff
+:STATUS: candidate-interface; implementation-and-native-open
+:NATIVE_ADMITTED: false
+:PROGRESS_DELTA: 0
+:END:
+
+#+NAME: bulk-runtime-interface-contract
+The [[file:models/sysml/shared-heap-smp.sysml][native SysML composition]] owns call-boundary identities, guards, source
+bindings and existing receipt-role dependencies. This packet specifies the
+private C23 interfaces those boundaries require. Names/layout below are candidate
+implementation notation, not existing exports, a public ABI, a second runtime,
+a new configuration layer or generated code. Code blocks never tangle or run.
+The [[file:sharing-and-heap-domains.org::#bulk-sync-root-delivery][source refinement]] owns the evidence and limitations.
+
+Complete unit: restricted synchronous core/postlude, real bulk-purpose root
+writes, target prepare/install/query/ACK, purpose-aware exit and next-round scan.
+Preserve ordinary entry names, their effects and original Scheme fill/multi-shot
+semantics. All five joint gates remain OPEN; this packet does not authorize a
+runtime commit or native readiness.
+
+* RESEARCH Data and authority ABI
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-data
+:END:
+
+One existing lifecycle-owned bulk operation retains one registered original span
+and at most one unresolved target intent. A caller holds a real VM/operation
+lifetime reference before dereferencing either; no query by arbitrary stale
+pointer is admitted. Extend the existing purpose discriminator and its consumers;
+never borrow a SFUN/STARTUP kind, and create no independent global ID table.
+
+#+NAME: bulk-interface-records
+| Conceptual record | Required fields / ownership | Prohibited contents or inference |
+|-------------------+-----------------------------+----------------------------------|
+| bulk_ref | Held VM incarnation and operation storage lease; exact operation incarnation; lifetime valid before dereference | Bare pointer+generation is not a safe lookup or proof old readers stopped |
+| bulk_key | Operation incarnation, one target-attempt incarnation, canonical input revision | GC placement/round epoch is not semantic input revision; increment only with checked no-wrap/reuse rules |
+| bulk_roots | Registered RC pointer and immutable count; source, destination, chunk input and any reserved error/effect slots | Native progress/opaque pointers are not SCMOBJ root slots; no shortening count to hide uncertainty |
+| bulk_control | Real BULK purpose, current source identity, direction/ranges, known progress, input/effect/edge states, active physical spans and last users | A completed cursor is not physical write-stop, whole-round resume or authority for another continuation shot |
+| target_intent | Key, actual target source, publication state, owned target-span reference if known, refused/unknown status, ACK state | No retry with a second possible target while the first outcome is unknown |
+| sync_outcome | Exact request result/consumption, round/restore outcome, first error disposition and delivery owner, cleanup disposition | No unrooted moving error/result in native metadata; request NOOP does not mean effects delivered |
+| cleanup_observation | Owner-affine effect identity, pending/inflight/uncertain/known result, provider/resource lifetime | Cleared FOREIGN fields and nested drain success do not prove callback completion |
+
+The copy span has 2+b+e root slots: two endpoints, b input capacity and e reserved
+root-bearing pending values. Check every addition and byte multiplication before
+allocation; unused cells remain FAL. A moving pending value is accessed through
+its canonical slot after GC. A proved immediate error code may use native storage,
+but this classification must be established for its actual producer.
+
+Candidate result vocabulary, shared by the private operations:
+
+#+begin_src c
+/* Interface notation only: not an implemented or exported ABI. */
+enum bulk_result {
+  COMMITTED,          /* exact declared postcondition is durable */
+  REFUSED_NO_EFFECT,  /* this requested transition had no effect */
+  IN_PROGRESS,        /* accepted; named custodian still owns it */
+  UNKNOWN,            /* some declared effects may have happened */
+  STALE               /* key/authority mismatch; grants no access */
+};
+#+end_src
+
+REFUSED_NO_EFFECT concerns the named transition, not earlier completed chunks or
+a prior target allocation. UNKNOWN preserves original and possible target custody.
+STALE does not establish absence or permit recycling. The operation-specific
+postcondition below defines COMMITTED; it never means all aspects are complete.
+
+* RESEARCH Private operations and linearization
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-operations
+:END:
+
+The names are implementation sketches within existing setup/RC/lifecycle owners.
+They create no extra dispatcher or namespace. Preserve public/ordinary entry
+names; any new private helper must implement one of these responsibilities.
+All operations receive a held bulk_ref and validate actual purpose/key/lifetime.
+
+#+NAME: bulk-interface-operations
+| Private operation / candidate signature | Required input / authorization | Linearization and return meaning | Failure / unknown custody |
+|-----------------------------------------+--------------------------------+----------------------------------+---------------------------|
+| execute_sync_op_core(ps, sop, first_iter, outcome_sink) | Complete frame/root view, no raw physical span; sink and pending-value roots preexist; all required VM collectives remain participatory | Core records request consumption and accepted memory/restore outcome without running the effect postlude; COMMITTED is core result publication only | Preserve matching request result and first pending error; lost return cannot trigger reexecution of effectful VM work |
+| deliver_sync_postlude(ps, outcome, held_ref) | Restored roots and a permitted effect boundary; actual error recipient/cleanup affinity; no live raw bulk pointer | Preserves ordinary drain-then-designated-throw behavior; records effect disposition separately | UNKNOWN retains in-flight effects/resources and error roots; never retry callbacks or clear uncertainty automatically |
+| store_rc_root(ps, span, index, value, real_purpose_authority) | Common source gate/phase/index/lifetime checks; validated SFUN or real BULK branch; value rooted over earlier collecting work | One typed slot write inside admitted noncollecting span; existing SFUN callers preserve their checks | Reject before slot store on mismatched purpose/source/index; caller retains roots; a borrow count grants no purpose |
+| lifecycle_bulk_prepare(target_ps, held_ref, key, count) | Target's actual owner; checked capacity; one published intent and owned metadata before fallible work | Separate FAL-initialized target allocation/registration becomes owned by intent; COMMITTED means PREPARED, not input installation | Known refusal/no-allocation distinct from unresolved native allocation; no target leak/retry guessed away |
+| lifecycle_bulk_install(target_ps, held_ref, key, source_view) | Known source data closure, canonical rooted source view, real target write authority; qualified between-round cut and stable target membership | All endpoint/input/error cells and exact revision committed under exclusion; publish target commit after payload; COMMITTED permits a matching ACK guard | Partial valid target stays owned; original remains authoritative until complete known protection; no destructive copy replay |
+| lifecycle_bulk_query(held_ref, key, observation_out) | Held VM/operation/query lifetime; status-only access | Consistent native status snapshot distinguishes prepared/partial/installed/ACKed/refused/unknown/stale | No Scheme payload values, body addresses or write grants returned; uncertainty retains both possibilities |
+| lifecycle_bulk_ack(source_ps, held_ref, key, target_commit) | Complete known target protection in every overlapping/future GC prefix, old data closure, protected source/target membership and old users | Records exact transfer of root obligation to target; COMMITTED is ACK recorded, not physical source free | Lost ACK is queried idempotently; source roots/record remain until ACK and separate last-use guards are known |
+| lifecycle_bulk_settle_exit(ps, held_ref, exit_reason) | Known old physical writers/helpers stopped; exact effect/result state and native-return/affinity constraints | Resolve before-write abort, known completed result or explicit retained transfer; COMMITTED exit permission only after roots/effects/users close | IN_PROGRESS/UNKNOWN retain custodian and source/PSTATE dependencies; no generic terminal free or false stop from join failure |
+
+These are required private call contracts, not final header prototypes. ps means
+the actual admitted executor for that operation; target_ps must be current target
+owner. Stopped-source reads need separately authorized source-maintenance access;
+passing an old owner's PSTATE cannot manufacture it. No listed operation waits
+for GC/owner/callback while holding a source gate or operation metadata lock.
+
+The implementation must update all current internal callers of changed signatures,
+including generated SFUN support, setup sync callers and terminal activation
+consumers; it must not maintain an unchecked old bulk path through an alias.
+Current ordinary Scheme/native names and build entry points remain intact.
+
+* RESEARCH Publication, locking and partial commit
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-publication
+:END:
+
+Use a metadata guard owned by the existing lifecycle operation, with lifetime
+through its last query/helper; a dedicated operation mutex is an allowed concrete
+choice and a charged cost. Reusing an existing guard requires the same lifetime
+and ordering. No global registry, fixed magic admission capacity or new executor
+is needed. The guard cannot be destroyed with the original PSTATE while its
+record remains queryable.
+
+Lock order: operation metadata guard before pinned source/target RC gates in one
+documented total order. Allocation, GC, callbacks and waits occur outside this
+locked section. Scanner takes its source gate and never acquires operation guard.
+Any physical-span closure fact consumed by source freeze is published under that
+source gate; do not make freeze depend on acquiring locks in the reverse order.
+Root-array writes and metadata commit have one guarded publication span; consumers
+outside those locks require a real release/acquire and independent lifetime.
+
+1. Publish one target intent in the held operation before enqueuing/preparing.
+   It retains original source and target-attempt lifetime. Reserve its control
+   metadata before any destructive or fallible target step.
+2. Initialize valid FAL cells, publish the owned target pointer and register under
+   target source exclusion. Allocation-to-result-publication has a real native
+   interruption boundary: if the allocator result is lost before it is recorded,
+   the intent stays UNKNOWN. A Scheme-nonreentrant window is not a proof against
+   arbitrary OS death. Recovery needs an actual allocator/known-stop witness;
+   do not fabricate absence or allocate a replacement target.
+3. Fill target slots using admitted typed writes; partial prefix remains valid,
+   root_count fixed. Inputs are read from qualified canonical source slots, not
+   stale pre-GC body addresses. Parent/source roots remain held.
+4. Publish installed revision only after complete payload and operation ownership.
+   Do not publish COMMITTED first and fill later. A lost return is resolved through
+   the same intent; query pins exist before metadata dereference.
+5. ACK applies only to that installed revision and its complete coverage guard.
+   Old root clearing and reference release occur later under their own write/last-
+   use admission. An ACK retry does not clear roots twice or repeat payload writes.
+6. Retire/reuse intent and its identity only after source removal, query/helper
+   users and all possible old grants settle. A known failed attempt may be replaced
+   only after its cleanup/absence and last use are known. Unknown attempts remain
+   the same attempt; checked incarnation arithmetic never wraps through live users.
+
+Physical write permission is scoped to one actual span. Closing admission rejects
+new late accesses; already granted raw accesses must really return/stop. An old
+writer cannot be revoked merely by changing a generation. An interrupted overlap
+write needs complete saved chunk input and exclusive repair authority after known
+stop; until then retain source, destination, staging and scan restrictions.
+
+* RESEARCH Restricted postlude and pending values
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-postlude
+:END:
+
+Extract the existing core; keep execute_sync_op_loop/service_sync_op/on_all_processors
+ordinary effect delivery semantics. The bulk caller uses the core with a held
+purpose-bound outcome sink and performs postlude only at its admitted semantic
+boundary. Core participation still handles pending resize/control operations;
+retirement eligibility remains constrained by real bulk/native-return obligations.
+No environment variable or runtime configuration profile selects this policy.
+
+The outcome carries four independent facts: request consumed/result known,
+whole memory/restore accepted, first error pending/delivered and cleanup
+pending/inflight/uncertain/settled. Preserve existing arbitration and designated
+error delivery, including cleanup-before-throw for ordinary callers. Store a
+potential moving pending error in reserved typed roots before another collection.
+Passing a raw SCMOBJ in unscanned outcome metadata is not accepted.
+
+Deferring postlude retains actual queue/error/resource ownership and an eventual
+permitted owner scheduling path. It does not suppress GC notification, user jobs
+or foreign release. release_foreign clears shell fields before invocation, so
+cleanup result comes from saved invocation identity and known return. Nested drain
+is not settled. Unknown callback effect is retained and never replayed.
+
+No new Scheme callbacks/call/cc capture points may appear inside native bulk
+physical work. Existing Scheme fill polls retain their control behavior. If a
+future effectful checkpoint is admitted, its progress must respect each Scheme
+shot, not share one consumed cursor that skips later multi-shot execution.
+
+* RESEARCH ACK, owner retirement and next-round GC
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-coverage
+:END:
+
+#+NAME: bulk-interface-coverage-guard
+| Guard at source ACK | Actual implementation obligation |
+|---------------------+----------------------------------|
+| Target content | Complete canonical endpoint/input/error slots and exact committed revision; no FAL-membership substitute |
+| Source inclusion | Registered target in a live surviving same-VM RC domain captured by root_round_begin |
+| Membership lifetime | Target source/context/operation cannot retire before its roots transfer again or finish; query/native last users remain protected |
+| Cut exclusion | Between-round transfer or separately qualified overlapping coverage; retain old admitted source during a preexisting frozen round |
+| Old data closure | Every prior source/destination writer/helper known stopped; separate from ACK itself |
+| Source removal | Clear/drop original roots only after recorded ACK and old last-user closure; generic terminal activation loop dispatches actual purpose |
+
+After ACK, the real consumer is root_round_begin -> freeze -> publish worker
+assignment -> strided claim/scan/finish -> mark_rc over data/root_count -> complete
+round/restore. It must cover the target when W<R and after original owner has
+actually exited. ACK does not require this future GC to have run already; it
+requires continuous protection across every cut that could precede it.
+
+The target query/ACK API must not expose a current C return-stack pointer as a
+permanent identity. Native-return and effect-affinity constraints remain separate
+from root movement. No qualified surviving target means retained original
+custody/refused exit. Final VM teardown cannot detach live Scheme staging into
+RC_DETACHED byte storage. Arbitrary unknown owner death remains unqualified.
+
+* RESEARCH Acceptance and benefit/cost matrix
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-acceptance
+:END:
+
+#+NAME: bulk-interface-acceptance
+| Whole group | Required actual implementation tests | Rejection / retained evidence |
+|-------------+--------------------------------------+-------------------------------|
+| Purpose and ABI | All positive-index writers use real SFUN/BULK authorities; wrong purpose/source/index/incarnation; ordinary entry and Gerbil consumers preserved | Internal invalid grants reject before effects; no unchecked alias path |
+| Core/postlude | GC+resize+two errors+cleanup success/error/nesting; original ordering/recipient, deferred roots and later permitted delivery | No callback inside physical span, no masked collective or silently lost pending value |
+| Target partial commit | Allocation/registration/fill/commit/ACK interruption and lost responses at each boundary; exact same intent query | UNKNOWN never becomes absent/refused by timeout, return loss or empty lookup |
+| Overlap/movement | Both overlap directions, shared referents, partial stage, source/destination/error/input relocation and two map restores with winding | No stale pointer, blind destructive retry, heap rollback or consumed shared cursor |
+| Late writes and exit | Known stop permits repair; unknown stop retains; late helper/query and generic terminal cleanup cannot free active data | Generation does not stop physical writes; no foreign-return abandonment |
+| Coverage after ACK | ACK then original owner exit with no intervening GC; next real W<R GC scans target and updates all roots; race target retirement and frozen roster | No metadata-only root custody or wait-for-next-GC workaround |
+| Cost and storage | Same workload/source/profile/budgets; total CPU/wall, staging+duplicate-span peak, deferred retention and lock/scan costs | Unmeasured stays unmeasured; no added heap/watchdog or double-counted deferred storage |
+
+Native PBT replay/shrink must run the implementation through this whole group;
+existing model traces do not execute these interfaces. SysML/ASCENT keeps existing
+QNT temporal and Lean data/alias owners exclusive and their checked scope intact.
+
+#+NAME: bulk-interface-net-benefit
+| Reuse / removed responsibility after qualification | Necessary new support / cost | Quantitative boundary |
+|----------------------------------------------------+------------------------------+-----------------------|
+| RC typed allocator/list/scanner and source gate | Purpose-aware writes, guarded intent/result/ACK and operation lifetime | One unresolved target per operation; unknown attempt cannot multiply retries |
+| Existing synchronization and postlude callers | Core extraction, pre-reserved error roots and actual deferred delivery path | Payload copy stays O(n); request completion alone is no speedup |
+| Existing lifecycle/root-task retirement | Purpose dispatch, closure/query pins, target coverage and last-user drain | Source+target root payload coexist: 2*(2+b+e)*WS for equal layouts, excluding headers/control |
+| Root-slot/alias repair and worker assignment | Reload endpoints/input/errors, retain exact input/effect revision and native affinity | Total scan includes fixed count and both live spans during transfer |
+| Existing owner cleanup/accounting | Pending/inflight/unknown effect outcome and code/provider lifetime | Count unique internal storage once; opaque external state and unknown lifetime have no inferred finite bound |
+
+Five gates remain OPEN until real purpose/core/target/exit consumers, native
+acceptance and matched cost evidence qualify this whole unit. The packet closes
+the interface definition and exposes implementation choices/risks; it supplies
+no runtime code, native speedup or extra SMP progress credit.
+
+* RESEARCH Machine-projected interface mapping
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-model-mapping
+:END:
+
+#+NAME: bulk-interface-model-mapping
+| Operation | Existing-protocol SysML call point | Key non-inference |
+|-----------+-----------------------------------+-------------------|
+| execute_sync_op_core | bulkParkEffectBoundary | Core restoration is not effect delivery |
+| deliver_sync_postlude | bulkDeliverDeferredEffects | Pending notification or in-flight callback is not settled |
+| store_rc_root purpose branch | bulkPurposeWrite | One successful slot store is not target installation |
+| lifecycle_bulk_prepare | bulkTargetPrepare | Prepared FAL allocation is not installed input |
+| lifecycle_bulk_install | bulkTargetInstall | Partial valid prefix is not complete commit |
+| lifecycle_bulk_query | bulkStageObserve | Observation grants no payload access or inferred absence |
+| lifecycle_bulk_ack | bulkTargetAck | ACK does not itself clear/free source |
+| lifecycle_bulk_settle_exit | bulkStageRetire | Logical exit is not old writer stop or last use |
+
+Each point has its own source site, existing clause, input authorization,
+linearization, unknown custody and complete acceptance field in SysML. ASCENT
+projects them as open requirements under the same rootHandoff, rather than
+treating the packet file link as implemented interface coverage.
+
+* RESEARCH Concrete parameter representation and caller migration
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-caller-layout
+:END:
+
+This section fixes implementation-level representations and maps all eight
+operations to current definitions/callers. It does not assert that proposed bulk
+call sites already exist. All proposed symbols remain private to existing owners;
+no public Scheme name, workflow entry or generated GVM numeric layout is renamed.
+
+#+NAME: bulk-interface-parameter-layout
+| Parameter / record field | C23 representation / current correspondence | Lifetime / validation |
+|--------------------------+---------------------------------------------+-----------------------|
+| ps / target_ps | Existing ___processor_state pointer | Must be the actual current executor; lifecycle entry/member and source admission are separate from a registry/control pin |
+| sop | Existing ___sync_op_struct pointer, op plus two native arg words | Borrowed for the synchronous extent; copy retained status into owned outcome storage, never retain the caller's stack address |
+| first_iter | Existing ___BOOL | Preserve 0 at startup and 1 at ordinary service/request entry; do not normalize callers |
+| count / index / progress | ___SIZE_T with checked arithmetic; root_count remains immutable | Check 2+b+e additions, bytes, index range and initialized/committed bounds before access |
+| key | Value record of VM, operation, target-attempt incarnations and semantic input revision, checked unsigned representation | Validate signed-to-unsigned conversions from existing fields and no-wrap/reuse; GC epoch/address is a separate field |
+| held_ref | Private opaque reference to existing lifecycle-owned operation plus held VM/control lifetime | The lease exists before dereference; generation comparison alone cannot make a stale pointer safe |
+| purpose_authority | Actual existing lifecycle record with validated SFUN or proposed BULK kind, source, owned span and execution scope | No cast from borrow count or copied owner pointer grants authority; stopped-source maintenance needs its own permitted scope |
+| source_view | Pinned root-source identity, exact revision, immutable typed range/count and known data-close scope | Read canonical slots after any GC; raw body addresses do not cross allocation, park or source transfer |
+| target_commit | Copy of exact key, installed revision, target-source identity and known protection state under its lifetime | Only a matching known installation plus coverage/old-writer guards can authorize ACK |
+| observation_out | Caller-owned native control snapshot, no Scheme payload/body addresses | Separate call result from observed target/effect/ACK states; status snapshots confer no data-access grant |
+| pending value | Immediate code only with actual representation proof, otherwise index in pre-reserved canonical typed roots | Reload through source after GC; do not store moving SCMOBJ in native progress/outcome fields |
+| exit_reason | Private tagged normal/prewrite-abort/transfer/terminal or uncertain-exit reason | Reason does not imply data stop, callback completion or last use |
+
+The current lifecycle registry interface explicitly protects topology/control
+storage only. lifecycle_enter and member leases protect their own execution and
+membership scopes; neither is automatically a bulk-operation reference. The
+implementation must add actual operation/query retention to the existing owner
+and update teardown. It cannot claim held_ref by storing a VM pointer in a struct.
+
+#+NAME: bulk-interface-real-callers
+| Operation | Actual caller/consumer migration | Preserve / implement |
+|-----------+----------------------------------+----------------------|
+| execute_sync_op_core | setup.c execute_sync_op_loop callers: service_sync_op, on_all_processors and start_processor_execution; kernel sync-op-interrupt! calls service_sync_op with W_ALL/R_ALL | Startup passes first_iter=0, other direct callers pass 1; keep complete roots and required collective participation |
+| deliver_sync_postlude | Existing loop tail lifecycle_drain then designated processor0 throw; on_all_processors TRY/decrement/rethrow and ordinary service return | Preserve first error and recipient, request-count exit cleanup and ordinary ordering; restricted mode retains effect/error state |
+| store_rc_root | Private writer <- ___sfun_arg <- SFUN_ROOT_ARG/SFUN_ARG emitted by gsc/_ptree2.scm; ___store_rc_root/try_set_data_rc cover primary cell | Preserve SFUN record/index/borrow checks and Scheme error projection; add real bulk owner, not a forged SFUN caller |
+| lifecycle_bulk_prepare | New bulk target service uses the same typed allocator/registration owner; current alloc_rc_roots caller is begin_sfun | Update rc.h, common allocation ownership capture and the actual SFUN caller together; new bulk caller does not exist yet |
+| lifecycle_bulk_install | New target-purpose writes at the existing RC setter/registration/source-maintenance seam; called by bulk writer or cooperative owner transfer | Root all endpoint/input/error slots and actual partial-prefix metadata; no off-source PSTATE impersonation |
+| lifecycle_bulk_query | New recovery caller at allocation/install/ACK/exit result-loss boundaries, attached to held existing operation/intent | Current runtime has no such query; do not map it to data_rc payload access or a scan-completed boolean |
+| lifecycle_bulk_ack | New source-side handoff consumer before lifecycle_close_context/cleanup_pstate retires roots | Installed revision, continuous target coverage and old access closure precede ACK; clearing/free remain later operations |
+| lifecycle_bulk_settle_exit | lifecycle_close_context terminal iteration, cleanup_pstate, setup resize rollback/shrink and final cleanup_vm_owned paths | Purpose-aware settle/retain precedes root release; no physical C-return/resource-affinity obligation is waived |
+
+The on_all_processors producers include startup error delivery, current_vm_resize
+(and its retry), garbage_collect, conditional fdset_resize and activity-log
+start/stop. Preserve each request's actual argument/result contract and conditional
+build branch. A bulk checkpoint is not permission to skip unrelated pending
+collectives. In particular, garbage_collect's existing boolean return cannot be
+reinterpreted as a rich UNKNOWN/retained outcome for new private recovery callers.
+
+** Existing return ABI versus the richer bulk result
+
+#+NAME: bulk-interface-result-projections
+| Operation | Known normal result / legacy projection | UNKNOWN / partial / STALE rule |
+|-----------+------------------------------------------+-------------------------------|
+| Core | Existing void service wrappers continue their ordinary postlude; private outcome records exact consumed request and restoration | Do not report raw resume or rerun VM requests from an uncertain core return |
+| Postlude | Existing ordinary behavior keeps cleanup-before-designated-throw; private observation names cleanup disposition | Nested drain true is not settled; false/uncertain does not disappear behind a void caller |
+| Slot write | Current private BOOL means known admitted write/no-op or prewrite rejection; sfun_arg maps to existing NO_ERR/UNKNOWN_ERR Scheme codes | Do not return a bulk enum as a Scheme error; a nonlocal unknown write has no normal BOOL return and stays in operation custody |
+| Prepare | Current normal allocator pointer/NULL distinguishes known normal success/refusal; new COMMITTED means adopted PREPARED target | NULL output while allocation is active is not known absence; partial registration/adoption stays retained |
+| Install | COMMITTED means exact full installed revision; IN_PROGRESS may describe valid partial target | Original remains authoritative; no ACK from filled prefix, relocation equality or an unrelated successful setter |
+| Query | COMMITTED means the query obtained a consistent snapshot | Its target/effect fields may still say UNKNOWN; query success is not target success; STALE grants no access or absence fact |
+| ACK | Matching duplicate ACK returns the same recorded COMMITTED result | Do not clear twice; unknown ACK retains both possible root holders; stale revision cannot release old roots |
+| Exit | COMMITTED means the specified exit guard, root/effect disposition and last users are closed | Logical terminal reason alone cannot release; IN_PROGRESS/UNKNOWN retain exact custodian/dependencies |
+
+No current public BOOL or Scheme error code is silently widened. Rich private
+outcomes are consumed only by callers that implement all their cases; legacy
+adapters preserve actual known-return behavior and ordinary error propagation.
+
+* RESEARCH Allocation adoption and partial-install windows
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-adoption-windows
+:END:
+
+The current typed allocator returns a pointer; begin_sfun assigns it to
+record->roots only after return. The required common allocation seam captures
+ownership into a caller-owned sink as part of preparation, rather than making a
+second bulk allocator. Candidate private ABI change: retain the alloc_rc_roots
+name and add a held owned_out sink; update its rc.h declaration and current
+begin_sfun caller together. Both SFUN and bulk use the same checked initialization
+and registration logic. This is a proposed internal change, not current C code.
+
+The sink is storage retained by the actual operation/activation, not a temporary
+caller stack address. After native allocation returns an initialized private RC
+header, capture it in the owned sink before registration; record private versus
+registered state separately. A query observes only published control state while
+allocation is active, never an unsynchronized private sink. After completion,
+publish the adopted state under the metadata guard/release rule. Failure clears
+and frees a known-owned private block or unlinks a known registered one only after
+its last use and no-effect cleanup are established.
+
+#+NAME: bulk-interface-allocation-windows
+| Window | Required retained facts | Permitted result / recovery |
+|--------+-------------------------+-----------------------------|
+| Intent exists, native call not started | Original roots, target attempt and owned result storage | Known refusal before call can be REFUSED_NO_EFFECT |
+| malloc/native allocator may have succeeded, no pointer captured | Intent says allocation may exist; original roots and attempt remain held | UNKNOWN; no second target, inferred NULL absence or made-up free |
+| Owned private pointer captured, initialization not published | Known native ownership and exclusive writer, not yet a scan-visible target | Known-stop private cleanup or finish valid initialization; no input ACK |
+| Registration link stores incomplete / mutex outcome unknown | Exact intent/private pointer if known, source/link/lock uncertainty | Retain; existing multi-store RC registration/nonrobust mutex is not crash-safe merely because writer death was observed |
+| Registered FAL span, return/adoption unfinished | Actual source membership and allocation lifetime if known; original roots | Adopt/query same target once known; FAL registration is not installed payload |
+| Some target slots installed | Valid typed prefix/FAL remainder, canonical source and immutable root_count | IN_PROGRESS; GC may scan only when physical write closure and shape are known |
+| Full payload committed, result lost | Exact installed revision and protected target lifetime | Query same intent; repeated request does not refill or reapply bulk effects |
+| ACK recorded, response lost | Both possible holders plus exact ACK state and old-user dependencies | Query/idempotent ACK; source clear/free only after its own guards |
+
+Cooperative noncollecting/nonreentrant allocator windows do not promise arbitrary
+OS-death recovery. A safe common output sink narrows and identifies ownership
+windows; it cannot recover an allocator result that never reached any controlled
+record, repair an unknown mutex or stop an already-issued native write. Such
+outcomes remain UNKNOWN with explicit custody until real supporting evidence
+exists. Shape, byte count, list membership or payload equality is not a substitute
+for missing allocation/operation identity.
+
+* RESEARCH ACK-to-next-GC acceptance and complete source change set
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-change-set
+:END:
+
+The key native acceptance history is: protect original -> prepare target ->
+install complete canonical endpoint/input/error roots -> record known coverage
+and ACK -> clear/release original under known old-user closure -> let original
+owner physically exit -> start a later GC -> freeze active target source -> W<R
+worker claims and scans target -> reload current roots -> restore map twice.
+No GC must be inserted merely to let ACK complete. GC racing before commit keeps
+original protection; a preexisting frozen roster is not rewritten by this path.
+Target retirement must resolve or transfer the operation again, not drop its roots.
+
+#+NAME: bulk-interface-complete-source-change-set
+| Current owner / file | Required complete modification | Consumer and acceptance |
+|----------------------+--------------------------------+-------------------------|
+| setup.c sync loop, service/request/startup callers | Extract core/postlude responsibilities and owned outcome; preserve first_iter=0/1 and TRY/request counter exit cleanup | All real startup/resize/GC/fdset/actlog branches, combined requests and exception paths |
+| lifecycle.h and vm-lifecycle.inc | Real BULK purpose, held operation/query state and purpose-aware normal/terminal dispatch | Known/unknown stop, callback-return affinity, target reuse and PSTATE/VM cleanup |
+| rc.h / rc-allocation.inc / sfun-entry.inc | Common owned allocation sink, validated purpose-aware writes, one intent and target adoption/cleanup | Preserve current SFUN known-return/error/borrow behavior; test every adoption window |
+| foreign_conversion.h.in / gsc/_ptree2.scm | Preserve pre-marker rooting and generated late-argument/error consumers while using refactored internal services | No unrooted conversion/marker or new external Scheme name; actual generated consumer required |
+| _std#.scm / gsc/_t-c-2.scm / module_generation.h.in | Native bulk operation ownership and restricted checkpoint at correct complete-root boundary | Raw move versus setter fill/private constructor, overlap, source movement and original control semantics |
+| root-tasks.inc / rc-roots.inc / root source lifecycle | Consume physical closure and installed target membership, assign/scan/rewrite canonical slots and preserve whole-round reopen | ACK-after-owner-exit next-GC test, W<R, target close race and lost result |
+| still-sweep.inc / release_foreign / owner effect callers | Pending/inflight/unknown effect ownership and permitted delivery integrated with bulk exit | No replay from cleared shell or saved callback, no hidden suppression or GC/owner wait cycle |
+
+Source anchors and parameter maps are review inputs. A current generated C file,
+a private pointer returned once or a locally passing model cannot close these
+consumer obligations. Exact current-source native/PBT and downstream acceptance
+must qualify this whole change set under unchanged capacity/watchdog controls.
+
+#+NAME: bulk-interface-caller-cost-matrix
+| Reuse / benefit mechanism | Added work | Quantitative / falsification boundary |
+|--------------------------+------------+---------------------------------------|
+| One common typed allocator and current RC scanner | Owned result capture, initialization/registration phases and intent queries | One unresolved target per operation; unknown allocation cannot multiply retries |
+| Preserve legacy entry/return contracts | Purpose checks and explicit private outcome projection | No speedup claimed from changing BOOL/error meanings or skipping startup/conditional callers |
+| Continuous target root coverage | Coexisting source/target spans, error slots and next-round scan/update work | Count both live allocations at peak; fixed root_count is scanned, not only initialized prefix |
+| Separate effect delivery | Queue/query/affinity retention, pending values and delivery scheduling | Existing deferred internal words counted once; external state/unknown lifetime remains unbounded without evidence |
+| Stable ownership after old carrier exit | Metadata/query last-user and code/provider lifetime | A generation or source ACK alone is no reclamation permission |
+
+All eight interface boundaries remain under the existing five joint gates.
+QNT temporal and Lean data/alias obligations are reused without duplication;
+this parameter/caller/ABI refinement does not itself implement the contracts.
+
+* RESEARCH Owned output and registration: recoverable versus UNKNOWN
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-registration-recovery
+:AUTHORITY: bulkRuntimeInterface / existing rootHandoff
+:STATUS: conditional-recovery-contract; runtime-and-native-open
+:END:
+
+The actual path is runtime_protocols.h.in ALLOC_MEM -> os_base.c alloc_mem
+(ordinary malloc branch, with optional debug accounting) -> alloc_rc_no_register
+header initialization -> alloc_rc_roots fixed count/FAL initialization ->
+register_rc intrusive-list stores -> pointer return -> begin_sfun record adoption.
+There is no keyed allocator-result query or target intent in this source chain.
+Debug counters/log output are not an atomic allocation/intent journal. Exact
+backend selection for a new translation-unit claim still requires its own
+current-source evidence; this review does not import an old preprocessing result.
+
+** Owned allocation is not an accepted root loan
+
+A typed owned-output sink must distinguish a known private allocation, registration
+in progress, complete registered ownership and any accepted root loan. It lives
+in the existing activation/operation's native metadata and starts before the
+fallible call. It is separate from the accepted =record->roots= field until the
+required root loan is known accepted and ownership is explicitly adopted.
+
+This distinction is required by real consumers: marker_abort currently returns
+and releases roots whenever record->roots is nonzero. begin_sfun's ordinary
+failure path releases an unborrowed allocation and clears roots before calling
+abort. An early raw owned-output pointer placed in record->roots would let generic
+abort return a loan never acquired, or release a node whose registration is still
+uncertain. Updating the allocator signature without these consumers is incomplete.
+
+#+NAME: owned-output-versus-loan
+| Fact | Evidence required | Permitted action |
+|------+-------------------+------------------|
+| Private output captured | Exact held output and initialized private header, with no linked-list effects possible | Finish initialization or release known private storage after real writer closure |
+| Registration started | One exact attempt owns the pointer; source/link/gate effects may have begun | Keep ownership; do not route through generic private or accepted-bank cleanup |
+| Registration complete | Qualified normal return/commit and actual source lifetime, not just header domain | Adopt known registered owner; still no payload installation or transfer ACK |
+| Required root loan accepted | Exact successful loan from current admitted owner and actual record | Move the ownership role to accepted roots; return that loan exactly once later |
+| Loan acceptance result lost | A borrow may exist but has no qualified owner outcome yet | Retain allocation/record and possible loan; do not infer authority or release from a count alone |
+
+For the candidate bulk writer, preserve one real source-cell loan when its admitted
+positive-slot policy requires it, plus its separate RC owner reference. Primary
+FAL can remain unchanged. The SFUN branch retains its existing loan and error
+contract. Neither purpose is created by observing root_borrows==1.
+
+Common owned allocation handling must therefore migrate rc.h, alloc_rc_roots,
+begin_sfun, marker_abort, end_sfun and terminal lifecycle dispatch together.
+Ordinary successful cooperative paths can supply known outcomes without a
+per-instruction log; unknown native interruption cannot use that argument.
+
+** Audit the actual intrusive-list writes
+
+Let S be the domain sentinel, P its old tail and H the new initialized node.
+The table follows source-level store order, not a claim that an arbitrary
+compiler/CPU interruption exposes precisely that prefix. A source line, program
+counter or unfenced progress word is not a physical commit witness.
+
+#+NAME: rc-registration-store-prefixes
+| Source-level boundary | Possible structural state | Recovery classification |
+|-----------------------+---------------------------+-------------------------|
+| Before H.prev/H.next preparation | H is known private if no registration write began | Conditional private cleanup under known data closure |
+| H.prev=P; H.next=S | Node local links prepared | Conditional completion only if writer stopped, source exclusion available and no publication uncertainty |
+| P.next=H | Forward traversal can already reach H, while domain can still be zero | UNKNOWN unless the entire registration/exclusion state is qualified; never free just because domain==0 |
+| S.prev=H | Neighbor links may be complete, domain/count may not be | Link shape alone cannot issue registration commit or ACK |
+| H.domain=d | Same-domain register_rc retry can return H without validating/incrementing a missing count | Retry success is not recovery; keep UNKNOWN without complete qualified registration evidence |
+| ++d.nodes | Abstract stores appear complete but owner lock/output adoption may remain unresolved | Need actual qualified completion and provider lifetime, not guessed count repair |
+| Gate released and owned result adopted | Ordinary completion is known for the exact attempt | PREPARED candidate; full endpoint/input/error installation is still required |
+
+register_rc's early same-domain return and release_rc's domain-zero private free
+are valid ordinary branches under their existing assumptions. They are not a
+crash-recovery protocol. An interrupted registration could make those branches
+unsafe if a new generic recovery adapter used them as evidence. The POSIX macro
+initializes a mutex with default attributes and compares lock return to zero;
+this source supplies no robust-owner-death repair protocol. Known owner death
+alone does not allow taking, unlocking, replacing or destroying that gate.
+
+The candidate initially admits recovery at known cooperative boundaries: before
+registration effects, after qualified registration completion, after valid staged
+input, and after exact target/ACK commit. Interior native link/lock uncertainty
+stays UNKNOWN. A stronger interior repair service would need a qualified store
+record, all old writer/reader closure, list/count reconstruction and a safe gate
+provider transition; it is outside this interface and must not be implied by it.
+
+** Query/ACK decisions for partial results
+
+#+NAME: target-query-recovery-decisions
+| Observed fact for the exact held intent | Query meaning | Permitted caller decision |
+|----------------------------------------+---------------+---------------------------|
+| Explicit pre-call refusal or known compensated no-target completion | Known refusal for prepare transition | Retain earlier operation effects/roots; a later attempt needs known old cleanup/last use |
+| Allocator may have returned, no qualified captured output | UNKNOWN, even if sink currently NULL | Keep same attempt; no second allocation or pointer-by-shape reconstruction |
+| Known private pointer, complete exclusion and no link effects | Recoverable private preparation/cleanup candidate | Complete or release only after actual stop and valid ownership |
+| Any possible partial registration/gate outcome | UNKNOWN | Do not scan/free/re-register from domain/count or matching payload |
+| Qualified registered target, partial valid installed prefix | IN_PROGRESS | Preserve original roots; resume admitted canonical writes or known no-effect cleanup |
+| Exact complete target payload/revision and owned lifetime | Installed candidate | Check source/target membership, every-cut coverage and old data closure before ACK |
+| Exact recorded ACK, response lost | ACK known committed | Idempotently return ACK; separate source clearing/removal and last-use guards still apply |
+| Query lacks held identity/lifetime or matches stale revision | STALE/unknown observation, not absence | No payload access, source release or recycling |
+
+A successful query call can return any of these target states. It does not itself
+advance a phase, repair a list or execute a destructor. The implementation cannot
+turn UNKNOWN into REFUSED_NO_EFFECT using timeout, NULL, an empty lookup, source
+index reuse or a duplicate registration result.
+
+* RESEARCH Every-cut root coverage after ACK
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-every-cut-coverage
+:END:
+
+The source refinement obligation is: for each collection cut that can overlap
+transfer and old-root removal, original protection or complete target protection
+remains valid. This is the existing installedRoot premise applied to actual C
+consumers, not another Lean theorem or a duplicate QNT protocol.
+
+#+NAME: target-protection-required-conjunction
+| Target protection fact | Real consumer / required adaptation |
+|------------------------+-------------------------------------|
+| Allocation and registration known complete | Owned output/registration adapter; ordinary pointer/domain/shape alone is insufficient |
+| Complete valid slots and exact input revision | Purpose-aware target writes; include pending error and all staged references, fixed root_count |
+| Actual allocation/loan/query lifetime | Real owner reference and required accepted loan; no unlink while users remain |
+| Surviving live source and protected member/context | Existing lifecycle/member admission plus purpose-aware cleanup; no slot-index-only identity |
+| Admission before next freeze | root_round_begin captures target RC source; freeze/publication agrees its source/epoch/assigned worker |
+| Physical data access stopped during movement | No late original/helper write can invalidate target or destination scan |
+| Actual scanner updates roots | Worker-strided root_round_scan -> claim/mark_rc/finish -> whole restore/reopen, including W<R |
+
+The ACK-to-next-GC history must not require a GC to occur merely to issue ACK:
+commit target and its continuous lifetime/roster protection; record ACK; clear old
+root slots under authorized source maintenance; return only known-owned loans;
+release original ownership once; let old owner exit; then run a later GC that
+finds the target source without the old owner. If a cut began earlier, preserve
+old admitted protection until it finishes; do not change its frozen membership.
+If target cleanup races any step, it must preserve/transfer its roots or refuse.
+
+After known old-root clearing/unlink and loss of all old PSTATE/data dependencies,
+a remaining unknown native free may be a separate allocation/provider-lifetime
+debt rather than a missing Scheme root. This separation requires real evidence;
+ACK alone cannot establish it. Never dereference/re-free a possibly freed header
+to query the outcome. An unknown linked-list mutation or still-live writer instead
+retains the affected source/scan dependencies. Root coverage, old data closure,
+physical free and owner-affine effects remain different outcomes.
+
+#+NAME: allocation-registration-whole-acceptance
+| Complete native test group | Required positive / negative distinction |
+|----------------------------+------------------------------------------|
+| Shared allocator/SFUN adoption | Normal return/failure preserves existing error ABI; unborrowed/private sink never goes through accepted-loan abort |
+| Captured versus lost result | Known output may finish private preparation; possible unrecorded allocation remains UNKNOWN with one attempt |
+| Registration prefixes | Controlled interruption at each structural boundary cannot free a reachable domain-zero node, double count or treat same-domain retry as completion |
+| Provider and old writer | Closed normal critical section versus unknown mutex/writer; no fabricated owner-death unlock or generation-based stop |
+| Partial target/commit/ACK | Valid prefix can remain scanned with original roots; full exact installed target permits guarded ACK; lost responses query idempotently |
+| Old owner gone, later GC | No intervening GC before ACK/exit; later W<R scanner rewrites target endpoint/input/error roots and map multi-shot aliases |
+| Post-ACK native cleanup | Known root coverage remains independent from unresolved free/effect state only after all source/PSTATE access truly closes |
+
+#+NAME: registration-recovery-benefit-cost
+| Gain / reusable mechanism | Added support / cost | Boundary |
+|---------------------------+----------------------+----------|
+| Known cooperative retries without duplicate target/effect | Typed owned allocation status, exact intent/ACK and query/loan custody | No arbitrary native-interruption recovery or allocator journal is claimed |
+| Reuse intrusive RC list and root scanner | Purpose-aware registration/adoption/abort and complete target coverage | Partial list/count/gate state remains UNKNOWN; do not hide repair cost |
+| Allow old carrier retirement under proved target protection | Coexisting root arrays, member/source/query lifetime and next-round scan | Peak includes both spans; no wait-for-next-GC shortcut or speedup claim |
+| Separate opaque native cleanup from root protection where proved | Distinct last-use/provider tracking and retained metadata | No finite bound for unknown native lifetime; never count deferred storage twice |
+
+These classification and coverage conditions strengthen the same eight-interface
+implementation packet. They do not add a milestone or current runtime guarantee.
+Existing QNT/Lean obligations and all five joint gates retain their current scope;
+source/native acceptance and measured net benefit remain required.
+
+* RESEARCH Caller ownership ledger and registration commit witness
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-caller-ownership
+:AUTHORITY: bulkRuntimeInterface / existing rootHandoff
+:STATUS: candidate-migration-ledger; source-and-native-open
+:END:
+
+This ledger applies to the same eight-interface replacement. It separates native
+allocation ownership, an accepted root-cell loan, marker lifetime, execution entry
+and scan authority at every existing caller. It does not introduce another
+protocol/ID registry or repeat QNT/Lean accounting proofs.
+
+** Actual caller-to-discharge map
+
+#+NAME: bulk-interface-caller-obligations
+| Actual caller / branch | Acquired / retained responsibility | Required known discharge or retained transfer |
+|------------------------+-------------------------------------+-----------------------------------------------|
+| lifecycle_marker_prepare | Lifecycle entry plus acquired activation record, currently reused from a clean IDLE slot or allocated | marker_abort settles roots, offers a clean record for reuse or frees it, then leaves entry; new pending debts must first be settled |
+| begin_sfun zero-argument permanent branch | Immovable procedure/code lifetime, no RC bank allocation | Preserve existing no-bank path; do not add a fake bulk bank or return a nonexistent loan |
+| begin_sfun proc==FAL | Loan on closure-self canonical root while reading procedure | Success returns original loan only after new bank's procedure root and loan accepted; ordinary failure returns it without claiming target installation |
+| alloc_rc_roots called by begin_sfun | Native allocation owner, typed initialization and registration | Proposed owned-output status remains distinct from accepted roots; before loan acceptance cleanup releases only known owned allocation |
+| begin_sfun primary install and bank borrow | Bank primary procedure root, actual bank loan and owner reference | Publish accepted scope only after success; on ordinary pre-loan failure release bank/clear field before abort, as current source does |
+| SFUN_ROOT_ARG / SFUN_ARG -> sfun_arg | Typed argument writes through exact owned activation and source gate | Preserve pre-marker root protection and known NO_ERR/error projection; do not grant writes from borrow count alone |
+| sfun_marker -> make_sfun_stack_marker | Marker allocation/still lifetime; bank remains root over GC | Failure retains accepted bank until explicit cleanup; success sets active marker without releasing bank |
+| call_sfun -> call | Canonical bank values copied under RC gate; call owns an additional lifecycle entry | call's own normal/throw path leaves its entry; no GC/poll/reentry observes partial stack argument copy |
+| lifecycle_marker_kill | Revokes return target and clears live marker once | Active SFUN becomes REVOKED; bank/loan/entry remain until physical C extent ends |
+| end_sfun -> marker_abort | Explicit end of generated C extent, live marker if not already killed | Clear marker once, then discharge accepted bank loan/owner/activation entry; do not treat a prepared allocation as borrowed bank |
+| lifecycle_close_context terminal loop | Currently repeats generic marker/root/record cleanup | Dispatch real purpose and allocation/loan facts through common settlement; pending partial/unknown operation cannot be freed generically |
+| cleanup_pstate / resize rollback or shrink / cleanup_vm_owned | Source, member and OS teardown prerequisites | No retirement before successful root transfer/old data closure; refuse or retain if no qualified target or native return remains |
+
+The current begin_sfun normal path already demonstrates a useful source-to-target
+sequence: original canonical loan -> install procedure in bank -> accept bank
+loan -> return original loan. The bulk adapter extends its evidence and exit
+coverage; it need not invent unrelated root or execution semantics. That normal
+synchronous path is not an existing asynchronous target query/ACK service.
+
+A pointer stored in two record fields does not create two RC owner references.
+Moving responsibility from the prepared-output field to accepted roots must be
+one controlled adoption with the prepared field cleared/marked transferred. Only
+actually acquired loans are returned. Lifecycle entries, marker still references
+and source task scan leases are separately balanced; none substitutes for the
+native owner/reference keeping a pending allocation alive.
+
+** Required registration commit witness
+
+The witness is a native control fact embedded in the held operation/intent or
+actual activation owner. It is not a newly allocated public receipt object, a
+disk transaction, a robust allocator journal or a new handoff receipt kind.
+Its consumer is the existing install/observe/retire roles under rootHandoff.
+
+#+NAME: rc-registration-commit-witness
+| Required witness content | Producer / evidence condition | Consumer restriction |
+|--------------------------+-------------------------------+----------------------|
+| Exact operation and target-attempt key | Held existing operation before native preparation; one unresolved attempt | No lookup or duplicate allocation from a stale pointer/key or an empty result |
+| Known native allocation identity and held owner | Typed owned-output capture with initialized header, plus valid storage lifetime | Output pointer alone does not mean registered, borrowed or safe to free |
+| Pinned RC source and fixed layout | Actual source admission, initialized immutable count/FAL shape and no source/target reincarnation | Same address/domain/count is not proof of the same operation |
+| Complete membership/count outcome | Exact registration's qualified ordinary critical-section completion, not guessed store-prefix progress | Partial link/count/lock outcome stays UNKNOWN; same-domain retry is not repair |
+| Source exclusion usable / publisher outcome known | Real completed release/publication ordering and current provider lifetime | An owner-death report or a published flag alone cannot recover an unusable mutex |
+| Adopted allocation and required accepted loan | Common settlement records each actually acquired obligation before publishing PREPARED to caller | Generic abort cannot return an unaccepted loan or release a possibly linked private-looking node |
+| Target input revision and later coverage | Added by actual full slot installation and stable source/member lifetime | Registration witness is not input commit, source ACK, scan DONE or physical free |
+
+A source-round value captured during registration is an observation, not a
+requirement that every later GC keep the same epoch. Registration/lifetime and
+semantic input revision persist under their own guards while current scan/restore
+epoch changes. Matching the old round number cannot replace current source task
+admission, and epoch change alone does not invalidate an otherwise live registered
+allocation or authorize replay of its installation.
+
+Publish this witness only when its stated completion is actually known. Under
+the existing metadata/source exclusion discipline, keep query from consuming
+intermediate pointer/phase fields. If the source critical section or owned-output
+publication is lost inside native execution, keep UNKNOWN; there is no current
+registration journal to synthesize the missing fact. Ordinary success can provide
+known completion without logging every instruction. No implementation may label
+an interior uncertain state COMMITTED merely to make cleanup proceed.
+
+** Query, ACK and owner retirement use the same obligations
+
+#+NAME: owned-allocation-query-ack-custody
+| Complete fact combination | Permitted action | Required retention otherwise |
+|---------------------------+------------------+------------------------------|
+| Known unlinked private output + stopped writer | Complete private initialization or release that allocation | Unknown allocation/header/link or lock outcome retains exact attempt and possible storage |
+| Known registered owner, loan not accepted | Attempt permitted source loan or known no-loan cleanup | Never invoke accepted-bank return; uncertain loan outcome retains record and possible loan |
+| Known registered/adopted owner and required loan, valid partial target | Continue typed canonical slot installation; scanner may observe known-valid shape under freeze | Original roots remain authoritative; no ACK from a prefix |
+| Full exact target input + complete registration/lifetime + future root coverage + old data closure | Record source ACK; later remove old roots under their own last-use guards | Unknown target commit/query/ACK retains original and possible target roots |
+| ACK known + old references/loans/writes and native-return dependencies closed | Original owner may retire before a new GC executes | Marker REVOKED, request result, scan DONE or join failure alone cannot permit exit |
+| Next GC captures target source and worker rewrites fixed slots | Same operation resumes from refreshed canonical roots; map aliases remain shared | No unscanned native list, stale registration epoch or cached body pointer substitutes for target scan |
+
+Target adoption must survive the original source's cleanup. Moving an owned
+pointer into a target metadata record without installing a scannable typed span
+is insufficient. Target cleanup must in turn settle/transfer that same operation;
+otherwise refuse retirement. An unknown last native free after proven root/source
+closure is classified separately from an unknown linked node or still-live writer,
+with provider/storage lifetime retained as required. These cases cannot be merged
+into one boolean success/failure or released by timeout.
+
+** Complete migration and acceptance checklist
+
+#+NAME: bulk-interface-unified-migration-checklist
+| Required responsibility replacement | Whole acceptance evidence | Current status |
+|---------------------------------------+---------------------------+----------------|
+| Prepared-output versus accepted-loan fields and common settlement, including all ledger callers | Permanent/no-bank, dynamic self-loan, allocation failure, bank-loan failure/loss, marker failure/GC, kill-then-END and terminal cleanup; exact no-double-discharge observations | Runtime adapter absent |
+| Registration commit witness and exact intent query | Native result loss, known private capture, each abstract list boundary, same-domain repeat, count/gate uncertainty and known ordinary completion | Candidate facts; no robust/native recovery claim |
+| Full target installation/ACK and old source removal | Partial valid target, moved source/stage/error slots, lost install/ACK response, stale writer/query and target retirement race | Query/ACK/coverage code absent |
+| Owner exit then later GC | ACK and actual original owner exit with no intervening GC; next W<R task claims target and rewrites all fixed roots; real map twice with winding | Native/PBT evidence required |
+| Existing sync/effect/error and build consumers | first_iter 0/1, TRY/request cleanup, ordinary error ABI, native cleanup uncertainty and original Scheme/Gerbil consumers under unchanged limits | Separate existing native gates remain open |
+| Work/peak net benefit | One unresolved target per operation; unique allocation/loan ownership, root scan/copy/control cost and concurrent original/target payload peak | Unmeasured |
+
+The complete unit replaces every old consumer that assumes nonzero roots implies
+accepted borrow, or registration/domain equality implies durable transfer. It
+preserves the useful existing synchronous SFUN handoff, source scan and entry
+machinery. Existing QNT temporal and Lean data/alias/accounting ownership stays
+unchanged. This checklist is the implementation packet's audit surface, not a new
+SMP denominator or proof that the implementation has passed.
+
+* RESEARCH Issuance, publication and settlement at real caller boundaries
+:PROPERTIES:
+:CUSTOM_ID: bulk-interface-issuance-settlement
+:AUTHORITY: bulkRuntimeInterface / existing rootHandoff
+:STATUS: conditional-source-interface; runtime-and-native-open
+:END:
+
+This section resolves where the existing packet's registration/adoption witness
+is issued, when a query may consume it, and how old callers dispatch cleanup.
+It strengthens the same eight interfaces and checklist rather than adding a
+recovery service for every possible native store prefix.
+
+** Reachability before recovery design
+
+In the reviewed register_rc body, ordinary rejection returns occur before the
+first linked-list write. The link/count sequence contains no explicit Scheme
+poll, callback, allocation or THROW; its gate macros call the selected native
+mutex provider. alloc_rc_roots performs native allocation/initialization before
+registration and documents no Scheme collection or callout. Thus an ordinary
+Scheme exception is not shown to interrupt the link sequence by this source.
+Provider/signal/native-hook behavior outside that audited path is not thereby
+qualified, and a forced native interruption is not an ordinary source failure.
+
+TRY's actual SETJMP form installs/restores a catcher and transports longjmp_err;
+it encodes no allocation/list/borrow rollback. The existence of a surrounding
+TRY cannot settle interrupted native ownership. Conversely, injecting a fault
+inside the link sequence does not prove that normal Scheme execution reaches
+that state. Acceptance must label these native negative controls explicitly.
+
+#+NAME: registration-failure-reachability
+| Failure class | Actual source boundary | Required classification |
+|---------------+------------------------+-------------------------|
+| Size/allocation failure before registration | Typed allocator bounds/native NULL path | Known no-target/refused normal outcome after any private cleanup |
+| Admission/count rejection | register_rc checks source/owner/refcount/count before link stores | Known refused normal return; no new membership writes |
+| Ordinary fresh successful call | Full initialized node -> guarded links/domain/count -> gate release -> pointer return | Can issue known registration fact under exact fresh-attempt preconditions |
+| Same-domain duplicate call | Early pointer return without reconstructing structure/count | Known idempotent projection only when prior complete registration is already established; never evidence repairing UNKNOWN |
+| Lost external reply after witness publication | Proposed held intent contains an exact known result | Query same intent; no allocation/refill/effect replay |
+| Native stop/nonlocal exit before witness publication | No current keyed allocator/list/gate recovery journal | UNKNOWN until independent qualified evidence settles it; no inferred absence or forced repair |
+
+** Chosen witness issuer and publication contract
+
+The issuer is the existing common typed-allocation/registration owner, reached
+by begin_sfun and the proposed bulk prepare handler. It starts from a known
+fresh unlinked private output; an UNKNOWN prior attempt is not retried through
+register_rc. Existing legacy exports/ordinary known-return semantics remain;
+no per-store recovery log is required for the admitted cooperative path.
+
+#+NAME: registration-witness-issuance-publication
+| Ordered caller boundary | Required fact / write | Reader and unknown-result rule |
+|-------------------------+-----------------------+--------------------------------|
+| Before native preparation | Held activation/operation, one intent, typed owned-output sink and source/target lifetime established | Query reads control state only; original roots remain authoritative |
+| Private result capture | Known initialized private header retained in prepared-output storage, separate from accepted roots | Lost allocator result remains UNKNOWN; NULL during active preparation is not absence |
+| Enter fresh registration | Known unlinked prestate, valid fixed FAL shape and source admission; registration marked in progress | No generic private/accepted-bank cleanup while link/gate outcome is uncertain |
+| Qualified register_rc normal return | Complete exact-attempt membership/count and usable released gate known | Header domain, list shape or duplicate success cannot supply this fact for a previously unknown attempt |
+| Issue registration witness | Under owned metadata guard, record node/source/attempt/layout and known registration outcome | This is control metadata, not target input commit or accepted loan; native interruption before publication remains unknown |
+| Acquire/adopt required loan | Real caller obtains loan and moves allocation ownership once into accepted roots, recording exact acquired obligations | Lost loan result retains possible loan; never return one merely because a pointer/count exists |
+| Publish PREPARED / release guard | Only complete prepared-ownership/loan facts become visible atomically under guard or actual release/acquire discipline | A later successful query can recover a lost reply, not a result that was never published |
+| Install full input and ACK | Existing target-purpose and continuous-coverage guards compose with registration/adoption fact | Neither registration witness nor PREPARED alone may authorize source-root removal |
+
+The registration fact may be recorded before loan acquisition, while PREPARED
+requires the packet's full adopted-state postcondition. The distinction remains
+visible to query; one generic COMMITTED bit must not collapse all these facts.
+Witness storage outlives the original C stack until its last query/helper, with
+no source/metadata lock held across GC, callback or an owner wait. A query never
+inspects an unpublished private output to guess a result.
+
+** Three publication boundaries and the implementation checklist
+:PROPERTIES:
+:CUSTOM_ID: bulk-publication-admission
+:END:
+
+#+NAME: bulk-publication-admission
+| Boundary / actual caller | Current publication point | Required replacement and acceptance observation |
+|--------------------------+---------------------------+------------------------------------------------|
+| RC membership, =alloc_rc= and =alloc_rc_roots= → [[file:../../../vendor/gambit/lib/_mem/rc-allocation.inc::___register_rc][register_rc]] → [[file:../../../vendor/gambit/lib/_mem/rc-roots.inc::mark_rc][mark_rc]] | All links, domain and count precede the source-gate unlock; a qualified acquiring reader can see the node. A scanner additionally requires frozen membership and a claimed lease. | Capture the fresh typed allocation in its owned output before registration; record exact attempt and full membership under held intent after qualified gate completion. Check the selected mutex provider and its return contract. A non-null pointer alone cannot certify provider success. |
+| SFUN scope, [[file:../../../vendor/gambit/include/_gambit/foreign_conversion.h.in::#define ___BEGIN_SFUN_VOID][three BEGIN_SFUN forms]] → [[file:../../../vendor/gambit/lib/_c_intf/sfun-entry.inc::___begin_sfun][begin_sfun]] → marker/arguments/call → END_SFUN | Both successful paths assign =*scope= to the caller's local output. PERM uses the admitted code lifetime; the moving path sets the procedure, acquires bank loan, and returns the closure-self loan first. END_SFUN consumes the local bank after catcher restoration. | Keep the synchronous ABI and permanent/no-bank path. Separate registered ownership from accepted loan before cleanup; inject marker failure and nested exit after local handoff. The out parameter does not publish a bulk intent or an ACK. |
+| IDLE reuse, [[file:../../../vendor/gambit/lib/_setup/vm-registry.inc::___lifecycle_marker_abort][marker_abort]] → =marker_prepare= or [[file:../../../vendor/gambit/lib/_mem/rc-allocation.inc::___FREE_MEM(d->idle_activation)][RC cleanup]] | Abort unlinks active record, returns bank obligations, clears fields and offers/frees the record before lifecycle leave. Prepare acquires lifecycle entry, validates and consumes the owner-only slot. | Keep external query identity in the held operation, never the IDLE pointer. Close old activation writers and drain every reference to the record before offering, consuming or freeing it. Test a delayed query/helper across slot reuse and terminal RC teardown. |
+
+** Intent settlement and next-round admission
+
+Use the existing operation hold for lookup. Match VM incarnation, attempt and
+revision under its metadata guard before observing status or acquiring a
+writer permit. Publish known registration/adoption and exact target commit
+under the guard; readers acquire the same guard. The RC gate synchronizes
+payload/list visibility, while the metadata guard synchronizes receipts. Do
+not carry either guard across a GC, callback, or owner wait.
+
+For a lost reply after publication, query that exact operation and return the
+recorded observation without replaying allocation, installation or effects.
+Before publication, a possibly executed allocator/link/borrow keeps its source
+and candidate custody. A stale key or a null output cannot resolve it. ACK
+must bind the committed revision and its surviving source; repeat ACK only
+returns the recorded decision. Close writer admission and drain already
+granted permits before certifying the frozen revision. A late writer must
+either finish before that certificate or fail without dereferencing old
+payload. Unknown in-flight writes retain the affected roots and block their
+transfer/reuse.
+
+For the next cut, prove that the target is in a surviving RC domain represented
+by the roster built in [[file:../../../vendor/gambit/lib/_mem/root-tasks.inc::___BOOL ___root_round_begin][root_round_begin]].
+The existing VM task cannot stand in for a detached native list. Serialize
+target install and retirement with membership/freeze. If a current round has
+already sealed membership and the target lacks protection in that round,
+retain the original source and defer ACK. After recorded ACK and separate
+last-use settlement, physically exit the original owner, then run a new round
+with W<R and target index at least W. Require its strided worker to
+claim/scan/finish the target RC task, rewrite procedure, source, destination,
+staged and pending-error roots where present, and reload them after thaw.
+Preserve the two map continuation restores and winding trace. No intervening
+GC may be used to establish the ACK. A surviving RC domain is an implementation
+premise. The current code supplies no durable VM-target install adapter.
+
+** One cleanup dispatch for prepared and accepted ownership
+
+#+NAME: registration-owned-exit-dispatch
+| Actual exit consumer | Required branch after refactoring | Forbidden release / reuse |
+|----------------------+-----------------------------------+---------------------------|
+| begin_sfun ordinary failed preparation | Known private/registered owner without accepted loan: release only after actual registration state is known; clear prepared ownership before generic abort | No return_rc_root for an unacquired bank loan |
+| begin_sfun ordinary successful preparation | Installed procedure plus accepted bank loan precede original self-loan return; publish accepted scope only after adoption | No duplicate owner reference from pointer assignment or early original-root ACK |
+| sfun_marker failure / end_sfun | Preserve accepted bank across marker allocation/GC; explicit physical end settles it and any live marker once | No loss of bank while marker conversion allocates; no double marker decrement |
+| marker_kill ACTIVE->REVOKED | Revoke return target while retaining C-extent bank/borrow/entry responsibilities | REVOKED is not stopped, settled or reusable |
+| marker_abort | Dispatch prepared output, accepted bank, unknown registration and pending query/effect independently | Nonzero roots is not enough to return a loan; domain zero is not enough to free a possibly linked node |
+| terminal close / resize / cleanup_pstate | Same purpose-aware settlement then root/source/OS teardown only when its exit predicate holds | No generic loop release that drops unresolved allocation/intent or native-return debt |
+| Record reuse or free | No private allocation, loan, unknown commit/ACK, old observer/helper or effect/return responsibility remains | Cleared legacy fields or IDLE kind alone do not certify new bulk fields |
+
+The current runtime owner has independently added a clean IDLE activation slot:
+prepare may reuse it; abort clears/offers a record or frees it; RC teardown frees
+the retained clean slot. That source-period change is observed read-only here
+and receives no performance or runtime acceptance credit from this packet.
+The caller ledger has been updated accordingly. The new bulk fields must extend
+its eligibility/teardown checks, so an address is never reused while an old query,
+unknown allocation or native writer can still refer to that operation.
+
+** ACK, original exit and the first subsequent GC
+
+The decisive history remains one joined contract: qualified fresh registration
+and owned output -> actual accepted target lifetime -> full canonical input
+installation -> known target coverage -> recorded ACK -> old source clearing/
+known loan and owner discharge -> physical original-owner exit -> later target
+roster/freeze -> W<R claim/mark_rc/finish -> whole restore/reload and two real map
+shots with their shared state and winding effects intact.
+
+No source gap may occur while a reply/ACK is lost: original and possible target
+holders stay retained until exact query and last-use guards settle. No GC is
+required merely to authorize ACK; target roots must already be protected across
+every cut that could start after original-root removal. Preexisting frozen
+membership is not rewritten, target retirement must settle/transfer again, and
+unknown old native data access still prevents the affected movement/exit.
+
+#+NAME: issuance-publication-acceptance-matrix
+| Full acceptance group | Expected observation / refusal | Added cost and boundary |
+|-----------------------+--------------------------------+-------------------------|
+| Ordinary allocator/registration | Known refusal before writes; known fresh completion and accepted loan preserve SFUN ABI | Embedded witness/adoption stores; no native journal assumed |
+| Publication versus reply loss | Reply lost after publication is queryable; prepublication uncertainty stays UNKNOWN; repeated ACK does not reapply effects | One held intent per operation; metadata guard and query pin; avoids replay only after known publication |
+| Native interrupted registration | No free from domain zero, no repair from same-domain repeat, no fabricated mutex recovery | Retained source/storage/provider debt; no finite arbitrary-stop recovery bound |
+| All exit consumers and IDLE eligibility | Permanent/no-bank, pre-loan fail, marker failure/kill/end, terminal and reuse paths discharge only acquired obligations | Real allocation/loan/query/marker/entry bookkeeping; reuse benefit unmeasured |
+| ACK then original owner exit then later GC | Target index >= W; exact endpoint/input/error slots scanned and rewritten after physical exit, followed by two map restores | Avoids waiting for a GC to grant ACK; both spans coexist until original removal; matched native work/peak unmeasured |
+
+The complete interface definition is the chosen cooperative issuance/publication
+and purpose-aware settlement path, with native unknowns explicitly excluded from
+recovery claims. Actual callers, selected providers, root consumers, PBT/replay/
+shrinking and cost gates still require runtime implementation and native evidence.
+Existing QNT temporal and Lean data/alias ownership remains unchanged; no source
+line, generated view or clean-record cache observation supplies that evidence.

@@ -80,7 +80,7 @@ The strengthened descriptor-aware campaign `.data/vm-mem-setup-model-003`
 rejected all six controls and exhausted 216 distinct / 244 generated positive
 states, zero queued, with safety and temporal progress completed in 29.261
 seconds. Inputs and model remained stable. Portable evidence is under
-`evidence/model-results/vm-mem-setup-transaction-model/`; campaign002 remains a
+`.cache/research/legacy-evidence/evidence/model-results/vm-mem-setup-transaction-model/`; campaign002 remains a
 context-drift DENY and is not rewritten. Activity-log abort now has its own model
 dependency; its acceptance is separate from this constructor result.
 
@@ -91,7 +91,7 @@ on/off and single/multiple VM branches. The prefix failure contract is proposed,
 not implemented in source. All six controls and positive safety/progress passed:
 861 distinct / 957 generated states, zero queued, 30.365 seconds for the positive
 check, stable inputs. Current portable evidence is under
-`evidence/model-results/vm-mem-setup-spin-model/`. Campaign003 remains historical;
+`.cache/research/legacy-evidence/evidence/model-results/vm-mem-setup-spin-model/`. Campaign003 remains historical;
 its model digest no longer matches the strengthened current model.
 
 Successful-constructor list visibility now has a separate source-characterization

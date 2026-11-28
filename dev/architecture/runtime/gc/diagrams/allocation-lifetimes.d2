@@ -1,0 +1,30 @@
+direction: down
+classes: {
+  existing: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  proposed: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+  contract: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+}
+site: "Proposed allocation analysis\nAliases + effects + escape + capture + foreign retention" {class: proposed}
+eliminate: "Eliminate / scalar replace\nOnly with preserved identity and control behavior" {class: proposed}
+native: "Scoped native storage\nNo Scheme references or escaping borrowers\nNo capture/reentry across lifetime boundary" {class: proposed}
+gc: "Existing Gambit GC\nDefault for Scheme objects / unknown lifetimes\nExisting roots, barriers and relocation" {class: existing}
+site -> eliminate: "proved unobservable allocation"
+site -> native: "proved restricted lifetime"
+site -> gc: "otherwise"
+retention: {
+  label: "Saved control state\nBeyond lexical return"
+  style.font-size: 20
+  saved: "Reachable saved continuation\nMay be invoked more than once" {class: existing}
+  env: "Captured frames / environments\nShared cells and dynamic-wind context" {class: existing}
+  obj: "GC-managed Scheme storage" {class: existing}
+  saved -> env: "retains"
+  env -> obj: "traced references"
+}
+gc -> retention.obj
+extension: "DEFERRED: traced / retained regions\nRequires owner reachability, incoming-edge safety\nRegion-to-GC scanning and relocation updates\nBarriers, borrowers, callbacks and reclamation" {class: contract}
+retention.env -> extension: "any future region edge needs a protocol" {style.stroke-dash: 3}
+rule: "Neither lexical return nor first resumption proves storage dead.\nFuture program reads AND collector-visible pointers must be safe.\nDynamic-wind reentry must not resurrect a freed arena." {class: contract}
+retention.saved -> rule
+extension -> rule
+note: "DESIGN ONLY: a structural MLIR region is not a memory arena.\nRetained finite controls constrain the design; no native allocator is validated." {shape: text; style.font-size: 15}
+rule -> note: {style.opacity: 0}

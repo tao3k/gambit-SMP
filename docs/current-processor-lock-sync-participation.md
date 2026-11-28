@@ -57,7 +57,7 @@ standalone model, not a composed GC or arbitrary scheduler proof.
 ## Boundaries
 
 Durable portable observations are under
-`evidence/source-results/fixtures/current-processor-lock-sync-participation/`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/current-processor-lock-sync-participation/`.
 The next candidate adds only sync polling at the failed-head unlocked retry
 boundary. No ordinary callbacks are dispatched. Moving queue roots, synchronous
 error unwinding, other unbounded retries and mutex/condvar/timeout/VM locks,

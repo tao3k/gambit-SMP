@@ -1,0 +1,245 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-retired-checkpoint-cancel",
+  "scope": "Quint controls for retired RC exit and root closure, checkpoint budget consumption, requester-cancel schedules, and checkpoint dependency recovery. Imported visibility, ledger, and producer tests stay in the same inventory. Donor quiescence is inherited, a charged handoff must match the receipt, and a cancel schedule can collect before the throw. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "models/gambit/retired_rc_exit_tail.qnt",
+    "models/gambit/retired_root_closure.qnt",
+    "models/gambit/checkpoint_budget_consumption.qnt",
+    "models/gambit/interrupt_requester_cancel_schedules.qnt",
+    "models/gambit/checkpoint_dependency_recovery.qnt",
+    "models/gambit/retired_rc_gc_visibility.qnt",
+    "models/gambit/checkpoint_budget_ledger.qnt",
+    "models/gambit/interrupt_requester_cancel_composition.qnt",
+    "models/gambit/interrupt_delivery_result_composition.qnt",
+    "models/gambit/interrupted_producer_recovery.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-retired-checkpoint-cancel/binding.json",
+    "evidence/fixtures/dev-retired-checkpoint-cancel/observations.json",
+    "evidence/fixtures/dev-retired-checkpoint-cancel/cancel.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "tail-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/retired_rc_exit_tail.qnt"
+      }
+    },
+    {
+      "id": "tail",
+      "capability": "quint.test",
+      "dependsOn": [
+        "tail-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/retired_rc_exit_tail.qnt",
+        "parsed": "tail-parse",
+        "main": "retired_rc_exit_tail",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "R::failedJoinRecoveryTest",
+          "R::failedJoinVisibleRootsTest",
+          "R::retainedButUnscannedControlTest",
+          "R::successfulJoinTest",
+          "R::transferWithoutAckControlTest",
+          "preExitAckControlTest",
+          "tailBeforeHandoffTest"
+        ]
+      }
+    },
+    {
+      "id": "close-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/retired_root_closure.qnt"
+      }
+    },
+    {
+      "id": "close",
+      "capability": "quint.test",
+      "dependsOn": [
+        "close-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/retired_root_closure.qnt",
+        "parsed": "close-parse",
+        "main": "retired_root_closure",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "R::failedJoinRecoveryTest",
+          "R::failedJoinVisibleRootsTest",
+          "R::retainedButUnscannedControlTest",
+          "R::successfulJoinTest",
+          "R::transferWithoutAckControlTest",
+          "droppedDeferredControlTest",
+          "pendingClosureTest",
+          "rcOnlyControlTest",
+          "successfulClosureTest"
+        ]
+      }
+    },
+    {
+      "id": "spend-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_consumption.qnt"
+      }
+    },
+    {
+      "id": "spend",
+      "capability": "quint.test",
+      "dependsOn": [
+        "spend-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_consumption.qnt",
+        "parsed": "spend-parse",
+        "main": "checkpoint_budget_consumption",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "L::boundRecoveryTest",
+          "L::concurrentReservationsTest",
+          "L::duplicateSettlementControlTest",
+          "L::failedConsumerChargedTest",
+          "L::interruptedReservationHeldTest",
+          "L::omitFailedConsumerControlTest",
+          "L::releaseBeforeChargeControlTest",
+          "L::unboundRecoveryChargedTest",
+          "chargedHandoffTest",
+          "unchargedProducerControlTest",
+          "wrongLedgerControlTest",
+          "wrongReceiptControlTest"
+        ]
+      }
+    },
+    {
+      "id": "sched-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/interrupt_requester_cancel_schedules.qnt"
+      }
+    },
+    {
+      "id": "sched",
+      "capability": "quint.test",
+      "dependsOn": [
+        "sched-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/interrupt_requester_cancel_schedules.qnt",
+        "parsed": "sched-parse",
+        "main": "interrupt_requester_cancel_schedules",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "C::canceledOwnerRetainedTest",
+          "C::deadWakeControlTest",
+          "C::lostLifetimeControlTest",
+          "C::resultBeforeUnlinkTest",
+          "C::unlinkedWakeControlTest",
+          "C::wrongOwnerControlTest",
+          "cancelThenGcThenReturnTest",
+          "cancelThenGcThenTargetTerminationTest",
+          "cancelThenGcThenThrowTest",
+          "gcBeforeCancelThenThrowTest"
+        ]
+      }
+    },
+    {
+      "id": "dep-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/checkpoint_dependency_recovery.qnt"
+      }
+    },
+    {
+      "id": "dep",
+      "capability": "quint.test",
+      "dependsOn": [
+        "dep-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/checkpoint_dependency_recovery.qnt",
+        "parsed": "dep-parse",
+        "main": "checkpoint_dependency_recovery",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "R::deadlineResetControlTest",
+          "R::expiredCheckpointTest",
+          "R::interruptedRunningTest",
+          "R::liveProcessControlTest",
+          "R::missingReceiptControlTest",
+          "R::postRecoveryDriftTest",
+          "R::resumedCommittedTest",
+          "R::staleOutputControlTest",
+          "cycleControlTest",
+          "dependencyClosedTest",
+          "missingParentControlTest",
+          "postRecoveryParentDriftTest",
+          "staleParentControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "tail-parse",
+        "tail",
+        "close-parse",
+        "close",
+        "spend-parse",
+        "spend",
+        "sched-parse",
+        "sched",
+        "dep-parse",
+        "dep"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-retired-checkpoint-cancel/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

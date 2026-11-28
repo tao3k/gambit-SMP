@@ -30,7 +30,7 @@ each completed twice. Seed core: 37.977 seconds; from-scratch: 139.726 seconds,
 zero exit, no timeout, reaped and quiescent. The observed host selected make-j12
 through adaptive capacity; all three concurrency switches and original
 600-second cap remained. The completed reference is
-`evidence/research/vm-registry-reader-lease/btq-retry-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/btq-retry-completed-producer.json`.
 
 Retained refusals: missing sealed Quint, unavailable prior tool observation,
 duplicate file entries in patch inventory, and incomplete bootstrap verdict

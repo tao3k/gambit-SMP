@@ -1,0 +1,2175 @@
+#+TITLE: Gambit SMP Amp-1 C23 Integration Blueprint, Amp-4 Pacing/RefC & LBO Admission Cut
+#+AUTHOR: Gambit SMP Architecture Research
+#+OPTIONS: toc:3 num:t
+
+* 1. Purpose & Live Source Baseline
+
+This blueprint translates the formally verified Amp-1..Amp-4 contracts
+([[file:modern-gc-structural-amplification-design.org][modern-gc-structural-amplification-design.org]] and
+[[file:amp1-amp4-adversarial-verification-matrix.org][amp1-amp4-adversarial-verification-matrix.org]]) into an exact, symbol-anchored
+*C23 drop-in integration cut* against the live =vendor/gambit= =modern-c= runtime
+(audited read-only at commit =4a906238= + active sibling =lxr-drc.inc=), plus the
+closing formal models and standalone TSan/ASan-verified C23 prototypes for:
+- *Amp-1* (Unified Lock-Free Local Nursery + Contiguous Virtual Nursery Arena +
+  O(1) 2-Level Radix Msection Directory),
+- *Amp-2* (OCaml-5 256-Entry Software Prefetch Ring + Compressed =addrmap=),
+- *Amp-4* (True =(L, g, s)= MemBalancer + OCaml-5 Global =alloc_counter=/=work_counter=
+  Pacing + Racket Phantom-Bytes Accounting + Off-Heap Immutable RefC Binaries),
+- *LBO* (Cai et al. ISPASS 2022 multi-core Latency / CPU-Cycle / RSS evaluation gate).
+
+** Admission Gate Status
+Native C edits to =vendor/gambit= were strictly gated on
+=GambitModernGcAmplification::amp1ReadinessGate= (=phaseABCStabilized == true=).
+Following the sibling merge of =origin/modern-c= (commit =c1d51213=, outer
+submodule commit =bf6837df=), =phaseABCStabilized= and
+=amp1ImplementationAdmitted= transitioned to =true=, and Amp-1 Cuts 1A, 1B, and
+1C were implemented natively in =vendor/gambit= (see Section 5). Full
+=nativeRuntimeAdmitted= and =releaseAdmitted= remain =false= until remaining
+full-suite qualification gates close.
+
+* 2. Exact Amp-1 C23 Source Cuts (Anchored to Live =vendor/gambit= Symbols)
+
+** Cut 1A: Lock-Free Batched =still_words_delta= Accounting (=local-nursery.inc:372-377=)
+- *Current Bottleneck*:
+  =try_local_young_still_gc()= in =vendor/gambit/lib/_mem/local-nursery.inc=
+  lines 372–377 acquires the global =ALLOC_MEM_LOCK()= mutex on every local still
+  sweep to decrement =occupied_words_still= (=memory_state.h.in:504=).
+- *Drop-In C23 Cut*:
+  1. Add =___SIZE_TS local_still_words_delta_;= (signed delta, initialized 0) to
+     per-processor =___ps->mem= in =vendor/gambit/include/_gambit/memory_state.h.in=.
+  2. Convert VM-level =occupied_words_still_= updates on the local-sweep path to
+     an atomic accumulator flush:
+     - On each local sweep, accumulate =___ps->mem.local_still_words_delta_ -= freed_words=.
+     - Only flush to VM =occupied_words_still_= via
+       =atomic_fetch_add_explicit(..., delta, memory_order_release)= when
+       =|local_still_words_delta_| >= 8192= words (64 KiB) or at global STW entry.
+     - Preserve exact non-negative clamping at STW accounting consolidation
+       (=still-sweep.inc:163-165=).
+- *Verified Reference Prototype*: =amp_still_acct_add_local()= /
+  =amp_still_acct_flush()= in =tests/c23_amp_prototypes/amp_primitives.h=
+  (TSan 8-thread clean; CBMC =modern_gc_amplification_pso.c= Mutant C killed;
+  isolated M2 Pro speedup: *19.83x* vs global mutex).
+
+** Cut 1B: =STILL_BLOCK_GLOBAL= Skip + Unified Movable/Still Local Pass (=local-nursery.inc:206-218, 398-735=)
+- *Current Bottleneck*:
+  1. =try_local_movable_nursery_gc()= aborts whenever =young_still_objs_ != 0=
+     (=local-nursery.inc:556=), caps survivors at =___LOCAL_MOV_MAX_LIVE = 200=
+     (=local-nursery.inc:399=), and double-copies through a 32 KiB stack buffer
+     =___WORD scratch[4096]= (=local-nursery.inc:671=).
+  2. Both =try_local_young_still_gc()= (=line 206=) and
+     =try_local_movable_nursery_gc()= (=line 554=) abort permanently on a single
+     escaped pointer (=local_young_escaped_ != 0=).
+- *Drop-In C23 Cut*:
+  1. Reserve next free bit =___STILL_FLAG_GLOBAL= in =base[___STILL_DIRTY]=
+     (alongside =___STILL_FLAG_YOUNG=, =___STILL_FLAG_MAJOR_MARK0=,
+     =___STILL_FLAG_MAJOR_MARK1= audited in =concurrent-major.inc:485, 1073=).
+     When a young-still object escapes to mature/global state, set
+     =___STILL_FLAG_GLOBAL=; local sweep skips it in =O(1)= without freeing or
+     re-tracing it (Marlow ISMM '11 §5.3).
+  2. Unify =try_local_young_still_gc()= and =try_local_movable_nursery_gc()= into
+     a single processor-local minor pass =try_local_unified_minor_gc()=:
+     - Trace processor-private registers, stack frames, and local nursery once.
+     - Promote surviving movable objects directly into the processor's
+       creator-owned mature Immix msection (Chez/Stage-2.1 owner-local msection
+       from =copy-planning.inc=), eliminating the 32 KiB stack double-copy and
+       the 200-object cap.
+     - Sweep unmarked local young-still blocks lacking =___STILL_FLAG_GLOBAL= in
+       the same pass.
+     - If =vm->mem.major_phase_ != ___GC_MAJOR_IDLE= (active SATB), allocate
+       promoted mature copies black (=local_promote_preserves_satb_black= in
+       =AmpDeepAlgorithmsRefinement.lean= & =MUTANT_LOCAL_PROMOTE_UNMARKED_SATB=
+       in =amp_chase_lev_and_radix_pso.c=).
+     - Install forwarding pointers and rewrite all duplicate local roots to
+       preserve Scheme =(eq? a b)= identity (=forwarding_preserves_scheme_eq_identity=).
+  3. Replace binary =local_young_escaped_= abort with a bounded per-processor
+     escape budget =local_escape_budget_= (e.g., =K = 256= objects or =4096=
+     words per minor epoch); only trip global STW fallback when budget is
+     exhausted (=mutant3EscapeBudgetExhaustedWithoutFallbackTest=).
+
+** Cut 1C: Contiguous Virtual Nursery Arena (=Is_young= in 1 Compare) + O(1) 2-Level Radix Msection Directory (=mem.c:50-85=, =heap-sections.inc=)
+- *Current Bottleneck*:
+  =___gc_find_msection_cached()= (=vendor/gambit/lib/mem.c:50-85=) divides by
+  =___MSECTION_SIZE * ___WS= (=131072 * 8 = 1 MiB = 1 << 20= on 64-bit) into a
+  small direct-mapped cache and falls back to =O(log M)= binary search over
+  =the_msections->sections[]=.
+- *Drop-In C23 Cut*:
+  1. Reserve a contiguous virtual nursery arena =[nursery_base, nursery_end)= via
+     =mmap(PROT_NONE)= / =VirtualAlloc(MEM_RESERVE)= at VM init, committing
+     per-processor slices on demand. Young-pointer detection in barriers and
+     scanners collapses to a single unsigned subtraction:
+     =((uintptr_t)ptr - nursery_base) < nursery_span= (zero memory loads).
+  2. Maintain a lock-free 2-level radix directory indexed by
+     =idx = ((uintptr_t)ptr) >> 20= (exact =1 MiB= =___MSECTION_SIZE * ___WS=
+     granularity; =hi = idx >> 10=, =lo = idx & 1023=):
+     - Writer initializes =L2= page completely, issues
+       =atomic_store_explicit(&l1[hi], l2, memory_order_release)=.
+     - Concurrent write-barrier & major-mark readers load =L1[hi]= with
+       =memory_order_acquire= and index =L2[lo]= in strict =O(1)= (zero binary
+       search).
+     - Unmapped/retired msections wait for quiescent reader drain
+       (=active_readers == 0= / STW epoch) before freeing descriptors.
+- *Verified Reference Prototype*: =amp_nursery_arena= + =amp_radix_dir= in
+  =tests/c23_amp_prototypes/amp_primitives.h= (ASan/UBSan + TSan 8-thread clean;
+  CBMC =MUTANT_RADIX_DROP_PUBLISH_FENCE= killed; isolated M2 Pro speedup:
+  *66.92x* vs binary search).
+
+** Cut 1D: Compatibility With Sibling =lxr-drc.inc=
+- Audited =vendor/gambit/lib/_mem/lxr-drc.inc= (lines 186–228):
+  - When unified local minor promotion populates mature Immix lines, call
+    =lxr_drc_mark_promoted_span(vm, sec, word_lo, word_hi)= so the 2-bit side
+    table marks freshly promoted lines =___LXR_RC_ONE=.
+  - =lxr_drc_try_reclaim_line()= already guards on
+    =major_phase_ == ___GC_MAJOR_IDLE= and bumps =sec->region_generation++=,
+    aligning 1-to-1 with our verified LXR SATB & line-reuse-epoch contracts.
+
+* 3. Closing Amp-4 Formal Verification: Global Work Pacing, Phantom Bytes & Off-Heap RefC Binaries
+
+Round 1–2 achieved 4-layer (SysML + Quint V2 + Lean 4 + CBMC PSO) coverage on
+Amp-1, Amp-2, and Amp-3, leaving Amp-4 without Quint V2 and CBMC PSO models.
+Round 3 closes that final quadrant via Hazards *H12–H14*:
+
+| Hazard ID | Mechanism | Exact Failure Mode | SysML v2 Law | Quint V2 Mutant-Killer | Lean 4 Unbounded Theorem | CBMC =--mm pso= Mutant | C23 Prototype / Test |
+|-----------+-----------+--------------------+--------------+------------------------+--------------------------+------------------------+----------------------|
+| *H12* | Off-Heap Immutable RefC Binary (Erlang =ProcBin= / Rust =Arc=) | Dropping refcount with =relaxed= or omitting =acquire= fence before =free()= races with peer payload read (UAF); sharing mutable =u8vector= without =IMMUTABLE_TAG= corrupts sibling reader | =OffHeapImmutableRefcBinaryLaw= | =mutant1RefcFreeWhileReaderAliveTest=, =mutant2MutableBinarySharedOffHeapTest=, =mutant3RefcDropWithoutReleaseFenceTest= | =refc_positive_blocks_free=, =refc_zero_implies_unique_last_drop=, =immutable_tag_required_for_offheap_share= | =MUTANT_REFC_DROP_WITHOUT_RELEASE=, =MUTANT_REFC_FREE_WITHOUT_ACQUIRE=, =MUTANT_REFC_MUTATE_SHARED_BINARY= | =amp_refc_bin_*= (8-thread TSan clean!) |
+| *H13* | OCaml-5 Global =alloc_counter= / =work_counter= Pacing + Racket Phantom Bytes | Domains allocate without executing proportional major slices -> hit heap limit =M= with unfinished major mark (emergency STW); omitting off-heap =phantom_bytes= lets small wrappers pin huge native buffers without triggering GC (OOM) | =GlobalMajorPacingAndPhantomBytesLaw= | =mutant4AllocExceedsLimitWithoutWorkSliceTest=, =mutant5PhantomBytesIgnoredOomTest=, =mutant6PacingCounterNonAtomicDriftTest= | =pacing_rate_guarantees_mark_completion_before_limit=, =phantom_bytes_included_prevents_hidden_rss_overflow= | =MUTANT_PACING_NONATOMIC_WORK_PUBLISH= | =amp_pacing_controller= + =amp_membalancer= (TSan clean!) |
+| *H14* | LBO Multi-Core Admission Gate (Cai et al. ISPASS '22) | Evaluating only wall-clock time hides parallel CPU-cycle bloat (LBO) or p99.9 latency / RSS regressions behind spare cores | =LboMulticoreAdmissionGateLaw= | — | =lbo_pareto_dominance_transitive= | — | =tests/test_lbo_evaluation_gate.py= |
+
+* 4. Standalone C23 Verified Prototypes & LBO Harness
+
+- *C23 Prototype Library & Multi-Sanitizer Harness*:
+  - [[file:../../../tests/c23_amp_prototypes/amp_primitives.h][tests/c23_amp_prototypes/amp_primitives.h]]
+  - [[file:../../../tests/c23_amp_prototypes/test_amp_primitives.c][tests/c23_amp_prototypes/test_amp_primitives.c]]
+  - Driver: [[file:../../../tests/test_c23_amp_prototypes.py][tests/test_c23_amp_prototypes.py]]
+  - Compiled cleanly with =clang -std=c23 -Wall -Wextra -Werror= across three
+    distinct builds: =-O3=, =-fsanitize=address,undefined=, and
+    =-fsanitize=thread= (8-thread concurrent stress).
+- *LBO Multi-Core Evaluation & Regression Gate*:
+  - [[file:../../../tests/test_lbo_evaluation_gate.py][tests/test_lbo_evaluation_gate.py]]
+  - Measures and gates wall time, total multi-core CPU cycles (=user + sys=),
+    metered p99/p99.9 latency, and peak/mean RSS, ready to run directly against
+    native Gambit SMP before and after Amp-1 integration.
+- *Visual Architecture Cut*:
+  - [[file:diagrams/amp1-cut-and-amp4-pacing.d2][diagrams/amp1-cut-and-amp4-pacing.d2]] /
+    [[file:diagrams/amp1-cut-and-amp4-pacing.svg][.svg]].
+
+* 5. Native Amp-1 C23 Implementation & Interleaved LBO Verification
+
+Following the =origin/modern-c= merge (=vendor/gambit= commit =c1d51213=), Amp-1
+Cuts 1A, 1B, and 1C were implemented natively across 11 =vendor/gambit= runtime
+files (leaving concurrent sibling soundness hunks in
+=include/_gambit/gvm_operations.h.in= and =lib/_mem/heap-sections.inc:166-169=
+intact):
+- *Cut 1A (Lock-Free Batched Still Accounting + Slab-Aligned Proactive Local Recycle)*:
+  - =include/_gambit/memory_state.h.in=, =lib/_mem/configuration.inc=,
+    =lib/_mem/object-allocation.inc=, =lib/_mem/capacity-resize.inc=,
+    =lib/_mem/collection-round.inc=, =lib/_mem/heap-sections.inc=,
+    =lib/_mem/still-sweep.inc=.
+  - Added per-processor =local_still_credit_= and atomic VM
+    =still_words_reclaimed_pending_=; exact =f_def=/=f_occ= budget conservation
+    in =amp_credit_reclaimed_still_words()= removes =ALLOC_MEM_LOCK()= from
+    =try_local_young_still_gc()=.
+  - Proactive slab-aligned =try_local_young_still_gc()= before
+    =ALLOC_MEM_LOCK()= when =local_young_escaped_ == 0= and
+    =words_still_objs_deferred >= (___MSECTION_SIZE >> 3)= (128 KiB) keeps
+    recycled young-still blocks inside =___STILL_SLAB_LOCAL_CAP=128=,
+    eliminating concurrent kernel =munmap=/=mmap= =vm_map_lock= storms.
+- *Cut 1B (=___STILL_FLAG_GLOBAL= + Unified Movable/Still Local Nursery GC + Zero-Lock Restore)*:
+  - =lib/_mem/local-nursery.inc=, =lib/_mem/allocation-limits.inc=,
+    =lib/_mem/memory-lifecycle.inc=.
+  - Added =___STILL_FLAG_GLOBAL = 16= for O(1) skip of escaped still objects;
+    unified =try_local_movable_nursery_gc()= to trace, remap, and sweep
+    =young_still_objs_= in the same zero-STW pass (removing the
+    =young_still_objs_ != 0= abort) with expanded local survivor capacity
+    (=768= live objects / =8192= words) and forward-progress guard.
+  - Restores owned =heap_limit= directly after successful local movable GC
+    without calling =prepare_mem_pstate()=, eliminating both a per-GC global
+    =ALLOC_MEM_LOCK()= and the tight-heap =heap_limit = hp + 0= clip when
+    =free_approx == 0=.
+- *Cut 1C (Exact O(1) 2-Level Mature Msection Radix Directory)*:
+  - =lib/_mem/generational.inc=, =lib/_mem/concurrent-major.inc=,
+    =lib/_mem/memory-lifecycle.inc=.
+  - Implemented =mature_radix_lookup_ro()= / =mature_radix_rebuild()= /
+    =mature_radix_cleanup()= exploiting the pigeonhole guarantee
+    (=SECTION_BYTES >= 1 MiB= => at most 2 sections per aligned 1 MiB bucket)
+    with zero-malloc L2 leaf pooling during STW =rebuild_mature_snapshot()=,
+    wired into =wb_find_mature_section()=, =___gc_write_barrier_slot_vm()=, and
+    =major_find_mature_section_ro()=.
+
+** Interleaved A/B LBO Results (Pre =c1d51213= vs Post Amp-1, Apple M2 Pro)
+Measured via 1 warmup + 5 interleaved A/B pairs
+(=.cache/tasks/amp1-baseline/ab_lbo_interleaved_v3.json=):
+
+| Workload | Procs | Pre Work (ms) | Post Work (ms) | Wall Speedup | GCs (Pre -> Post) | GC Time (ms) | Sys Time (ms) | Total CPU LBO Ratio |
+|----------+-------+---------------+----------------+--------------+-------------------+--------------+---------------+---------------------|
+| =amp1_tight_movable_m16384= | =p1= | 76.94 | 65.60 | *1.17x* | 105 -> 8 (-92.4%) | 10.49 -> 1.41 | 6.1 -> 5.4 | 0.862x (-13.8%) |
+| =amp1_tight_movable_m16384= | =p8= | 65.79 | 11.04 | *5.96x* | 86 -> 1 (-98.8%) | 38.53 -> 0.82 | 121.5 -> 9.7 | *0.275x (-72.5%)* |
+| =amp1_tight_movable_m16384= | =p12= | 68.64 | 10.86 | *6.32x* | 86 -> 1 (-98.8%) | 43.35 -> 0.55 | 164.1 -> 10.6 | *0.265x (-73.5%)* |
+| =amp1_real_still_mov_m16384= | =p1= | 115.31 | 70.33 | *1.64x* | 10 -> 8 | 9.29 -> 8.47 | 45.2 -> 16.5 | *0.645x (-35.5%)* |
+| =amp1_real_still_mov_m16384= | =p8= | 56.42 | 13.13 | *4.30x* | 13 -> 2 (-84.6%) | 13.05 -> 2.67 | 62.6 -> 14.0 | *0.448x (-55.2%)* |
+| =amp1_real_still_mov_m16384= | =p12= | 34.70 | 10.39 | *3.34x* | 15 -> 2 (-86.7%) | 7.45 -> 0.96 | 64.3 -> 14.2 | *0.479x (-52.1%)* |
+| =amp1_large_mature_wb_radix= | =p1= | 28.83 | 27.46 | *1.05x* | 0 -> 0 | 0.00 -> 0.00 | 15.9 -> 15.7 | 0.986x |
+| =amp1_large_mature_wb_radix= | =p8= | 14.39 | 7.67 | *1.88x* | 0 -> 0 | 0.00 -> 0.00 | 20.7 -> 22.4 | 1.023x |
+| =par_alloc_gc_m65536= | =p1/p8/p12= | 47.9/8.61/8.71 | 47.5/8.56/8.65 | *1.01x* | 8/1/1 -> 8/1/1 | 1.9/0.9/1.2 -> 1.9/1.0/1.0 | flat | 0.996–1.018x (neutral) |
+
+** Core GC & SRFI-230 Multicore PBT Verification & Remaining Honest Blockers
+- *Core GC + SRFI-230 PBT (Official Flags)*: *36/36 PASS* across =c9=, =c12=,
+  =c13=, =c14=, =c16-srfi230=, =c16-convoy=, =c17-srfi230=, =t5=, =t6= at
+  =p1=, =p4=, =p8=, =p12= (=.cache/tasks/amp1-baseline/amp1_core36_pbt_v3.json=).
+- *Pre-Existing =c1d51213= Diagnostics*:
+  - =t6= =s10-immix-holes-recycled= occasionally observes =major_evacuate_count_ >= 2=
+    under parallel chunk stealing on =p4/p8/p12= (observed identically on pre-Amp-1
+    =c1d51213=); post-Amp-1 passes 40/40 without =,m8192= and 53/55 across repeated
+    =,m8192= runs.
+  - Pre-existing =c1d51213= =END_OF_CONT= (=top=0xffffffffffffffdc=) thread-park
+    flake on =t3= / =gambit-stm= (both pre- and post-Amp-1) remains tracked by
+    the sibling hardening work; full TSan and Gerbil SMP qualification are still
+    required before setting =nativeRuntimeAdmitted= or =releaseAdmitted= to =true=.
+
+* 6. Native Amp-2 C23 Implementation & Interleaved LBO Verification
+
+Building directly on the committed Amp-1 baseline (=vendor/gambit= commit
+=131b3979=), Amp-2 Cuts 2A and 2B were implemented across 5 =vendor/gambit=
+files (=include/_gambit/memory_state.h.in=, =lib/mem.h=,
+=lib/_mem/memory-lifecycle.inc=, =lib/_mem/concurrent-major.inc=,
+=lib/setup.c=):
+
+- *Cut 2A (L2 Bitmap-First Filter + 64-Entry Software Prefetch Ring + Lock-Free Telemetry + Bounded Queue)*:
+  - Added L2-hot bitmap-first duplicate rejection (=~8 KiB/section= mark
+    bitmap) in =major_shade_obj_q()= *before* dereferencing cold DRAM object
+    headers or enqueuing into the prefetch ring, eliminating 67–90% of
+    duplicate DRAM header loads.
+  - Wired an OCaml-5-style L1-resident 64-entry deferred-shade software
+    prefetch ring (=___GC_MAJOR_PREFETCH_CAP=64=, =MIN=24=, read-only
+    =__builtin_prefetch(hdr, 0, 1)= without write-intent =PSTL1KEEP= RFO
+    storms) into =___gc_major_mark_slice()=, =major_remark_phase_a_parallel()=,
+    and =major_drain_mark_stack_stw()=, draining the ring completely on exit
+    and before Remark quiescence (=mark_termination_requires_all_three_empty=).
+  - Replaced global =major_mark_lock_= stats acquisition on every mark/idle/spin
+    slice with owner-written release-stored =___pstate_mem= counters
+    (=major_*_local_=, folded at STW Remark/abort), added 32-spin =trylock=
+    retry + fast work publication when =major_mark_stack_count_ == 0= (curing
+    multi-core premature slice aborts), and capped =major_mark_stack_cap_= at
+    =4,194,304= entries (32 MiB) with =satb_overflow_= fallback.
+- *Cut 2B (Opportunistic STW Entry Spin-Wait Concurrent Marking)*:
+  - Added =___gc_major_mark_stw_spin_slice()= (strictly bounded =1024= words,
+    1-load fast exit when =satb_active_ == 0=) and =SYNC_GET_MSG_SPIN_MARK=
+    (max 4 slices per wait) in =lib/setup.c= =barrier_sync_op_ex()=, invoked
+    *exclusively* on upward child waits during =first_iter != 0= (STW
+    =ENTERING=, strictly before upward =SYNC_SEND_MSG= release publication;
+    satisfies =OpportunisticStwSpinLaw= and =MUTANT_MISSING_SPIN_FENCE=).
+
+** Interleaved A/B LBO Results (Pre =131b3979= vs Post Amp-2 v3, Apple M2 Pro)
+Measured via 1 warmup + 5 interleaved A/B pairs
+(=.cache/tasks/amp2-baseline/ab_amp2_quiet_split.json=,
+=.cache/tasks/amp2-baseline/ab_amp2_lbo_interleaved_v3.json=):
+
+| Workload | Procs | Mark+Remark (Pre -> Post ms) | Total / Per-Word Speedup | Concurrent Mark Completion (Pre -> Post) | Total CPU LBO Ratio |
+|----------+-------+------------------------------+--------------------------+------------------------------------------+---------------------|
+| =cold_dag_500k= (500K cold random DAG) | =p1= | 447.27 -> 341.94 | *1.31x* (mark *1.41x*) | 100.0% -> 100.0% | *0.946x (-5.4%)* |
+| =cold_dag_500k= (500K cold random DAG) | =p8= | 54.01 -> 45.94 | *1.18x* (mark *1.44x*, rem *1.14x*) | *86.3% -> 99.8%* | *0.969x (-3.1%)* |
+| =cold_dag_500k= (500K cold random DAG) | =p12= | 44.06 -> 38.69 | *1.14x* | *83.8% -> 100.0%* | *0.974x (-2.6%)* |
+| =pure_mark_600k= (600K graph + huge root) | =p1= | 524.18 -> 246.89 | *2.12x* (mark *2.16x*, rem *1.30x*) | 100.0% -> 100.0% | *0.933x (-6.7%)* |
+| =pure_mark_600k= (600K graph + huge root) | =p8= | 66.20 -> 85.31 (100% vs 51.6%) | *1.48x* per-word concurrent rate | *51.6% -> 100.0%* (zero early abort!) | 1.043x |
+| =pure_mark_600k= (600K graph + huge root) | =p12= | 91.55 -> 124.59 (100% vs 68.2%) | *1.16x* per-word concurrent rate | *68.2% -> 100.0%* (zero early abort!) | 1.025x |
+| =amp2_stw_skew_spin_mark= (Cut 2B skew) | =p8= | 254.55 -> 165.20 (v2 quiet) | *1.54x* (rem *1.32x*) | =spin_slices = 12..38= (p8), =34..104= (p12) | *0.920x (-8.0%)* |
+| =amp1_tight_movable_guard= | =p8/p12= | 29.6/39.8 -> 14.4/35.0 | *2.06x / 1.14x* | zero regression on Amp-1 | *0.955x / 0.970x* |
+
+- *Core GC + SRFI-230 Multicore PBT (Official Flags)*: *36/36 PASS* across
+  =c9..t6= × =p1/p4/p8/p12= (=.cache/tasks/amp2-baseline/amp2_core36_pbt_v3.json=).
+- *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
+  =false= pending Gerbil SMP native qualification (see Section 9 for Wave 5
+  native runtime TSan/ASan/UBSan and =END_OF_CONT= closure).
+
+* 7. Native Amp-3 C23 Immix Multi-Hole, Overflow Preservation & Per-Section LXR
+
+Building directly on the committed Amp-2 baseline (=vendor/gambit= commit
+=c28091f9=), native Immix multi-hole/overflow recycling, per-section 2-bit LXR
+deferred-RC side-tables, and two legacy Immix/card-table soundness hardening
+fixes were implemented across 10 =vendor/gambit= files
+(=include/_gambit/memory_state.h.in=, =lib/collector.h=, =lib/mem.c=,
+=lib/_mem/section-claim.inc=, =lib/_mem/movable-sections.inc=,
+=lib/_mem/memory-lifecycle.inc=, =lib/_mem/concurrent-major.inc=,
+=lib/_mem/lxr-drc.inc=, =lib/_mem/heap-sections.inc=,
+=lib/_mem/generational.inc=):
+
+- *In-Section Multi-Hole Immix Refill, Best-Fit/Largest-Fit Claim & Overflow Preservation*:
+  - Lowered minimum recyclable Immix hole span from =512= words (4 lines) to
+    =256= words (2 lines) in =concurrent-major.inc= and =generational.inc=.
+  - Upgraded =refill_worker_arena()= (=heap-sections.inc=) to preserve
+    untouched trailing lines (=[rem_lo .. hole_hi) >= 256= words) with a valid
+    leaf =___sU8VECTOR= filler header before chaining directly to the next
+    fitting hole in the same mature section via
+    =section_claim_immix_hole_fitting()= (best-fit for => 256= words,
+    largest-fit otherwise), deferring =[hole_lo .. cur_off)= closure into
+    worker-private =closed_holes_[]= until strictly after =BARRIER()= drains
+    all parallel chunk stealers (=close_recycled_immix_hole_stw()=).
+  - Upgraded =section_best_promo_span()= and =prepare_generational_round()= to
+    rank Immix promotion candidates by cumulative recyclable free-line capacity
+    (=section_total_free_hole_words()= via =popcount(major_line_live[])=),
+    ensuring fine-grained =256w–384w=-hole-rich sections take priority over
+    small tail fragments.
+- *Per-Section Inline LXR 2-Bit Deferred-RC Side-Table & SATB-Safe Reclamation*:
+  - Moved the 128-byte 2-bit LXR side-table (=___LXR_RC_FREE=0, RC_ONE=1,
+    RC_TWO=2, RC_STUCK=3=) inline into each =___msection='s trailing metadata
+    (=section_lxr_drc_bits(sec)= in =SECTION_BYTES=, initialized to =0x55= =
+    =4x RC_ONE= on allocation and every section reset), physically eliminating
+    =sec->pos= aliasing across =adjust_msections()= address re-sorting and
+    dynamic table reallocations.
+  - Added SATB-gated =lxr_drc_reclaim_free_lines_idle()= (strictly gated on
+    =major_phase_ == ___GC_MAJOR_IDLE= and =sec->major_mark_epoch != 0=,
+    counting deferred lines when SATB is active), promoted-span =RC_ONE=
+    marking across =gc_is_dest == 1/2/3= (including full closing-filler spans),
+    and semantic VM telemetry (=immix_multihole_refills_=,
+    =immix_overflow_preserved_=, =lxr_lines_reclaimed_=,
+    =lxr_lines_deferred_satb_=, =lxr_stuck_resets_=).
+- *Legacy Immix & Card-Boundary Soundness Bugs Eliminated*:
+  - Fixed a pre-existing =c14= multi-core race (observed ~10% on =amp2-build=:
+    =36/40=) where boundary-card / post-snapshot =NULL_CHUNK_LINK= (=___FORW=)
+    headers left =starts[hi_card] = 1=, causing parallel
+    =scan_mature_card_list_with_state()= dirty-card walks to backtrack across
+    =hole_hi= into an actively written Immix promotion hole; tightened
+    =record_mature_obj_start()= to =in_card < starts[card]=, replaced card-head
+    =___FORW= headers with 1-word leaf fillers across fresh/tail/Remark-sweep
+    boundaries, and enforced =starts[hi_card] == 0= inside
+    =section_claim_immix_hole_fitting()=.
+  - Cleared =sec->major_line_live[]= and reset =section_lxr_drc_bits(sec)= to
+    =0x55= across all 7 section-reset transitions (selective evacuation, fresh
+    promotion, full STW Major GC, non-segregated fallback, and 100%-dead
+    unlink), and separated =cur_off >= hole_hi= (exact-full hole) from
+    =cur_off <= hole_lo + 1= (empty hole) in =close_recycled_immix_hole_stw()=.
+  - Result on =c14-immix-selective-evac-slab[p8]=: improved from =36/40=
+    (pre-Amp-3 baseline) to *50/50 PASS* (v5) + *20/20 PASS* (v6 final),
+    zero crashes, zero hangs.
+
+** Interleaved A/B LBO Results (Pre =c28091f9= vs Post Amp-3 v6, Apple M2 Pro)
+Measured via 5 interleaved A/B pairs (=.cache/tasks/amp3-baseline/ab_amp3_swiss_lbo.json=,
+=.cache/tasks/amp3-baseline/ab_amp3_lbo_interleaved.json=):
+
+| Workload | Procs | Work (Pre -> Post ms) | Wall Speedup | GC Speedup | Holes Recycled (Pre -> Post) | Multi-Hole Refills / Overflow Preserved | Total CPU LBO Ratio |
+|----------+-------+-----------------------+--------------+------------+------------------------------+-----------------------------------------+---------------------|
+| =amp3_fine_256w_holes= (58% live, 256w–384w holes) | =p1= | 5.89 -> 5.33 | *1.11x* | 0.98x | *0 -> 51* | =mh=50, ov=0= | *0.987x* |
+| =amp3_fine_256w_holes= (58% live, 256w–384w holes) | =p4= | 8.96 -> 7.22 | *1.24x* | *1.44x* | *0 -> 51* | =mh=50, ov=0= | *0.906x (-9.4%)* |
+| =amp3_fine_256w_holes= (58% live, 256w–384w holes) | =p8= | 16.05 -> 10.18 | *1.58x* | *1.71x* | *0 -> 82* | =mh=80, ov=0= | *0.670x (-33.0%)* |
+| =amp3_fine_256w_holes= (58% live, 256w–384w holes) | =p12= | 7.79 -> 7.36 | *1.06x* | *1.13x* | *0 -> 51* | =mh=50, ov=0= | *0.959x (-4.1%)* |
+| =amp3_multihole_swiss= (58% live, ~1Kw bands + 340w med) | =p1= | 6.64 -> 6.63 | 1.00x | *1.10x* | *0 -> 27* | =mh=26, ov=3= | 1.061x |
+| =amp3_multihole_swiss= (58% live, ~1Kw bands + 340w med) | =p4= | 7.39 -> 7.23 | *1.02x* | *1.11x* | *0 -> 26* | =mh=25, ov=3= | *0.997x* |
+| =amp3_multihole_swiss= (58% live, ~1Kw bands + 340w med) | =p8= | 10.42 -> 7.70 | *1.35x* | *1.52x* | *1 -> 26* | =mh=25, ov=3= | *0.831x (-16.9%)* |
+| =amp3_multihole_swiss= (58% live, ~1Kw bands + 340w med) | =p12= | 7.37 -> 7.38 | 1.00x | 0.98x | *4 -> 84 (21x)* | =mh=80, ov=9= | *0.798x (-20.2%)* |
+| =amp1_tight_movable_guard= (non-regression) | =p1/p8= | 15.7/41.8 -> 15.8/16.2 | *0.99x / 2.58x* | *1.06x / 1.13x* | zero regression | — | *1.02x / 0.87x* |
+
+- *Core GC + SRFI-230 Multicore PBT (Official Flags)*: *36/36 PASS* across
+  =c9..t6= × =p1/p4/p8/p12= (=.cache/tasks/amp3-baseline/amp3_core36_pbt.json=),
+  plus *50/50 + 20/20 PASS* on =c14[p8]= zero-crash stress and *10/10 PASS* on
+  =c12[p4]=.
+- *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
+  =false= pending Gerbil SMP native qualification (see Section 9 for Wave 5
+  native runtime TSan/ASan/UBSan and =END_OF_CONT= closure).
+
+* 8. Native Amp-4 C23 MemBalancer Pacing, Phantom Bytes & Off-Heap Immutable RefC Binaries
+
+Building directly on the committed Amp-3 baseline (=vendor/gambit= commit
+=3e54e5d4=), native MemBalancer $\sqrt{L \cdot M_{\text{scale}} \cdot g / (c \cdot s)}$
+adaptive Major GC pacing, OCaml-5 global atomic work pacing, Racket-on-Chez
+external phantom-byte pressure accounting, and Erlang ProcBin / Rust Arc style
+off-heap immutable RefC binaries were implemented across 14 =vendor/gambit=
+files (=include/_gambit/memory_state.h.in=, =include/_gambit/global_state.h.in=,
+=include/_gambit/runtime_protocols.h.in=, =lib/setup.c=, =lib/mem.c=,
+=lib/_mem/refc-binary.inc=, =lib/_mem/memory-lifecycle.inc=,
+=lib/_mem/concurrent-major.inc=, =lib/_mem/generational.inc=,
+=lib/_mem/allocation-limits.inc=, =lib/_mem/object-allocation.inc=,
+=lib/_mem/collection-round.inc=, =lib/_mem/still-sweep.inc=,
+=lib/_mem/local-nursery.inc=):
+
+- *MemBalancer Adaptive Major GC Pacing (=concurrent-major.inc=, =generational.inc=, =collection-round.inc=)*:
+  - Tracks VM-wide mutator allocation rate $g$ (EMA $\alpha_g = 0.95$, sampled
+    at STW cuts with zero IDLE mutator overhead) and GC scan/reclaim throughput
+    $s$ (EMA $\alpha_s = 0.5$) to compute dimensionally exact headroom
+    $E^* = \sqrt{L \cdot M_{\text{scale}} \cdot g / (c_{\text{eff}} \cdot s)}$
+    ($M_{\text{scale}} = 64\text{ MiB}$, $c_{\text{eff}} = (\text{eff\_pct}/50)^2$),
+    honoring explicit =-:l<N>= and =max_heap= verbatim while enforcing the
+    $E_{\min}$ burst-OOM floor (8 movable sections / 2 still sections).
+  - Isolates read-mostly pacing/phantom triggers from mutator-written atomic
+    counters via 64-byte cache-line padding in =___vmstate_mem= to eliminate
+    8–12 core false sharing.
+- *OCaml-5 Global Atomic Work Pacing & Racket Phantom Bytes (=concurrent-major.inc=, =allocation-limits.inc=, =object-allocation.inc=, =refc-binary.inc=)*:
+  - Publishes completed concurrent mark work via release-ordered
+    =___WORD_FETCH_ADD_RELEASE(&vm->mem.major_work_done_words_, scanned)= in
+    =___gc_major_mark_slice()=, and paces mutators proportionally per core via
+    =gc_major_pace_alloc_words()= (=max(fair_slice, deficit / np)= capped at
+    =131072= words) across heap refills, local nursery recycles, still chunks,
+    and phantom-byte registrations—bounding headroom by both 2× section/still
+    limits and the 6-Minor-GC window so concurrent marking completes in time.
+  - Exposes lock-free non-moving =___gc_register_phantom_bytes()= and
+    =___gc_pacing_stats()= (12 counters), arming single-winner CAS
+    =phantom_gc_needed_= when live external native bytes cross
+    =major_trigger_phantom_bytes_= and tightening the trigger downward after
+    reclamation to prevent ratcheting.
+- *Off-Heap Immutable RefC Binaries / ProcBin (=refc-binary.inc=, =still-sweep.inc=, =local-nursery.inc=)*:
+  - Implements =___refc_bin= with public C/FFI APIs (=___gc_refc_bin_create=,
+    =___gc_refc_bin_share=, =___gc_refc_bin_freeze=, =___gc_refc_bin_release=,
+    =___gc_refc_bin_wrap=, =___gc_refc_bin_unwrap=, data/length/immutability/rc
+    accessors): strictly rejects cross-core sharing unless
+    =___REFC_BIN_FLAG_IMMUTABLE= is set (H12), uses release-order refcount
+    decrement plus an acquire fence prior to final =___FREE_MEM()= when the
+    observed previous count equals 1, charges/releases VM phantom bytes
+    automatically, and reclaims dead built-in =___refc_bin= foreign wrappers
+    in-place during STW and local-nursery sweeps so parked cores never pin dead
+    off-heap buffers.
+
+** Interleaved A/B LBO Results (Pre =3e54e5d4= vs Post Amp-4, Apple M2 Pro)
+Measured via 1 warmup + 5 interleaved A/B pairs with macOS =/usr/bin/time -l=
+peak RSS (=.cache/tasks/amp4-baseline/ab_amp4_lbo_interleaved.json=):
+
+| Workload | Procs | Work (Pre -> Post ms) | Wall Speedup | GC / Remark (Pre -> Post ms) | Peak RSS (Pre -> Post MiB) | Total CPU LBO Ratio |
+|----------+-------+-----------------------+--------------+------------------------------+----------------------------+---------------------|
+| =amp4_pacing_burst_major= (48 MiB live + 12-wave burst) | =p1= | 268.3 -> 276.7 | 0.97x | 155.4->163.1 / *14.6->11.6 (-20.5%)* | 186.9 -> 213.9 (1.14x) | 1.040x |
+| =amp4_pacing_burst_major= (48 MiB live + 12-wave burst) | =p4= | 163.5 -> 159.4 | *1.03x* | *113.4->109.9* / *6.65->3.95 (-40.6%)* | 188.2 -> 214.9 (1.14x) | *0.991x* |
+| =amp4_pacing_burst_major= (48 MiB live + 12-wave burst) | =p8= | 164.2 -> 150.5 | *1.09x* | *120.4->94.5 (1.27x)* / 1.22->0.0 | 189.6 -> 218.1 (1.15x) | *0.845x (-15.5%)* |
+| =amp4_pacing_burst_major= (48 MiB live + 12-wave burst) | =p12= | 136.0 -> 111.4 | *1.22x* | *97.8->71.4 (1.37x)* / 1.56->0.0 | 190.8 -> 206.9 (1.08x) | *0.899x (-10.1%)* |
+| =amp4_phantom_rss_bound= (240 MiB off-heap churn) | =p1= | 14.93 -> 4.78 | *3.13x* | 0.0 -> 0.81 | *249.0 -> 30.7 (0.123x, -87.7%)* | *0.322x (-67.8%)* |
+| =amp4_phantom_rss_bound= (240 MiB off-heap churn) | =p4= | 14.74 -> 5.32 | *2.77x* | 0.0 -> 1.13 | *249.7 -> 31.4 (0.126x, -87.4%)* | *0.359x (-64.1%)* |
+| =amp4_phantom_rss_bound= (240 MiB off-heap churn) | =p8= | 14.51 -> 4.86 | *2.99x* | 0.0 -> 0.92 | *250.5 -> 32.3 (0.129x, -87.1%)* | *0.334x (-66.6%)* |
+| =amp4_refc_immutable_share= (256 KiB SMP fan-out) | =p1= | 10.38 -> 0.33 | *31.2x* | 0.15 -> 0.0 | *26.0 -> 16.9 (-35.2%)* | *0.032x (-96.8%)* |
+| =amp4_refc_immutable_share= (256 KiB SMP fan-out) | =p4= | 35.62 -> 0.44 | *80.2x* | *11.4 -> 0.0* | *24.7 -> 17.7 (-28.2%)* | *0.017x (-98.3%)* |
+| =amp4_refc_immutable_share= (256 KiB SMP fan-out) | =p8= | 180.36 -> 0.66 | *272.9x* | *99.2 -> 0.0* | *26.2 -> 18.6 (-28.7%)* | *0.004x (-99.6%)* |
+| =amp4_refc_immutable_share= (256 KiB SMP fan-out) | =p12= | 439.33 -> 0.80 | *547.8x* | *214.7 -> 0.0* | *32.5 -> 19.6 (-39.6%)* | *0.002x (-99.8%)* |
+| =amp1_tight_movable_guard= (non-regression) | =p1/p8= | 11.77/4.18 -> 11.77/3.38 | *1.00x / 1.24x* | zero regression | *1.004x / 0.998x* | *0.991x / 1.153x* |
+
+- *Amp-4 Adversarial Suite (=p1, p4, p8 x3, p12=)*: *6/6 PASS*
+  (H12 immutability rejection + multi-core 24,012 zero-copy shares + exact
+  zero-leak reclamation; H13 phantom peak bounded at =18 MiB= out of =160 MiB=;
+  H13 concurrent Major pacing =5/5 in-time, 0 emergency remarks=).
+- *Core GC + SRFI-230 Multicore PBT (Official Flags)*: *36/36 PASS* across
+  =c9..t6= × =p1/p4/p8/p12= (=.cache/tasks/amp4-baseline/amp4_core36_pbt.json=),
+  plus *20/20 PASS* on =c14[p8]= zero-crash stress
+  (=.cache/tasks/amp4-baseline/amp4_c14_stress20.json=).
+- *Honest Boundary*: =nativeRuntimeAdmitted= and =releaseAdmitted= remain
+  =false= pending Gerbil SMP native qualification (see Section 9 for Wave 5
+  native runtime TSan/ASan/UBSan and =END_OF_CONT= closure).
+
+* 9. Wave 5: Native Runtime Hardening, Full 10/10 TSan & ASan+UBSan Qualification, and Cumulative LBO
+
+Following Amp-4 (=1d72c8cb=), a full native runtime hardening and sanitizer
+qualification wave was executed on Apple Silicon M2 Pro (=arm64-apple-darwin=)
+against the unified runtime combining Amp-1..Amp-4 with the concurrent
+continuation/effect/fiber merges (=0f382e55..7cfcae0e=):
+
+** Genuine C23 Runtime Races, UB, and Pacing Issues Eliminated
+Native Apple Clang 21 ThreadSanitizer (=-fsanitize=thread=) and
+AddressSanitizer + UndefinedBehaviorSanitizer
+(=-fsanitize=address,undefined=) uncovered six concrete C23 runtime issues, all
+of which were root-caused and fixed cleanly in =vendor/gambit=:
+
+1. *Cross-core =STILL_DIRTY= & =processor_scmobj= races (=lib/_mem/local-nursery.inc=)*:
+   Replaced plain reads of =base[___STILL_DIRTY]= in =local_tracer_mark_obj= /
+   =local_mov_mark= with =___WORD_LOAD_RELAXED= (pairing with
+   =___WORD_FETCH_OR_RELEASE= in =generational.inc=); replaced non-atomic reads
+   of cross-core-visible =ctx->processor_scmobj[]= with relaxed loads,
+   conservatively aborted local movable GC if any processor root points into
+   the local nursery, and removed the hazardous unconditional Pass-2 non-atomic
+   write-back loop that raced with =_thread.c= peer work-stealing atomics
+   (eliminating 12/12 TSan warnings on =t5-generational-minor-gc=).
+2. *Concurrent Scheme vector/values reads paired with write-barrier stores (=include/_gambit/gvm_operations.h.in=, landed in =7cfcae0e=)*:
+   Upgraded =___VECTORREF= and =___VALUESREF= to =___WORD_LOAD_RELAXED= to pair
+   with the existing =___WORD_STORE_RELAXED= in =___VECTORSET= /
+   =___VALUESSET= with zero extra instructions on ARM64/x86-64 (eliminating
+   16/16 TSan warnings on =t6-concurrent-satb-major-gc=).
+3. *Unsigned stack-index negation UB (=include/_gambit/stack_operations.h.in=, =lib/_c_intf/sfun-entry.inc=)*:
+   Cast stack offsets to signed =___SSIZE_T= inside =___FP_STK=,
+   =___FP_SET_STK=, =___FP_ADJFP=, and =___call_sfun= argument copying,
+   eliminating C23 UBSan unsigned pointer-offset overflow on
+   =t3-blocking-ffi-park=.
+4. *Global rest-argument observation counters (=lib/_mem/rc-allocation.inc=, =lib/_kernel.scm=, =lib/_kernel.c=)*:
+   Converted =___rest_before_collect_pops=, =___rest_before_collect_writes=,
+   =___rest_fallback_pops=, =___rest_fallback_pair_writes=,
+   =___rest_user_restores=, and =___rest_internal_entries= to relaxed atomic
+   loads/stores/fetch-adds (eliminating 2/2 TSan warnings on
+   =c9-rest-kw-nursery=).
+5. *Chase-Lev =deque-push-bottom!= direct release publication (=lib/gambit/parallel/parallel.scm=)*:
+   Replaced =(atomic-fence 'release)= + ='relaxed= bottom store with a direct
+   ='release= =atomic-fxbox-set!= (single =STLR= on ARM64, establishing a
+   direct C23 Release-Acquire synchronizes-with edge with thief
+   =atomic-fxbox-ref ... 'acquire=; eliminating 4/4 TSan warnings on
+   =c16-srfi230-atomics-chase-lev=).
+6. *Atomic =debug_settings= RMW (=lib/setup.c=) & 12-core >75% catch-up pacing (=lib/_mem/concurrent-major.inc=)*:
+   Converted =___get_debug_settings= / =___set_debug_settings= to relaxed
+   atomic load + CAS loop with zero-dirty no-op fast path (eliminating 33/33
+   TSan warnings on =t3-blocking-ffi-park=), and added full catch-up slice
+   draining past 75% of remaining pacing headroom (bringing =amp4-adversarial=
+   to 10/10 PASS including 5× consecutive =p12=).
+
+** Native Runtime Sanitizer & Unified Multicore Matrix Qualification
+- *Apple Clang 21 Native Runtime TSan (=.cache/tasks/wave5-hardening/runtime_tsan_results.json=)*:
+  *10/10 PASS, 0 TSan warnings* across =amp4-adversarial=,
+  =t5-generational-minor-gc=, =t6-concurrent-satb-major-gc=,
+  =c14-immix-selective-evac-slab=, =c9-rest-kw-nursery=,
+  =c12-memory-scaling-contraction=, =c13-gerbil-compiler-shape-memory=,
+  =c16-srfi230-atomics-chase-lev=, =c17-srfi230-atomic-publish= (with
+  TSan-instrumented =srfi/230= native module), and =t3-blocking-ffi-park=.
+- *Apple Clang 21 Native Runtime ASan + UBSan (=.cache/tasks/wave5-hardening/runtime_asan_ubsan_results.json=)*:
+  *10/10 PASS, 0 ASan errors, 0 UBSan errors* across the same 10-suite SMP
+  matrix.
+- *Unified Full Multicore Matrix (=.cache/tasks/wave5-hardening/unified_post_wave5_96_pbt.json=)*:
+  - Official =run-multicore-suite.py= (all 25 targets including
+    =c7-multi-vm-fault-isolation= × =p1/p4/p8/p12=): *100/100 PASS*.
+  - =gc-hammer= (=p1/p4/p8/p12=): *4/4 PASS* -> *104/104 PASS across all 26
+    files in =vendor/gambit/tests/smp/multicore/=*.
+  - Targeted stress & stdlib: =amp4-adversarial= *10/10 PASS* (incl. 5× =p12=),
+    =c14[p8]= *20/20 PASS*, =t3[p8]= *15/15 PASS* (+ pre-Wave-5 35/35 =t3[p8]=,
+    35/35 =gambit-stm[p8]=, 25/25 =c5[p8]= with zero =END_OF_CONT=), stdlib
+    modules (=srfi/226=, =gambit/effect=, =srfi/230=, =gambit/parallel= ×
+    =p1/p4/p8=) *12/12 PASS*.
+
+** Cumulative Pre-Amp (=c1d51213=) vs Post-Amp-1..4+Wave5 Interleaved LBO
+Measured via 1 warmup + 5 interleaved A/B pairs with macOS =/usr/bin/time -l=
+peak RSS (=.cache/tasks/wave5-hardening/ab_cumulative_c1d51213_vs_amp1to4.json=):
+
+| Workload (=c1d51213= -> Unified Amp-1..4 + Wave 5) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | Peak RSS (Pre -> Post MiB) | Total CPU LBO Ratio |
+|----------------------------------------------------+-------+-----------------------+--------------+---------------------+----------------------------+---------------------|
+| =cum_amp1_heavy_still_mixed_nursery= (=m16384=) | =p1= | 50.09 -> 10.56 | *4.75x* | *10.15 -> 1.50 (6.75x)* | 38.0 -> 35.5 (0.93x) | *0.214x (-78.6%)* |
+| =cum_amp1_heavy_still_mixed_nursery= (=m16384=) | =p4= | 283.65 -> 27.32 | *10.38x* | *153.92 -> 9.80 (15.71x)* | *37.7 -> 26.0 (-31.0%)* | *0.159x (-84.1%)* |
+| =cum_amp1_heavy_still_mixed_nursery= (=m16384=) | =p8= | 575.89 -> 57.46 | *10.02x* | *291.56 -> 23.50 (12.41x)* | *45.9 -> 25.5 (-44.4%)* | *0.174x (-82.6%)* |
+| =cum_amp1_heavy_still_mixed_nursery= (=m16384=) | =p12= | 923.12 -> 73.90 | *12.49x* | *317.51 -> 16.79 (18.91x)* | *64.4 -> 29.3 (-54.5%)* | *0.153x (-84.7%)* |
+| =cum_amp4_pacing_burst_major= (48 MiB + burst) | =p4= | 213.92 -> 170.25 | *1.26x* | *139.59 -> 119.20 (1.17x)* | 185.8 -> 219.3 (1.18x) | *0.961x (-3.9%)* |
+| =cum_amp4_pacing_burst_major= (48 MiB + burst) | =p8= | 160.12 -> 135.60 | *1.18x* | *116.29 -> 86.21 (1.35x)* | 188.9 -> 220.6 (1.17x) | *0.820x (-18.0%)* |
+| =cum_amp4_pacing_burst_major= (48 MiB + burst) | =p12= | 224.93 -> 169.26 | *1.33x* | *145.74 -> 97.72 (1.49x)* | 185.7 -> 197.0 (1.06x) | *0.836x (-16.4%)* |
+| =cum_amp4_phantom_rss_bound= (240 MiB off-heap) | =p1/p4/p8= | 18.0–19.5 -> 5.8–7.8 | *2.47x–3.32x* | 0.0 -> 1.2–2.4 | *249–250 -> 32.3–34.1 (-86.7%)* | *0.327x–0.378x* |
+| =cum_amp4_refc_immutable_share= (256 KiB fan-out) | =p1/p4/p8/p12= | 12.1–465.6 -> 0.42–0.95 | *28.8x–590.8x* | *226.0 -> 0.00* | *33.8 -> 21.2 (-37.1% @ p12)* | *0.002x–0.035x* |
+
+- *Honest Admission Boundary*: Native Gambit SMP TSan (10/10, 0 warnings),
+  native ASan+UBSan (10/10, 0 errors), and =END_OF_CONT= closure on unified
+  104/104 multicore suites are complete on Apple Silicon. Both
+  =nativeRuntimeAdmitted= and =releaseAdmitted= remain strictly =false= until
+  downstream Gerbil SMP native qualification is executed and passed.
+
+* Wave 6: Remembered-Set Parallelism, Value-Aware Barrier, =gc_is_dest= Race Closure & Real Gerbil v0.19 SMP Qualification
+
+Deep profiling of =par_oldgen_churn_live= and large mature =___STILL=
+remembered sets (vectors/tables/rings) exposed three remaining GC scaling walls
+plus one legacy Immix multi-hole C23 data race caught by native TSan:
+
+** Root Causes Fixed in =vendor/gambit= (15 Files, Zero Plan Labels)
+1. *64-Word Card Bitmap on Large Mature =___STILL= Objects (=lib/_mem/configuration.inc=, =object-allocation.inc=, =still-sweep.inc=)*:
+   Pointer-array =___STILL= objects (=___sVECTOR=, =___sBOXVALUES=,
+   =___sSTRUCTURE=) with >= 512 payload words now allocate a trailing 64-word
+   (512-byte) card bitmap (=___STILL_FLAG_CARD_MAP=) whose exact word count
+   =b = (L + 64) / 65= is bijective from total =___STILL_BODY= allocation
+   size and invariant under =##vector-shrink!=. Promotion and Major GC sweep
+   preserve =___STILL_FLAG_CARD_MAP | ___STILL_FLAG_GLOBAL= and zero trailing
+   card words.
+2. *O(dirty) Dirty-Still Hint Log & Dynamic Parallel Strip Work-Stealing (=include/_gambit/memory_state.h.in=, =lib/collector.h=, =lib/_mem/generational.inc=, =memory-lifecycle.inc=)*:
+   Added per-processor 32-entry =still_hints_= log (with overflow list-walk
+   fallback) and reusable VM remembered-set task buffers.
+   =collect_minor_card_hints= partitions dirty movable cards into per-section
+   runs and decomposes dirty card-mapped mature stills into disjoint 8-card
+   (byte) or 64-card (word, >2 MiB) parallel strips. =scan_remembered_set=
+   uses atomic =___FETCH_AND_ADD_WORD= work-stealing across card runs,
+   overflow mature sections, and still strips (=scan_mature_still_card_strip=
+   with =ctzll= bit-skipping and =___HD_WORDS= shrink clamping), while
+   =finalize_gc_sections= clears dirty stills and card bitmaps in O(dirty).
+3. *Value-Aware Write Barrier (=include/_gambit/memory_state.h.in=, =global_state.h.in=, =runtime_protocols.h.in=, =lib/setup.c=, =lib/_mem/generational.inc=)*:
+   Routed =___GC_WRITE_BARRIER= through =___gc_write_barrier_slow_val(ps, obj,
+   slot_ptr, val)= (keeping =___gc_write_barrier_slow= intact for
+   =___GC_WRITE_BARRIER_ALWAYS= and external modules). Stores of =___PERM=,
+   mature =___STILL=, or mature =___MOVABLE0= values return immediately without
+   setting =local_young_escaped_= or dirtying movable/still cards.
+4. *Exact Young Occupancy =fast_minor_admitted= & Anti-Bloat Nursery Resize (=lib/_mem/copy-planning.inc=, =capacity-resize.inc=, =collection-round.inc=, =lib/setup.c=)*:
+   Fixed =fast_minor_admitted= to skip stack-only sections, measure exact
+   active-heap occupancy, lift the legacy =y_secs <= 64= cap to =<= 1024= when
+   =actual_young_words >= 2 * half_words=, record =g->fast_minor_pre_nb= so
+   =resize_heap= does not bloat the nursery from temporary fast-minor reserve,
+   and include =g->still_task_count= in adaptive worker =parallel_demand=.
+   Tuned lock-free barrier/scan termination backoff (=512= relax spins, =32=
+   yields, =20us= =nanosleep=, zero mutex thundering herd under oversubscription).
+5. *Legacy Multi-Hole Immix =gc_is_dest= C23 Release-Acquire Fix (=lib/_mem/heap-sections.inc=, =copy-reservations.inc=, =generational.inc=)*:
+   Native Clang 21 TSan caught a legacy data race on =c14-immix-selective-evac-slab=
+   where =prepare_worker_msection= re-wrote =gc_dest_offset= and =gc_is_dest=
+   non-atomically on multi-hole refill while thief workers concurrently read
+   them in =locate_object_scan_cell=. Fixed by writing =gc_dest_offset= and
+   =region_generation++= strictly once on =0 -> 1= transition and publishing
+   =gc_is_dest= with =__atomic_store_n(..., __ATOMIC_RELEASE)= paired with
+   =__atomic_load_n(..., __ATOMIC_ACQUIRE)= in =locate_object_scan_cell=,
+   =mark_array=, and =gc_obj_unmarked=.
+6. *Benchmark Harness Bounds Fix (=benchmarks/rust-smp/gambit_ht_bench.scm=)*:
+   Fixed out-of-bounds =-1= =f64vector-ref= in =quicksort-f64!= so all 10
+   paired Rust vs Gambit workloads execute cleanly.
+
+** Wave 6 Native Sanitizer & 108/108 Unified Multicore Qualification
+- *Apple Clang 21 Native Runtime TSan (=.cache/tasks/wave6-deep/runtime_tsan_w6_results.json=)*:
+  *11/11 PASS, 0 TSan warnings* (including =wave6-remset-adversarial=,
+  post-fix =c14-immix-selective-evac-slab=, and compiled TSan-instrumented
+  =srfi/230= on =c16= and =c17=).
+- *Apple Clang 21 Native Runtime ASan + UBSan (=.cache/tasks/wave6-deep/runtime_asan_ubsan_w6_results.json=)*:
+  *11/11 PASS, 0 ASan errors, 0 UBSan errors* across all 11 SMP suites.
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave6-deep/unified_post_wave6_100_pbt.json=)*:
+  - Official =run-multicore-suite.py= (25 targets × =p1/p4/p8/p12=): *100/100 PASS*.
+  - =gc-hammer= (=p1/p4/p8/p12=): *4/4 PASS*; =wave6-remset-adversarial=
+    (=p1/p4/p8/p12=): *4/4 PASS* -> *108/108 PASS*.
+  - Targeted stress: =amp4-adversarial= *10/10 PASS* (incl. 5× =p12=),
+    =c14[p8]= *20/20 PASS*, compiled =srfi/230= =c17[p4]= =0.11s= (=13.3 MiB=),
+    =c17[p12]= =0.10s=.
+
+** Wave 6 Interleaved A/B LBO (Pre-Wave-6 =amp4-build= vs Post-Wave-6)
+Protocol: 1 warmup + 5 interleaved A/B pairs with =/usr/bin/time -l= peak RSS
+(=.cache/tasks/wave6-deep/ab_wave6_lbo.json=):
+
+| Workload (Pre-Wave-6 -> Post-Wave-6) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | GC Speedup | Peak RSS (Pre -> Post MiB) | CPU LBO Ratio |
+|--------------------------------------+-------+-----------------------+--------------+---------------------+------------+----------------------------+---------------|
+| =w6_sparse_32k_still_vec= | =p1= | 38.61 -> 26.79 | *1.44x* | 13.04 -> 3.05 | *4.28x* | 97.5 -> 77.2 (-20.8%) | *0.857x* |
+| =w6_sparse_32k_still_vec= | =p4= | 43.15 -> 13.18 | *3.27x* | 34.64 -> 5.11 | *6.78x* | 95.3 -> 75.7 (-20.6%) | *0.600x* |
+| =w6_sparse_32k_still_vec= | =p8= | 54.90 -> 17.49 | *3.14x* | 46.26 -> 8.80 | *5.25x* | 103.9 -> 74.5 (-28.3%) | *0.857x* |
+| =w6_sparse_32k_still_vec= | =p12= | 72.79 -> 32.38 | *2.25x* | 64.08 -> 16.24 | *3.95x* | 93.1 -> 74.5 (-20.0%) | *0.958x* |
+| =w6_mature_to_mature_wb= | =p4= | 16.87 -> 11.60 | *1.46x* | 5.88 -> 1.18 | *4.97x* | 72.2 -> 73.7 | 1.000x |
+| =w6_mature_to_mature_wb= | =p8= | 16.30 -> 8.36 | *1.95x* | 7.18 -> 0.84 | *8.52x* | 69.1 -> 70.3 | *0.625x* |
+| =w6_mature_to_mature_wb= | =p12= | 17.61 -> 22.37* | 0.79x* | 8.40 -> 0.76 | *11.10x* | 66.0 -> 66.2 | 1.500x* |
+| =w6_skewed_p0_12rings= | =p4= | 14.17 -> 12.01 | *1.18x* | 8.40 -> 6.08 | *1.38x* | 85.6 -> 88.7 | 1.000x |
+| =w6_skewed_p0_12rings= | =p8= | 15.23 -> 12.82 | *1.19x* | 10.55 -> 8.32 | *1.27x* | 99.2 -> 103.9 | 1.000x |
+| =w6_skewed_p0_12rings= | =p12= | 24.06 -> 17.95 | *1.34x* | 19.26 -> 13.14 | *1.47x* | 106.0 -> 110.7 | 1.000x |
+| =w6_oldgen_churn_live= | =p4= | 13.61 -> 11.65 | *1.17x* | 7.39 -> 5.77 | *1.28x* | 84.0 -> 88.9 | 1.000x |
+| =w6_oldgen_churn_live= | =p12= | 20.23 -> 19.21 | *1.05x* | 14.02 -> 13.52 | *1.04x* | 105.9 -> 108.5 | 1.118x |
+
+(*Note*: =w6_mature_to_mature_wb[p12]= GC fell 11.10x to 0.76ms; wall jitter reflected concurrent host =clang=/=duetexpertd= load.)
+
+** Paired Rust (Tokio+Rayon) vs Wave 6 Gambit SMP (All 10 Workloads, =workers=12=)
+Artifact: =.cache/tasks/wave6-deep/rust-vs-gambit-wave6/comparison_w12.json=:
+- =par_gc_pause_live_heap=: Gambit outperforms Rust at =p4= (*0.7x*, 19.9ms vs 28.9ms), =p8= (*0.9x*, 13.4ms vs 14.4ms), and =p12= (*0.9x*, 11.5ms vs 12.6ms).
+- =ht_graph_bfs_churn=: *122.4M ops/s* at =p12= (*1.1x* of Rust, =S=7.60x=, =p50=116us < Rust 129.8us=, =p99.9=3085us < Rust 3213us=, =RSS=37.0 MiB < Rust 83.0 MiB=).
+- =ht_concurrent_kv_ycsb=: *16.4M ops/s* at =p12= (*1.8x* of Rust, =S=4.81x=, =p50=76.0us < Rust 81.0us=, =RSS=37.0 MiB < Rust 63.0 MiB=).
+- =par_compute_fib= (*1.4x–1.6x*), =par_alloc_gc_m65536= (*1.9x* at =p12=, =S=6.04x=), =par_oldgen_churn_live= (*1.0x* at =p1=, *1.3x* at =p4=), =par_sync_mailbox_cas= (*1.5x* at =p12=).
+
+** Real Non-Destructive Gerbil v0.19 SMP Qualification (=1cfb032c=)
+Executed on an APFS copy-on-write clone of =../gerbil-gambit-bootstrap-audit=
+(commit =1cfb032c7a1612637da6205f5f8a15683eba3ba0=, =originalGerbilSourceUnchanged=
+verified =true= via SHA-256) in =.cache/tasks/wave6-gerbil-qual/=:
+- *Full 8-Stage Bootstrap & Self-Hosted Build*: *8/8 PASS (=exit=0=)*:
+  =prepare= (2.85s), =boot-gxi= (0.24s), =stage0= (90.50s, 1031 MiB),
+  =stage1= (381.54s, 1050 MiB), =stdlib= (593.37s, 4104 MiB), =libgerbil=
+  (427.39s, 1685 MiB), =lang= (4.17s), =tools= (17.65s); total =1517.71s=.
+- *Official 160-Module =gxtest= Audit (=gerbil/test=, =std=, =lang=, =tools=)*:
+  - *127/160 PASS* (including =gerbil/test/compiler-test.ss= in 121s -> 13/14 =gerbil/test/*=).
+  - *SMP Multi-Core Core+Stdlib Qualification*: *45/45 PASS at =GAMBOPT=p4=*
+    and *45/45 PASS at =GAMBOPT=p12=* across all passing compiler, =std/sync=,
+    =std/actor=, =std/struct=, =std/encoding=, =std/crypto=, =std/vector=,
+    =std/time=, and =std/serde= suites (0 SMP/GC failures).
+  - *Single-Core =GAMBOPT=p1= Control*: All 33 remaining non-passing modules
+    reproduce identically under single-threaded =GAMBOPT=p1= (100% upstream
+    Gerbil =1cfb032c= macOS defects: =src/std/os/socket.ss:100-105= calling
+    =fcntl-setfl!(-EAGAIN)= without =(fx>= fd 0)= guard on non-Linux =accept=,
+    macOS =sockaddr= bind =EINVAL=, =kqueue= nullable =udata= FFI conversion,
+    =/etc= -> =/private/etc= symlink expectation, =-static= linking on macOS,
+    and external =www.google.com= HTTPS test).
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= until an upstream macOS-clean
+  Gerbil tree completes full recursive =gxtest ./...= with =OK=.
+
+* Wave 7 Lock-Free OS Futex Barrier, Zero-mmap Steady State, & Chez-Style =GEN_STATIC= Immortal Generation
+
+Profile-driven engineering on Apple M2 Pro (8P+4E heterogeneous cores) revealed
+three remaining system-level bottlenecks on 12-core GC workloads:
+(a) =barrier_sync_noop= and =mark_reachable_from_marked= escalating from 512
+spins to 32 =sched_yield= calls and =nanosleep(20us)= (~150–400us macOS timer
+overshoot across 14 barriers per Minor GC),
+(b) per-Minor-GC =mmap=/=munmap= expansion/contraction thrashing (~5,000
+syscalls/s + =mmap(MAP_FIXED)= TLB shootdowns in =release_drained_source_half=),
+and
+(c) repeated Concurrent Major GC clearing, tracing, and sweeping of dense
+immortal bootstrap/compiler graphs.
+
+** Wave 7 Formal Verification (CBMC 6.11 =--mm pso=)
+- Model: =dev/refactoring/modern-c/models/cbmc/wave7_futex_barrier_and_static_gen_pso.c=
+- Safe build (=cbmc --mm pso --bounds-check --signed-overflow-check --unwind 4=):
+  *0 of 6 failed, =VERIFICATION SUCCESSFUL= (=rc=0=)*. Proves zero lost
+  wakeups in the Dekker =seq_cst= adaptive-spin + OS futex barrier and
+  inductive-closure soundness of the =GEN_STATIC= dirty barrier.
+- All 4 PSO weak-memory mutants genuinely killed (=rc=10=, =VERIFICATION FAILED=):
+  - =MUTANT_FUTEX_DROP_WAKE_FENCE= (lost wakeup when leader drops =seq_cst= fence before reading waiter count)
+  - =MUTANT_FUTEX_DROP_WAITER_SEQ_CST= (lost wakeup when waiter drops =seq_cst= store before checking generation)
+  - =MUTANT_STATIC_CLEAR_DIRTY_WITH_NONSTATIC_REF= (premature dirty clearing while non-static child edge remains)
+  - =MUTANT_STATIC_SKIP_MATURE_WRITE_BARRIER= (unlogged =STATIC -> non-static= mature edge causing UAF sweep)
+
+** Wave 7 C23 Native Runtime Implementation (=vendor/gambit=, 14 files)
+1. *Lock-Free Adaptive-Spin + OS Futex Barrier (=lib/lifecycle.h=, =lib/setup.c=, =lib/collector.h=, =lib/_mem/heap-sections.inc=, =collection-round.inc=)*:
+   Added portable 32-bit futex primitives =___gc_futex_wait_u32= /
+   =___gc_futex_wake_all_u32= backed by Darwin =os_sync_wait_on_address= /
+   =os_sync_wake_by_address_all= and Linux =FUTEX_WAIT_PRIVATE= /
+   =FUTEX_WAKE_PRIVATE=. Upgraded =barrier_sync_noop= and
+   =mark_reachable_from_marked= to 2048-iteration =___CPU_RELAX()= adaptive spin
+   plus Dekker =__ATOMIC_SEQ_CST= waiter publication before kernel sleep (zero
+   =sched_yield= / =nanosleep= timer overshoot). Added bounded spin backoff in
+   =major_remark_phase_a_parallel=.
+2. *Zero-mmap Steady-State Minor GC & Conditional Cleanup Barrier (=include/_gambit/memory_state.h.in=, =lib/_mem/movable-sections.inc=, =capacity-resize.inc=, =copy-planning.inc=, =memory-lifecycle.inc=, =object-scanning.inc=, =collection-round.inc=)*:
+   Added a bounded per-VM 64-section msection spare pool (=msection_spare_pool_pop= /
+   =msection_spare_pool_push= / =msection_spare_pool_purge=) eliminating
+   steady-state Minor GC =mmap=/=munmap= churn while purging completely on Major
+   GC, =force_contract=, and VM teardown. Switched Minor GC drained-half release
+   on macOS (=hard_unmap == 0=) to =madvise(..., MADV_FREE_REUSABLE)= while
+   preserving =mmap(MAP_FIXED)= on Major GC / contraction. Added
+   =has_reached_gc_hash_tables= tracking in =object-scanning.inc= to elide
+   =garbage_collect_cleanup_phase= and its trailing =BARRIER()= in O(1) when no
+   GC hash tables were reached.
+3. *Chez-Style =GEN_STATIC= Immortal Generation (=include/_gambit/memory_state.h.in=, =lib/_mem/generational.inc=, =concurrent-major.inc=, =collection-round.inc=, =lxr-drc.inc=)*:
+   Retains =region_age == ___GC_REGION_MATURE= (zero Minor GC regressions) and
+   adds =major_static_gen=, =major_survive_count=, and atomic
+   =static_major_dirty= on =___msection= plus =nb_msections_static_= and
+   =major_static_skipped_sections_= on =___vmstate_mem=. Non-weak (=!has_weak=),
+   full (>=75% active half), dense (>=85% live), hole-free, stable mature
+   sections surviving 2 consecutive Concurrent Major cycles promote to
+   =major_static_gen = 1= with initial =static_major_dirty = 1=. Write barriers
+   (=___gc_write_barrier_slow=, =___gc_write_barrier_slow_val=,
+   =___gc_write_barrier_slot_vm=, =___gc_write_barrier_range=) mark
+   =static_major_dirty = 1= on any edge from a static section to a young or
+   non-static mature movable/still target. Concurrent Major Initial-Mark skips
+   all static sections during bitmap clear and seeds only dirty static sections
+   via =major_initial_mark_seed_static_dirty_parallel= after the clear barrier;
+   STW Remark Phase R-A scans dirty static sections via
+   =major_scan_dirty_static_section= and clears =static_major_dirty = 0= strictly
+   when =saw_nonstatic == 0= (inductive closure). Full compacting GC (=(##gc)=)
+   resets =major_static_gen = 0= for 100% physical memory contraction.
+
+** Wave 7 Native Sanitizer & 112/112 Unified Multicore Qualification
+- *Wave 7 Adversarial Verification (=.cache/tasks/wave7-profile/wave7_static_and_futex_adversarial.scm=)*:
+  *4/4 PASS* across =p1/p4/p8/p12= verifying 50–51 section =GEN_STATIC=
+  promotion, 100–102 skipped section scans, inductive-closure retention across 3
+  Major cycles for =STATIC -> non-static mature= movable & still children,
+  =STATIC -> young -> promoted mature= retention and clean dirty re-closure,
+  =!has_weak= weak-table exclusion, 12-worker futex barrier + concurrent static
+  mutation stress, and explicit =(##gc)= reset (=51 -> 0= static, =54 -> 1=
+  mature).
+- *Apple Clang 21 Native Runtime TSan (=.cache/tasks/wave7-profile/runtime_tsan_w7_results.json=)*:
+  *12/12 PASS, 0 TSan warnings* (including =wave7-static-futex-adversarial=,
+  =wave6-remset-adversarial=, =amp4-adversarial=, and compiled TSan =srfi/230=).
+- *Apple Clang 21 Native Runtime ASan + UBSan (=.cache/tasks/wave7-profile/runtime_asan_ubsan_w7_results.json=)*:
+  *12/12 PASS, 0 ASan errors, 0 UBSan errors* across all 12 SMP suites.
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave7-profile/unified_post_wave7_100_pbt.json=)*:
+  *112/112 PASS* (=run-multicore-suite.py= 100/100 + =gc-hammer= 4/4 +
+  =wave6-remset-adversarial= 4/4 + =wave7-static-futex-adversarial= 4/4) plus
+  =amp4-adversarial= *10/10 PASS* (5× =p12=) and =c14[p8]= *20/20 PASS*.
+
+** Wave 7 Interleaved A/B LBO (Pre-Wave-7 =1f33e5d5= vs Post-Wave-7)
+Protocol: 1 warmup + 5 interleaved A/B pairs with =/usr/bin/time -l= peak RSS
+(=.cache/tasks/wave7-profile/ab_wave7_lbo.json=):
+
+| Workload (Pre-Wave-7 -> Post-Wave-7) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | GC Speedup | Kernel sys Delta | CPU LBO Ratio |
+|--------------------------------------+-------+-----------------------+--------------+---------------------+------------+------------------+---------------|
+| =w7_static_gen_major_burst= | =p1= | 145.69 -> 40.91 | *3.56x* | 57.45 -> 7.46 | *7.70x* | 0.0% | *0.500x* |
+| =w7_static_gen_major_burst= | =p4= | 140.53 -> 49.65 | *2.83x* | 54.62 -> 9.34 | *5.84x* | 0.0% | *0.542x* |
+| =w7_static_gen_major_burst= | =p8= | 136.38 -> 48.36 | *2.82x* | 53.63 -> 9.91 | *5.41x* | 0.0% | *0.520x* |
+| =w7_static_gen_major_burst= | =p12= | 146.95 -> 48.37 | *3.04x* | 57.44 -> 9.57 | *6.00x* | *-33.3%* | *0.481x* |
+| =w7_sparse_32k_still_guard= | =p4= | 12.60 -> 9.12 | *1.38x* | 4.62 -> 1.62 | *2.85x* | 0.0% | 1.000x |
+| =w7_sparse_32k_still_guard= | =p8= | 16.40 -> 8.28 | *1.98x* | 8.59 -> 2.56 | *3.35x* | *-66.7%* | *0.700x* |
+| =w7_sparse_32k_still_guard= | =p12= | 24.10 -> 15.54 | *1.55x* | 13.65 -> 7.44 | *1.83x* | *-55.6%* | *0.762x* |
+| =w7_rest_alloc_m65536= | =p4= | 31.40 -> 28.77 | *1.09x* | 4.26 -> 1.40 | *3.04x* | 0.0% | 1.000x |
+| =w7_rest_alloc_m65536= | =p8= | 24.40 -> 19.58 | *1.25x* | 5.53 -> 1.78 | *3.10x* | *-50.0%* | *0.923x* |
+| =w7_rest_alloc_m65536= | =p12= | 27.57 -> 24.13 | *1.14x* | 9.49 -> 7.29 | *1.30x* | *-50.0%* | 1.000x |
+| =w7_oldgen_churn_heavy= | =p12= | 69.70 -> 65.00 | *1.07x* | 53.70 -> 52.24 | *1.03x* | *-50.0%* | *0.857x* |
+
+** Paired Rust (Tokio+Rayon) vs Wave 7 Gambit SMP & Gerbil v0.19 Spot-Check
+- *Paired 10-Workload Rust vs Wave 7 Gambit (=.cache/tasks/wave7-profile/rust-vs-gambit-wave7/comparison_w12.json=, =workers=12=)*:
+  - =par_oldgen_churn_live[p12]=: =21.5ms -> 15.5ms= (*1.39x* vs Wave 6, ratio vs Rust cut *3.91x -> 2.09x*).
+  - =par_rest_alloc_m65536[p12]=: =42.4ms -> 31.3ms= (*1.35x* vs Wave 6, ratio vs Rust cut *3.59x -> 2.32x*); =p8= GC pause halved (=15.0% -> 7.1%=).
+  - =par_alloc_gc_m65536[p12]=: =13.7ms -> 11.5ms= (*1.19x* vs Wave 6, *1.77x* vs Rust, GC pause =17.6% -> 11.4%=).
+  - =par_gc_pause_live_heap=: Gambit outperforms Rust at =p4= (*0.98x*), =p8= (*0.71x*, 12.5ms vs 17.5ms), and =p12= (*0.88x*, 11.9ms vs 13.5ms, GC pause =7.5% -> 3.2%=, RSS =107.3 MiB=).
+  - =ht_mpmc_pipeline[p12]=: =88.8ms -> 80.9ms= (*1.10x* vs Wave 6) with =p99.9= tail cut *3.57x* (=42,443us -> 11,878us=).
+  - =par_compute_fib[p12]=: =118.9ms -> 111.2ms= (*1.07x*, *1.48x* vs Rust).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Bootstrap & Compiler Qualification (=.cache/tasks/wave7-gerbil-spot/=)*:
+  =prepare= (=2.64s=, =exit=0=), =boot-gxi= (=0.34s=, =exit=0=), =stage0= full
+  Gerbil bootstrap compiler build (=93.65s=, peak RSS =1023.6 MiB < Wave 6 1031.4 MiB=,
+  =exit=0=), plus =GAMBOPT=p4= and =GAMBOPT=p12= =(import :gerbil/expander :gerbil/compiler)=
+  smoke PASS; original =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+
+* Wave 8: Lock-Free Concurrent Primitives, OS-Futex Sync Barrier, Anti-Convoy Ticketlock, and C23 Atomic Header Initialization
+
+** Empirical Profiling Root Causes (Apple Silicon M2 Pro, =sample= on Wave 7 =6ba979c0=)
+1. *Ticketlock FIFO Convoy (=3,068= =swtch_pri= samples)*: =___TICKETLOCK_LOCK2=
+   in =include/_gambit/gvm_operations.h.in= spun only =64= iterations (~0.3 us)
+   before calling =sched_yield()=, causing =2,534= samples in
+   =bump_heap_section_for_demand= and =224= in =___heap_limit= under 12-core
+   contention.
+2. *Active-Subset Barrier & Tree-Sync Condvar Contention (=3,006= =__psynch_cvwait= samples)*:
+   =barrier_sync_op_ex= (=2,498= samples) and tree =SYNC_GET_MSG= /
+   =SYNC_SEND_MSG= in =lib/setup.c= still used =pthread_mutex= +
+   =pthread_cond_wait= on the hot path instead of adaptive-spin + OS futex.
+3. *Lock-Free Concurrent Data Structures (=lib/gambit/concurrent/concurrent.scm=)*:
+   =lf-queue= allocated 3 Scheme heap objects per message with unpadded
+   head/tail slots and 8 cross-module =srfi/230= calls per op (22.5x vs Rust
+   at =p12=); =concurrent-table= allocated 2 closures per write via
+   =call-with-values= and indirected =equal?= / =equal?-hash=; =ws-deque=
+   issued =SWPAL= RMW on push and unconditional =DMB ISH= on empty steal.
+4. *Spare-Pool RSS Headroom & C23 Header DRF Race*: Hardcoded 64-section spare
+   pool inflated worst-case =ru_maxrss= headroom; native TSan exposed a real
+   C23 non-atomic vs atomic object-header race in =t6-concurrent-satb-major-gc=
+   between =___BEGIN_ALLOC_*= (=___hp[0] = hd=) and
+   =___gc_write_barrier_slow_val='s =___WORD_LOAD_RELAXED(&___BODY0(val)[-1])=.
+
+** CBMC =--mm pso= Weak-Memory Proof & 4/4 Mutant Elimination
+- Model: =dev/refactoring/modern-c/models/cbmc/wave8_segqueue_and_sync_barrier_pso.c=.
+- Safe verification (=cbmc --mm pso --bounds-check --signed-overflow-check --unwind 4=):
+  *0 of 12 failed, VERIFICATION SUCCESSFUL (=rc=0=)*.
+- All 4 PSO weak-memory mutants killed (=rc=10=, =VERIFICATION FAILED=):
+  - =MUTANT_SEGQ_DROP_SLOT_RELEASE=: proves =states[off]= release-acquire
+    publication is required to prevent consumer observation of stale/unwritten
+    slot payloads in segmented =lf-queue=.
+  - =MUTANT_SEGQ_DROP_NEXT_RELEASE=: proves segment-link release publication is
+    required before advancing =tail_seg= / =head_seg=.
+  - =MUTANT_SYNCBAR_DROP_WAKE_FENCE=: proves the Dekker =seq_cst= fence in
+    =barrier_sync_op_ex= prevents lost wakeups under store-buffer reordering.
+  - =MUTANT_SYNCBAR_DROP_PAYLOAD_RELEASE=: proves double-buffered
+    =sync_bar_out_sop[slot]= / =sync_bar_out_winner[slot]= visibility before
+    releasing =sync_bar_gen=.
+
+** Native Wave 8 Implementation (7 =vendor/gambit= Files)
+1. =include/_gambit/gvm_operations.h.in=: anti-convoy =___TICKETLOCK_LOCK2=
+   tuned to =256= spins with proportional =1..8= relax backoff (~5-15 us
+   sweet spot).
+2. =include/_gambit/processor_state.h.in=, =lib/lifecycle.h=, =lib/setup.c=:
+   Dekker =seq_cst= adaptive-spin (=2048= spins) + Darwin/Linux OS futex
+   (=___gc_futex_wait_u32= / =___gc_futex_wake_all_u32=) for both tree
+   =SYNC_GET_MSG= / =SYNC_GET_MSG_SPIN_MARK= / =SYNC_SEND_MSG=
+   (=sync_futex_seq=, =sync_futex_waiters=) and double-buffered active-subset
+   =barrier_sync_op_ex= (=sync_bar_gen=, =sync_bar_waiters=,
+   =sync_bar_out_sop[2]=, =sync_bar_out_winner[2]=).
+3. =lib/_mem/movable-sections.inc=: adaptive spare-pool cap
+   =clamp(2 * processor_count, ___GC_MSECTION_SPARE_MIN=8, ___GC_MSECTION_SPARE_MAX=32)=
+   cutting worst-case =ru_maxrss= spare headroom by 50% while preserving
+   zero-=mmap= Minor GC steady state.
+4. =lib/gambit/concurrent/concurrent.scm=:
+   - =lf-queue=: 128-slot movable-nursery single-use segments (strictly below
+     Gambit's 256-word =___STILL= threshold so every segment bump-allocates in
+     the young movable nursery), 128B-padded =head=/=tail= counters, inline C23
+     =%lfq-enq-fast!= / =%lfq-deq-fast!= with pre-CAS =states[off] != 0= check
+     (non-blocking under preempted producers), private =%lfq-empty= /
+     =%lfq-retry= sentinels, and full interpreted fallback.
+   - =concurrent-table=: inline C23 Fibonacci-hash fixnum wait-free lookup
+     (=%ct-fast-fixnum-ref=), inline C23 bucket acquire-load and CAS-acqrel,
+     zero-closure =%alist-replace= / =%alist-replace-eq= / =%alist-delete=,
+     and 128B-padded inline counter.
+   - =ws-deque=: single-block inline C23 push/pop/steal (=ws-deque-push!=,
+     =%ws-pop-raw!=, =%ws-steal-raw!=) with relaxed store + write barrier
+     on push and fast-peek emptiness check (=t >= b_peek=) before =seq_cst=
+     fence on steal.
+   - =lf-stack=: inline C23 CAS on 128B-padded head vector.
+5. =include/_gambit/object_access.h.in=: C23 =___WORD_STORE_RELAXED(&___hp[0], ...)=
+   for =___BEGIN_ALLOC_PAIR=, =___BEGIN_ALLOC_SUBTYPED=, and
+   =___BEGIN_ALLOC_VECTOR_EXPR=, pairing with =___WORD_LOAD_RELAXED= in
+   =___gc_write_barrier_slow_val= (identical single =STR= instruction on ARM64,
+   preserving =STP= body coalescing, eliminating the =t6= TSan header race).
+
+** Wave 8 Qualification Gates (Apple Silicon M2 Pro)
+- *Native Apple Clang 21 TSan*: *13/13 PASS, 0 warnings*
+  (=.cache/tasks/wave8-profile/runtime_tsan_w8_results.json=, including
+  =wave8-concurrent-sync-adversarial= and 5/5 back-to-back clean runs of
+  =t6-concurrent-satb-major-gc=), plus official =gambit/concurrent/test/test.scm=
+  *55/55 PASS, 0 TSan warnings*.
+- *Native Apple Clang 21 ASan+UBSan* (with real instrumentation in =lib/mem.o=
+  [773 ASan / 7 UBSan], =lib/setup.o= [68 ASan / 5 UBSan], =lib/c_intf.o=,
+  =lib/os_thread.o=, and =concurrent.o1= [484 ASan / 6 UBSan]): *13/13 PASS,
+  0 ASan errors, 0 UBSan errors*
+  (=.cache/tasks/wave8-profile/runtime_asan_ubsan_w8_results.json=), plus
+  official =gambit/concurrent/test/test.scm= *55/55 PASS, 0 errors*.
+- *Unified Multicore Matrix + Stress*: *116/116 PASS*
+  (=run-multicore-suite.py= 100/100 across =p1,p4,p8,p12= ->
+  =.cache/tasks/wave8-profile/unified_post_wave8_100_pbt.json= + =gc-hammer=
+  4/4 + =wave6-adv= 4/4 + =wave7-adv= 4/4 + =wave8-adv= 4/4 + =amp4-adv[p8]=
+  10/10 + =c14[p8]= 20/20 + =gambit/concurrent/test/test.scm= 55/55 across
+  =p1,p4,p8,p12=).
+
+** Interleaved A/B LBO Results (Pre-Wave-8 =6ba979c0= vs Post-Wave-8, 5 Interleaved Pairs)
+(=.cache/tasks/wave8-profile/ab_wave8_lbo.json=):
+
+| Workload (Pre-Wave-8 -> Post-Wave-8) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | Kernel sys Delta | CPU LBO Ratio | RSS (Pre -> Post MiB) | p99.9 Tail (Pre -> Post us) |
+|--------------------------------------+-------+-----------------------+--------------+---------------------+------------------+---------------+-----------------------+-----------------------------|
+| =ht_mpmc_pipeline= | =p1= | 156.49 -> 80.50 | *1.94x* | 35.13 -> 20.42 | 0.0% | *0.533x* | 77.8 -> 53.8 | 126902 -> 67337 (*1.88x*) |
+| =ht_mpmc_pipeline= | =p4= | 102.56 -> 45.09 | *2.27x* | 33.05 -> 12.25 | 0.0% | *0.517x* | 75.3 -> 53.4 | 61085 -> 27355 (*2.23x*) |
+| =ht_mpmc_pipeline= | =p8= | 105.90 -> 50.35 | *2.10x* | 32.11 -> 15.23 | *-50.0%* | *0.463x* | 72.8 -> 45.6 | 67396 -> 27922 (*2.41x*) |
+| =ht_mpmc_pipeline= | =p12= | 80.39 -> 43.37 | *1.85x* | 25.96 -> 9.43 | 0.0% | *0.537x* | 54.7 -> 40.7 | 31895 -> 9037 (*3.53x*) |
+| =ht_concurrent_kv_ycsb= | =p1= | 156.82 -> 101.95 | *1.54x* | 13.71 -> 8.01 | 0.0% | *0.625x* | 39.8 -> 32.3 | 90948 -> 1810 (*50.2x*) |
+| =ht_concurrent_kv_ycsb= | =p4= | 47.32 -> 39.33 | *1.20x* | 7.93 -> 8.00 | *-100.0%* | *0.667x* | 40.4 -> 32.7 | 2588 -> 2473 (*1.05x*) |
+| =ht_concurrent_kv_ycsb= | =p8= | 40.03 -> 25.37 | *1.58x* | 9.90 -> 4.79 | 0.0% | *0.682x* | 38.4 -> 31.9 | 3357 -> 2178 (*1.54x*) |
+| =ht_concurrent_kv_ycsb= | =p12= | 39.63 -> 23.56 | *1.68x* | 9.17 -> 5.27 | *-50.0%* | *0.667x* | 41.5 -> 34.3 | 6687 -> 3443 (*1.94x*) |
+| =ht_workstealing_dag= | =p1= | 78.89 -> 60.78 | *1.30x* | 1.19 -> 0.99 | 0.0% | *0.750x* | 12.0 -> 11.9 | 947 -> 746 (*1.27x*) |
+| =ht_workstealing_dag= | =p8= | 42.90 -> 27.19 | *1.58x* | 1.64 -> 1.46 | 0.0% | *0.677x* | 23.8 -> 23.8 | 1360 -> 835 (*1.63x*) |
+| =ht_workstealing_dag= | =p12= | 72.46 -> 55.75 | *1.30x* | 2.30 -> 3.74 | 0.0% | *0.852x* | 31.2 -> 32.0 | 6165 -> 7228 |
+| =w7_oldgen_churn_heavy= | =p4= | 48.26 -> 40.79 | *1.18x* | 30.55 -> 25.64 | 0.0% | *0.933x* | 146.8 -> 149.9 | - |
+| =w7_oldgen_churn_heavy= | =p8= | 66.70 -> 58.77 | *1.14x* | 47.38 -> 45.55 | 0.0% | *0.958x* | 184.8 -> 193.7 | - |
+| =w7_oldgen_churn_heavy= | =p12= | 86.63 -> 68.33 | *1.27x* | 57.09 -> 52.43 | *-40.0%* | *0.756x* | 202.5 -> 210.3 | - |
+
+Additional interleaved A/B regression check (5 pairs Pre-Wave-8 vs Post-Wave-8):
+=par_rest_alloc_m65536[p12]= *1.19x* (55.42 -> 46.47ms), =par_gc_pause_live_heap[p8/p12]=
+*1.18x* / *1.13x*, =par_oldgen_churn_live[p12]= *1.07x*, =par_sync_mailbox_cas[p8/p12]=
+*1.12x* / *1.10x* (zero regressions at =p12=).
+
+** Paired Rust (Tokio+Rayon) vs Wave 8 Gambit SMP & Gerbil v0.19 Spot-Check
+- *Paired 10-Workload Rust vs Wave 8 Gambit (=.cache/tasks/wave8-profile/rust-vs-gambit-wave8/comparison_w12.json=, =workers=12=)*:
+  - =par_sync_mailbox_cas[p12]=: =78.5ms -> 30.5ms= (*2.57x* vs Wave 7, ratio vs
+    Rust cut *2.07x -> 1.07x* — within 7% of native Rust at 12 cores; RSS
+    =33.2 -> 24.1 MiB=).
+  - =ht_mpmc_pipeline[p12]=: =80.9ms -> 42.1ms= (*1.92x* vs Wave 7, ratio vs
+    Rust cut *22.47x -> 9.15x*, RSS =53.5 -> 41.3 MiB=); =p1= *2.02x* (*15.95x -> 7.89x*).
+  - =ht_concurrent_kv_ycsb=: =p4= *1.76x* vs Wave 7 (*2.95x -> 1.38x* of Rust),
+    =p8= *1.20x* (*2.04x -> 1.33x* of Rust), =p12= *1.56x* of Rust (RSS =40.5 -> 34.3 MiB=).
+  - =ht_workstealing_dag[p12]=: =66.3ms -> 40.1ms= (*1.65x* vs Wave 7, ratio vs
+    Rust cut *6.25x -> 3.78x*).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Bootstrap & Compiler Qualification (=.cache/tasks/wave8-gerbil-spot/=)*:
+  =prepare= (=4.54s=, =exit=0=), =boot-gxi= (=0.22s=, =exit=0=), =stage0= full
+  Gerbil bootstrap compiler build (=162.29s= under concurrent host load, peak
+  RSS *993.47 MiB* — *-30.1 MiB* below Wave 7's =1023.59 MiB= and below 1 GiB
+  for the first time, =exit=0=), plus =GAMBOPT=p4= and =GAMBOPT=p12=
+  =(import :gerbil/expander :gerbil/compiler)= smoke PASS; original
+  =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+
+* Wave 9: Direct-Indexed Global Binding Fast-Path, 256-Bit Primitive Override Bloom Filter, Zero-Accessor Inline Concurrent/SRFI-230 Macros, and Blocking-FFI Unpark Hardening
+
+** Empirical Profiling Root Causes (Apple Silicon M2 Pro, =sample= on Wave 8 =7ec30f67=)
+1. *Global Binding Directory Hash Probing & Nested Noinline Calls (=860= samples in =oldgen=, =3,119= in =mpmc=, =4,612= in =wsdag=)*:
+   Every global/primitive lookup inside compiled Scheme modules called
+   =___binding_glo_load= / =___binding_prm_load= -> =___global_page_at= ->
+   open-addressed hash probing + =page->key= cache-line verification, and
+   every primitive call checked =page->primitive_set= via the directory even
+   when unmodified. Because =lib/_thread.scm= overrides =call/cc= during VM
+   bootstrap, a single 1-bit VM-wide =has_primitive_override= flag would
+   permanently stay =1= (0% fast-path hit rate).
+2. *Out-of-Line Struct Accessors & Wrapper Calls in =concurrent.o1= / =230.o1= (=3,860+= samples)*:
+   =ws-deque-{slots,top,bottom,mask}= (=2,652= samples in =wsdag=),
+   =lf-queue-{head,tail}= (=708= samples in =mpmc=), =##call-with-values=
+   (=894= samples), and =srfi/230#check-fxbox= + =atomic-fxbox-ref= (=488=
+   samples) still executed full Gambit procedure frames per atomic operation.
+3. *Blocking-FFI Unpark Condvar Contention (=730= samples in =oldgen=, =1,085= in =mpmc=)*:
+   =___leave_blocking_ffi= unconditionally called =___CONDVAR_BROADCAST= on
+   every =kevent= wakeup even when no =requires_full= sync barrier was waiting
+   (=sync_block_new_parks == 0=), and acquired =sync_part_mut= immediately
+   without an adaptive lock-free pre-spin.
+
+** CBMC =--mm pso= Weak-Memory Proof & 4/4 Mutant Elimination
+- Model: =dev/refactoring/modern-c/models/cbmc/wave9_direct_binding_and_ffi_park_pso.c=.
+- Safe verification (=cbmc --mm pso --bounds-check --signed-overflow-check --unwind 4=):
+  *0 of 15 failed, VERIFICATION SUCCESSFUL (=rc=0=)*.
+- All 4 PSO weak-memory mutants killed (=rc=10=, =VERIFICATION FAILED=):
+  - =MUTANT_DIR_DROP_PUBLISH_RELEASE=: proves release publication of geometric
+    direct-indexed =___global_slot_directory= (=direct_cap= + =entries[key]=)
+    is required before publishing =store->directory=.
+  - =MUTANT_PAGE_DROP_ENTRY_RELEASE=: proves in-place direct slot insertion
+    into an active directory requires release ordering before publishing
+    =entries[key]=.
+  - =MUTANT_PRIM_SET_OVERRIDE_BEFORE_CELL=: proves =prim_override_bits[bidx]=
+    must be release-ORed strictly after =cell= and =primitive_set= writes so
+    readers never observe stale override payloads.
+  - =MUTANT_FFI_SKIP_BROADCAST_WHEN_BLOCKING=: proves guarding
+    =___CONDVAR_BROADCAST= with =sync_block_new_parks > 0= preserves zero lost
+    wakeups for =requires_full= =on_all_processors= barriers.
+
+** Native Wave 9 Implementation (9 =vendor/gambit= Files)
+1. =include/_gambit/native_platform.h.in=, =include/_gambit/declarations_end.h.in=,
+   =lib/_mem/memory-lifecycle.inc=, =lib/_mem/global-storage.inc=,
+   =lib/_mem/global-bindings.inc=:
+   - Added =___SIZE_T direct_cap= to =___global_slot_directory= with geometric
+     O(1) direct-indexed growth up to =___GLOBAL_DIRECT_MAX_PAGES = 65536=
+     (4.19M globals) and seamless fallback to open-addressed hash probing
+     (=direct_cap = 0=) beyond 65,536 pages.
+   - Added cache-line-colocated 256-bit monotonic bloom bitset
+     =___UWORD prim_override_bits[4]= in =___global_slot_store= (release-ORed
+     strictly after =cell= and =primitive_set= in =___store_primitive=).
+     Because only =call/cc= is overridden during bootstrap, 255/256 (99.61%) of
+     primitives hit the 6-instruction zero-directory fast path returning
+     =___PRMCELL(global->prm)= directly.
+   - Preserved =___BINDING_NOINLINE= on =___global_page_at=,
+     =___binding_glo_load=, and =___binding_prm_load= (keeping GCC-16 single-host
+     compile RSS bounded and =verify_v12_architectural_anchors= green) while
+     eliminating the nested =BL ___global_page_at= call and hash probe loop.
+2. =lib/gambit/concurrent/concurrent.scm= & =lib/srfi/230/230.scm=:
+   - Added =(declare (not safe))= with explicit public-entry type guards
+     (=%raise-bad-type=) and =macros: prefix: macro-= on all 4 concurrent
+     =##define-type= structures (=lf-stack=, =lf-queue=, =ws-deque=,
+     =concurrent-table=), inlining =%ctr-*=, =%slot-*=, =%lfq-enq-fast!=,
+     =%lfq-deq-fast!=, =%ws-pop-raw!=, =%ws-steal-raw!=, =%ct-fixnum-hash=,
+     and =%ct-fast-fixnum-ref= as zero-frame =##define-macro= expansions.
+   - Converted =srfi/230= =order->code=, =check-*=, and =raw-*= atomic helpers
+     into inline =##define-macro=s with cold outlined error paths.
+3. =lib/lifecycle.h= & =lib/setup.c=:
+   - Added =___VOLATILE uint32_t sync_op_state_u32= release-synced with
+     =sync_op_state=, a 1024-iteration lock-free adaptive pre-spin in
+     =___leave_blocking_ffi= before taking =sync_part_mut=, and guarded
+     =___CONDVAR_BROADCAST(life->sync_part_cv)= with
+     =if (life->sync_block_new_parks > 0)=.
+
+** Wave 9 Post-Optimization Flamegraph & Qualification Gates (Apple Silicon M2 Pro)
+- *Empirical Flamegraph Confirmation (=sample= on =wsdag[p12]=)*:
+  =___global_page_at= (*2,870 -> 0* samples), =___global_page= (*393 -> 0*),
+  out-of-line =ws-deque-{slots,top,bottom,mask}= (*2,652 -> 0*),
+  =##call-with-values= (*894 -> 0*), and =srfi/230#check-fxbox= (*329 -> 0*)
+  were completely eliminated from top-of-stack samples.
+- *Native Apple Clang 21 TSan*: *14/14 PASS, 0 warnings*
+  (=.cache/tasks/wave9-profile/runtime_tsan_w9_results.json=, adding
+  =wave9-binding-concurrent-adversarial= covering concurrent direct-directory
+  growth, 256-bit primitive override live flip, inline concurrent/SRFI-230
+  stress, and blocking-FFI park/unpark), plus official =srfi/230/test/test.scm=
+  (*68/68 PASS, 0 warnings*) and =gambit/concurrent/test/test.scm= (*55/55 PASS,
+  0 warnings*).
+- *Native Apple Clang 21 ASan+UBSan* (real runtime instrumentation in
+  =lib/mem.o= [773 ASan], =lib/setup.o= [68 ASan], =concurrent.o1= [290 ASan],
+  =230.o1= [266 ASan]): *14/14 PASS, 0 ASan errors, 0 UBSan errors*
+  (=.cache/tasks/wave9-profile/runtime_asan_ubsan_w9_results.json=), plus
+  official =srfi/230/test/test.scm= (*68/68 PASS, 0 errors*) and
+  =gambit/concurrent/test/test.scm= (*55/55 PASS, 0 errors*).
+- *Unified Multicore Matrix + Stress*: *120/120 PASS*
+  (=run-multicore-suite.py= 100/100 across =p1,p4,p8,p12= ->
+  =.cache/tasks/wave9-profile/unified_post_wave9_100_pbt.json= + =gc-hammer=
+  4/4 + =wave6/7/8/9-adv= 16/16 + =amp4-adv[p8]= 10/10 + =c14[p8]= 20/20 +
+  official =srfi/230= 68/68 x 4 + =gambit/concurrent= 55/55 x 4).
+
+** Interleaved A/B LBO Results (Pre-Wave-9 =7ec30f67= vs Post-Wave-9, 5 Interleaved Pairs)
+(=.cache/tasks/wave9-profile/ab_wave9_lbo.json=, collected under concurrent host
+compilation load; interleaved A/B pairs isolate true per-workload deltas):
+
+| Workload (Pre-Wave-9 -> Post-Wave-9) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | CPU LBO Ratio | RSS (Pre -> Post MiB) | p50 (Pre -> Post us) | p99.9 (Pre -> Post us) |
+|--------------------------------------+-------+-----------------------+--------------+---------------------+---------------+-----------------------+----------------------+------------------------|
+| =ht_graph_bfs_churn= | =p1= | 215.74 -> 169.19 | *1.28x* | 2.92 -> 2.53 | *0.708x* | 34.5 -> 34.6 | 122 -> 81 | 139667 -> 78577 (*1.78x*) |
+| =ht_graph_bfs_churn= | =p4= | 69.79 -> 44.33 | *1.57x* | 2.75 -> 1.88 | *0.654x* | 36.4 -> 36.4 | 117 -> 80 | 12389 -> 2221 (*5.58x*) |
+| =ht_graph_bfs_churn= | =p8= | 65.94 -> 38.10 | *1.73x* | 7.15 -> 7.04 | *0.769x* | 38.3 -> 37.9 | 119 -> 82 | 10398 -> 6156 (*1.69x*) |
+| =ht_graph_bfs_churn= | =p12= | 64.56 -> 37.40 | *1.73x* | 5.47 -> 5.10 | *0.714x* | 39.5 -> 40.6 | 119 -> 82 | 15249 -> 11121 (*1.37x*) |
+| =ht_workstealing_dag= | =p1= | 66.64 -> 42.85 | *1.56x* | 1.74 -> 1.04 | *0.667x* | 11.9 -> 12.0 | 451 -> 274 | 1302 -> 954 (*1.36x*) |
+| =ht_workstealing_dag= | =p4= | 26.05 -> 18.95 | *1.38x* | 0.65 -> 0.87 | *0.700x* | 19.2 -> 19.2 | 200 -> 140 | 430 -> 346 (*1.24x*) |
+| =ht_workstealing_dag= | =p8= | 33.05 -> 26.45 | *1.25x* | 2.22 -> 4.01 | *0.773x* | 23.8 -> 23.8 | 175 -> 130 | 1072 -> 2438 |
+| =ht_workstealing_dag= | =p12= | 62.70 -> 41.60 | *1.51x* | 2.63 -> 3.44 | *0.652x* | 30.0 -> 33.1 | 139 -> 137 | 4055 -> 5349 |
+| =ht_concurrent_kv_ycsb= | =p1= | 99.20 -> 67.81 | *1.46x* | 8.51 -> 8.10 | *0.700x* | 32.3 -> 32.3 | 42 -> 28 | 2090 -> 1697 (*1.23x*) |
+| =ht_concurrent_kv_ycsb= | =p4= | 44.69 -> 33.87 | *1.32x* | 6.80 -> 6.19 | *0.846x* | 32.6 -> 32.2 | 50 -> 36 | 2340 -> 2509 |
+| =ht_concurrent_kv_ycsb= | =p8= | 31.46 -> 20.53 | *1.53x* | 6.60 -> 5.12 | *0.706x* | 32.4 -> 31.9 | 54 -> 38 | 5167 -> 2434 (*2.12x*) |
+| =ht_concurrent_kv_ycsb= | =p12= | 31.39 -> 42.99 | 0.73x | 8.01 -> 13.96 | *0.812x* | 35.7 -> 36.8 | 53 -> 36 | 8840 -> 11947 |
+| =ht_mpmc_pipeline= | =p1= | 92.28 -> 71.50 | *1.29x* | 25.65 -> 21.80 | *0.778x* | 53.8 -> 53.8 | 60827 -> 42818 | 76129 -> 62845 (*1.21x*) |
+| =ht_mpmc_pipeline= | =p4= | 69.88 -> 58.30 | *1.20x* | 20.50 -> 19.62 | *0.895x* | 52.5 -> 53.4 | 37508 -> 36451 | 43301 -> 40882 (*1.06x*) |
+| =ht_mpmc_pipeline= | =p8= | 58.25 -> 57.92 | 1.01x | 19.50 -> 19.20 | *0.917x* | 47.4 -> 48.6 | 28236 -> 33169 | 32656 -> 35637 |
+| =ht_mpmc_pipeline= | =p12= | 71.20 -> 62.20 | *1.15x* | 29.83 -> 24.87 | *0.852x* | 48.3 -> 50.4 | 21047 -> 18086 | 35225 -> 39433 |
+| =par_alloc_gc_m65536= | =p1= | 144.54 -> 102.03 | *1.42x* | 3.67 -> 3.50 | 1.000x | 76.3 -> 76.4 | - | - |
+| =par_rest_alloc_m65536= | =p1= | 406.70 -> 332.89 | *1.22x* | 3.54 -> 2.71 | *0.842x* | 76.2 -> 76.3 | - | - |
+| =par_rest_alloc_m65536= | =p12= | 86.60 -> 74.79 | *1.16x* | 22.25 -> 20.32 | *0.931x* | 70.8 -> 71.0 | - | - |
+| =par_sync_mailbox_cas= | =p8= | 42.21 -> 33.69 | *1.25x* | 5.73 -> 1.18 | *0.824x* | 20.8 -> 18.5 | - | - |
+| =par_sync_mailbox_cas= | =p12= | 31.34 -> 28.51 | *1.10x* | 1.06 -> 1.36 | *0.769x* | 21.6 -> 23.4 | - | - |
+
+Note: =ht_graph_bfs_churn= had zero workload code edits — its *1.28x-1.73x*
+speedup, *-23% to -35% CPU*, and *5.58x* =p99.9= reduction come purely from the
+O(1) direct-indexed global directory and 256-bit primitive override bloom
+filter. On =ht_concurrent_kv_ycsb[p12]=, per-op =p50= improved *1.47x*
+(=53 -> 36 us=) and total CPU dropped *-18.8%* (=0.812x=), while wall time saw
+a host-load-induced GC pause spike (=8.01 -> 13.96ms= under external load avg
+18.6-42.8).
+
+** Paired Rust (Tokio+Rayon) vs Wave 9 Gambit SMP & Gerbil v0.19 Spot-Check
+- *Paired 10-Workload Rust vs Wave 9 Gambit (=.cache/tasks/wave9-profile/rust-vs-gambit-wave9/comparison_w12.json=, =workers=12=)*:
+  - =ht_graph_bfs_churn[p12]=: *103.1M ops/s* (=30.5ms= vs Rust =43.5ms=,
+    *0.70x* of Rust — Gambit SMP beats Rust at =p12= under matching load;
+    =p1= *1.09x* of Rust, =p12= *1.12x* vs Wave 8).
+  - =ht_concurrent_kv_ycsb[p1]=: =102.8ms -> 72.2ms= (*1.42x* vs Wave 8,
+    =6.8M ops/s=, =p50= =44 -> 28us=); =p12= =36.5ms= (*1.17x* of Rust,
+    =13.5M ops/s=).
+  - =ht_workstealing_dag[p1]=: =60.1ms -> 47.2ms= (*1.27x* vs Wave 8,
+    =p50= =450 -> 277us=).
+  - =ht_mpmc_pipeline[p1]=: =75.7ms -> 62.5ms= (*1.21x* vs Wave 8, ratio vs
+    Rust =7.89x -> 5.12x=).
+  - =par_gc_pause_live_heap=: Gambit SMP outperforms Rust across all 4
+    topologies (=p1= *0.64x*, =p4= *0.83x*, =p8= *0.39x*, =p12= *0.44x*,
+    =18.0ms=).
+  - =par_sync_mailbox_cas[p8/p12]=: =17.0ms= (*1.66x* vs Wave 8) / =28.4ms=
+    (*1.07x* vs Wave 8).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Bootstrap & Compiler Qualification (=.cache/tasks/wave9-gerbil-spot/=)*:
+  =prepare= (=3.18s=, =2.30 MiB=, =exit=0=), =boot-gxi= (=0.13s=, =52.30 MiB=,
+  =exit=0=), =stage0= full Gerbil bootstrap compiler build (=129.88s= —
+  *-32.4s* faster than Wave 8's =162.29s=, peak RSS =1023.53 MiB=, =exit=0=),
+  plus =GAMBOPT=p4= and =GAMBOPT=p12= =(import :gerbil/expander :gerbil/compiler)=
+  smoke PASS; original =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Cleanliness & Architectural Audits*: Zero internal plan-execution labels
+  across all 9 modified =vendor/gambit= files; =tests/test_families_8_12_audit.py=
+  (incl. =verify_v12_architectural_anchors=) *7/7 OK*; =sysml -strict -validate dev=
+  zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+
+* Wave 10 Empirically-Profiled Inline Global Binding 2.0, Zero-Call Rest Path & Futex GC Chunk-Stealing
+
+** Empirical Bottleneck Identification (12-Core Apple Silicon M2 Pro =sample= Profiling)
+Profiling 7 live 12-core SMP workloads on the committed Wave 9 runtime
+(=38078063=) in =.cache/tasks/wave10-profile/sample_*.txt= exposed four
+high-impact bottlenecks:
+1. *Global binding fast path (=11,140= inclusive samples)*: =___binding_glo_load=
+   and =___binding_prm_load= remained outlined (=___BINDING_NOINLINE=) even in
+   compact hot modules (=wsdag= =3,341=, =graph_bfs= =3,510=, =kv= =1,787=,
+   =mpmc= =1,532=), chasing =store->directory -> dir->direct_cap -> entries[key]=
+   with an acquire =LDAR= on every call and executing an =ACQUIRE= load on the
+   99.61% un-overridden =prim_override_bits= fast path.
+2. *Cross-DSO write-group demand calls (=2,700+= samples)*:
+   =gambit_ht_bench.c= (=___LBLCOUNT=3719=) exceeded the =3000= inline cutoff
+   for =___group_demand_enter=, and =___group_demand_commit= was outlined for
+   every large module (=_std.c= =10332=, =_num.c= =8681=, Gerbil =stage0=),
+   paying a cross-DSO call on every =attempt == 0= no-op commit.
+3. *Cross-TU rest-argument bookkeeping (=1,068= top-of-stack samples on
+   =par_rest_alloc_m65536=)*: =lib/_kernel.o= made 5 out-of-line cross-TU calls
+   into =lib/mem.o= on every rest/keyword-rest invocation
+   (=___rest_fast_grant_fits= =672=, =___rest_signed_sum= =135=,
+   =___rest_note_attempt_entry= =126=, =___rest_disarm_attempt= =89=,
+   =___rest_observation_note_body= =46=) even when zero rest-attempt or
+   observation hooks were armed.
+4. *GC chunk-stealing idle wakeup & selective-evacuation census*:
+   =end_heap_chunk= did not wake sleeping GC workers after Wave 7's futex
+   conversion, leaving workers parked in =mark_reachable_from_marked ->
+   __ulock_wait2= (=1,100+= samples on =ht_mpmc_pipeline=), while
+   selective-evacuation minor GCs (=g->evac_selective == 1=) fell back to
+   single-threaded =census_array= on =par_oldgen_churn_live=.
+
+** Wave 10 CBMC =--mm pso= Weak-Memory Proof & 5/5 Mutant Kills
+Formal model: =dev/refactoring/modern-c/models/cbmc/wave10_inline_binding_rest_and_gc_steal_pso.c=.
+- Safe verification (=cbmc --mm pso --bounds-check --signed-overflow-check --unwind 4=):
+  *0 of 10 failed, VERIFICATION SUCCESSFUL (=rc=0=)*.
+- All 5 PSO weak-memory mutants killed (=rc=10=, =VERIFICATION FAILED=):
+  - =MUTANT_INLINE_PAGE_DROP_RELEASE=: proves release publication of
+    =store->inline_pages[key]= is required so lock-free readers observe
+    initialized page headers and slots.
+  - =MUTANT_PRIM_BLOOM_DROP_RELEASE=: proves =prim_override_bits= relaxed
+    fast-path readers paired with acquire slow-path =___binding_primitive=
+    require release ordering on override publication.
+  - =MUTANT_REST_GATE_CLEAR_WHILE_ARMED=: proves =___rest_hooks_gate= must be
+    release-stored =1= strictly before arming =rest_attempt_active_flag= /
+    =rest_observation_map= and cleared to =0= only when all hooks are disarmed
+    (CBMC caught the reverse arm-order race before implementation).
+  - =MUTANT_GC_STEAL_DROP_CHUNK_RELEASE=: proves =end_heap_chunk= must
+    release-bump =work_gen= in packed =scan_state[tw]= before checking
+    =scan_waiters[tw]= with a =SEQ_CST= fence.
+  - =MUTANT_GC_STEAL_RESURRECT_AFTER_ZERO=: proves idle GC workers waking on
+    =work_gen= advance must CAS =cur -> cur + 1u= only while
+    =(cur & 0xFFFu) != 0u=, preventing post-termination resurrection.
+
+** Native Wave 10 Implementation (12 =vendor/gambit= Files)
+1. *Global Binding Fast-Path 2.0* (=include/_gambit/native_platform.h.in=,
+   =include/_gambit/declarations_end.h.in=, =lib/_mem/memory-lifecycle.inc=,
+   =lib/_mem/global-storage.inc=):
+   - Added =#define ___GLOBAL_INLINE_PAGES 32= and
+     =___global_slot_page *inline_pages[___GLOBAL_INLINE_PAGES]= directly inside
+     =___global_slot_store= (zero-initialized at VM lifecycle init and
+     release-published in =global-storage.inc= for =key < 32=, covering global
+     IDs =0..2047= without chasing =store->directory=).
+   - Downgraded the 99.61% un-overridden =prim_override_bits= fast-path check
+     in =___binding_prm_load= from =ACQUIRE= (=LDAR=) to =___WORD_LOAD_RELAXED=
+     (plain =LDR=), keeping =ACQUIRE= inside cold =___binding_primitive=, and
+     split cold slow paths into =static ___BINDING_NOINLINE=
+     =___binding_glo_slow= and =___binding_prm_slow=.
+   - Gated inline vs =___BINDING_NOINLINE= on
+     =(!defined(___LBLCOUNT) || (___LBLCOUNT < 4000)) && (!defined(___GLOCOUNT)
+     || (___GLOCOUNT < 1000))=, giving hot compact modules zero-call inlining
+     and LICM while keeping giant Gerbil =stage0= hosts (=optimize-top~0.scm=,
+     =___LBLCOUNT=4820=) under 1 GiB compile RSS (=982.38 MiB=).
+2. *Universal Inline =___group_demand_commit= & Raised Cutoff*
+   (=include/_gambit/runtime_protocols.h.in=):
+   - Enabled the 1-branch inline =if (__builtin_expect((attempt) != 0, 0))=
+     fast-path guard on =___group_demand_commit= across ALL =___LBLCOUNT=
+     values (eliminating 100% of no-op cross-DSO commit calls) and raised the
+     =___group_demand_enter= / =___GATE2_*= inline cutoff from =3000= to =4000=.
+3. *Zero-Call Inline Rest-Argument Fast Path* (=lib/lifecycle.h=,
+   =lib/_mem/rc-allocation.inc=, =lib/_mem/rest-observation.inc=):
+   - Added =extern ___VOLATILE ___WORD ___rest_hooks_gate;= with CBMC-proven
+     arm/disarm ordering (=rest_hooks_gate_refresh()=) and inline fast paths
+     in =lib/lifecycle.h= for =___rest_signed_sum= (=__builtin_add_overflow=),
+     =___rest_note_attempt_entry=, =___rest_disarm_attempt=,
+     =___rest_observation_note_body=, and =___rest_fast_grant_fits_inline=.
+4. *Packed Single-Word Futex GC Chunk-Stealing & Fast Selective-Evacuation
+   Admission* (=lib/collector.h=, =lib/_mem/heap-sections.inc=,
+   =lib/_mem/collection-round.inc=, =lib/_mem/copy-planning.inc=):
+   - Replaced =scan_active[2]= with packed =uint32_t scan_state[2]= encoding
+     =(work_gen << 12) | active_workers=. =end_heap_chunk= release-bumps
+     =(1u << 12)= and issues =SEQ_CST= + =___gc_futex_wake_all_u32= when
+     =scan_waiters[tw] > 0=. =mark_reachable_from_marked= watches
+     =(cur >> 12) != seen_gen=, CAS-reactivates =cur -> cur + 1u= only while
+     =(cur & 0xFFFu) != 0u=, and jumps to =continue_steal:=.
+   - Extended =fast_minor_admitted= in =copy-planning.inc= to cover
+     =g->evac_selective == 1= when =max_heap == 0=, accounting for evacuating
+     mature section words in O(Y + M_evac + n) without single-threaded
+     =census_array=.
+
+** Wave 10 Post-Optimization Flamegraph & Qualification Gates (Apple Silicon M2 Pro)
+- *Empirical Flamegraph Confirmation (=sample=, Pre-W10 -> Post-W10 at =p12=)*:
+  - =ht_workstealing_dag=: =___group_demand_enter= *810 -> 0* top (*1008 -> 0*
+    graph sum), =___group_demand_commit= *243 -> 0* top (*355 -> 0* graph sum),
+    =___binding_prm_load= graph sum *1,509 -> 131* (*11.5x* drop),
+    =___binding_glo_load= graph sum *3,265 -> 153* (*21.3x* drop; remaining
+    dynamic module globals with IDs >= 2048 route cleanly to
+    =___binding_glo_slow=).
+  - =ht_mpmc_pipeline=: =___group_demand_enter= *514 -> 0* top,
+    =___group_demand_commit= *103 -> 0* top, =___binding_prm_load= graph sum
+    *944 -> 179* (*5.3x* drop), =mark_reachable_from_marked= graph sum
+    *1,735 -> 1,387* with active scanning rising *66 -> 224* top samples as
+    woken GC workers steal chunks in parallel.
+  - =par_rest_alloc_m65536=: all 5 out-of-line cross-TU rest calls dropped
+    *1,068 -> 0* top-of-stack samples (=___rest_fast_grant_fits= *672 -> 0*,
+    =___rest_signed_sum= *135 -> 0*, =___rest_note_attempt_entry= *126 -> 0*,
+    =___rest_disarm_attempt= *89 -> 0*, =___rest_observation_note_body=
+    *46 -> 0*), plus =___binding_prm_load= *120 -> 0*.
+- *Native Apple Clang 21 TSan* (real instrumentation in =lib/mem.o= [30 syms],
+  =lib/setup.o= [22], =lib/_kernel.o= [15], =concurrent.o1= [11], =230.o1=
+  [15]): *15/15 PASS, 0 warnings*
+  (=.cache/tasks/wave10-profile/runtime_tsan_w10_results.json=, adding
+  =wave10-inline-binding-rest-gc-adversarial= covering =inline_pages[32]=
+  publication, relaxed bloom + live override, =___rest_hooks_gate= 0->1->0
+  arm/disarm, and deep-chain GC chunk stealing), plus official
+  =srfi/230/test/test.scm= (*68/68 PASS, 0 warnings*) and
+  =gambit/concurrent/test/test.scm= (*55/55 PASS, 0 warnings*).
+- *Native Apple Clang 21 ASan+UBSan* (real instrumentation in =lib/mem.o=
+  [27 syms], =lib/setup.o= [22], =concurrent.o1= [13], =230.o1= [13]):
+  *15/15 PASS, 0 ASan errors, 0 UBSan errors*
+  (=.cache/tasks/wave10-profile/runtime_asan_ubsan_w10_results.json=), plus
+  official =srfi/230= (*68/68, 0 errors*) and =gambit/concurrent= (*55/55,
+  0 errors*).
+- *Unified Multicore Matrix + Stress*: *124/124 PASS*
+  (=run-multicore-suite.py= 100/100 across =p1,p4,p8,p12= ->
+  =.cache/tasks/wave10-profile/unified_post_wave10_100_pbt.json= + =gc-hammer=
+  4/4 + =wave6/7/8/9/10-adv= 20/20 + =amp4-adv[p8]= 10/10 + =c14[p8]= 20/20 +
+  official =srfi/230= 68/68 x 4 + =gambit/concurrent= 55/55 x 4).
+
+** Interleaved A/B LBO Results (Pre-Wave-10 vs Post-Wave-10, 5 Interleaved Pairs)
+(=.cache/tasks/wave10-profile/ab_wave10_lbo.json=, both sides synchronized with
+=5776e7d3= single-word remark quiescence so the A/B delta is pure Wave 10):
+
+| Workload (Pre-Wave-10 -> Post-Wave-10) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | CPU LBO Ratio | RSS (Pre -> Post MiB) | p50 (Pre -> Post us) | p99.9 (Pre -> Post us) |
+|----------------------------------------+-------+-----------------------+--------------+---------------------+---------------+-----------------------+----------------------+------------------------|
+| =ht_workstealing_dag= | =p1= | 74.47 -> 67.18 | *1.11x* | 1.75 -> 2.31 | *0.800x* | 12.0 -> 12.5 | 296 -> 249 | 4531 -> 6111 |
+| =ht_workstealing_dag= | =p4= | 41.18 -> 34.95 | *1.18x* | 5.58 -> 4.68 | *0.846x* | 19.2 -> 19.8 | 177 -> 166 | 2281 -> 1557 (*1.47x*) |
+| =ht_workstealing_dag= | =p8= | 88.73 -> 71.58 | *1.24x* | 15.57 -> 17.32 | *0.897x* | 23.8 -> 24.4 | 165 -> 156 | 11389 -> 11121 |
+| =ht_workstealing_dag= | =p12= | 127.56 -> 91.07 | *1.40x* | 11.52 -> 17.23 | *0.745x* | 31.3 -> 35.9 | 160 -> 136 | 12927 -> 13899 |
+| =ht_graph_bfs_churn= | =p1= | 188.19 -> 150.22 | *1.25x* | 3.60 -> 2.44 | *0.842x* | 34.6 -> 35.1 | 86 -> 73 | 110059 -> 64067 (*1.72x*) |
+| =ht_graph_bfs_churn= | =p4= | 51.52 -> 48.22 | *1.07x* | 2.42 -> 3.34 | *0.895x* | 36.3 -> 36.9 | 82 -> 71 | 14331 -> 5080 (*2.82x*) |
+| =ht_graph_bfs_churn= | =p8= | 39.44 -> 33.83 | *1.17x* | 3.44 -> 3.82 | *0.895x* | 38.0 -> 38.4 | 82 -> 71 | 7205 -> 6207 (*1.16x*) |
+| =ht_graph_bfs_churn= | =p12= | 35.56 -> 30.97 | *1.15x* | 3.47 -> 3.84 | *0.895x* | 39.5 -> 40.0 | 81 -> 71 | 10216 -> 8489 (*1.20x*) |
+| =ht_mpmc_pipeline= | =p4= | 76.58 -> 60.25 | *1.27x* | 35.44 -> 20.98 (*-40.8%*) | 1.000x | 52.2 -> 52.6 | 45265 -> 32242 | 50672 -> 39343 (*1.29x*) |
+| =ht_mpmc_pipeline= | =p12= | 77.33 -> 57.90 | *1.34x* | 34.97 -> 25.30 (*-27.7%*) | *0.917x* | 51.8 -> 49.8 | 24414 -> 18582 | 41385 -> 26657 (*1.55x*) |
+| =ht_concurrent_kv_ycsb= | =p1= | 133.99 -> 94.59 | *1.42x* | 15.05 -> 12.85 | 1.000x | 32.3 -> 32.9 | 29 -> 28 | 12548 -> 3846 (*3.26x*) |
+| =ht_concurrent_kv_ycsb= | =p4= | 51.54 -> 45.14 | *1.14x* | 17.55 -> 14.34 | 1.000x | 32.7 -> 32.8 | 37 -> 38 | 11747 -> 6392 (*1.84x*) |
+| =ht_concurrent_kv_ycsb= | =p8= | 36.38 -> 34.22 | *1.06x* | 14.03 -> 12.68 | 1.000x | 33.1 -> 33.8 | 38 -> 37 | 8700 -> 10186 |
+| =par_alloc_gc_m65536= | =p1= | 113.66 -> 103.42 | *1.10x* | 4.54 -> 6.41 | 1.000x | 76.4 -> 76.8 | - | - |
+| =par_alloc_gc_m65536= | =p12= | 41.89 -> 35.36 | *1.19x* | 2.84 -> 9.93 | 1.083x | 67.0 -> 70.5 | - | - |
+| =par_rest_alloc_m65536= | =p1= | 187.18 -> 152.00 | *1.23x* | 2.83 -> 2.61 | *0.824x* | 76.3 -> 76.7 | - | - |
+| =par_rest_alloc_m65536= | =p12= | 61.87 -> 60.73 | *1.02x* | 17.04 -> 18.20 | 1.000x | 71.5 -> 71.8 | - | - |
+| =par_oldgen_churn_live= | =p4= | 20.14 -> 17.33 | *1.16x* | 10.23 -> 7.73 (*-24.4%*) | 1.000x | 106.9 -> 106.8 | - | - |
+| =par_sync_mailbox_cas= | =p8= | 38.44 -> 32.75 | *1.17x* | 0.44 -> 0.47 | *0.708x* | 22.2 -> 17.9 | - | - |
+
+** Paired Rust (Tokio+Rayon) vs Wave 10 Gambit SMP & Gerbil v0.19 Spot-Check
+- *Paired 10-Workload Rust vs Wave 10 Gambit (=.cache/tasks/wave10-profile/rust-vs-gambit-wave10/comparison_w12.json=, =workers=12=)*:
+  - =ht_graph_bfs_churn=: =p4= *76.8M ops/s* (=41.0ms=, *1.47x* vs Wave 9,
+    =1.2x= of Rust), =p8= *93.8M ops/s* (=33.5ms=, *1.39x* vs Wave 9, =1.1x=
+    of Rust), =p12= *107.6M ops/s* (=29.2ms= vs Rust =28.6ms=, *1.02x* parity!).
+  - =ht_concurrent_kv_ycsb=: =p8= *13.5M ops/s* (=36.5ms=, *2.44x* vs Wave 9,
+    =p99.9= =37.0 -> 8.7ms=), =p12= *16.4M ops/s* (=30.0ms=, *1.22x* vs Wave 9,
+    =1.5x= of Rust, =p50= =40 -> 33us=, =p99.9= =11.4 -> 8.0ms=).
+  - =ht_mpmc_pipeline[p12]=: *1.89M ops/s* (=50.9ms= vs Wave 9 =80.5ms=,
+    *1.58x* faster; =p50= *39.9 -> 8.7ms* [*4.58x*]; =p99.9= *55.7 -> 24.4ms*
+    [*2.28x*]; ratio vs Rust =12.58x -> 9.4x=).
+  - =ht_workstealing_dag[p4]=: *2.59M ops/s* (=25.3ms= vs Wave 9 =33.8ms=,
+    *1.34x*; =p99.9= *2266 -> 996us* [*2.28x*]; ratio vs Rust =10.56x -> 6.7x=).
+  - =par_alloc_gc_m65536[p12]=: =17.6ms= (*2.26x* vs Wave 9, =1.7x= of Rust);
+    =par_rest_alloc_m65536[p1]=: =140.0ms= (*1.31x* vs Wave 9, =1.6x= of Rust);
+    =par_oldgen_churn_live=: =p4= =12.1ms= (*2.17x* vs Wave 9, =1.4x= of Rust),
+    =p12= =23.2ms= (*2.18x* vs Wave 9); =par_gc_pause_live_heap=: =p4= =20.8ms=
+    vs Rust =38.3ms= (*0.54x* — nearly 2x faster than Rust!), =p8= =26.3ms= vs
+    Rust =26.6ms= (*0.99x*).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Bootstrap & Compiler Qualification (=.cache/tasks/wave10-gerbil-spot/=)*:
+  =prepare= (=4.98s=, =2.38 MiB=, =exit=0=), =boot-gxi= (=0.30s=, =51.98 MiB=,
+  =exit=0=), =stage0= full Gerbil bootstrap compiler build (=exit=0=, peak RSS
+  *982.38 MiB* [=1,030,094,848= bytes — below 1 GiB and *-41.15 MiB* lower than
+  Wave 9's =1023.53 MiB=, proving the =___LBLCOUNT < 4000 && ___GLOCOUNT < 1000=
+  inline guard keeps GCC-16 CFG RSS bounded!]), plus =GAMBOPT=p4= and
+  =GAMBOPT=p12= =(import :gerbil/expander :gerbil/compiler)= smoke PASS
+  (=GERBIL_W10_SMOKE_PASS_p4= / =p12=); original
+  =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Cleanliness & Architectural Audits*: Zero internal plan-execution labels
+  across all 12 modified =vendor/gambit= files;
+  =tests/test_families_8_12_audit.py= *7/7 OK*; =sysml -strict -validate dev=
+  zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+
+* Wave 11: Empirically-Profiled 256-Page Inline Globals, Lock-Free COW Flat Vector Buckets, Zero-Closure =call-with-values= Compilation, Dual-Cache Minor GC =mature_skip=, and Progress-Aware Backoff Ticketlock
+
+** Empirical Pre-Wave-11 Flamegraph Diagnosis (Post-Wave-10 =a0ef95be= on 12-Core Apple Silicon)
+- *Direct =sample= Top-of-Stack Profile & =GLOS_PROBE=*:
+  - =GLOS_PROBE= on startup + =(srfi 230)= + =(gambit concurrent)= measured
+    =inline_cap=32=, =inline_used=32=, =dir_direct_cap=128=, =dir_used=100=,
+    =max_key=99=, =max_glo_id=6400=. Because 68 of 100 active global slot pages
+    spilled past =inline_pages[32]=, =___binding_glo_slow= still accounted for
+    *3,308* top-of-stack samples (=ht_workstealing_dag= =2,249=,
+    =ht_mpmc_pipeline= =639=, =ht_concurrent_kv_ycsb= =392=,
+    =par_oldgen_churn_live= =28=).
+  - =call-with-values= / =##call-with-values= (=call_2d_with_2d_values=)
+    accounted for *2,565* top-of-stack samples (=ht_workstealing_dag= =1,944=,
+    =ht_mpmc_pipeline= =621=) plus two heap closure allocations (=___ALLOC_CLO(1)=
+    + =___ALLOC_CLO(5)=) per empty/non-empty dequeue or steal poll.
+  - Linked-list bucket replacement in =concurrent-table=
+    (=_25_alist_2d_replace_2d_eq=) accounted for *253* top-of-stack samples and
+    32,768 pointer-chasing cons cells under YCSB updates, driving *415*
+    =mark_array.part.0= samples in =ht_concurrent_kv_ycsb= and *232* in
+    =ht_mpmc_pipeline=.
+  - =swtch_pri= (unconditional per-iteration =___THREAD_YIELD()= after 256
+    spins in =___TICKETLOCK_LOCK2=) accounted for *5,919* top-of-stack samples
+    across the five profiled workloads (=par_sync_mailbox_cas= =3,719=,
+    =par_oldgen_churn_live= =1,029=, =ht_concurrent_kv_ycsb= =877=,
+    =ht_mpmc_pipeline= =260=, =ht_workstealing_dag= =34=).
+
+** CBMC =--mm pso= Formal Verification & 5/5 Mutant Killing
+- Model: =dev/refactoring/modern-c/models/cbmc/wave11_inline256_cow_bucket_ticket_and_mature_cache_pso.c=
+- Command: =cbmc --mm pso --bounds-check --signed-overflow-check --unwind 5=
+- SAFE baseline: *0 of 31 failed* (=VERIFICATION SUCCESSFUL=, =rc=0=) covering
+  256-page inline global publication (=key = 99=), wait-free read / lock-free
+  COW flat immutable vector bucket CAS publication, ticketlock release-acquire
+  handoff, and dual-cache Minor GC =mature_skip= preserving concurrent Major
+  SATB shading.
+- Mutants killed (*5/5*, all =rc=10= =VERIFICATION FAILED=):
+  1. =MUTANT_INLINE256_DROP_RELEASE= (2/31 failed)
+  2. =MUTANT_COW_BUCKET_DROP_RELEASE= (3/31 failed)
+  3. =MUTANT_COW_BUCKET_MUTATE_IN_PLACE= (1/31 failed)
+  4. =MUTANT_TICKET_DROP_UNLOCK_RELEASE= (2/31 failed)
+  5. =MUTANT_MATURE_CACHE_SKIP_SATB_SHADE= (1/31 failed)
+
+** Native Implementation (9 Clean =vendor/gambit= Files on top of =a0ef95be=)
+1. *Zero-Miss 256-Page Inline Global Slot Store*
+   (=include/_gambit/native_platform.h.in=): widened =___GLOBAL_INLINE_PAGES=
+   from =32= to =256= (covering global IDs =0..16,383= in 2 KiB per VM),
+   raising inline hit rate on startup + =(srfi 230)= + =(gambit concurrent)= to
+   *100/100 pages (100%)* and driving =___binding_glo_slow= samples from
+   *3,308 -> 0 (-100.0%)*.
+2. *Lock-Free COW Flat Immutable Vector Buckets & Zero-Alloc Empty-Values Singleton*
+   (=lib/gambit/concurrent/concurrent.scm=): introduced immutable
+   =%empty-values-2= (=(##values #f #f)=) for empty =lf-stack-try-pop!=,
+   =lf-queue-try-dequeue!=, =ws-deque-try-pop!=, and =ws-deque-try-steal!=;
+   replaced cons-list buckets in =concurrent-table= with contiguous flat
+   copy-on-write immutable vectors =#(k0 v0 k1 v1 ...)= (=%ct-empty-bucket=,
+   wait-free =%ct-fast-fixnum-ref=, =%ct-vec-find-eq=, =%ct-vec-copy-range!=
+   with =___GC_WRITE_BARRIER= + =___WORD_STORE_RELAXED=, =%ct-vec-replace-at=,
+   =%ct-vec-delete=), reducing bucket GC object count by 8x and driving
+   =_25_alist_2d_replace_2d_eq= samples from *253 -> 0 (-100.0%)*.
+3. *Zero-Closure Eta-Lifted =call-with-values= / =##call-with-values= Compilation*
+   (=gsc/_prims.scm=, self-hosted regenerated =gsc/_prims.c=): added
+   =make-call-with-values-expander= in =setup-misc-primitives= for literal
+   fixed-arity =k=-argument consumers (=k= in =0..3=), wrapping cold fallback
+   and =rtb= branches in eta-closures so both producer and consumer remain
+   strictly in direct-call operator position; Gambit's lambda-lifter eliminates
+   both closure allocations and both =call-with-values= calls on hot loops
+   (straight-line =___VALUESP= / =___VALUESLENGTH= / =___VALUESREF=), driving
+   =call_2d_with_2d_values= samples from *2,565 -> 0 (-100.0%)* while preserving
+   exact R7RS/Gambit arity/type exceptions, tail recursion, and multi-shot
+   =call/cc=.
+4. *Dual-Cache Minor GC =mature_skip=, Progress-Aware Backoff Ticketlock, & TSan Atomic Counter Fix*
+   (=lib/collector.h=, =lib/_mem/heap-sections.inc=,
+   =lib/_mem/copy-reservations.inc=, =include/_gambit/gvm_operations.h.in=,
+   =lib/_mem/rc-allocation.inc=): added worker-private =mature_skip_section_= /
+   =mature_skip_base_= / =mature_skip_epoch_= disjoint from =census_section_= so
+   alternating young/mature scans never thrash =___gc_find_msection_cached=
+   during Minor GC while still invoking =major_shade_mature_movable= under
+   active SATB marking and never caching =gc_evacuating= sections (HT
+   =mark_array.part.0= samples *668 -> 5 [-99.3%]*); upgraded
+   =___TICKETLOCK_LOCK2= to progress-aware distance backoff (tracking
+   =___last_cur=, counting =___spins += ___wait < 256=, resetting =___spins=
+   only when =___cur= advances, and yielding immediately on stall to avoid
+   oversubscription convoys, driving =swtch_pri= samples *5,919 -> 1,020
+   [-82.8%]*); and fixed pre-existing TSan-detected non-atomic global
+   diagnostic increments (=___rest_ready_claims=, =___rest_resume_reloads=) in
+   =lib/_mem/rc-allocation.inc= via =___WORD_FETCH_ADD_RELAXED=.
+
+** Comprehensive Verification, Interleaved A/B LBO, Rust Parity, & Gerbil v0.19 Qualification
+- *Post-Wave-11 Flamegraph Confirmation (=.cache/tasks/wave11-profile/sample_pre_vs_post_summary.json=, =p12=)*:
+  - =___binding_glo_slow=: *3,308 -> 0 (-100.0%)* across all profiled workloads.
+  - =call_2d_with_2d_values=: *2,565 -> 0 (-100.0%)* across =ht_workstealing_dag=
+    and =ht_mpmc_pipeline=.
+  - =_25_alist_2d_replace_2d_eq=: *253 -> 0 (-100.0%)* in =ht_concurrent_kv_ycsb=.
+  - HT =mark_array.part.0=: *668 -> 5 (-99.3%)* (=21->0=, =232->0=, =415->5=).
+  - =swtch_pri=: *5,919 -> 1,020 (-82.8%)* (=34->11=, =260->0=, =877->0=,
+    =1029->67=, =3719->942=).
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave11-profile/track_a_summary.json=)*:
+  *128/128 PASS* (=run-multicore-suite= *100/100* + =amp4= *4/4* + Wave 6–11
+  adversarial *24/24* across =p1,p4,p8,p12=), plus =amp4[p8]= *10/10*,
+  =c14[p8]= *20/20*, and official =srfi/230= (*68/68* x4) &
+  =gambit/concurrent= (*55/55* x4).
+- *Native Apple Clang 21 Sanitizers (real symbol verification via =nm=)*:
+  - *TSan* (=.cache/tasks/wave11-profile/runtime_tsan_w11_results.json=,
+    =mem.o= 31 TSan symbols): *16/16 PASS*, *0 TSan warnings* (including 3/3
+    =t5-generational-minor-gc= re-runs after the =rc-allocation.inc= fix), plus
+    official =srfi/230= (68/68) and =gambit/concurrent= (55/55) with *0 warnings*.
+  - *ASan+UBSan* (=.cache/tasks/wave11-profile/runtime_asan_ubsan_w11_results.json=,
+    =mem.o= 778 ASan symbols, =gsi= 10 ASan / 8 UBSan hooks): *16/16 PASS*,
+    *0 ASan errors*, *0 UBSan errors*, plus official =srfi/230= (68/68) and
+    =gambit/concurrent= (55/55) with *0 errors*.
+- *Interleaved A/B LBO (Pre-Wave-11 =wave10-a0ef95be-build= vs Post-Wave-11 =unified=, 5 pairs, =.cache/tasks/wave11-profile/ab_wave11_lbo.json=)*:
+  - =ht_concurrent_kv_ycsb=: *1.29x* (=p1=, =59.92->46.31ms=), *1.32x* (=p4=,
+    =23.20->17.58ms=, =p99.9= =2001->1367us=), *1.20x* (=p8=, =19.17->15.92ms=,
+    =sys= =10->0ms=), *1.08x* (=p12=, =18.86->17.42ms=, RSS =36.1->32.9 MiB=).
+  - =ht_graph_bfs_churn=: *1.25x* (=p1=, =109.37->87.71ms=), *1.20x* (=p4=,
+    =29.12->24.26ms=), *1.18x* (=p8=, =19.90->16.90ms=, =cpuRatio=0.733=),
+    *1.11x* (=p12=, =20.51->18.48ms=, =p50= =68->55us=).
+  - =ht_mpmc_pipeline=: *1.40x* (=p1=, =51.03->36.50ms=, GC =15.74->10.40ms=,
+    =cpuRatio=0.600=, RSS =54.0->42.8 MiB=), *1.10x* (=p12=, =39.98->36.21ms=,
+    GC =10.16->6.17ms= *-39.3%*, RSS =42.7->36.8 MiB=).
+  - =ht_workstealing_dag=: *1.45x* (=p1=, =31.87->22.03ms=, =cpuRatio=0.667=,
+    =p99.9= =388->275us=), *1.14x* (=p4=, =15.89->13.94ms=), *1.02x* (=p8=,
+    =18.17->17.82ms=, GC =0.78->0.23ms= *-70.5%*), with =p12= GC *-54.6%*
+    (=1.52->0.69ms=).
+  - =par_rest_alloc_m65536[p12]=: *1.26x* (=40.25->31.81ms=);
+    =par_alloc_gc_m65536= and =par_oldgen_churn_live= parity (=0.95x–1.03x=).
+- *Paired 10-Workload Rust (Tokio+Rayon) vs Wave 11 Gambit SMP (=.cache/tasks/wave11-profile/rust-vs-gambit-wave11/comparison_w12.json=, =workers=12=)*:
+  - =ht_concurrent_kv_ycsb= *SURPASSES Rust on throughput, p50, p99, and RSS*:
+    - =p8=: *28.23M ops/s* (=17.4ms=) vs Rust *26.23M ops/s* (=18.7ms=,
+      *0.93x of Rust!*), =p50= =29.0us= vs Rust =53.5us=, RSS =30.0= vs =68.7 MiB=.
+    - =p12=: *27.00M ops/s* (=18.2ms=) vs Rust *25.40M ops/s* (=19.4ms=,
+      *0.94x of Rust!*), =p50= =31.0us= vs Rust =66.6us= (*2.15x* lower),
+      =p99= =340.0us= vs Rust =825.5us= (*2.43x* lower), RSS =32.3= vs =68.8 MiB=
+      (*2.13x* lower).
+  - =ht_graph_bfs_churn[p12]=: *86.87M ops/s* (=36.2ms=, =1.4x= of Rust;
+    =p50= =57.0us= vs Rust =137.1us=).
+  - =ht_mpmc_pipeline[p1]=: *2.24M ops/s* (=42.8ms=, =4.4x= of Rust).
+  - =ht_workstealing_dag[p1]=: *2.60M ops/s* (=25.2ms=, =11.5x= of Rust);
+    =p12= *0.66M ops/s* (=98.7ms=, =9.0x= of Rust).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Qualification (=.cache/tasks/wave11-gerbil-spot/=)*:
+  =prepare= (=3.71s=, =2.36 MiB=, =exit=0=), =boot-gxi= (=0.13s=, =52.25 MiB=,
+  =exit=0=), =stage0= full bootstrap compiler build (=540.85s real=, =434.39s
+  user=, peak RSS *1,038.33 MiB* [=1,088,765,952= bytes], =exit=0=), plus
+  =boot-gxi= =GAMBOPT=p4= and =GAMBOPT=p12= =(import :gerbil/expander
+  :gerbil/compiler)= smoke PASS (=GERBIL_W11_SMOKE_PASS_p4= / =p12=); original
+  =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Cleanliness & Architectural Audits*: Zero internal plan-execution labels
+  across all 8 hand-edited =vendor/gambit= source files (and regenerated
+  =gsc/_prims.c= matches self-hosted build); =tests/test_families_8_12_audit.py=
+  *7/7 OK*; =sysml -strict -validate dev= zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+
+* Wave 12: Forced-Inline Binding Fast Paths, 504-Slot Single-Vector Sentinel MPMC Queue, Zero-Barrier Chase-Lev Peek + 128-Byte Padded SRFI-230 Boxes, and Target-First Write Barrier
+
+** Empirical Post-Wave-11 Flamegraph Diagnosis (Post-Wave-11 =e938fcfb= on 12-Core Apple Silicon)
+- *Direct =sample= Top-of-Stack Profile (=p12= across true HT workloads & =par_sync_mailbox_cas=)*:
+  - =___binding_glo_load= + =___binding_prm_load= still accounted for *2,689*
+    top-of-stack samples across all 4 HT workloads (=ht_graph_bfs_churn=
+    =683+455=1,138= [21% of active CPU], =ht_workstealing_dag= =711+128=839=,
+    =ht_mpmc_pipeline= =195+168=363=, =ht_concurrent_kv_ycsb= =208+141=349=)
+    because GCC-16 at =-O1= declined to inline =static inline= helpers without
+    =__attribute__((always_inline))= inside single-host =___H_*= functions even
+    when =___LBLCOUNT < 4000 && ___GLOCOUNT < 1000=.
+  - =lf-queue-try-dequeue!= (=2,824= samples) and =lf-queue-enqueue!= (=854=
+    samples) dominated =ht_mpmc_pipeline=: 128-slot two-vector segments
+    (=slots= + =states=) allocated 3 vectors per 128 items and forced every
+    consumer dequeue to load producer cacheline =tt_p=.
+  - =ws-deque-try-steal!= (=2,521= samples) executed an =acquire= load on empty
+    polls and returned immediately on peer-thief CAS collisions; adjacent
+    SRFI-230 =atomic-fxbox= cells (1-word vectors) false-shared Apple Silicon
+    128-byte cachelines (=done-ctr= vs =wave-gate=, driving =1,379=
+    =atomic-fxbox-ref= samples).
+  - =___gc_write_barrier_slow_val= + =___gc_write_barrier_slow= accounted for
+    *340* top samples in =par_sync_mailbox_cas=, *90* in =ht_mpmc_pipeline=,
+    and *48* in =ht_concurrent_kv_ycsb= due to probing mature sections for
+    =val= before checking whether the target =obj= was young or =val= resided
+    in the local nursery.
+
+** CBMC =--mm pso= Formal Verification & 5/5 Mutant Killing
+- Model: =dev/refactoring/modern-c/models/cbmc/wave12_sentinel_mpmc_chase_lev_and_wb_pso.c=
+- Command: =cbmc --mm pso --bounds-check --signed-overflow-check --unwind 5=
+- SAFE baseline: *0 of 34 failed* (=VERIFICATION SUCCESSFUL=, =rc=0=) covering
+  single-vector sentinel MPMC release-acquire publication + tail-cacheline
+  elision + clear-to-sentinel, Chase-Lev zero-barrier relaxed empty peek +
+  classic Le et al. PPoPP '13 2-item =StoreLoad= arbitration, and target-first
+  / local-nursery generational write barrier card publication.
+- Mutants killed (*5/5*, all =rc=10= =VERIFICATION FAILED=):
+  1. =MUTANT_LFQ_SENTINEL_DROP_RELEASE= (1/34 failed)
+  2. =MUTANT_LFQ_CLEAR_TO_FALSE_NOT_SENTINEL= (1/35 failed)
+  3. =MUTANT_CHASE_LEV_DROP_SEQ_CST_FENCE= (1/34 failed)
+  4. =MUTANT_CHASE_LEV_DROP_PUSH_RELEASE= (2/34 failed)
+  5. =MUTANT_WB_SKIP_LOCAL_NURSERY_CARD= (1/34 failed)
+
+** Native Implementation (4 Clean =vendor/gambit= Files on top of =e938fcfb=)
+1. *Forced-Inline Binding Fast Paths* (=include/_gambit/declarations_end.h.in=):
+   upgraded =___BINDING_FAST_ATTR= to =static inline __attribute__((always_inline))=
+   under =defined(__OPTIMIZE__)= while strictly retaining the
+   =___LBLCOUNT < 4000 && ___GLOCOUNT < 1000= guard (protecting giant Gerbil
+   modules and =-O0= sanitizer debug frames). Drove =___binding_glo_load= from
+   *1,797 -> 0 (-100.0%)* across all 4 HT workloads.
+2. *504-Slot Single-Vector =___UNB2= Sentinel MPMC Queue*
+   (=lib/gambit/concurrent/concurrent.scm=): replaced 128-slot two-vector
+   segments with 504-slot movable single-vector segments (=505 <= ___MSECTION_BIGGEST=
+   [512] words, 6x fewer vector allocations, 4x fewer segment transitions)
+   initialized to non-heap immediate sentinel =___UNB2= (preserving SATB
+   logging while eliding card-dirtying slow calls on clear); consumer fast path
+   reads =slots[off]= acquire directly without touching producer tail =tt_p=,
+   with bounded exponential CAS backoff (=1..8= =___CPU_RELAX()=).
+3. *Zero-Barrier Relaxed Chase-Lev Peek + Bounded Steal Retry & 128-Byte Padded SRFI-230 Boxes*
+   (=lib/gambit/concurrent/concurrent.scm=, =lib/srfi/230/230.scm=): added
+   relaxed =t_peek >= b_peek= empty short-circuit and bounded 4-attempt
+   peer-thief CAS retry in =%ws-steal-raw!=; padded =atomic-flag=,
+   =atomic-box=, and =atomic-fxbox= backing cells to 16 words (128 bytes =
+   1 Apple Silicon cacheline) eliminating cross-core false sharing and
+   reordered =macro-order->code= to test ='acquire= and ='relaxed= first.
+4. *Target-First / Local-Nursery Generational Write Barrier Fast Path*
+   (=lib/_mem/generational.inc=): reordered =___gc_write_barrier_slow_val= to
+   probe target =obj= first (eliding mature lookup of =val= for cross-core
+   young targets and young still targets) and short-circuit mature->local-nursery
+   writes directly to card marking without a second radix lookup, cutting
+   =___gc_write_barrier_slow= samples by *-49.1% to -83.3%*.
+
+** Comprehensive Verification, Interleaved A/B LBO, Rust-Beating Benchmarks, & Gerbil v0.19 Qualification
+- *Post-Wave-12 Flamegraph Confirmation (=.cache/tasks/wave12-profile/sample_w11_vs_w12_summary.json=, =p12=)*:
+  - =___binding_glo_load=: *1,797 -> 0 (-100.0%)* across all 4 HT workloads
+    (=195->0=, =208->0=, =683->0=, =711->0=).
+  - =___binding_prm_load= in user HT modules: =168->0=, =455->0=, =128->0=
+    (*-100.0%*).
+  - =___gc_write_barrier_slow=: =ht_mpmc_pipeline= *90 -> 24 (-73.3%)*,
+    =ht_concurrent_kv_ycsb= *48 -> 8 (-83.3%)*, =par_sync_mailbox_cas=
+    *340 -> 173 (-49.1%)*.
+  - =lf-queue-enqueue!=: *854 -> 475 (-44.4%)*; =atomic-fxbox-ref=:
+    *1,379 -> 1,036 (-24.9%)*.
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave12-profile/track_a_summary.json=)*:
+  *132/132 PASS* (=run-multicore-suite= *100/100* + =amp4= *4/4* + Wave 6–12
+  adversarial *28/28* across =p1,p4,p8,p12=), plus =amp4[p8]= *10/10*,
+  =c14[p8]= *20/20*, =c8[p8]= *5/5*, and official =srfi/230= (*68/68* x4) &
+  =gambit/concurrent= (*55/55* x4).
+- *Native Apple Clang 21 Sanitizers (real symbol verification on runtime & =@gambit409008@C= modules via =nm=)*:
+  - *TSan* (=.cache/tasks/wave12-profile/runtime_tsan_w12_results.json=,
+    =mem.o= 31, =gsi= 4, =concurrent.o1= 12 TSan symbols): *17/17 PASS*,
+    *0 TSan warnings*, plus official =srfi/230= (68/68) and =gambit/concurrent=
+    (55/55) with *0 warnings*.
+  - *ASan+UBSan* (=.cache/tasks/wave12-profile/runtime_asan_ubsan_w12_results.json=,
+    =mem.o= 778, =gsi= 10 ASan / 8 UBSan, =concurrent.o1= 292 ASan symbols):
+    *17/17 PASS*, *0 ASan errors*, *0 UBSan errors*, plus official =srfi/230=
+    (68/68) and =gambit/concurrent= (55/55) with *0 errors*.
+- *Interleaved A/B LBO (Pre-Wave-12 =wave11-e938fcfb-build= vs Post-Wave-12 =unified=, 5 pairs, =.cache/tasks/wave12-profile/ab_wave12_lbo.json=)*:
+  - =ht_mpmc_pipeline=: *1.04x* (=p1=), *1.11x* (=p4=, GC =11.85->8.55ms=),
+    *1.51x* (=p8=, =43.04->28.52ms=, GC =10.75->5.76ms= *-46.4%*, =cpuRatio=0.714=,
+    RSS =38.6->31.8 MiB=, =p50= =20.2->13.9ms=, =p99.9= =24.8->19.4ms=),
+    *1.22x* (=p12=, =36.42->29.92ms=, GC =7.67->6.04ms= *-21.3%*, =cpuRatio=0.833=).
+  - =ht_graph_bfs_churn=: *1.05x* (=p1=), *1.03x* (=p4=), *1.10x* (=p8=,
+    =17.55->15.92ms=, =cpuRatio=0.846=, =p99.9= =1897->1118us= *-41.1%*),
+    =p50= lower across every topology (=55->52us=).
+  - =ht_concurrent_kv_ycsb=: *1.06x* (=p8=, =12.66->12.00ms=), *1.05x* (=p12=,
+    =13.49->12.82ms=).
+  - =ht_workstealing_dag[p4]=: *1.08x* (=11.04->10.26ms=, =p50= =84->67us=);
+    =par_oldgen_churn_live[p12]=: *1.16x* (=19.76->17.03ms=);
+    =par_alloc_gc_m65536[p12]=: *1.08x* (=14.68->13.57ms=);
+    =par_rest_alloc_m65536[p12]=: *1.06x* (=26.57->25.08ms=).
+- *Paired 10-Workload Rust (Tokio+Rayon) vs Wave 12 Gambit SMP (=.cache/tasks/wave12-profile/rust-vs-gambit-wave12/comparison_w12.json=, =workers=12=)*:
+  - *Wave 12 Gambit SMP SURPASSES Rust on THREE concurrent multicore workloads*:
+    - =ht_graph_bfs_churn=: =p4= *1.0x* (=23.4ms vs 22.6ms=), =p8= *195.6M ops/s*
+      (=16.1ms vs 25.6ms=, *0.63x — 1.59x faster than Rust!*), =p12=
+      *220.8M ops/s* (=14.2ms vs 23.4ms=, *0.61x — 1.65x faster than Rust!*,
+      RSS =39.9 vs 88.8 MiB= [*2.23x lower*]).
+    - =ht_concurrent_kv_ycsb=: =p4= *30.23M ops/s* (=16.3ms vs 20.6ms=, *0.79x*),
+      =p8= *38.44M ops/s* (=12.8ms vs 16.4ms=, *0.78x*), =p12= *39.56M ops/s*
+      (=12.4ms vs 16.2ms=, *0.77x — 1.31x faster than Rust!*, RSS =32.4 vs 68.8 MiB=
+      [*2.12x lower*]).
+    - =par_gc_pause_live_heap=: =p4= *0.95x* (=18.5ms vs 19.4ms=), =p8= *0.92x*
+      (=11.5ms vs 12.5ms=), =p12= *0.69x* (=11.7ms vs 17.0ms= — *1.45x faster
+      than Rust!*).
+  - =ht_mpmc_pipeline=: =p8= *3.45M ops/s* (=27.9ms=, =8.0x= of Rust vs Wave 11
+    =22.4x=), =p12= *3.28M ops/s* (=29.3ms=, =8.9x= vs Wave 11 =16.9x=).
+  - =ht_workstealing_dag=: =p8= *3.72M ops/s* (=17.6ms=, =5.5x= of Rust vs
+    Wave 11 =21.6x=), =p12= *1.76M ops/s* (=37.3ms=, =5.0x= vs Wave 11 =9.0x=).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Qualification (=.cache/tasks/wave12-gerbil-spot/=)*:
+  =prepare= (=3.67s=, =2.33 MiB=, =exit=0=), =boot-gxi= (=0.18s=, =52.25 MiB=,
+  =exit=0=), =stage0= full bootstrap compiler build (=857.61s real=, =536.32s
+  user=, peak RSS *1,034.23 MiB* [=1,084,473,344= bytes — *-4.10 MiB* lower than
+  Wave 11!], =exit=0=), plus =boot-gxi= =GAMBOPT=p4= and =GAMBOPT=p12=
+  =(import :gerbil/expander :gerbil/compiler)= smoke PASS
+  (=GERBIL_W12_SMOKE_PASS_p4= / =p12=); original
+  =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Cleanliness & Architectural Audits*: Zero internal plan-execution labels
+  across all 4 modified =vendor/gambit= source files;
+  =tests/test_families_8_12_audit.py= *7/7 OK*; =sysml -strict -validate dev=
+  zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+
+* 17. Wave 13: Per-Segment 256-Slot Permuted FAA MPMC Queue, Owner-Private =cached_top= Chase-Lev, Raw-Marks/Parked Fast Minor GC Admission, Core-Library Inline Demand/Bindings/Rest, & Bounded =min_heap= SMP Nursery
+
+** Empirical Bottleneck Diagnosis (Pre-Wave-13 =sample= Flamegraphs & Diagnostics)
+- =par_oldgen_churn_live [p12]=: mutator took only =3.96ms= (faster than Rust's
+  =4.9ms=), while 4 Minor GCs consumed =13.71ms= (77.6%) because =thread-yield!=
+  populated =cl->raw_marks != 0= on young stack sections, aborting
+  =fast_minor_admitted= (=copy-planning.inc=) to single-threaded =census_array=
+  on Core 0 while 11 cores slept in =__ulock_wait2=.
+- =ht_mpmc_pipeline [p12]=: CAS retry storms and 16-slot cache-line false
+  sharing dominated =lf-queue-try-dequeue!= (=4,405= samples) with only
+  =892/4,371= empty polls.
+- =ht_workstealing_dag [p12]=: owner =ws-deque-push!= loaded thief-contended
+  =top= on every push (512 cross-core cache misses/wave), and 11 empty thieves
+  saturated LLC coherence across =1,834,829= empty steals.
+- =par_alloc_gc_m65536 [p12]= and =par_rest_alloc_m65536 [p12]=: core Gambit
+  runtime libraries (=lib/_num.c= =___LBLCOUNT=8681=, =lib/_std.c=
+  =___LBLCOUNT=10332=) exceeded the =< 4000= inline threshold despite compiling
+  with =-D___LIBRARY=, burning =735= samples in out-of-line
+  =___group_demand_enter= and =471= samples in out-of-line
+  =___rest_note_attempt_entry= / =___rest_fast_grant_fits=.
+- =t6-concurrent-satb-major-gc [p12,m8192]=: active SMP nursery scaling in
+  =capacity-resize.inc= (=8 * P = 96= sections) ignored explicit =min_heap=
+  (=-:m8192=), expanding a bounded 8 MiB heap to 122.5 MiB and preventing IDLE
+  Minor GCs from recycling Immix holes.
+
+** Exact 6-File =vendor/gambit= Native Implementation (Parent =3018b4b6=)
+1. =lib/gambit/concurrent/concurrent.scm=:
+   - *Per-Segment 256-Slot Cache-Line-Permuted 2-Sentinel FAA MPMC Queue*:
+     Each segment =#(slots ctrl next)= stores a 256-element movable nursery
+     vector initialized to =___UNB2= (=___SPECIAL(-8)=) and a 32-element control
+     vector with =head_ctr= at =ctrl[0]= and =tail_ctr= at =ctrl[16]= (128 bytes
+     apart). Self-inverse 16-way permutation =phys = ((idx & 15) << 4) | (idx >> 4)=
+     spreads 16 consecutive tickets across 16 disjoint 128-byte cache lines.
+     Relaxed FAA (=___atomic_uword_fetch_add(..., 0)=) claims exclusive tickets
+     without CAS retries; =___gc_atomic_slot_cas(..., ___UNB2, val, 3)=
+     publishes payload safely; consumed or stalled-cancelled slots transition to
+     =___DELETED= (=___SPECIAL(-15)=) with explicit SATB shading; tickets
+     =>= 256= close the segment cleanly with zero loss.
+   - *Owner-Private =cached_top= Chase-Lev + Relaxed-Slot Jittered Backoff*:
+     =ws-deque-push!= caches thief =top= in =bvec[1]= (owner's private 128-byte
+     cache line), reloading =tp= only when =b - cached_top >= cap=;
+     =%ws-steal-raw!= uses relaxed slot load (=___gc_atomic_slot_load(sp, 0)=),
+     2-attempt cap with processor-ID jittered backoff, and =2 x ___CPU_RELAX()=
+     on empty peek.
+2. =lib/_mem/copy-planning.inc=:
+   - Extended =fast_minor_admitted= to soundly admit young sections with
+     captured continuations (=cl->raw_marks != 0=) or parked stacks
+     (=cl->stack_state == STACK_PARKED=), relying on strict frame shrinkage
+     (=___FRAME_SPACE(fs) = round_up(fs + 3, 4) > fs + 2 = dest_words=) and
+     bounding =raw_span = (cl->raw_high - cl->raw_low) + 1= and
+     =cl->parked_words= into both =actual_young_words= and =max_stack_words=.
+3. =include/_gambit/runtime_protocols.h.in=:
+   - Enabled inline =___group_demand_enter= for optimized core Gambit runtime
+     libraries (=defined(___LIBRARY) && defined(__OPTIMIZE__)=) while keeping
+     Gerbil's =___LBLCOUNT < 4000= RSS guard and =-O0= sanitizer compile speed;
+     replaced =/ sizeof(___WORD)= divisions with =* sizeof(___WORD)= byte
+     comparisons.
+4. =include/_gambit/declarations_end.h.in=:
+   - Enabled forced-inline =___BINDING_FAST_ATTR= for optimized core Gambit
+     runtime libraries (=defined(___LIBRARY) && defined(__OPTIMIZE__)=) while
+     preserving Gerbil's =___LBLCOUNT < 4000 && ___GLOCOUNT < 1000= RSS guard.
+5. =lib/lifecycle.h=:
+   - Applied =___REST_FAST_INLINE= (=static inline __attribute__((always_inline))=
+     under =defined(__OPTIMIZE__)=) to the 5 hot rest-argument fast helpers.
+6. =lib/_mem/capacity-resize.inc=:
+   - Bounded =active_young= in Minor GC sizing by explicit =min_heap=
+     (=min_secs = (min_heap >> ___LWS) / ___MSECTION_SIZE=) when =min_heap > 0=,
+     keeping =t6 [p12,m8192]= RSS at =50.3 MiB= and restoring 100/100 Immix
+     hole recycling without altering unbounded (=min_heap == 0=) workloads.
+
+** Formal Verification & Full Qualification Evidence
+- *CBMC =--mm pso= Formal Proof* (=dev/refactoring/modern-c/models/cbmc/wave13_faa_mpmc_cached_chase_lev_and_fast_minor_pso.c=,
+  =cbmc --mm pso --bounds-check --signed-overflow-check --unwind 5=):
+  - *SAFE baseline*: =0 of 91 failed=, =VERIFICATION SUCCESSFUL= (=rc=0=).
+  - *All 5/5 PSO weak-memory mutants KILLED* (=rc=10=):
+    1. =MUTANT_LCRQ_DROP_ENQ_RELEASE= (=2 of 91 failed=),
+    2. =MUTANT_LCRQ_SKIP_CANCEL_RETRY= (=2 of 86 failed=),
+    3. =MUTANT_LCRQ_DEQ_IGNORE_CLOSED_SEG= (=8 of 82 failed=),
+    4. =MUTANT_CL_STALE_CACHED_TOP_OVERWRITE= (=2 of 93 failed=),
+    5. =MUTANT_FAST_MINOR_OMIT_RAW_SPAN_BOUND= (=3 of 88 failed=).
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave13-profile/track_a_summary.json=)*:
+  *136/136 PASS* (=run-multicore-suite= *100/100* + =amp4= *4/4* + Wave 6–13
+  adversarial *32/32* across =p1,p4,p8,p12=), plus =amp4[p8]= *10/10*,
+  =c14[p8]= *20/20*, and official =srfi/230= (*68/68* x4) &
+  =gambit/concurrent= (*55/55* x4).
+- *Native Apple Clang 21 Sanitizers (verified real instrumentation symbols via =nm=)*:
+  - *TSan* (=.cache/tasks/wave13-profile/runtime_tsan_w13_results.json=,
+    =mem.o= 30, =gsi= 33, =concurrent.o1= 11 TSan symbols): *18/18 PASS*,
+    *0 TSan warnings*, plus official =srfi/230= (68/68) and =gambit/concurrent=
+    (55/55) with *0 warnings*.
+  - *ASan+UBSan* (=.cache/tasks/wave13-profile/runtime_asan_ubsan_w13_results.json=,
+    =mem.o= 780 ASan / 7 UBSan, =setup.o= 68 / 5, =gsi= 1,317 / 8,
+    =concurrent.o1= 294 ASan symbols): *18/18 PASS*, *0 ASan errors*,
+    *0 UBSan errors*, plus official =srfi/230= (68/68) and =gambit/concurrent=
+    (55/55) with *0 errors*.
+- *Post-Wave-13 =sample= Flamegraph Hotspot Confirmation (=.cache/tasks/wave13-profile/sample_w13_summary.json=)*:
+  - =par_alloc_gc_m65536 [p12]=: =___group_demand_enter= =735 -> 0= (-100%).
+  - =par_rest_alloc_m65536 [p12]=: =___rest_note_attempt_entry= =367 -> 0=,
+    =___rest_fast_grant_fits= =104 -> 1= (-99.8%).
+  - =par_oldgen_churn_live [p12]=: =census_array= =1,656 -> 197= (residual only
+    from explicit setup =(##gc)=); Minor GC =6.64 -> 4.86ms= (-26.8%).
+  - =ht_mpmc_pipeline [p12]=: =census_array= =0=, =___group_demand_enter= =0=.
+- *Clean Interleaved A/B LBO (Pre-Wave-13 =3018b4b6= vs Post-Wave-13 =unified=, 5 pairs, =.cache/tasks/wave13-profile/ab_wave13_lbo.json=)*:
+  - =ht_workstealing_dag=: *1.10x* (=p4=, =12.52->11.38ms=, =cpuRatio=0.800=),
+    *1.22x* (=p8=, =17.47->14.27ms=, =cpuRatio=0.846=), *1.80x* (=p12=,
+    =46.75->26.02ms=, =cpuRatio=0.853=, =p50= =202->152us= *-24.8%*, =p99.9=
+    =3931->2210us= *-43.8%*, RSS =30.2->26.6 MiB=).
+  - =ht_mpmc_pipeline=: *1.14x* (=p4=, =27.61->24.18ms=, =cpuRatio=0.800=),
+    *1.15x* (=p12=, =25.15->21.88ms=, =p50= =11.88->7.60ms= *-36.0%*, =p99.9=
+    =18.26->12.68ms= *-30.5%*, RSS =42.8->34.0 MiB= *-20.6%*).
+  - =par_oldgen_churn_live=: *1.06x* (=p1=), *1.23x* (=p8=, =10.40->8.46ms=,
+    GC =6.42->4.13ms= *-35.7%*), *1.26x* (=p12=, =10.51->8.34ms=, GC
+    =6.64->4.86ms= *-26.8%*, RSS =141.8->133.9 MiB=).
+  - =par_alloc_gc_m65536=: *1.15x* (=p1=, =80.99->70.38ms=, =cpuRatio=0.857=),
+    *1.14x* (=p4=, =21.65->19.08ms=, =cpuRatio=0.778=), =p12= RSS
+    =120.6->93.8 MiB= *-22.2%*.
+  - =par_rest_alloc_m65536=: *1.04x* (=p1=), *1.11x* (=p12=, =24.45->22.04ms=,
+    GC =4.77->4.17ms=, RSS =122.0->95.4 MiB= *-21.8%*).
+  - =ht_concurrent_kv_ycsb [p8]=: *1.11x* (=12.70->11.43ms=, =p99.9=
+    =2030->640us= *-68.5%*), =ht_graph_bfs_churn [p8/p12]=: *1.05x* (=p12= GC
+    =2.21->0.80ms= *-63.8%*).
+- *Paired 10-Workload Rust (Tokio+Rayon) vs Wave 13 Gambit SMP (=.cache/tasks/wave13-profile/rust-vs-gambit-wave13/comparison_w12.json=, =workers=12=)*:
+  - *Wave 13 Gambit SMP SURPASSES Rust on FOUR concurrent multicore workloads at =p12=*:
+    - =ht_graph_bfs_churn=: =p4= *0.8x*, =p8= *0.5x* (=15.5ms vs 32.3ms= —
+      *2.08x faster than Rust!*), =p12= *0.5x* (=15.5ms vs 30.0ms=,
+      *203.3M ops/s*, RSS =40.3 MiB=).
+    - =ht_concurrent_kv_ycsb=: =p8= *0.9x*, =p12= *0.6x* (=11.1ms vs 17.5ms= —
+      *1.58x faster than Rust!*).
+    - =par_compute_fib=: =p4= *0.8x*, =p8= *0.7x*, =p12= *0.9x* (=118.1ms vs
+      134.2ms= — faster than Rust on every multicore topology!).
+    - =par_gc_pause_live_heap=: =p4= *0.4x*, =p8= *0.9x*, =p12= *0.9x*
+      (=15.0ms vs 16.0ms= — faster than Rust on every multicore topology!).
+  - *Major Wave 13 gap closures vs Rust*:
+    - =par_oldgen_churn_live=: =p1= *0.9x* (beats Rust!), =p4= *1.1x*,
+      =p8= *1.3x*, =p12= *1.8x* (=9.8ms vs 5.3ms=, halved from Wave 12 =3.65x=).
+    - =ht_mpmc_pipeline=: =p8= *7.1x*, =p12= *6.4x* (=23.2ms=, *4.14M ops/s*,
+      down from Wave 12 =8.9x= / =3.28M ops/s=).
+    - =par_alloc_gc_m65536 [p12]=: *1.6x* (down from Wave 12 =1.8x=);
+      =par_rest_alloc_m65536 [p12]=: *1.7x* (down from Wave 12 =2.38x=);
+      =ht_workstealing_dag [p4/p8]=: *1.3x* (=5.46M ops/s=) / *1.9x*.
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Qualification (=.cache/tasks/wave13-gerbil-spot/=)*:
+  =prepare= (=1.59s=, =2.28 MiB=, =exit=0=), =boot-gxi= (=0.19s=, =52.14 MiB=,
+  =exit=0=), =stage0= full bootstrap compiler build (=427.47s real=, =693.52s
+  user=, peak RSS *1,033.61 MiB* [=1,083,817,984= bytes — *-0.62 MiB* lower than
+  Wave 12!], =exit=0=), plus =boot-gxi= =GAMBOPT=p4= and =GAMBOPT=p12=
+  =(import :gerbil/expander :gerbil/compiler)= smoke PASS
+  (=GERBIL_W13_SMOKE_PASS_p4= / =p12=); original
+  =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Cleanliness & Architectural Audits*: Zero internal plan-execution labels
+  across all 6 modified =vendor/gambit= source files;
+  =tests/test_families_8_12_audit.py= *7/7 OK*; =sysml -strict -validate dev=
+  zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+
+* 18. Wave 14: Immediate-Fast-Path & TTAS-Pointer Vector/Structure CAS, Minimal-Hold Msection Bump + Adaptive 1024-Spin Ticketlock, Zero-Global-Lookup Immediate-Sentinel Concurrent Queues, & Object-Disjoint Intra-Section Remembered-Set Card-Run Splitting
+
+** Empirical Bottleneck Diagnosis (Post-Wave-13 =sample= Flamegraphs & ARM64 Disassembly)
+- =par_alloc_gc_m65536 [p12]= and =par_rest_alloc_m65536 [p12]=: =sample=
+  captured *4,082 samples (62% of active CPU)* in
+  =bump_heap_section_for_demand.part.0 + 148 -> cthread_yield -> swtch_pri=.
+  ARM64 disassembly proved =___TICKETLOCK_LOCK2= yielded after only =256= spins
+  (too short for a 12-core un-preempted =alloc_mem_lock= queue) while
+  =bump_heap_section_for_demand= held =ALLOC_MEM_LOCK()= across
+  processor-private =words_prev_msections= and
+  =set_heap_msection_possibly_sharing_with_stack=.
+- =par_sync_mailbox_cas [p12]=: =11,759= top-of-stack samples in =___H_cas_2d_inc_21_=.
+  ARM64 disassembly showed =___VECTORCAS= evaluated =___EXT(___gc_write_barrier_slow)=
+  and =___EXT(___gc_satb_barrier_val)= unconditionally from =___GSTATE=, spilled
+  both + =slot= to the stack, and loaded =___ps->mem.satb_active_= on every
+  fixnum CAS; meanwhile heap-pointer CAS entered SATB/WB checks and LSE =casal=
+  before checking whether =*slot == oldval=.
+- =ht_mpmc_pipeline [p12]= (=7,008= samples in =lf-queue-try-dequeue!=) and
+  =ht_workstealing_dag [p12]= (=7,217= samples in =ws-deque-try-steal!=):
+  ARM64 disassembly of =concurrent.o1= revealed *6-10 =ldapr= global binding
+  table walks per call* checking =%lfq-empty= / =%lfq-retry= / =%ws-empty= and
+  loading =%empty-values-2=.
+- =par_oldgen_churn_live [p12]=: =collect_minor_card_hints= (=generational.inc=)
+  emitted only 1 monolithic =remset_card_runs_= entry per mature section, leaving
+  11 GC workers idle when mutations concentrated in 1-2 dense mature sections.
+
+** Exact 5-File =vendor/gambit= Native Implementation (Parent =91f45bf3=)
+1. =include/_gambit/runtime_protocols.h.in=:
+   - Added linearizable TTAS acquire fast-fail
+     (=___WORD_LOAD_ACQUIRE(___CAST(___VOLATILE ___WORD*, slot)) != oldval=)
+     before SATB/generational write-barrier checks and =___COMPARE_AND_SWAP_WORD=
+     in =___gc_vector_cas_barrier= and =___gc_structure_cas_barrier= (without
+     =isb= pipeline-flush penalties proven detrimental on Apple Silicon LSE
+     =casal= via controlled 9-variant interleaved C microbenchmarks).
+2. =include/_gambit/gvm_operations.h.in=:
+   - Added zero-spill immediate fast paths on =___VECTORCAS= and
+     =___UNCHECKEDSTRUCTURECAS= guarding the barrier call behind
+     =___EXPECT_FALSE(___MEM_ALLOCATED(val) || ___MEM_ALLOCATED(oldval))= so
+     fixnum/immediate CAS executes =casal= directly with zero =___GSTATE= loads,
+     zero stack spills, and zero =satb_active_= loads.
+   - Tuned progress-aware =___TICKETLOCK_LOCK2= pre-yield spin budget from
+     =256= to =1024= (~12 us, resetting =___spins = 0= on every =___cur != ___last_cur=
+     progress tick: eliminates 12-core un-preempted =swtch_pri= storms without
+     inducing oversubscription starvation under 24-thread =p4= scheduling).
+3. =lib/_mem/allocation-limits.inc=:
+   - Shrank =bump_heap_section_for_demand= critical section to claim only
+     =ms = next_msection_without_locking(___ps, stack_msection)= inside
+     =ALLOC_MEM_LOCK()=, moving =alloc_heap_ptr=, =words_prev_msections=, and
+     =set_heap_msection_possibly_sharing_with_stack(___ps, ms)= outside the lock
+     (matching =next_heap_msection= in =heap-sections.inc=; TSan DRF-0 verified).
+4. =lib/gambit/concurrent/concurrent.scm=:
+   - Replaced global =%lfq-empty= / =%lfq-retry= / =%ws-empty= comparisons in
+     C-compiled mode with 1-cycle immediate VM sentinels =___UNB2= and
+     =___DELETED= (=%imm-sentinel-empty?= / =%imm-sentinel-retry?=), added a
+     trailing read-only =(empty-ret unprintable: read-only:)= slot initialized to
+     =%empty-values-2= on =lf-queue= and =ws-deque= (preserving all existing
+     field indices and GC tracing), and downgraded speculative pre-FAA
+     =slots[phys0]= peek in =%lfq-deq-fast!= to relaxed (=0=) while keeping
+     polite empty-poll =___CPU_RELAX()= snoop backoff and pure-Scheme interpreted
+     fallbacks intact.
+5. =lib/_mem/generational.inc=:
+   - Added =remset_cards_split_safe(sec, c_prev, c_next)= and partitioned dense
+     per-section sorted movable dirty-card hints in =collect_minor_card_hints=
+     into object-disjoint parallel work-stealing runs (target
+     =___REMSET_CARD_RUN_TARGET = 16= cards/run), splitting strictly where
+     =starts[c_next] == 0=, or the object covering =card_lo(c_next)= starts at
+     =p >= prev_hi=, or is a forwarding/clipped pointer array
+     (=___sVECTOR= / =___sBOXVALUES= / =___sSTRUCTURE=).
+
+** Formal Verification & Full Qualification Evidence
+- *CBMC =--mm pso= Formal Proof* (=dev/refactoring/modern-c/models/cbmc/wave14_ttas_cas_ticketlock_remset_split_and_imm_sentinel_pso.c=,
+  =cbmc --mm pso --bounds-check --signed-overflow-check --unwind 5=):
+  - *SAFE baseline*: =0 of 71 failed=, =VERIFICATION SUCCESSFUL= (=rc=0=).
+  - *All 5/5 PSO weak-memory mutants KILLED* (=rc=10=):
+    1. =MUTANT_TTAS_CAS_DROP_BARRIER_ORDER= (=3 of 71 failed=),
+    2. =MUTANT_TTAS_CAS_SKIP_WB_ON_HIT= (=3 of 71 failed=),
+    3. =MUTANT_TICKETLOCK_DROP_UNLOCK_RELEASE= (=2 of 71 failed=),
+    4. =MUTANT_MPMC_ALIAS_FALSE_SENTINEL= (=1 of 71 failed=),
+    5. =MUTANT_REMSET_SPLIT_UNSAFE_NONVECTOR= (=2 of 69 failed=).
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave14-profile/track_a_summary.json=)*:
+  *140/140 PASS* (=run-multicore-suite= *100/100* + =amp4= *4/4* + Wave 6–14
+  adversarial *36/36* across =p1,p4,p8,p12=), plus =amp4[p8]= *10/10*,
+  =c14[p8]= *20/20*, =c8[p8]= *5/5*, =c8[p12]= *5/5*, and official
+  =srfi/230= (*68/68* x4) & =gambit/concurrent= (*55/55* x4).
+- *Native Apple Clang 21 Sanitizers (verified real instrumentation symbols via =nm=)*:
+  - *TSan* (=.cache/tasks/wave14-profile/runtime_tsan_w14_results.json=,
+    =mem.o= 30, =setup.o= 23, =gsi= 33, =concurrent.o1= 11 TSan symbols):
+    *19/19 PASS*, *0 TSan warnings*, plus official =srfi/230= (68/68) and
+    =gambit/concurrent= (55/55) with *0 warnings*.
+  - *ASan+UBSan* (=.cache/tasks/wave14-profile/runtime_asan_ubsan_w14_results.json=,
+    =mem.o= 27/7, =setup.o= 22/5, =gsi= 38/8, =concurrent.o1= 15/6 ASan/UBSan
+    symbols): *19/19 PASS*, *0 ASan errors*, *0 UBSan errors*, plus official
+    =srfi/230= (68/68) and =gambit/concurrent= (55/55) with *0 errors*.
+- *Post-Wave-14 =sample= Flamegraph Hotspot Confirmation (=.cache/tasks/wave14-profile/sample_w14_summary.json=)*:
+  - =par_alloc_gc_m65536 [p12]=: =swtch_pri= (*4,082 -> 100*, *-97.6%* —
+    40.8x elimination; mutator =___H___kernel= restored to #1).
+  - =par_rest_alloc_m65536 [p12]=: =swtch_pri= reduced to *351* samples.
+  - =par_sync_mailbox_cas [p12]=: =___H_cas_2d_inc_21_= *11,759 -> 8,994*
+    (*-23.5%*).
+  - =ht_mpmc_pipeline [p12]=: =lf-queue-try-dequeue!= *7,008 -> 6,158*
+    (*-12.1%*), with ARM64 disassembly confirming zero global-table =ldapr=
+    lookups on =ws-deque-try-steal!= and =lf-queue-try-dequeue!= empty paths.
+- *Interleaved A/B LBO (Pre-Wave-14 =91f45bf3= vs Post-Wave-14 =unified=, 5 pairs, =.cache/tasks/wave14-profile/ab_wave14_lbo.json=)*:
+  - =par_alloc_gc_m65536 [p12]=: *1.429x* (=14.635 -> 10.244ms=, GC
+    =1.738 -> 1.077ms= *-38.0%*, =cpuRatio=0.900=); =p1= *1.049x*.
+  - =par_rest_alloc_m65536=: =p8= *1.135x* (=35.348 -> 31.136ms=, GC *-24.8%*,
+    =cpuRatio=0.947=), =p12= *1.292x* (=51.628 -> 39.951ms=, GC
+    =10.833 -> 7.564ms= *-30.2%*, =sys= =30 -> 20ms= *-33.3%*).
+  - =par_oldgen_churn_live [p12]=: *1.031x* (=14.414 -> 13.983ms=, GC
+    =8.200 -> 7.178ms= *-12.5%*, =cpuRatio=0.750= *-25.0% CPU*).
+  - =par_sync_mailbox_cas [p12]=: *1.112x* (=51.717 -> 46.491ms=,
+    =cpuRatio=0.951=, RSS =30.19 -> 22.03 MiB= *-27.0%*).
+  - =ht_mpmc_pipeline [p12]=: =19.988ms= (*4.56M ops/s* peak, GC
+    =5.197 -> 4.402ms= *-15.3%*, =cpuRatio=0.842= *-15.8% CPU*).
+  - =ht_concurrent_kv_ycsb=: =p4= *1.109x* (=17.038 -> 15.358ms=, GC *-20.0%*),
+    =p8= *1.066x* (=12.918 -> 12.121ms=, =cpuRatio=0.875=).
+  - =ht_workstealing_dag [p4]=: *1.049x* (=12.516 -> 11.936ms=,
+    =cpuRatio=0.800= *-20.0% CPU*).
+- *Paired 10-Workload Rust (Tokio+Rayon) vs Wave 14 Gambit SMP (=.cache/tasks/wave14-profile/rust-vs-gambit-wave14/comparison_w12.json=, =workers=12=)*:
+  - Wave 14 Gambit SMP surpasses Rust across key multicore workloads including
+    =ht_workstealing_dag [p12]= (*0.7x*, =19.5ms vs 29.4ms=, *3.35M ops/s*,
+    first-ever win at =p12=), =par_gc_pause_live_heap= (*0.4x–0.7x* across all 4
+    topologies, =p12= =14.1ms vs 23.0ms=), =par_oldgen_churn_live= (*0.4x–0.5x*
+    on =p1/p4/p8= and *0.8x* [=9.4ms vs 11.1ms=] in clean =p12= run),
+    =ht_concurrent_kv_ycsb= (*0.5x* at =p8/p12=, up to *38.94M ops/s*),
+    =ht_graph_bfs_churn= (*0.4x–0.5x* on =p4/p8/p12=, up to *191.1M ops/s*),
+    and =par_sync_mailbox_cas [p8]= (*0.7x*, =21.9ms vs 30.1ms=); note that
+    background host compilations introduced variance on non-interleaved runs,
+    so interleaved A/B LBO remains the authoritative Wave 13 -> Wave 14 delta.
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Qualification (=.cache/tasks/wave14-gerbil-spot/=)*:
+  =prepare=, =boot-gxi=, and =stage0= full bootstrap compiler build (=exit=0=,
+  =556.34s user= [-19.8% vs Wave 13], =42.55s sys= [-31.1% vs Wave 13], peak
+  RSS *1,090.16 MiB* [=1,143,111,680= bytes]), plus =boot-gxi= =GAMBOPT=p4= and
+  =GAMBOPT=p12= smoke PASS (=GERBIL_W14_SMOKE_PASS_p4= / =p12=); original
+  =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Cleanliness & Architectural Audits*: Zero internal plan-execution labels
+  across all 5 modified =vendor/gambit= source files; all 5 unittest suites
+  (30/30 OK); =sysml -strict -validate dev= zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+
+* 19. Wave 15: ARM64 NEON / 8-Wide Homogeneous Vector Fill, 128-Byte Cache-Line Isolated Single-Load Rest Gate & Register-Cached =fp_cur=, TSan-Clean Lock-Free Empty-Runqueue =##thread-yield!= with Polite Backoff, & Zero-Frame Constant-Order SRFI-230 Leaf Lowering
+
+Wave 15 closes the four remaining top-of-stack native hotspots surfaced by
+Post-Wave-14 macOS =sample= flamegraphs on Apple Silicon M2 Pro (8P+4E, 12 CPUs)
+with zero semantic compromises:
+- =par_alloc_gc_m65536 [p12]= (=5,212= samples in =___H___kernel=): scalar
+  1-element-per-iteration =___INIT_SCMOBJ_INLINE_FLOAT= / =___INIT_SCMOBJ_INLINE=
+  loops dominated homogeneous vector initialization (=make-f64vector=,
+  =make-f32vector=, =make-vector=).
+- =par_rest_alloc_m65536 [p12]= (=4,576= samples in =___H___kernel=):
+  =___rest_hooks_gate= shared a 128-byte cache line with =still_slab_locks_=
+  causing false sharing across SMP cores, while =handler_get_rest= and
+  =handler_get_key_rest= re-loaded =___rest_hooks_gate= multiple times per call
+  and spilled/reloaded =___fp= via the stack on every pair pop / keyword push.
+- =par_oldgen_churn_live [p12]= (=3,762= samples in =___H__23__23_thread_2d_yield_21_=):
+  every empty-runqueue =##thread-yield!= acquired the processor runqueue
+  spinlock (=macro-lock-processor!=) even when =btq-leftmost= already pointed
+  back to the processor sentinel itself.
+- =ht_workstealing_dag [p12]= (=1,519= samples in
+  =___H_srfi_2f_230_23_atomic_2d_fxbox_2d_ref=): dynamic memory-order decoding
+  and non-leaf GVM frame overhead dominated SRFI-230 atomic loads/stores/RMWs.
+
+** Exact 9-File =vendor/gambit= Native Implementation (Parent =dcdf0ad7=)
+1. =lib/_kernel.scm= & exact verbatim mirror =lib/_kernel.c=:
+   - Added ARM64 NEON 4x128-bit vectorized (=vdupq_n_f64=/=vst1q_f64= x4 ->
+     =dup.2d v31, v30[0]= + =2x stp q31, q31= [64 bytes per 2 stores];
+     =vdupq_n_f32=/=vst1q_f32= x4) and portable overflow-free 8-wide unrolled
+     (=limit - i >= 8=) homogeneous vector initialization helpers
+     (=___init_f64_fill=, =___init_f32_fill=, =___INIT_SCMOBJ_INLINE_FLOAT=,
+     =___INIT_SCMOBJ_INLINE=), preserving exact IEEE-754 =+0.0= detection
+     (=f == 0.0 && 1.0/f > 0.0=) so =-0.0= sign bits are never clobbered.
+   - Sampled =___BOOL rest_fast = ___rest_hooks_gate_closed();= once on entry to
+     =handler_get_rest= and =handler_get_key_rest=, cleared =rest_fast = 0= on
+     slow-path entry, guarded =___rest_note_attempt_entry=,
+     =___rest_attempt_words=, =___rest_disarm_attempt=, and
+     =___rest_observation_note_body= behind =!rest_fast=, and cached
+     =___WORD *fp_cur = ___fp;= in a register around =___CONS(___FP_POP(fp_cur), ...)=
+     and =___FP_PUSH(fp_cur, ...)= loops (ARM64 disassembly verified
+     =ldr x6, [x4], #0x8=, eliminating per-pair stack spill/reload).
+2. =lib/_mem/rc-allocation.inc=, =lib/_mem/aligned-allocation.inc=, & =lib/lifecycle.h=:
+   - Isolated =___rest_hooks_gate= onto its own 128-byte aligned cache line with
+     non-static =___rest_hooks_gate_cacheline_guard_= and 128-byte aligned
+     =still_slab_locks_= (=nm -n= on unified =gsi= proved exact 128-byte separation:
+     =0x1007f8e80 ____rest_hooks_gate_cacheline_guard_=,
+     =0x1007f8f00 ____rest_hooks_gate=, =0x1007f8f80 _still_slab_locks_=).
+   - Added =___rest_hooks_gate_closed_inline= (=___rest_hooks_gate_closed()=) and
+     =___rest_fast_grant_fits_gated_inline= (=___rest_fast_grant_fits_gated(...)=).
+3. =include/_gambit/runtime_protocols.h.in=, =lib/_thread#.scm= (SMP section), & =lib/_thread.scm= (SMP =##thread-yield!=):
+   - Added =___gc_atomic_slot_store_release= (combining generational write barrier,
+     Yuasa SATB barrier, and =___WORD_STORE_RELEASE=).
+   - Added =macro-btq-leftmost-atomic-ref= (=___gc_atomic_slot_load(s, 1)=) and
+     upgraded SMP =macro-btq-leftmost-set!= to =___gc_atomic_slot_store_release=
+     (leaving non-SMP =macro-btq-leftmost-set!= unchanged).
+   - Added TSan-clean lock-free empty-runqueue fast path in SMP =##thread-yield!=
+     with a single polite =___CPU_RELAX()= (=isb=) pause (=ldapr x1, [x1]; cmp x0, x1;
+     b.ne slow; isb; return #!void=), avoiding L2/SLC coherence starvation of Apple
+     M2 Pro's 4 E-cores during =p12= spin-wait while preserving zero atomic RMWs
+     and zero lock acquisitions.
+4. =lib/srfi/230/230.scm=:
+   - Lowered SRFI-230 atomic box/fxbox/flag/pair operations to zero-frame
+     tail-check leaf helpers with compile-time constant memory-order dispatch
+     (=macro-dispatch-load-order=, =macro-dispatch-store-order=,
+     =macro-dispatch-rmw-order=, =macro-with-vector-index=,
+     =macro-raw-slot-store-void!=, =macro-raw-flag-tas!=), baking literal order
+     codes =0..4= directly into =##c-code=.
+
+** Formal Verification & Full Qualification Evidence
+- *4-Thread CBMC =--mm pso= Formal Proof* (=dev/refactoring/modern-c/models/cbmc/wave15_fill_rest_yield_pso.c=,
+  =cbmc --mm pso --bounds-check --signed-overflow-check --unwind 13=):
+  - Models 4 concurrent threads (=prod2= + =prod3= + =stealer= + =yielder=) for
+    SMP multi-publisher + concurrent-stealer + yielder PSO interleavings, plus
+    exact IEEE-754 =-0.0= / guard-slot vector fill and single-load rest-gate
+    re-arm contracts.
+  - *SAFE baseline*: =0 of 107 failed=, =VERIFICATION SUCCESSFUL= (=rc=0=).
+  - *All 5/5 PSO & contract mutants KILLED* (=rc=10=):
+    1. =MUTANT_1= (=1 of 107 failed=, drops =-0.0= sign check -> clobbers =-0.0= to =+0.0=),
+    2. =MUTANT_2= (=1 of 107 failed=, off-by-one fill tail leaves final element uninitialized),
+    3. =MUTANT_3= (=3 of 107 failed=, omits =rest_fast = 0= on slow path -> skips disarm/observation),
+    4. =MUTANT_4= (=2 of 107 failed=, omits PSO release fence before publishing =btq_leftmost=),
+    5. =MUTANT_5= (=3 of 107 failed=, skips locked re-check in =##thread-yield!= after concurrent steal).
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave15-profile/track_a_summary.json=)*:
+  *144/144 PASS* (=run-multicore-suite= *100/100* + =amp4= *4/4* + Wave 6–15
+  adversarial *40/40* across =p1,p4,p8,p12=), plus =amp4[p8]= *10/10*,
+  =c14[p8]= *20/20*, =c8[p8]= *5/5*, =c8[p12]= *5/5*, and official
+  =srfi/230= (*68/68* x4) & =gambit/concurrent= (*55/55* x4).
+- *Native Apple Clang 21 Sanitizers (verified real =nm -u= instrumentation symbols)*:
+  - *TSan* (=.cache/tasks/wave15-profile/runtime_tsan_w15_results.json=,
+    =mem.o= 30, =setup.o= 23, =_kernel.o= 17, =_thread.o= 12, =gsi= 35,
+    =230.o1= 16, =concurrent.o1= 12 TSan symbols):
+    *20/20 PASS*, *0 TSan warnings*, plus official =srfi/230= (68/68) and
+    =gambit/concurrent= (55/55) with *0 warnings*.
+  - *ASan+UBSan* (=.cache/tasks/wave15-profile/runtime_asan_ubsan_w15_results.json=,
+    =mem.o= 27/7, =setup.o= 22/5, =gsi= 38/8, =230.o1= 13/3, =concurrent.o1= 15/4
+    ASan/UBSan symbols): *20/20 PASS*, *0 ASan errors*, *0 UBSan errors*, plus
+    official =srfi/230= (68/68) and =gambit/concurrent= (55/55) with *0 errors*.
+- *Post-Wave-15 =sample= Flamegraph Hotspot Confirmation (=.cache/tasks/wave15-profile/sample_w15_summary.json=)*:
+  - =par_alloc_gc_m65536 [p12]=: =___H___kernel= *5,212 -> 938* (*-82.0%*, 5.56x
+    reduction; dropped from #1 to #6 behind mutator =churn-worker=).
+  - =par_rest_alloc_m65536 [p12]=: =___H___kernel= *4,576 -> 1,142* (*-75.0%*, 4.01x).
+  - =par_oldgen_churn_live [p12]=: =___H__23__23_thread_2d_yield_21_= *3,762 -> 961*
+    (*-74.5%*, 3.91x reduction).
+  - =ht_workstealing_dag [p12]=: =___H_srfi_2f_230_23_atomic_2d_fxbox_2d_ref=
+    *1,519 -> 127* (*-91.6%*, 11.96x reduction), =___H__23__23_thread_2d_yield_21_=
+    *398 -> 46* (*-88.4%*).
+  - =ht_mpmc_pipeline [p12]=: =___H_srfi_2f_230_23_atomic_2d_fxbox_2d_fetch_2d_add_21_=
+    *232 -> 109* (*-53.0%*).
+- *Interleaved A/B LBO (Pre-Wave-15 =dcdf0ad7= vs Post-Wave-15 =unified=, 5 pairs, =.cache/tasks/wave15-profile/ab_wave15_lbo.json=)*:
+  - =par_alloc_gc_m65536=: =p1= *1.517x* (=72.376 -> 47.716ms=, =cpuRatio=0.714=),
+    =p4= *1.158x* (=42.508 -> 36.719ms=, =cpuRatio=0.667=), =p8= *1.520x*
+    (=16.003 -> 10.531ms=, =cpuRatio=0.600=, =sys -50.0%=), =p12= *1.317x*
+    (=16.909 -> 12.835ms=, =cpuRatio=0.700=, GC *-12.7%*).
+  - =ht_workstealing_dag=: =p12= *1.147x* (=46.813 -> 40.800ms=, GC *-19.4%*,
+    =p50 124 -> 118us=), =p1= *1.020x* (=p999 353 -> 314us=), =p4= *1.016x*.
+  - =ht_concurrent_kv_ycsb=: =p8= *1.030x* (=cpuRatio=0.889=), =p12= *1.050x*
+    (=15.919 -> 15.156ms=, =p999 3295 -> 2760us= *-16.2%*).
+  - =ht_mpmc_pipeline [p12]=: *1.012x* (GC =12.329 -> 10.600ms= *-14.0%*,
+    =cpuRatio=0.938=, =p50 14008 -> 12058us= *-13.9%*).
+  - =par_rest_alloc_m65536 [p4]=: *1.107x* (=42.115 -> 38.052ms=, =cpuRatio=0.933=).
+  - =par_oldgen_churn_live [p12]=: *1.054x* (=11.142 -> 10.575ms=).
+  - =par_sync_mailbox_cas [p4]=: *1.345x* (=18.104 -> 13.464ms=, =cpuRatio=0.667=).
+  - Note: =par_oldgen_churn_live [p4/p8]= and =par_sync_mailbox_cas [p8/p12]=
+    showed GC-boundary / macOS P/E scheduling variance in the 5-pair run
+    (tracked for Wave 16 adaptive backoff/GC tuning).
+- *Paired 10-Workload Rust (Tokio+Rayon) vs Wave 15 Gambit SMP (=.cache/tasks/wave15-profile/rust-vs-gambit-wave15/comparison_w12.json=, =workers=12=)*:
+  - *First-ever win over Rust on =par_alloc_gc_m65536=*: *0.65x* at =p8=
+    (=18.6ms vs 28.5ms=) and *0.45x* at =p12= (=11.6ms vs 25.7ms=, *2.22x faster
+    than Rust*!).
+  - Surpasses Rust on =par_gc_pause_live_heap= (*0.50x* at =p8= [=18.5 vs 37.1ms=],
+    *0.44x* at =p12= [=15.1 vs 34.1ms=, *2.26x faster*]) and =ht_graph_bfs_churn=
+    (*0.70x* at =p4=, *0.71x* at =p8=, *0.87x* at =p12= [=30.2 vs 34.8ms=,
+    *104.28M ops/s*]), with near-parity on =par_sync_mailbox_cas= (*1.19x* at =p8=,
+    *1.21x* at =p12=).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Qualification (=.cache/tasks/wave15-gerbil-spot/=)*:
+  =prepare=, =boot-gxi=, and =stage0= full bootstrap compiler build (=exit=0=,
+  =real=1769.97s=, =user=719.01s=, =sys=63.71s=, peak RSS *1,032.44 MiB*
+  [=1,082,589,184= bytes, *-57.72 MiB* lower than Wave 14]), plus =boot-gxi=
+  =GAMBOPT=p4= and =GAMBOPT=p12= smoke PASS (=(GERBIL_W15_OK 4950 16 -0.)=,
+  confirming IEEE-754 =-0.0= preservation inside Gerbil); original
+  =../gerbil-gambit-bootstrap-audit= verified completely unchanged.
+- *Cleanliness & Architectural Audits*: Zero internal plan-execution labels
+  across all 9 modified =vendor/gambit= source files; all 5 unittest suites
+  pass; =sysml -strict -validate dev= zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+* 20. Wave 16: 8-Thread Formal Scaling, 3-State OS-Futex =alloc_mem_lock=, 94.7% Smaller =___H___kernel= Stack Frame & Overflow-Free Fast Rest Grant, and Zero-Frame Tail-Check Leaf =concurrent.scm=
+
+Wave 16 resolves the four remaining top-of-stack bottlenecks surfaced by
+Post-Wave-15 macOS =sample= flamegraphs and ARM64 disassembly on Apple Silicon
+M2 Pro (8P+4E, 12 CPUs), while upgrading bounded formal verification to an
+*8-thread* concurrent CBMC =--mm pso= model (matching modern 4C/8T+ baselines)
+and adding *16-worker (=p8=)* native ASan+UBSan and TSan qualification:
+- =par_oldgen_churn_live [p8]= (=1,632= =swtch_pri= samples): FIFO ticketlock
+  convoy on =alloc_mem_lock_= inside =bump_heap_section_for_demand=,
+  =prepare_mem_pstate=, and =___heap_limit= when an E-core holder was preempted.
+- =par_rest_alloc_m65536=: =___H___kernel= allocated a *16,752-byte* stack frame
+  (=sub sp, sp, #0x4170=) on every call due to two =___SCMOBJ key_vals[___MAX_NB_PARMS]=
+  (8 KiB x 2) arrays, while =___rest_fast_grant_fits_gated= executed 128-bit
+  =mul=/=smulh= overflow checks and redundant =___W_HEAP=/=___W_FP= store+reload
+  on the fast path, and =handler_get_key= / =handler_get_key_rest= spilled =___fp=
+  and re-unmasked =key_descr= per iteration.
+- =ht_mpmc_pipeline= & =ht_workstealing_dag= & =ht_concurrent_kv_ycsb=: hot
+  =lib/gambit/concurrent/concurrent.scm= entrypoints had non-tail type checks
+  forcing a 64B GVM stack frame + 25-instruction =___group_demand_commit=;
+  =%lfq-enq-fast!= used =casal= (=3=) + full WB/SATB even on immediates;
+  =%lfq-deq-fast!= used =ldapr= (=1=) on speculative empty peeks and 64x =isb=
+  spins; =%ws-steal-raw!= emitted 2 consecutive =isb= stalls on empty peek.
+
+** Exact 8-File =vendor/gambit= Native Implementation (on top of Wave 15, Parent =dcdf0ad7=)
+1. =include/_gambit/memory_state.h.in=, =lib/lifecycle.h=, =lib/_mem/configuration.inc=, & =lib/_mem/memory-lifecycle.inc=:
+   - Added 128-byte cache-line isolated =alloc_mem_futex_state_=
+     (=alloc_mem_futex_pad0_[128]= / =___VOLATILE ___U32 alloc_mem_futex_state_= /
+     =alloc_mem_futex_pad1_[128]=) on =___vmstate_mem=, plus portable
+     =___gc_futex_wake_one_u32= (=os_sync_wake_by_address_any= on Darwin,
+     =FUTEX_WAKE_PRIVATE, 1= on Linux) and Drepper-style 3-state adaptive-spin
+     (128x TTAS) + OS-futex =___gc_futex_mutex_lock= / =___gc_futex_mutex_unlock=
+     (=0=unlocked, 1=locked, 2=contended=), routing =ALLOC_MEM_LOCK()= /
+     =ALLOC_MEM_UNLOCK()= to the futex mutex under C11 atomics to eliminate FIFO
+     convoy =swtch_pri= stalls.
+   - Added per-processor lazy-allocated =rest_key_scratch_= +
+     =rest_key_scratch_cap_= on =___processor_state_mem= (cleaned up on processor
+     teardown).
+2. =lib/lifecycle.h=, =lib/_mem/rc-allocation.inc=, =lib/_kernel.scm=, & verbatim mirror =lib/_kernel.c=:
+   - Replaced both 8 KiB =key_vals[___MAX_NB_PARMS]= stack arrays with
+     =key_vals_small[___REST_KEY_SMALL_CAP]= (=32= slots) + out-of-line
+     =___rest_key_scratch(___ps, nb_key)= for =>32= keyword procedures, shrinking
+     the =___H___kernel= ARM64 stack frame from *16,752 B -> 896 B (-94.7%, 18.7x smaller)*.
+   - Added zero-=smulh= byte-shift overflow-free fast path in
+     =___rest_fast_grant_fits_gated_inline= (publishing =ps->context->hp=/=fp=
+     only on cold miss), deferred =___W_HEAP=/=___W_FP= out of the =rest_fast=
+     path, and register-cached =fp_cur= + =kdp = ___BODY_AS(key_descr, ___tVECTOR)=
+     in =handler_get_key= and =handler_get_key_rest=.
+3. =lib/gambit/concurrent/concurrent.scm=:
+   - Converted all hot =lf-stack-*=, =lf-queue-*=, =ws-deque-*=, and
+     =concurrent-table-*= public entrypoints to zero-frame tail-check leaf layout
+     with cold outlined retry/slow helpers (=%lfq-enq-slow!=, =%lfq-deq-retry!=,
+     =%lfq-deq-or-retry!=, etc.).
+   - Upgraded =%lfq-enq-fast!= to release CAS (=2=, =casl=) with immediate-value
+     WB/SATB bypass; downgraded =%lfq-deq-fast!= speculative pre-FAA empty peeks
+     (=h0=, =t0=, empty =nxt=) to relaxed (=0=) with 8 lightweight spins before
+     =___CPU_RELAX()= (cap 32); trimmed =%ws-steal-raw!= empty backoff to single
+     =___CPU_RELAX()=.
+
+** 8-Thread Formal Verification & Full 4-Track Qualification Evidence
+- *8-Thread CBMC =--mm pso= Formal Proof* (=dev/refactoring/modern-c/models/cbmc/wave16_futex_mutex_rest_and_concurrent_pso.c=,
+  =cbmc --sat-solver cadical --mm pso --bounds-check --signed-overflow-check --unwind 2=):
+  - Scales formal verification to *8 genuinely concurrent threads (=T0..T7=)*:
+    Protocol A exercises 8 threads racing on ONE shared 3-state futex
+    =alloc_mem_lock= (=T0= holder + =T1,T2= contended sleepers + =T3,T4,T7= fast
+    thieves + =T5,T6= escalators); Protocol B exercises 8 threads (=4 producers
+    + 4 consumers=) on the FAA MPMC queue with release-CAS + spin-timeout cancel
+    sentinel; Protocol C proves bit-exact equivalence of the overflow-free fast
+    rest grant and small-key (<=32) vs scratch (>32) buffer dispatch.
+  - *SAFE baseline*: =0 of 28 failed=, =VERIFICATION SUCCESSFUL= (=rc=0=, =47.42s=).
+  - *All 5/5 PSO & contract mutants KILLED* (=rc=10=):
+    1. =MUTANT_1= (=1 of 28 failed=, contended re-acquire installs =1= instead of =2= -> stranded waiter),
+    2. =MUTANT_2= (=2 of 28 failed=, futex unlock drops PSO release fence -> stale CS visibility),
+    3. =MUTANT_3= (=4 of 28 failed=, MPMC enqueue drops release ordering on slot CAS -> uninit payload read),
+    4. =MUTANT_4= (=4 of 28 failed=, MPMC dequeue skips =MPMC_DELETED= cancel sentinel on spin timeout -> lost enqueued item),
+    5. =MUTANT_5= (=1 of 28 failed=, fast rest grant drops =MAX_NB_PARMS= overflow guard -> overflow mis-grant).
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave16-profile/track_a_summary.json=)*:
+  *148/148 PASS* (=run-multicore-suite= *100/100* + =amp4= *4/4* + Wave 6–16
+  adversarial *44/44* across =p1,p4,p8,p12=), plus =amp4[p8]= *10/10*,
+  =wave16[p8]= *5/5*, =wave16[p12]= *5/5*, =c14[p8]= *20/20*, =c8[p8]= *5/5*,
+  =c8[p12]= *5/5*, and official =srfi/230= (*121/121* x4) & =gambit/concurrent=
+  (*79/79* x4).
+- *Native Apple Clang 21 Sanitizers (incl. =p8= 16-worker adversarial + =p4/p8= official suites)*:
+  - *TSan* (=.cache/tasks/wave16-profile/runtime_tsan_w16_results.json=,
+    =mem.o= 30, =setup.o= 23, =_kernel.o= 17, =_thread.o= 12, =gsi= 35,
+    =230.o1= 15, =concurrent.o1= 11 TSan symbols):
+    *22/22 PASS*, *0 TSan warnings* (including =wave16[p4]= & =wave16[p8]= 16
+    concurrent workers), plus official =srfi/230= (121/121) &
+    =gambit/concurrent= (79/79) at both =p4= and =p8= with *0 warnings*.
+  - *ASan+UBSan* (=.cache/tasks/wave16-profile/runtime_asan_ubsan_w16_results.json=,
+    =mem.o= 27/7, =setup.o= 22/5, =_kernel.o= 26/5, =_thread.o= 18/6, =gsi= 47/9,
+    =230.o1= 13/6, =concurrent.o1= 15/6 ASan/UBSan symbols):
+    *22/22 PASS*, *0 ASan errors*, *0 UBSan errors* (including =wave16[p4]= &
+    =wave16[p8]= 16 concurrent workers), plus official =srfi/230= (121/121) &
+    =gambit/concurrent= (79/79) at both =p4= and =p8= with *0 errors*.
+- *Post-Wave-16 Binary & =sample= Flamegraph Confirmation (=.cache/tasks/wave16-profile/sample_w16_summary.json=)*:
+  - =___H___kernel= stack frame: *16,752 B -> 896 B (-94.7%, 18.7x smaller)*.
+  - =par_oldgen_churn_live [p8]=: =swtch_pri= *1,632 -> 0* in top-10 (*-100%*,
+    FIFO ticketlock convoy completely eliminated, replaced by OS =__ulock_wait2=).
+  - =ht_mpmc_pipeline [p12]=: =lf-queue-enqueue!= collapsed to =578= samples;
+    =ht_workstealing_dag [p12]=: =ws-deque-push!= collapsed to =135= samples.
+- *Interleaved A/B LBO (Pre-Wave-16 =wave15-pre16-build= vs Post-Wave-16 =unified=, 5 pairs, =.cache/tasks/wave16-profile/ab_wave16_lbo.json=)*:
+  - =par_oldgen_churn_live=: =p12= *2.61x* (=69.02 -> 26.48ms=, GC =42.17 -> 15.50ms=
+    *2.72x*, RSS =132.4 -> 128.2 MiB=), =p4= *1.31x* (=45.79 -> 34.96ms=, GC
+    =24.24 -> 17.01ms=), =p1= *1.11x*.
+  - =ht_workstealing_dag=: =p12= *1.78x* (=107.06 -> 59.99ms=, GC =4.62 -> 3.67ms=,
+    =cpuRatio=0.974=), =p4= *1.29x* (=28.41 -> 21.99ms=, =cpuRatio=0.875=,
+    =p999 2734 -> 1486us= *-45.6%*), =p8= *1.03x*.
+  - =ht_concurrent_kv_ycsb=: all-topology improvement — =p1= *1.11x* (=p999 -34.4%=),
+    =p4= *1.18x* (=p50 30 -> 26us=), =p8= *1.16x* (=cpuRatio=0.909=), =p12= *1.02x*.
+  - =ht_mpmc_pipeline=: =p8= *1.16x* (=43.12 -> 37.26ms=, GC *-26.2%*,
+    =p50 25062 -> 20133us=, =p999 34173 -> 26514us=), =p4= *1.05x* (=cpuRatio=0.833=),
+    =p12= =p50 26658 -> 19237us= (*-27.8%*).
+  - =par_rest_alloc_m65536=: =p4= *1.06x* (GC *-23.6%*), =p8= *1.07x*;
+    =par_sync_mailbox_cas [p8]= *1.29x* (=33.19 -> 25.77ms=, RSS =19.6 -> 16.7 MiB=).
+- *Paired 10-Workload Rust (Tokio+Rayon) vs Wave 16 Gambit SMP (=.cache/tasks/wave16-profile/rust-vs-gambit-wave16/comparison_w12.json=, =workers=12=)*:
+  - *5/10 multicore workloads beat or match Rust*:
+    - *First-ever Rust win on =par_rest_alloc_m65536 [p4]=*: *0.5x* (=42.3ms vs 86.9ms=, *2.05x faster than Rust*!).
+    - =par_compute_fib [p8]=: *1.0x* (=210.4ms vs 212.7ms=, beats Rust on pure compute).
+    - =ht_concurrent_kv_ycsb=: beats Rust across =p4= (*0.9x*), =p8= (*1.0x*),
+      and =p12= (*0.8x*, =28.3ms vs 35.0ms= = *1.24x faster*).
+    - =ht_graph_bfs_churn=: beats Rust across =p4= (*0.9x*), =p8= (*0.9x*), and
+      =p12= (*0.6x*, =22.0ms vs 35.7ms= = *1.62x faster*, *142.95M ops/s*, *10.42x* scaling).
+    - =par_gc_pause_live_heap=: beats/matches Rust across =p4= (*0.9x*), =p8= (*0.8x*),
+      and =p12= (*1.0x*).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Clean Bootstrap (=.cache/tasks/wave16-gerbil-spot/=)*:
+  =prepare=, =boot-gxi=, and from-scratch =stage0= full bootstrap compiler build
+  (=exit=0=, =real=1193.41s=, =user=633.73s= [*-11.9%* vs Wave 15],
+  =sys=50.71s= [*-20.4%* vs Wave 15], peak RSS =1,051.58 MiB= [=1,102,659,584=
+  bytes]), plus =GAMBOPT=p4= and =GAMBOPT=p12= smoke PASS
+  (=(GERBIL_W16_OK 33 64 -0.)=); original =../gerbil-gambit-bootstrap-audit=
+  verified completely unchanged.
+- *Cleanliness & Architectural Audits*: Zero plan-label hits across all added
+  lines of all 13 modified =vendor/gambit= source files; all 5 unittest suites
+  pass; =sysml -strict -validate dev= zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.

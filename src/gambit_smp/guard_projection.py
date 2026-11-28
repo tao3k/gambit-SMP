@@ -1,4 +1,5 @@
 """Source-bound necessary action guards, not an enabledness equivalence proof."""
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import json
 from pathlib import Path
@@ -171,7 +172,7 @@ def format_ir(payload, cwd):
     """Use the selected Quint installation's own source printer."""
     script = ("const fs=require('fs'); const p=require(process.argv[1]); "
               "process.stdout.write(p.moduleToString(JSON.parse(fs.readFileSync(0,'utf8')))+'\\n');")
-    return subprocess.check_output(["node", "-e", script, str(formatter())],
+    return _task_check_output(["node", "-e", script, str(formatter())],
         input=json.dumps(payload), text=True, cwd=cwd, timeout=10)
 
 
@@ -209,7 +210,7 @@ def campaign(out, sufficient=False):
         "projectionKind": "conservative-defined-transition" if sufficient else "necessary-guards",
         "results": []}
     try:
-        receipt["quintVersion"] = subprocess.check_output(["quint", "--version"], text=True, timeout=10).strip()
+        receipt["quintVersion"] = _task_check_output(["quint", "--version"], text=True, timeout=10).strip()
         if receipt["quintVersion"] != "0.33.0":
             raise ValueError("reviewed Quint 0.33.0 required")
         for file in ("gc_recursive_queue_wait.qnt", "gc_recursive_queue_induction.qnt"):
@@ -282,5 +283,9 @@ def main():
         parser.exit(1)
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('guard-projection')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('guard-projection',main))

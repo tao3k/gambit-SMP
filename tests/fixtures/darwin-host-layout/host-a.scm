@@ -1,0 +1,10 @@
+(define (hp-tail-a n acc)
+  (if (= n 0) acc (hp-tail-b (- n 1) (+ acc 1))))
+(define (hp-return f x) (+ x (f (+ x 1))))
+(define hp-saved #f)
+(define (hp-capture)
+  (let ((roots (list (vector 7 8 9) (string-copy "root-live"))))
+    (let ((v (call-with-current-continuation
+              (lambda (k) (set! hp-saved k) 20))))
+      (##gc)
+      (list v (vector-ref (car roots) 1) (cadr roots)))))

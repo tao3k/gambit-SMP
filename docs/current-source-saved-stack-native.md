@@ -14,7 +14,7 @@ and no source tree was copied. All three concurrency flags remained enabled.
 
 ## Bound Workload
 
-`evidence/research/current-source-full-bootstrap/saved-stack-geometry.json`
+`.cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/saved-stack-geometry.json`
 binds the candidate `lib/mem.h` hash to `___MSECTION_SIZE = 131072` and declares
 the same numeric recursion depth. The corresponding candidate hash is present
 in the 22-file source lock, distinct from the upstream base hash. Geometry is

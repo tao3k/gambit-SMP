@@ -1,0 +1,1009 @@
+#+TITLE: DEV ownership composition for the remaining SMP families
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* DESIGN The runtime replacement
+:PROPERTIES:
+:CUSTOM_ID: smp-dev-composition
+:STATUS: PROPOSED; SOURCE REFINEMENT AND NATIVE ACCEPTANCE OPEN
+:END:
+
+The independent SMP ledger retains 5/12. Families 6--12 are complete validation
+populations, not seven new runtime modules. Repair 9--12 contributes historical
+observations and falsifiers, not DEV ownership, implementation or acceptance.
+This design composes the existing [[file:runtime-blueprint.org][runtime blueprint]],
+[[file:repair-driven-gc-smp-design.org][eight responsibility cuts]] and
+[[file:stress-gsi-restoration.org#tfib-resume-cut][actual DEV resume cut]].
+Its [[file:models/sysml/smp-dev-composition.sysml][SysML]] names six owners and
+seven family dependencies; its [[file:models/quint/smp_dev_composition.qnt][QNT]]
+tests a small cross-owner abstraction. Neither is a production implementation.
+
+** Ownership and replacement contracts
+
+1. *VM round and root/work cut.* A VM epoch closes admission and freezes the
+   actual root slots and participant identities. Root tasks and worker arenas
+   carry private, published, claimed, weak and tail responsibilities until
+   each is discharged. Queue emptiness is not termination while a publisher,
+   borrower or hidden child remains. The old physical parity remains owned
+   until every real reader has passed its last access. Unknown outcomes retain
+   custody. This replaces reconstructing ownership from a carrier or a queue.
+2. *Physical allocation and resume.* The round hands each execution context an
+   exclusive interval with generation, cursor and physical limit. A drained
+   worker tail or disjoint loan is transferred once. Continuation restoration
+   precedes publication; the context's cursor and poll bound are published and
+   the generated host reloads them. The compiler's complete allocation region,
+   including the first closure header and fields, fits in that same interval.
+   Polling threshold and physical end are different: a post-write poll cannot
+   validate an earlier write. Logical stack links do not authorize section reuse.
+   Reuse the existing resume-plan, capacity and range models, and the actual
+   delayed-reader fixtures; close the concrete producer/reader census and C
+   memory-order refinement before retiring old authority.
+3. *Request and control.* One owner retains an accepted request through queue,
+   claim, invocation and one result or abandonment; notification is not the
+   result. Nested requests, target migration, arbitrary exception values,
+   dynamic-wind and multi-shot continuation reentry retain their Scheme
+   semantics. Retire duplicate membership or capture only after equivalence and
+   last-borrower closure. No accepted callback may be dropped for speed.
+4. *Interpreter application and tails.* TFIB spends work in interpreted
+   application and control materialization as well as creating threads. Bind
+   allocations and useful progress to actual application, argument environment,
+   tail transition and continuation epochs before selecting an optimization.
+   Candidate direction: keep a context-owned transient argument/control region
+   for a proven non-escaping tail transition, materializing the same observable
+   frame and environment before capture, debugging, interrupt, exception or any
+   escape. This is a proposal, not a demonstrated safe optimization: aliases,
+   recursive/reentrant calls, GC maps and all capture points require a census.
+   Preserve interpreted execution and original work; do not compile the test,
+   erase delays, reduce iterations or assume all measured allocation removable.
+   Removing the vector alone does not remove the separate code-procedure
+   dispatches visible in =##cprc-app1-red= and =##cprc-app2-sub=. A second,
+   conditional direction is an interpreter-owned compact instruction loop for
+   code nodes whose exact operations and lexical state are known. It must retain
+   evaluation order, numeric tower/overflow and exception behavior, binding
+   identity, stepping hooks, interrupt safe points and root maps. An unknown
+   operator, changed binding, observer or unsupported state returns to the
+   existing interpreter before any unrepresented effect. Materialization must
+   preserve the current program point and lexical locations. This is a proposed
+   generic interpreter path, not compilation or a TFIB-specific substitution.
+   Neither a working implementation nor a speedup is established.
+   =macro-step!= supplies the handler an execution callback and its operator and
+   arguments; the handler can invoke that callback with different arguments or
+   more than once. A specialized effect must therefore guard the actual callback
+   invocation and use its arguments, without moving the effect ahead of the
+   handler or assuming a single invocation. The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-step-callback-baseline.json][native baseline]] observes
+   changed arguments and two callback invocations at p1 and p2; it does not
+   establish candidate equivalence. A [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-dynamic-stepper-baseline.json][second baseline]] enables reference stepping
+   during operator evaluation and observes its effect on the following argument
+   at p1 and p2. A fused reader must inspect the current handler at the original
+   evaluation point, not assume it remains disabled. The existing =macro-make-cprc=
+   also establishes an environment map before entering an interrupts-enabled
+   body, so the replacement must preserve that boundary and its live roots.
+   The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-generated-dispatch.json][regenerated source observation]] records three operand-dispatch sites
+   and a direct =subproblem-apply2= jump; that helper reads and branches on the
+   stepper. The [[file:models/quint/smp_interpreter_stepper_race.qnt][finite stepper-guard model]] shows an early cached false guard
+   can diverge if the handler becomes enabled before the original helper read;
+   a later read preserves the modeled double-callback outcome. The [[file:../../../evidence/fixtures/dev-interpreter-stepper-race/race.recipe.json][exact-test
+   Recipe]] and [[file:../../../evidence/fixtures/dev-model-framework-v5/dev-model-evidence.recipe.json][SysML/ASCENT model chain]] passed. This modeled interleaving is
+   a hazard to investigate, not evidence that production can actually be
+   interrupted at that point, nor proof that a later check is atomic or safe.
+   An [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-constant-candidate.json][isolated constant-node experiment]] generated and linked a candidate image;
+   four continuation, interrupt and stepping controls passed at p1 and p2.
+   Its mutable code-procedure identity, additional poll and source-level
+   linearization require further tests; no performance gain or broad semantic
+   equivalence is established and the production interpreter is unchanged.
+   In an [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-constant-perf.json][alternating matched diagnostic]] with two samples per image and topology,
+   this candidate's means were slower than baseline at both p1 and p2. The small,
+   variable sample does not estimate a production speedup; it gives no basis to
+   promote this candidate and motivates reducing guard/poll overhead instead.
+   A [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-poll-ablation.json][no-poll ablation]] was measured separately against the candidate; its two
+   samples per topology are too variable to attribute the slowdown conclusively.
+   The ablation omits an interrupt observation point and is not a valid fix.
+   A [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-constant-identity-control.json][synthetic code-node control]] changes the global constant-node procedure:
+   baseline and candidate both return 123 at p1 and p2. The candidate's generated
+   C compares against an image-local procedure label rather than loading that
+   mutable global. This narrows the provenance question for that generated image;
+   it does not prove behavior under arbitrary node mutation or module reload.
+   An [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-inline-poll-prototype.json][inline-poll generated-C prototype]] replaces the additional poll procedure
+   call with the existing poll macro at the same generated continuation label.
+   Eight bounded controls passed and alternating reduced-delay samples were
+   recorded; variability prevents a production performance claim. This hand edit
+   is not a compiler implementation: continuation maps, interrupt semantics and
+   compiler-source regeneration must be established before any adoption.
+5. *Registry, native lifetime and recovery.* Registries publish stable identities
+   with explicit reader lifetime. FFI frames, callbacks and external owners hold
+   real roots/leases across relocation and nonlocal exit. Create, partial create,
+   rollback, exit, failed join and unknown return retain exactly the obligations
+   of their incarnation until last consumers drain or an authoritative result
+   reconciles them. This replaces inferred cleanup on thread/VM disappearance;
+   it does not invent a global lock or assert that unknown will eventually clear.
+6. *Producer and evidence.* Existing build/qualification owners bind the source
+   delta, compiler, ABI, generated C, libraries, executable, profile and original
+   population to one cohort. A changed writer, map or generator triggers affected
+   prerequisite requalification. Native success is not obtained by combining
+   separate attempts, diagnostic fixtures or a different image. Five commit
+   gates are source freeze, alias/slot repair, control/native boundary, full
+   native/PBT, and matched cost/peak; all remain open for this composition.
+
+** Refinement rather than a second runtime
+
+The [[file:smp-family-checklist.org#dev-smp-acceptance][complete SMP acceptance query]] joins all twelve SysML family declarations to the independent DEV ledger. The seven-family declaration check described below is the earlier projection scope.
+
+The SysML rows refer to existing owners. The QNT bridge intentionally compresses
+each work/reader population to one token and models an unknown FFI result; it
+does not enumerate the real graph, model C11/C23 ordering, frame slots, address
+arithmetic, arbitrary callback behavior or a scheduler fairness bound. Existing
+=stress_gsi_resume_cut.qnt= owns cursor/reader interleavings and its independent
+range predicate; =gc_work_closure.qnt= owns private and queued work;
+=delivery_pass_cleanup_composition.qnt= owns request settlement; existing
+registry, native-entry and frame/Lean models retain their own scopes. A source
+adapter must map every concrete producer and transition to these histories; a
+symbol link is not a simulation proof. Python should use the existing SysML
+projection and ASCENT engine. The current [[file:../../../src/gambit_smp/smp_dev_composition_projection.py][Python adapter]]
+checks the seven family declarations, named owners and model digest, and feeds
+the existing repair-driven ASCENT rules. It emits seven open gaps and no
+candidate. This declaration check does not establish a complete owner census,
+actual source refinement, correct incarnation or producer identity. Those
+source-bound checks remain work to implement; claimed obligations are not facts.
+
+The QNT model typechecks, its six explicit histories pass and 10,000 sampled
+30-step traces found no safety violation (seed =0xaa456560558c738a=). The
+OpenSysML strict parse of the model and 61 transitive inputs had no errors; an
+existing Darwin acceleration input emitted one unrelated reserved-word warning.
+The actual seven projected SysML family rows were consumed by the Python/ASCENT
+adapter and all remained open. Focused Python tests cover the open result,
+missing, duplicate, unknown-owner, stale-digest and missing-action rejection. These are
+model and adapter checks, not an exhaustive proof or runtime admission.
+
+The registered [[file:../../../evidence/scenarios/modern-c/dev-scoped-observations.view.json][DEV Evidence view]] exposes the current bounded observations
+and the open family/refinement claims through the existing Python
+=repository_clues= and native ASCENT entry. These are source-bound declarations,
+not a sealed Recipe execution or native gate. The current query completes with
+partial reference coverage: four existing views have unavailable source
+references. The full =evidence --validate= currently refuses the changed native
+failure inventory because its binding still names the committed inventory hash;
+the changed receipt paths also point into Cache, which the existing source-input
+policy rejects. Do not rehash those records or promote the query into validation.
+The retained original whole-family Recipe is historical and does not satisfy the
+current managed-build declaration; an authenticated successor and real prior
+lineage are required before a new original-budget execution.
+
+The [[file:../../../evidence/fixtures/dev-model-framework-v3/dev-model-evidence.recipe.json][sealed framework model Recipe]] projects 77 fields across 14 SysML family
+and interpreter transition parts against an earlier recorded SDK reference,
+executes five QNT test sets and evaluates step outcomes through the existing
+native ASCENT observation contract. Its local positive run completed all seven
+steps with process teardown and =runtimeAdmitted=false=; the QNT sets contained
+6, 5, 4, 5 and 12 tests. A separate [[file:../../../evidence/fixtures/dev-model-framework-negative-v2/dev-model-evidence.recipe.json][negative Recipe]] deliberately changes one
+expected family field: the SDK rejects the comparison and the terminal ASCENT
+reports both =WrongField= and =missing_step= for SysML. Both executions use the
+same sealed engine, preserved prior chain and unchanged budgets. Field matching
+is not a SysML-to-QNT behavioral simulation, source refinement, original
+native workload, or closure of the five commit gates. Exact execution and
+provider receipts remain in task Cache.
+
+The [[file:../../../evidence/fixtures/dev-model-framework-v10/dev-model-evidence.recipe.json][inventoried model-chain Recipe]] uses a newly sealed Python/ASCENT
+framework and requires exact nonempty Quint CLI reports for nine test groups
+(51 named tests). A [[file:../../../evidence/fixtures/dev-model-framework-inventory-negative/dev-model-evidence.recipe.json][missing-name control]] was denied by both the Quint
+observation and terminal ASCENT contract. Report matching does not independently
+parse a module's full declaration inventory; the separate =quint.test= Recipes
+provide that stronger check for the newer specific models. The initial cost
+model's zero-test successful CLI exit is retained as a non-proof.
+
+The [[file:../../../evidence/fixtures/dev-model-framework-v11/dev-model-evidence.recipe.json][typed-test model chain]] now parses each of the nine Quint modules and
+requires exact agreement between its parsed test declarations and all 51 named
+structured outcomes before ASCENT checks the complete stage contract. Its
+[[file:../../../evidence/fixtures/dev-model-framework-typed-negative/dev-model-evidence.recipe.json][nonexistent-test control]] was denied by the typed test stage and ASCENT.
+Both use the same unchanged model budget. These finite checks do not establish
+C refinement, full TFIB behavior, a producer, or native acceptance.
+
+The [[file:../../../evidence/fixtures/dev-resume-selected-568e/source.lock.json][source lock]] binds the historical producer base =568e...=, its eight
+committed-tree changes, and the seven recorded DEV/arity source overlays. The
+framework materialization API reproduced all 15 selected files in a temporary
+source tree; this is source identity, not a configured or admitted producer.
+The full reproduction-input check refuses the current submodule index, which
+does not bind the existing provisioning revision; the locked historical base is
+also distinct from that provisioning revision. Do not change the shared index or
+claim a portable Recipe producer until the authority and prior lineage agree.
+
+The separate [[file:../../../evidence/fixtures/dev-resume-native-delta-568e/source.lock.json][native delta lock]] contains only the six collector fragments
+accepted by the framework's native-source classification; framework source
+materialization reproduced their bytes. It is not a generation product. The
+existing =gambit.native-development= requires its authenticated generation
+manifest and equality of the complete current Scheme source inventory. The
+shared producer and current checkout differ in nine Scheme paths, including
+the arity source, so a source-bound generation/reconciliation is still required
+before this native delta can participate in a sealed execution. The earlier
+generation-artifact run remains historical and its current framework status is
+=STALE= with no consumable stages; it cannot be relabeled as the new producer.
+
+The [[file:../../../evidence/fixtures/dev-resume-source-core/source-core.recipe.json][selected source-core Recipe]] now runs the locked source, pinned Bazel
+profile and managed task build cache through materialization, configuration,
+seed, source regeneration and the native ASCENT stage contract. The original
+600-second source-build budget remains unchanged. Its first run denied
+configuration because Autoconf selected an incompatible system m4; ASCENT
+reported the denied and blocked stages. After binding the explicitly selected
+GNU m4 into a new framework seal, a successor with that prior completed all
+steps. The recursive 855-file Scheme inventory remained stable and all 51
+expected generated C files were present. At that time the framework read
+reported current identity and evidence bindings, with source-core runtime and
+identity available. After the later owner-aware incremental source update, a
+new framework read reports the old run's identity =STALE= and its aggregate
+artifact state =MODIFIED=; its historical receipt is retained but cannot be
+treated as a currently reusable producer. The managed build key changes with
+the sealed m4 identity. This is
+one regeneration pass, not a completed two-pass bootstrap, portable producer,
+runtime admission, or a family acceptance result; the output's own admission
+fields remain false. Exact execution receipts remain in task Cache.
+
+The later checkpoint read distinguishes aggregate and phase state: the
+=source-core= phase appears in =consumable= even while the aggregate is
+=STALE=. A supervised read-only call to the phase-record validator accepted
+its four-step ancestry with both runtime admission and resumption authorization
+false. The separate =research --read --step source-core= command denied its
+aggregate journal because its final artifact inventory had changed. These are
+different contracts: phase-record acceptance is not a successful runtime
+import, nor does it include the later owner-match changes. Any actual phase
+consumer must still verify its tool and source identities, retained workspace,
+runtime tree and retry policy under the framework; no consumer is asserted by
+this observation.
+
+A later supervised read of the existing =runtime_artifact.export_deadline=
+validator returned =original build deadline expired before artifact export=
+for that source-core run. The read exported nothing and did not change the
+original budget; a phase-journal observation does not authorize a late archive.
+
+A later supervised [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-selected-generation-source-comparison.json][byte comparison]] materialized the owner-match source lock and
+compared the complete recursive Scheme inventory to that retained source-core
+phase: all 855 paths and hashes matched. Its 51 generated C hashes and
+=gsc-boot= hash also matched the phase's recorded output. The mutable checkout
+at this observation had 856 Scheme files and differed from the phase at seven
+paths. These are observations of two distinct source scopes: they do not make
+the aggregate =CURRENT=, demonstrate an actual phase import, or prove that the
+new native delta was linked. The earlier comparison with the separate stale
+historical bootstrap generation, which found 17 differences, remains distinct.
+
+An independently named [[file:../../../evidence/fixtures/dev-resume-bootstrap/bootstrap.recipe.json][bootstrap successor]] was denied before execution:
+its prior is a different Recipe identity. The framework's storage-migration
+mechanism carries expenditure but explicitly restores no stages, so it does not
+establish this source-core handoff. The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-bootstrap-failure-lineage.json][failure-lineage observation]] compares
+three bootstrap failure receipts with their historical Git bytes: each Cache
+copy matches, but the current failure-inventory hash differs from the inventory
+bound by the original observation bindings. This comparison provides neither
+a versioned receipt admission nor a retry decision. Resolve producer handoff
+and known-failure review without replacing their identities or promoting Cache.
+
+The prepared [[file:../../../evidence/fixtures/dev-resume-current-core/source-core.recipe.json][current-source core diagnostic Recipe]] keeps the original
+600-second whole budget and places p1 interpreter identity and p2 GC/continuation
+smoke cases after a fresh source-core in the same graph. It imports no earlier
+runtime. The framework rejected its first launch before execution because the
+same build identity already had the durable =dev-resume-limit-object-v1=
+attempt. That attempt is an unlinked object, not a seed or completed runtime;
+the checked seed transport also requires the same source lock and tree.
+Neither smoke case has run. Resolve the typed prior/provenance requirement before
+executing this graph; a generic storage-migration declaration must not be used
+to represent a stage import or suppress the prior-build history.
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-current-core-prior-preflight.json][explicit-prior preflight]] then passed the actual object receipt as
+=--prior=: source lock, profile, engine and 600-second caps match, but the
+distinct Recipe identities are denied before any execution. Matching those
+inputs alone does not authorize a successor or restore any stage.
+The later [[file:../../../evidence/fixtures/dev-resume-current-core/build-migration.json][proposed build-migration declaration]] named the unchanged object
+declaration as predecessor. Its structural check returned an empty restored-stage
+list, then the [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-current-core-migration-budget-denial.json][budget denial]] stopped the attempt before execution: the
+shared evidence step was 30 seconds against the predecessor's 20. No actual
+storage move was shown, so this proposal is not an authorized predecessor
+transition. The successor Recipe has been restored to its exact earlier bytes;
+lowering the step cap does not establish migration or authorize a retry.
+The current materialize validator requires the named =gambit-core= managed
+product. Merely naming a different Recipe does not constitute a storage move;
+any successor mechanism must bind the actual prior stage, source and profile,
+retain its original timing and refuse to promote the object to a runtime.
+
+A denial of that handoff is not the missing producer transition. The
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-producer-provenance-transition.json][first provenance note]]
+recorded the disconnected draft and the receipts: the object output is an
+unlinked =native-object=, its header deadline is the original 600-second
+monotonic interval, and the =gambit-core= source-state is still phase
+=building= under returned custody =e6c3c701638f492abe30dcb6b5d48fd9=. That
+draft returned its decision from inside the lease and authenticated the header
+with a mutable digest. The
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-producer-continuation-repair.json][repair note]]
+replaces that return. =live_continuation= requires one immutable journal
+observation for the header and one for the terminal parent/child payload, then
+holds the exclusive lease across =retain_existing_run= and the caller
+execution. =export_deadline= still supplies the original clock and is not
+replaced. A mutated header whose receipt digest was rewritten to match still
+fails the journal lookup. Expired continuations, forged receipts, a second
+lease, changed sources, a larger request, and promotion of this object are
+rejected. Legitimate non-object migrations still return the
+=checked_build_migration= record. An independently named full-budget attempt
+remains a missing transition: no existing function releases this custody
+without a new running lease or a fresh deadline, and the denied source-core
+recipe was not relaunched. The redesigned fixture store does not unlink a
+workspace lease or delete a task build directory. Those tests were not
+executed. TFIB, the probe image, and the five gates are unchanged.
+
+The mutable sources now contain a post-refill publication check.
+=collector.h= defines =___gc_published_reserve_fits=. After
+=next_heap_msection= in =collection-round.inc=, and after the heap-limit
+section switch in =allocation-limits.inc=, publication calls
+=rc_contract_error= unless the destination interval still matches and the
+remaining words cover =___MSECTION_FUDGE=. The first-extent argument is 6,
+the witnessed thread-join closure, and the reserve compared with the fudge
+is the same quantity =prepare_mem_pstate= subtracts. A full half-section
+that already satisfies the existing refill predicate still reaches
+=prepare_mem_pstate=. This source is uncompiled. It does not observe
+=barrier_sync_op=, the generated =ALLOC_CLO= site, or a current-source
+collective run. The stack-overflow paths that also call =prepare_mem_pstate=
+were left unchanged: a low heap reserve there is not a post-refill publication.
+
+The conditional model is
+[[file:models/quint/smp_resume_publication_tfib.qnt][smp_resume_publication_tfib.qnt]]
+and Recipe
+[[file:../../../evidence/fixtures/dev-publication-reserve/publication.recipe.json][dev-publication-reserve-attribution]]
+(60-second whole budget, no =buildMigration=, no costly native capability).
+Two earlier launches were denied before =execute()=: =.inc= inputs are
+rejected, then engine
+=.cache/tasks/modern-c-frame-contract/cohort/dev-model-evidence-engine-v5=
+returned =sealed host tool drift: rg= for recorded digest
+=c2fbfb5f738687585fdb6f081230ca04781db5ab49091c4db5fc8a04e7696e03=.
+That engine was left unchanged.
+=research --seal= wrote a distinct engine
+=.cache/tasks/modern-c-frame-contract/cohort/dev-publication-model-engine-v1=
+with engineId
+=c52bfdf5c27d93788c18d4da62a6cee16ca912edcb0e64f33c09d8dd36fceaf0=.
+Its =rg= digest is
+=f3e0907007e71029256097bd7fadf5018fa746e4f81ab3eef908cc2f606c3b13=
+at the same host path. The seal used the current GCC, Quint, Node and
+installed ASCENT package. It did not build Gambit or change a native budget.
+The run
+=.cache/tasks/modern-c-frame-contract/runs/dev-publication-reserve-v1/receipt.json=
+is =sealed-research-run.v1=, outcome PASS, exit 0, timeout false,
+execution launched, wholeSeconds 7.795977166999364, child receipt
+=8f6cf4a844ecba3ec7f72f08da47bfa924a925278b2b6ff9aa5dda8f6e66dce4=.
+Quint's source closure is only the =.qnt= module. All eleven named tests
+passed, with claim =sampled-local-controls-only=. The evidence step claim is
+=native-rule-evaluation-of-local-observations-only=. Both
+=runtimeAdmitted= and =sourceRefinementAdmitted= are false. The outer receipt
+hashes =collector.h= as
+=74529785e3c843ae3bb90eb736b446791e26ace77acf9c5eec7f26a6fadf9b9a=,
+matching the publication source lock's candidate for that header.
+[[file:../../../evidence/fixtures/dev-publication-reserve/source.lock.json][The source lock]]
+and
+[[file:../../../patches/fixtures/dev-publication-reserve.patch][its patch]]
+bind =collector.h=, =collection-round.inc= and =allocation-limits.inc=
+against submodule HEAD =6c17d19032e91d1a9c5c42cbedcca65a08755297=.
+Export checked that the patch reproduces those candidate bytes. This is not
+the =568e= producer lock. Recipe inputs cannot name =.inc= files, so the
+research run did not re-read the fragments. A later materialize into the task
+run store was denied: task source trees require a maintained build product.
+The lock therefore covers the exported slice bytes, and C semantic refinement
+stays unproven. No SysML selection ran. No interpreter fast path was
+implemented. The original unspliced p2/p1 family was not rerun. The
+source-core route and its step budgets stay as restored. The five gates and
+the 5/12 ledger stay open. The retention note is
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-publication-reserve-preflight.json][dev-publication-reserve-preflight.json]].
+
+A later distinct seal,
+=.cache/tasks/modern-c-frame-contract/cohort/dev-publication-sysml-engine-v1=
+(engineId =1ede5aa1288359f2707fc481aa9f003eb22bf8876b156281d09c441f4759d41b=,
+1010 files), records OpenSysML 0.10.1 with pinned service binary
+=1a0a03d46979be54273b1e3a76fee69412989b769809996a6fee51229c79122c=.
+Engines v5 and =dev-publication-model-engine-v1= were not overwritten, and
+no native budget changed. Recipe
+[[file:../../../evidence/fixtures/dev-publication-sysml/sysml.recipe.json][dev-publication-sysml-attribution]]
+asks that sealed SDK to parse the same 62-file closure as the v15 SysML step
+with =strict= and =strict_conformance=, then instantiate package
+=GambitSmpDevComposition=. Receipt
+=.cache/tasks/modern-c-frame-contract/runs/dev-publication-sysml-v1/receipt.json=
+is PASS, exit 0, timeout false, execution launched, wholeSeconds
+13.075789541995618, child receipt
+=a9a84af01f8284b8bbc88aefc8eacd192be32547b4e63644bfbabc1032744081=.
+The projection has 24 scalar attribute usages, part count 1, modelHash
+=28b1d84f3784dd2d8a18b44b22b20e1493bfb834b8bf755cbcebca681eb802ac=,
+=acceptedPrefix= 5 and =admission= false. =publicationReserve= and
+=tfibAttribution= are among those scalars. Nested family parts are not
+individually projected. =runtimeAdmitted= and =sourceRefinementAdmitted=
+are false. This is not a selection closure, native witness, or C refinement.
+
+Recipe
+[[file:../../../evidence/fixtures/dev-publication-fragment/fragment.recipe.json][dev-publication-fragment-bytes]]
+is the supported attempt to re-read the three production files from a
+materialized source tree. It names no =.inc= input, no =buildWorkspace=,
+no configure, no =buildMigration= and no prior. On
+=dev-publication-model-engine-v1= the receipt
+=.cache/tasks/modern-c-frame-contract/runs/dev-publication-fragment-v1/receipt.json=
+is DENY, child receipt
+=96839c66da104704b92c4e29a678c590833e760d2a308fc3304fb1c53a79831c=.
+=gambit.materialize= denied before any source read: task source trees
+require a maintained build product. =source.project= and =source.bind=
+are BLOCKED. The evidence step denied because its declared PASS inventory
+did not match those outcomes. Tree reads and commands are zero, so the
+declared SHA-256 values were not compared with fragment bytes. Promoting
+the attempt into =gambit-core= or a new build product would enter the
+blocked producer route and was not done. C semantic refinement stays unproven.
+
+The interpreter fast-path guard
+[[file:models/quint/smp_interpreter_fast_path_guard.qnt][smp_interpreter_fast_path_guard.qnt]]
+passed on the existing model engine: receipt
+=.cache/tasks/modern-c-frame-contract/runs/dev-interpreter-fast-path-guard-v1/receipt.json=,
+child receipt =20ccce118dc2832d1eaed5e098f10bfa76c70d8d18d9720cd8f164f53c80c924=,
+wholeSeconds 7.497452833020361, claim =sampled-local-controls-only=.
+A quiet transition is admitted only when escape, capture, debug, interrupt,
+exception and reentry are all absent. The full conditional count remains
+59,209,730,000 and is still arithmetic. No interpreter source changed, and
+no speedup was measured.
+
+The native controls below are a witness specification. They were not executed.
+A collective positive must observe, on the current selected source, every
+reader that still holds the old section inside =barrier_sync_op= after
+=move_continuation= and =restored=1. =setup.h= maps =BARRIER()= to
+=barrier_sync_noop=, and that function calls =barrier_sync_op= with
+=OP_NOOP=; the macro name is not the witness. A held reader must block the
+parent, and a bypass that skips the call must fail the same observer. The
+earlier selected p2 packet does not cover this source or every reader.
+A first-allocation positive must observe the generated write itself. In
+=_thread.c=, =___ALLOC_CLO(4UL)= for thread-join is followed by
+=___CHECK_HEAP(2,4096)=. The macro tests only =___hp>___ps->heap_limit= and
+does not evaluate 4096, so the check is not a reservation that precedes the
+write. The six-word =___gc_published_reserve_fits= calls in
+=collection-round.inc= and the heap-limit path of =allocation-limits.inc=
+remain uncompiled source. They do not cover the stack-overflow
+=prepare_mem_pstate= sites, and they are not a generated =ALLOC_CLO= witness.
+Compiling =mem.c= or rerunning source-core still requires the costly build
+key already occupied by =dev-resume-limit-object-v1=. That route was not
+launched.
+
+Recipe
+[[file:../../../evidence/fixtures/dev-publication-sysml-families/families.recipe.json][dev-publication-sysml-families]]
+reused the same SysML engine. Its parts step instantiates
+=GambitSmpDevComposition::f6= through =f12=. Receipt
+=.cache/tasks/modern-c-frame-contract/runs/dev-publication-sysml-families-v1/receipt.json=
+is PASS, exit 0, timeout false, execution launched, wholeSeconds
+37.868522707984084, child receipt
+=632e67f72fe0ddce8fdddd2c501de1e159ebb224c0b3881d12ed9f797e1259f6=.
+Seven parts returned 28 scalars: ids 6 through 12, names stress-gsi,
+stress-gsc, registry, lifecycle, gc-ffi, gerbil and release, with the needs
+and boundary strings from the model. The parts modelHash is
+=28b1d84f3784dd2d8a18b44b22b20e1493bfb834b8bf755cbcebca681eb802ac=,
+the same hash as the package projection. The responsibility parts
+=round= through =product= are not in this parts list. The structure step
+exported 138259 SDK elements from the same 62 files. Its modelHash is
+=5d2f4b3e203205f85ea01a06c24c340bbb8ae5e37317c93b94d4a7b324d5488a=
+because that path names documents by repository path rather than absolute
+path. The framework checked =modelInputs= against the bytes it read; no
+hand-written selection digest was supplied. =runtimeAdmitted= and
+=sourceRefinementAdmitted= stay false. The structural element list is not
+a scalar validation of every nested part, and it does not read the C
+fragments.
+
+No completed-producer record names the publication source lock. The work
+item's =gambit-core= product points at
+=evidence/research/modern-c-bootstrap/source-core.recipe.json=, and that
+directory is absent. =reuse_materialized_source= runs only after
+=source_capacity= accepts the destination. The retained fragment denial
+occurs before that call, so no existing tree was consulted and no lease was
+created. Adopting =gambit-core= in place would enter the costly configure
+route already occupied by =dev-resume-limit-object-v1=. That route was not
+launched.
+
+The interpreter source was not changed. In =_eval.scm=, =##cprc-prc-req1=
+consults the entry hook before =execute=, and =execute= is the path that
+expands =macro-make-rte= to one vector. A hook that never calls =exec=
+builds none; each call builds one. =##cprc-app1-red= and =##cprc-app2-sub=
+remain separate code procedures if the vector is removed, so vector removal
+is not an equivalent interpreter. A semantics-preserving edit would still
+have to keep the vector for a present hook, reentry, wrong arity, capture,
+debug, interrupt and exception, and it would not remove those dispatches.
+That edit is not implemented. No escape census or original TFIB measurement
+exists. The source-order controls in
+[[file:models/quint/smp_interpreter_source_order.qnt][smp_interpreter_source_order.qnt]]
+passed on the model engine: receipt
+=.cache/tasks/modern-c-frame-contract/runs/dev-interpreter-source-order-v1/receipt.json=,
+child receipt =1dec59053539e97dcedcc0d9f780024d3f8e03ed4e4d6ff6365fd7c645d04378=,
+wholeSeconds 18.768405500013614, claim =sampled-local-controls-only=.
+They also record the unexecuted barrier and allocation order: parent passage
+requires the sync call and no held reader, and the modeled write index
+precedes the heap check whose reservation is ignored. Those asserts are not
+the native witnesses.
+
+The owner-cache producer-handoff candidate remains an unapplied fail-closed
+proposal. Its supervised synthetic tests do not admit execution or repair the
+expired object deadline. The retention note for the family projection and
+source-order round is
+[[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-publication-sysml-families.json][dev-publication-sysml-families.json]].
+
+* REVIEW Opt-in restore barrier and first closure
+
+The live collector now has an opt-in diagnostic, compiled only with
+=-D___GAMBIT_DEV_RESTORE_PROBE= and linked with
+=tests/smp/gc/restore-collective-probe.c=. Production makefiles do not define
+that macro and do not list that file. With the macro undefined, the
+preprocessor removes the new calls. The restore =BARRIER()= after
+=move_continuation=, the =SYNC_GET_MSG= expansion, =___ALLOC_CLO=,
+=___BEGIN_SETUP_CLO=, =___ADD_CLO_ELEM=, and =___R_HEAP_EXPR= keep their
+previous tokens. That comparison is source inspection. These files were not
+compiled.
+
+The hooks sit on the existing final old-section read, the restore barrier in
+=collection-round.inc=, the child receive inside =barrier_sync_op=, the
+=prepare_mem_pstate= publication of =context->hp=, the host reload, and
+the generated allocation macros used by
+=thread-join-wait!=. =GAMBIT_DEV_RESTORE_COLLECTIVE= selects =positive=,
+=negative=, or =closure-negative=. Unset, the hooks return without skipping
+the barrier or changing the store. The negative path skips only that barrier
+and exits before section retirement. The closure-negative path takes the real
+barrier and exits before the closure header store. A first closure whose
+free-variable count is not 4 is an unexpected site, not a thread-join witness.
+
+The positive closure marker is no longer printed before the store, and it is
+no longer printed at the header bump. The pre-write call binds the processor,
+published cursor and physical range and may exit. =BEGIN_ALLOC_SUBTYPED= and
+=END_ALLOC_SUBTYPED= then perform the header write and bump and only arm that
+binding. The generated thread-join site continues with =BEGIN_SETUP_CLO= and
+four =ADD_CLO_ELEM= stores. The label hook runs after the label and trampoline
+stores, and the field hook runs after each free-field store. =DEV-FIRST-CLOSURE-POSITIVE=
+is printed only when those hooks complete fields 0..3 of that same body. The
+=___ALLOC_CLO= comma expression still returns =___GET_SUBTYPED=. Setup and
+field writes of any other closure return without a marker. =___SET_CLO= is
+not a hooked write site. The first hooked post-reload allocation claims one
+global slot. A silent invalid return no longer lets a later fitting closure
+become that slot. Other hooked header stores and heap bumps reject before
+their write. Probe =___R_HEAP_EXPR= assigns =___hp= from
+=___dev_restore_alloc_reload(___ps, ___PSHEAP)= and does not read the local
+=___hp= left uninitialized by =___D_HEAP=. The first reload records only the
+published cursor. A later gap uses only a cursor this probe stored. Direct
+=___hp= updates in =_kernel.scm=, =_system.scm= and =_num.scm=, and in the
+checked-in =.c= copies, are now probe calls placed before the write. A first
+hit exits 79 before the mutation. The speculative hash-table and bignum bumps
+exit as =DEV-FIRST-ALLOC-INCONCLUSIVE= before the =+=. =___alloc_scmobj= and
+=___alloc_rc= stay uninstrumented in the collector allocation files, so the
+closure line says =first-allocation=inconclusive= and is not a passed
+first-allocation result.
+
+This is authored source. No compiler, gsi, or =research --run= was started.
+The registered research help shows that =--run= executes a recipe and =--seal=
+does not build Gambit or replace a native producer. The denied source-core
+route, its missing migration and its expired object deadline were left as
+they stand. No alternative runner was started.
+=include/gambit.h= was not edited and configure was not run, so the current
+aggregate header does not yet contain the closure hook. The =568e= lock and
+its patch were not rewritten; a lock materialize still reproduces the previous
+candidate bytes and does not contain this opt-in. The earlier barrier and
+first-allocation packets remain records of a different image. The precise
+blocked graph is
+[[file:../../../evidence/fixtures/dev-restore-collective-probe/authored-controls.json][authored-controls.json]].
+Launching it would require =gambit.configure= and =gambit.source-core= on the
+key held by =dev-resume-limit-object-v1=, or a real storage migration. The
+denied migration was not retried. =.inc= files still cannot be research inputs.
+
+** Focused production restore edge
+
+The later =collector-diagnostics --production-restore-edge= control links the
+live =move_continuation= and =barrier_sync_op= with the original configured
+headers and GCC. A real P1 reads the old section. The positive probe releases
+P1 only after P0's child-message load returns =SYNC_WAITING=. P1 checks the
+copied value before acknowledging completion. P0 observes the acknowledgement
+before returning from the barrier, and the fixture retires the source claim
+after the reader joins. The destination claim stays live.
+
+The negative arm skips only that barrier. The after hook observes P0 across
+the cut while P1 is held, then drains the old read and exits before cleanup.
+Both arms used the existing 5-second fixture cap and exited normally. The
+positive and negative run IDs are =daef0ce3d29a4230baaf9b3ebf51e7df= and
+=7ae0bb8d342f4674bfc961520c6c27cc=. This exercises the actual restore edge
+inside a local C fixture. The linked GSI collector round and its generated
+first allocation remain separate evidence obligations.
+
+** First generated join allocation control
+
+The focused successor renders the current modular header using the retained
+configuration and generates current =_thread.c= from Scheme using the retained
+GSC. The fixture executes the seven emitted allocation and initialization
+statements from the join-wait receiver. It supplies the receiver registers and
+label storage. On the same P1 that completed the old-space copy, the fixture
+runs the real =prepare_mem_pstate= and generated heap reload macro after the
+barrier and source-claim retirement. The positive oracle checks the header,
+the self-reference and three captured values, the cursor advance and the next
+untouched word.
+
+The negative with five available words rejects the six-word write. The other
+negative presents an incorrect first reload followed by a correct reload and
+still rejects. The parent checks independent shared-heap sentinels in both
+cases. Each case stays within the existing five-second local cap. A prior
+fixture run timed out because its case selector chose P2 as the reader and is
+retained alongside the corrected runs. The proof scope ends at the extracted
+generated statements. The complete GSI scheduler, closure entry, generated
+continuation frame and full allocation census still require the admitted
+linked runtime.
+
+* REVIEW TFIB interpreter candidate
+
+[[file:tfib-interpreter-candidate.org][The source algorithm and counterexamples]]
+say why an RTE-vector skip is not implemented. A hook can call =execute= zero
+times or more than once, each matching call allocates a fresh vector, wrong
+arity keeps the parent =rte=, and =app1-red= / =app2-sub= stay separate
+dispatches. Interrupts, the stepper, capture, and escape are not proved absent
+for =go 15 5000=. The original family timeout is itself an interrupt inside
+that workload. =_eval.scm= and the TFIB test were not edited. No speedup is
+claimed. The earlier source-order Quint receipt remains the executed model
+control and was not rerun.
+
+** Family dependencies and completion
+
+| Family | Required composed responsibility and evidence |
+|---+---|
+| 6 stress-gsi | Round, cursor, request and interpreter; both original p2/p1 populations in one 295/300-second attempt, natural completion. |
+| 7 stress-gsc | Same physical/control invariants for the complete compiled stress population and exact generated image. |
+| 8 registry | All admitted registry writer/reader, resize, old-view and retirement paths; no local leaf substituted for the census. |
+| 9 lifecycle | Actual partial-create, rollback, retry, join failure, unknown custody and healthy-VM progress. |
+| 10 gc-ffi | Complete moving roots/writers, native/foreign entry, callbacks, escapes and exit/relocation composition. |
+| 11 gerbil | Complete downstream build and correctness on the exact qualified runtime and generated ABI. |
+| 12 release | Matched full workloads, useful work, latency/throughput, CPU/GC and physical peak, including regressions and new bookkeeping costs. |
+
+The current selected DEV delta has two passing C delayed-reader controls; their
+pthread synchronization is not production collective proof. The current
+unspliced family attempt passed p2 interrupt and interrupt2 but timed out on
+TFIB before terminate, and did not start p1. This observation does not identify
+TFIB's unique cause. Recheck the five previously accepted families whenever the
+actual changed dependency cut invalidates their identity; a 5/12 historical
+prefix is not current-head certification.
+
+** Ordered implementation and falsification
+
+- [ ] Freeze the selected source/product generation and enumerate actual root,
+  reader, writer, request and native/FFI producers; define unknown/refusal paths.
+- [ ] Bind production collective ordering and the first generated allocation to
+  real source and native witnesses, including delayed old-reader and stale-cursor
+  negatives. Existing fixture-only synchronization is not this witness.
+- [ ] Attribute TFIB's full original useful progress, application allocations,
+  live control state and GC work under matched p1/p2; reject the transient-frame
+  hypothesis if the alleged state escapes or the measured cost is elsewhere.
+- [ ] Implement a complete owner replacement with equivalent semantics; retain
+  old authorities until their actual callers have migrated and negative controls
+  prove premature retirement fails. No widening of deadlines or resource limits.
+- [ ] Strictly validate SysML, QNT histories and source-bound Python/ASCENT
+  relations; verify finite results and assumptions separately from native proof.
+- [ ] Run affected prerequisite families and each unchanged complete family on
+  one authenticated producer, with existing cache/profile and budget. Do not
+  advance the ledger or submit before all five gates for the selected delivery.
+
+The proposed ownership bookkeeping can add memory, synchronization, retained
+objects and work. The interpreter fast path can add fallback and frame-map cost.
+Only matched actual full-work results can establish whether the net result is
+beneficial; no speedup, bounded completion or 6/12 is asserted here.
+
+* REVIEW Source and bounded-cost refinement
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-composition-source-observation.json][source-bound observation]] records ordered anchors and hashes in thirteen
+actual source files. =collection-round.inc= calls =move_continuation=, records
+restoration, executes collective barriers and cleanup, then retires old claims.
+=setup.h= maps the SMP barrier to =barrier_sync_noop=; =setup.c= uses a tree
+with release sends and acquire receives. This ordering still assumes the
+correct admitted cohort and complete reader census. Textual ordering does not
+establish a production execution or prove the platform memory model.
+
+The [[file:models/quint/smp_resume_barrier_bridge.qnt][two-participant bridge]]
+models a delayed last reader, collective arrivals, generation reload and complete
+allocation extent. Five explicit histories and 10,000 sampled 18-step traces
+passed. Atomic actions abstract the production tree; a real held participant,
+actual barrier and first generated write are still required. The Python source
+projection binds actual ordered source anchors through the existing ASCENT
+rules while keeping all three obligations open. Missing or reordered anchors
+are rejected; source text is not promoted to semantic or native evidence.
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-generated-closure-census.json][selected source-core generated-C census]] recorded the then-retained producer's
+51 generated file hashes and records 1,340 literal closure allocation sites,
+with a maximum operand count of 13. Its selected ABI macro observation gives a
+maximum single closure extent of 15 words. The compiler's reservation threshold
+is 4,096 words and the selected runtime's section fudge is 8,194 words. The
+[[file:../../../evidence/fixtures/dev-resume-closure-extent/extent.recipe.json][five exact-inventory extent controls]] and [[file:../../../evidence/fixtures/dev-model-framework-v6/dev-model-evidence.recipe.json][combined SysML/ASCENT chain]] pass;
+one negative shows that equality with the polling limit does not reject an
+allocation larger than the remaining physical extent. These are static
+single-site and conditional arithmetic observations. They do not bound a
+complete allocation group, enumerate dynamic/generated downstream modules,
+prove actual first execution after GC, or close physical ownership.
+
+The current =tests/gc-root-task.c= arena section was updated to use the
+production =___gc_arena_commit= transition and processor-owned memory fields;
+its earlier =settle= and execution-context memory references no longer match
+the header. This worktree test also includes separate write-authority files
+that are currently unavailable, so the revised test has not been built. An
+independent [[file:../../../evidence/fixtures/dev-resume-arena-fixture/arena.recipe.json][header-consumer Recipe]] is retained as a denied attempt: task policy
+refused its attempt-local source materialization before compilation. It does
+not establish an arena result, a production GC or a barrier witness. Any
+successor must use a legitimately bound managed source artifact and preserve
+the existing producer and prior identities.
+
+Separately, the workspace supervisor compiled and ran the independent header
+fixture with the source-core generated =gambit.h=, the byte-equal current
+=collector.h= and the recorded Xcode linker path. It reported
+=GC-RESUME-ARENA-CONTRACT-PASS=, covering stale epoch, pending and mismatched
+commit, one-shot handoff and the separate loan transition. The earlier direct
+diagnostic attempts failed with the checkout's stale generated header and with
+an incorrect linker path; both are distinct from this successful local
+diagnostic. This supervisor run is not the denied sealed Recipe, a real
+collective or an actual post-GC generated allocation. It grants no gate.
+
+The production restoration cut now checks that each resume record still names
+the restoring processor and its current context. Both arena and loan handoff
+also refuse a missing owner or an owner/context mismatch before mutating owner
+memory. The independent header fixture passed both new rejection controls and
+the existing single-use and epoch controls; the [[file:../../../evidence/fixtures/dev-resume-owner-handoff/owner.recipe.json][five-control owner model]]
+passed through Quint and ASCENT. This is an additional fail-closed invariant,
+not evidence of complete owner census, collective synchronization or native
+family correctness. A syntax-only compile of the live =mem.c= against the
+source-core configuration failed because the live checkout's other memory
+sources and that generated header disagree on global-list types and VM fields.
+The new collector header and round fragment must be included in a matching
+source/product generation before claiming the production build or acceptance.
+
+The current guard uses one =___gc_resume_owner_matches= predicate at the
+restoration callsite and in both handoffs. A supervised local header diagnostic
+also rejected a different processor even when both processors referenced the
+same context. That fixture does not execute the production collective or prove
+the actual processor/context census.
+
+The restoration cut also checks that the handed-off heap start, cursor and
+limit are word-aligned and lie in the destination half of the named section,
+before claim metadata or the continuation copy is touched. Integer address
+comparisons avoid ordering unrelated C pointers; the check assumes valid
+section and destination bounds and does not prove their lifetime, exclusive
+ownership or the full allocation-batch extent. The local header diagnostic
+detected invalid order, wrong half and misalignment. The [[file:../../../evidence/fixtures/dev-resume-section-interval/interval.recipe.json][finite interval model]],
+[[file:../../../evidence/fixtures/dev-model-framework-v12/dev-model-evidence.recipe.json][SysML/Quint/ASCENT chain]] and [[file:../../../evidence/fixtures/dev-resume-interval-object/object.recipe.json][locked production object Recipe]] passed at
+that source revision; later refill changes supersede those identities. They have
+not been linked or exercised by a collective GC; full-workload compatibility
+remains unproved.
+
+After resize, restoration now revalidates that interval and compares its
+remaining words with =___MSECTION_FUDGE=. This preserves the strict threshold
+where the old pointer expression was defined, without constructing a pointer
+before the section for a shorter valid interval. The local C control checks
+equal, above, below and shorter-than-fudge cases. The [[file:../../../evidence/fixtures/dev-resume-refill-object/object.recipe.json][refill object Recipe]]
+compiled the locked production translation unit with the existing profile;
+the [[file:../../../evidence/fixtures/dev-model-framework-v13/dev-model-evidence.recipe.json][typed SysML/Quint/ASCENT chain]] passed the bounded arithmetic controls.
+Both remain short of a linked runtime, actual collective observation and
+performance or family acceptance.
+
+The ordinary heap-limit path now checks the physical interval under the
+allocation lock and uses the same bounded refill comparison. On an invalid
+interval it releases the lock before reporting the contract error. The
+[[file:../../../evidence/fixtures/dev-resume-limit-568e/source.lock.json][selected source lock]], [[file:../../../evidence/fixtures/dev-resume-limit-object/object.recipe.json][object Recipe]] and [[file:../../../evidence/fixtures/dev-model-framework-v14/dev-model-evidence.recipe.json][SysML/Quint/ASCENT chain]] bind this
+successor. The [[file:../../../evidence/fixtures/dev-heap-limit-lock/lock.recipe.json][lock-order model]] checks local positive and negative
+ordering, not a real mutex or the production error handler. The object is
+unlinked; actual heap-limit compatibility, collective restoration, first
+allocation, interpreter equivalence and whole-family acceptance remain open.
+The scoped ASCENT clue query resolves these three declarations while reporting
+four other registered views unavailable. Its premise attestation establishes
+input identity, not the truth of those declarations or runtime admission.
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-closure-group-source-observation.json][selected source observation]] identifies the front end's closure list,
+the C backend's total closure-space reservation, and the generated heap-check
+macro in the materialized source. The backend supplies a size argument, while
+the macro compares the cursor with the poll limit without using that argument.
+The existing oversized-group model exposes the resulting conditional extent
+obligation. These source anchors do not establish that a group exceeding the
+runtime reserve is reachable, or that a generated program crosses a physical
+boundary. A generated counterexample or a source-level group bound, followed by
+native controls, is still needed before selecting a production fix.
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-heap-check-native-control.json][standalone C macro control]] compiles the selected configured header,
+whose two heap-check definitions match the locked template. With a stub
+processor and handler, cursor equality does not evaluate an oversized size
+argument or invoke the handler, whereas a cursor past the poll limit invokes
+it. Both processes exited and were reaped. The fixture makes no managed writes
+and does not establish an oversized generated group or a real GC outcome.
+
+A [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-generated-closure-groups.json][hash-checked generated-C census]] now groups consecutive literal closure
+allocations in the same 51 retained files. Its 1,340 sites form 1,321 runs;
+the maximum is five closures totaling 22 words in =lib/_eval.c=. This measures
+adjacent closure lines only. Other allocating operations, intervening control
+flow and dynamically compiled source remain outside the census, so 22 words is
+not a bound on a complete allocation batch or on the first TFIB allocation.
+The [[file:../../../evidence/fixtures/dev-model-framework-v15/dev-model-evidence.recipe.json][successor SysML/Quint/ASCENT Recipe]] projects the scoped census reference
+and checks a conditional 22-word arithmetic example. The census and model value
+are separate declared inputs; the terminal contract does not derive the number
+from the generated C or prove the native allocation fits.
+
+The [[file:../../../evidence/fixtures/dev-resume-owner-568e/source.lock.json][owner-aware selected source lock]] retains all 15 prior selected files and
+adds =collector.h=; its cumulative patch and all 16 candidate hashes were
+re-materialized by the source framework. The [[file:../../../evidence/fixtures/dev-resume-owner-native-delta/source.lock.json][seven-file native delta]] was
+independently reconstructed and matched to that source. A supervised
+syntax-only compile of the selected =mem.c= with the earlier source-core
+configured headers passed; the earlier compile of the entire live checkout
+remains a distinct failure. Neither check emits an object or proves that the
+source-core producer contains these newer C changes. No bootstrap, collective
+runtime witness or family gate is advanced.
+
+The [[file:../../../evidence/fixtures/dev-resume-owner-object/object.recipe.json][owner-aware object Recipe]] subsequently materialized that exact lock in
+the managed build cache, used the existing Bazel profile, and compiled
+=lib/mem.c= to a native object. Configuration, object compilation and terminal
+ASCENT stage checks passed; the compiler and recipe processes exited and were
+reaped. That run was current at the time, but the subsequent shared owner
+predicate update made its identity =STALE=. The successor [[file:../../../evidence/fixtures/dev-resume-owner-match-object/object.recipe.json][object Recipe]] built
+the then-current source with the same profile before the section-interval
+change. The object remains unlinked and grants neither runtime admission nor a
+production GC witness. The prior live-worktree compile failure is retained.
+
+The same cached combined producer and recorded profile ran 1,000 invocations of
+the unchanged =short-delay= and =busy-sleep= definitions as a reduced diagnostic.
+P1 reported 384171872 allocation units,193 collections,2.623813 s real and
+1.087471 s CPU; p2 reported 384171936 units,349 collections,3.675498 s real
+and1.808528 s CPU. Both observed their requested processor counts and exited0;
+all process groups drained and the predecessor cache was restored. This is not
+the original threaded TFIB workload, a physical RSS measure, an allocation-site
+trace, a matched baseline/candidate comparison or a deadline prediction. It
+supports the need to study interpreter materialization, without establishing
+which allocations can be removed or whether the full workload fits.
+
+The later [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-rte-count.json][generated-C counter packet]] instruments both =cprc-prc-req1= three-slot
+vector sites, with a zero-delay startup control on the same diagnostic image.
+At both p1 and p2, the normal-site count rises from1 to6002001 for the
+1,000-delay workload; the hook-site count stays0. The 6,002,000 increment
+matches the expected busy-sleep and outer loop call population, but the counter
+also covers all other normal one-argument interpreted calls. Atomic increments
+perturb timing; these counts do not prove full-TFIB costs, physical memory use,
+or that any environment may safely be eliminated.
+
+An independent [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-delay-mode-diagnostic.json][mode diagnostic]] runs the same reduced delay definitions
+once in each interpreted and separately compiled mode at p1 and p2. The timed
+interpreted intervals are3.861099/3.336457 seconds and compiled intervals
+are0.002338/0.003047 seconds, respectively. The regenerated, hash-matched C
+contains the6000 argument, fixnum decrement loop and polling; it is source-level
+evidence and does not inspect machine code. Startup and process elapsed are
+reported separately in the raw receipt. These are different execution paths,
+one sample each, not a candidate interpreter speedup, full-workload comparison
+or acceptance. The large difference motivates measuring dispatch as well as RTE
+allocation; it does not establish how much either change alone would save.
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-dispatch-count.json][generated-C dispatch counter]] uses the same reduced 1,000-delay forms
+and subtracts a zero-work run. At both p1 and p2 it observes 6,002,000 normal
+one-argument environments, 6,002,000 =app1-red= entries and 12,003,000
+=app2-sub= entries; the other two counted application kinds do not increase.
+
+The [[file:models/quint/smp_tfib_cost_recurrence.qnt][conditional TFIB cost recurrence]] counts one delay per completed =tfib=
+node, with =T(0)=T(1)=1= and =T(n)=1+T(n-1)+T(n-2)=. For the original
+=go 15 5000= inputs it yields 9,865,000 delay invocations. If each nonnegative
+=busy-sleep 6000= invocation runs once down through zero, that means
+59,199,865,000 calls of =busy-sleep=. The [[file:../../../evidence/fixtures/dev-tfib-cost-model-v2/recurrence.recipe.json][exact-inventory Quint Recipe]] executes
+six named bounded controls and checks the actual parsed test inventory before
+the native ASCENT stage contract. The [[file:../../../evidence/fixtures/dev-model-framework-v4/dev-model-evidence.recipe.json][combined model Recipe]] separately runs
+the SysML projection, existing histories and this recurrence through ASCENT.
+These are conditional arithmetic consequences of the source, not a measured
+full-workload allocation count, timing result, proof of actual interpreter
+dispatch, or evidence of a semantically equivalent optimization. Full TFIB
+attribution and the family gate remain open.
+These are process-wide counters at selected source-generated entries, not a
+complete instruction or original-TFIB profile. Atomic instrumentation perturbs
+the run, so these counts do not establish time saved by any candidate.
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-tfib-rte-progress.json][full-workload diagnostic prefix]] keeps the original TFIB recurrence,
+=go 15 5000= and delay, while adding an ordered join observer and the generated-C
+atomic counter. It ran as a standalone diagnostic under the shared295/300-second
+limits and timed out after293.242 seconds, with at least1207959552 observed
+normal RTE site entries. No 100-joined-roots marker appeared; because output is
+quantized to every100 ordered joins, between0 and99 may have been joined. The
+requested p2 was not directly printed by this child, so actual topology remains
+unwitnessed for this episode. Instrumentation perturbs scheduling and the count
+is not exclusive to =busy-sleep=. The child group drained and the cache was
+restored. This incomplete, isolated episode is not the original family acceptance
+or a timing prediction.
+
+The [[file:models/quint/smp_interpreter_rte_alias.qnt][interpreter alias model]]
+separates logical lexical locations from their values. Its positive histories
+retain a closure's mutation across a later call and restore a captured location
+twice; negative controls reject blindly reusing an environment with either
+observer. Five explicit histories and 10,000 sampled 20-step traces passed.
+The no-observer reuse action is a premise in this finite model, not a source
+escape analysis or an implemented fast path. Source-level lexical writes,
+reflection, GC relocation and asynchronous capture still need refinement.
+
+The updated SysML and 61 transitive inputs parsed without errors, with one
+unrelated existing reserved-word warning. The actual seven family rows project
+to seven ASCENT gaps and no candidate. The interpreter escape census, semantic
+refinement, production collective and first generated allocation controls are
+not closed. The prior original family failure remains in force; no replacement
+family run or commit is justified by this diagnostic alone.
+
+* REVIEW Production restore barrier diagnostic
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-production-barrier-probe.json][source-bound p2 packet]] records a separate instrumented producer, same
+retained cache and profile. The real P1 =move_continuation= pauses immediately
+before its final old-space read. P0 enters the actual =barrier_sync_op= child
+receive; an external observer records whether P0 passes the restore barrier
+while P1 is held. The positive case observed no crossing during the 50 ms
+window, then released P1 and completed =##gc= naturally. The negative
+diagnostic bypasses only that barrier and records crossing while P1 is held;
+it waits for the reader and intentionally exits before cleanup and later
+barriers. It never retires or frees the held storage. Both child groups drained
+and the shared producer was restored.
+
+This is a native witness for the selected two-processor restoration cut, with
+calibrated observation. It is not a universal fairness bound, proof for every
+old-space reader, a C memory-model proof, or a qualification of the unmodified
+acceptance binary. The first generated allocation, full interpreter attribution
+and complete five-gate acceptance remain open.
+
+* REVIEW Generated closure after actual GC publication
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-first-allocation-native-probe.json][separate p2 observer packet]] arms on an actual collection's
+=prepare_mem_pstate=, observes the generated =thread-join-wait!= host reload,
+and checks that the local cursor still equals the published cursor immediately
+before =ALLOC_CLO(4)=. Its six-word extent fits the handed-off physical span;
+the bounded GC/thread-join workload then exits naturally. The negative control
+passes a fabricated mismatched epoch to the diagnostic checker without changing
+the actual cursor or generation. It calibrates that checker; it does not show a
+production stale-epoch guard. Both use the same diagnostic image and preserve the
+earlier observer failures and uninstrumented passing control.
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-first-cursor-native-negative.json][separate cursor-negative packet]] injects the physical end into the
+actual local heap cursor at that same generated allocation, after the observed
+host reload. Its diagnostic checker rejects the six-word extent and exits before
+the allocation writes; the matching positive process completes naturally. This
+validates a concrete cursor perturbation in the diagnostic image, not a
+production guard or an actual stale-generation transition. The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-native-composition-projection-v4.json][current ASCENT projection]]
+authenticates the paired receipts while leaving the full allocation obligation
+open.
+
+After handoff, =collection-round.inc= may advance to another heap section if
+less than =___MSECTION_FUDGE= remains, before =prepare_mem_pstate= publishes the
+cursor and polling limit. The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-resume-fudge-bounds.json][bounded arithmetic model]] explicitly represents
+that normalization and distinguishes the polling threshold from physical end.
+Its four checks assume valid exclusive intervals and a sufficiently large
+replacement; they do not prove those assumptions or the C implementation.
+
+This observes one generated closure at the published cursor, not every possible
+first allocation, all physical readers, or every carrier transition. It does not
+prove that the historical TFIB signal 11 has the same cause. Full allocation
+census, interpreter semantic optimization, original whole-family and five-gate
+acceptance remain open.
+
+* REVIEW Interpreter identity baseline
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-identity-baseline.json][unmodified combined producer]] executes the new interpreted
+fixture at actual p1 and p2. Escaped read/write closures share the same mutable
+lexical location across GC; one captured continuation resumes twice and observes
+the expected successive mutations; a false-valued exception stays false. Both
+processes exit0 and the cache is restored. This is a baseline and a necessary
+candidate regression, not a proof of all captures, asynchronous interrupts,
+reflection, FFI or a changed interpreter's semantic equivalence.
+
+The proposed [[file:models/quint/smp_interpreter_tail_deopt.qnt][tail/deoptimization history]] separates a rooted compact
+location from its materialized stable cell. Capture requires a rooted cell;
+failed materialization retains the compact root; later tail calls must not
+overwrite the escaped cell. A capture requested during materialization retains
+the original call and prevents the tail transition until capture is settled.
+Twelve explicit histories and 10,000 sampled 24-step traces pass, including
+failures for missing roots, capture without materialization, overwriting a
+captured location, advancing a pending capture and using a changed public or
+primitive binding.
+Fallback after a committed effect retains the effect rather than replaying it.
+This two-call finite abstraction does not
+model arbitrary values, all calls, preemption inside a transition, actual stack
+maps or source semantics. In particular, it does not establish that a production
+allocation-free implementation exists or that asynchronous capture can safely
+force materialization without a real collector/continuation adapter.
+
+The [[file:models/sysml/smp-interpreter-tail-deopt.sysml][seven transition contract]]
+names the actual interpreter and reflection seams, owner, refusal path and QNT
+action. [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-deopt-sysml-binding-v3.json][The current strict SDK and ASCENT binding]]
+records 63 source inputs and seven open transitions, including the updated
+primitive-writer contract. One pre-existing unrelated reserved-word
+warning remains. These links do not establish an implementation or satisfy a
+native gate. The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-tail-deopt-model-v4.json][pending-capture and binding model receipt]]
+retains the earlier model period separately.
+
+The bounded [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-builtin-identity.json][builtin identity control]] finds that public =-= and =>= differ
+from =##-= and =##>= at p1 and p2. A separate [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-primitive-cell.json][primitive-cell control]]
+finds that the initial public procedures match their respective primitive cells;
+rebinding public =-= changes the call while its primitive cell retains the
+earlier procedure. This is a possible guard seam, not proof that primitive
+cells are immutable: =##global-var-primitive-set!= exists. The complete writer,
+VM initialization and identity lifetime must be established before using the
+cell as authority for arithmetic specialization.
+
+The [[file:../../../evidence/research/retained/modern-c/stress-gsi/dev-interpreter-primitive-mutation-negative.json][joint-mutation negative]] sets both the public and primitive subtraction
+cells to one user procedure in isolated p1/p2 processes. Their equality remains
+true while the call returns99. A fast path selected solely by cell equality
+would incorrectly substitute builtin subtraction. Both cells are restored in
+the child. Stable primitive provenance and its concurrent writer discipline are
+therefore necessary; public/primitive equality alone is rejected.

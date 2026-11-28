@@ -19,7 +19,7 @@ class ObservationContractTests(unittest.TestCase):
         cls.owner.__exit__(None, None, None)
 
     def declared(self, name):
-        path = "evidence/research/observation-contract/" + name + ".contract.json"
+        path = "tests/fixtures/observation-contract/" + name + ".contract.json"
         return path, json.loads((ROOT / path).read_text())["cases"]
 
     def answers(self, path, rows):
@@ -61,7 +61,7 @@ class ObservationContractTests(unittest.TestCase):
         self.assertGreater(last["sourceGeneration"], middle["sourceGeneration"])
 
     def test_receipt_binding_does_not_accept_absent_or_terminal_step(self):
-        name = "evidence/research/observation-contract/vm-log.binding.json"
+        name = "tests/recipes/framework-contracts/audit-binding.json"
         with self.assertRaisesRegex(ValueError, "prior-step"):
             bind_execution(ROOT, name, [])
         with self.assertRaisesRegex(ValueError, "prior-step"):

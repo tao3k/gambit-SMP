@@ -1,0 +1,47 @@
+#+TITLE: Owner cleanup and still allocation admission
+#+SETUPFILE: ../../modeling/org/setup.org
+
+* BLOCKED Owner cleanup and still allocation admission
+:PROPERTIES:
+:CUSTOM_ID: cleanup-allocation-review
+:BASELINE: 568e02766ba0bc091e623506224558490fbba267
+:END:
+
+The [[file:models/sysml/pending-cuts.sysml][collector-source-review package]]
+refines delivery-plan stage 4 (workers). Its scope is the transition from
+collector sweep to owner-affine cleanup and still allocation. Independent SMP
+family 10 (gc-ffi) requires full writer, root and lifetime composition. This
+cut alone grants zero family credit.
+
+Sweep transfers dead foreign objects into owner cleanup custody.
+=___lifecycle_drain= moves a pending object to =inflight= before the call.
+A known success reclaims once. Failure keeps the debt uncertain. The sync
+service calls drain after its operation loop and ignores its return value.
+Processor cleanup calls the same drain and refuses teardown on failure.
+The replacement must preserve these different caller outcomes explicitly.
+
+The staged slow-path predicate references participant state absent at the
+baseline. Even if that state were supplied, allocation below the deferred-word
+threshold bypasses it. Use one admission decision before either branch:
+an ordinary execution owner may reach the existing collect path, while an
+owner servicing release effects needs a validated reservation for any still
+allocation. If no reservation exists, reject before updating accounting or
+publishing an object. The owner service owns outstanding credit until object
+publication, verified rollback, or uncertain retention. A nested drain cannot
+claim the outer in-flight object. Worker finish and owner effect completion
+are separate observations.
+
+| Axis | Required comparison | Current evidence |
+|------+---------------------+------------------|
+| Duplicate or stranded release | No replay of unknown effects and one reclaim after known success | Source obligation, native unmeasured |
+| Recursive collective wait | Real callback crossing both allocation branches at unchanged limits | Slow-path-only proposal fails source review |
+| Still capacity | Reserved, published, refunded and uncertain words balance | Native peak and reservation cost unmeasured |
+| Request latency | Paired current baseline and candidate under the existing profile | Unmeasured |
+| Independent SMP | Complete current-source gc-ffi family evidence | 1/12 overall, delta 0 |
+
+Use the same cache and profile for native controls covering the actual
+release callback, fast and slow still allocation, nested entry, exception,
+unknown outcome, and owner teardown. Preserve the prior root-routing denial
+and compare the whole declared cohort before publication. The staged
+proposal and two adjacent ownership counterexamples are archived with their
+exact source identities. [[file:../../../evidence/research/retained/modern-c/cleanup-allocation-review/source-review.json][Source review]]

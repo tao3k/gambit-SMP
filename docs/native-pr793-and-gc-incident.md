@@ -27,7 +27,7 @@ This incident is bound to both the selected image UUID and compiler child PID
 68621 through the actual failed native receipt. The normalizer now requires
 that receipt, exact toolchain identity and a non-timeout signaled compiler exit
 for child attribution; a manually supplied PID alone is insufficient. Portable
-evidence is `evidence/model-results/native-gc-incident-010-child-bound.json`.
+evidence is `.cache/research/legacy-evidence/evidence/model-results/native-gc-incident-010-child-bound.json`.
 Current source/artifact inventory remains unchanged after both runs. No more
 unchanged diagnostic retries followed this failure.
 

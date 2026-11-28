@@ -1,0 +1,36 @@
+--- dev/refactoring/modern-c/tests/completion-wait-serdes.scm
++++ DEV encoder observation (not acceptance source)
+@@ -92,6 +92,33 @@
+           ;; share/alloc. Larger fixnums also enter the shared-object table.
+           ;; Both encounter orders detect collision with original numeric data.
+           (define (encode x)
++            ;; Diagnostic only: observe the original value, then serialize it unchanged.
++            (if (##return? x)
++                (let scan ((frame k) (depth 0) (found '()))
++                  (if (not frame)
++                      (begin
++                        (write (list 'ENVIRONMENT-RETURN-PAYLOAD
++                                     'parent (##subprocedure-parent-name x)
++                                     'id (##subprocedure-id x)
++                                     'procedure? (procedure? x)
++                                     'slots (reverse found)))
++                        (newline))
++                      (begin
++                        (ensure (< depth 256) "bounded return-payload frame observation")
++                        (let ((fs (##continuation-fs frame))
++                              (link (##continuation-link frame)))
++                          (let slots ((i 1) (rows found))
++                            (if (> i fs)
++                                (scan (##continuation-next frame) (+ depth 1) rows)
++                                (slots (+ i 1)
++                                  (if (and (##continuation-slot-live? frame i)
++                                           (eq? (##continuation-ref frame i) x))
++                                      (cons (list depth i fs link
++                                                  (##subprocedure-parent-name
++                                                   (##continuation-ret frame))
++                                                  (##subprocedure-id
++                                                   (##continuation-ret frame))) rows)
++                                      rows)))))))))
+             (cond
+              ((##fixnum? x)
+               (if (assv x resources) (raise 'resource-token-collision))

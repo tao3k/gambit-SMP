@@ -83,7 +83,7 @@ read from its actual receipt, not inferred from source-unit success.
 The actual sealed source-core run passed all five steps in 152.649 seconds.
 Its inspection reports PASS/CURRENT, and only the two intended files differ
 from the locked parent. The portable summary binds the original receipts:
-`evidence/source-results/fixtures/checked-cleanup-retained-error/sealed-source-core-summary.json`.
+`.cache/research/legacy-evidence/evidence/source-results/fixtures/checked-cleanup-retained-error/sealed-source-core-summary.json`.
 This is complete source-core regeneration, not a two-pass bootstrap or a Gerbil
 package cold-build timing.
 
@@ -94,7 +94,7 @@ among two simultaneous processes, each receiving six processors on this host;
 the scheduler derived those values from available capacity and the cohort's
 six-role requirement. Source and native budgets stayed at 60 and 30 seconds.
 These are diagnostic native controls, not a sealed complete suite. Their receipt
-is under `evidence/source-results/fixtures/checked-cleanup-retained-error/fresh-runtime-native/`.
+is under `.cache/research/legacy-evidence/evidence/source-results/fixtures/checked-cleanup-retained-error/fresh-runtime-native/`.
 
 ## Remaining Gates
 

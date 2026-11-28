@@ -1,0 +1,409 @@
+#+TITLE: GSC Dynamic Cuts, Stable Input Cohorts and Consumer Cutoff
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Correct reuse requires three different proofs
+:PROPERTIES:
+:ID: 24e32ade-d665-40de-964b-1a241cf7696a
+:CUSTOM_ID: gsc-build-correctness
+:OWNER: Gambit toolchain architecture
+:AUTHORITY: GambitToolchain; GambitAssuranceRelations
+:STATUS: conditional-theory-source-refinement-open
+:EVIDENCE_CLASS: source-inventory-and-conditional-mathematics
+:DEPENDS_ON: BF-BUILD-CUT; BF-BUILD-BUDGET; BF-SCHEMA
+:END:
+
+The mandatory modernization path remains Scheme semantics and generated modern
+C. A correct incremental engine needs a complete dynamic read boundary, a
+coherent input cohort, and a sufficient observation on each output edge.
+Neither a new language nor a scheduler supplies these proofs. Zig has no
+additional correctness or work-elimination credit for the mechanisms here.
+
+The [[file:correctness-map.org][population, closure and benefits matrices]] and [[file:diagrams/build-correctness.svg][D2 view]] derive from
+[[file:models/sysml/architecture.sysml][toolchain SysML]]. This document explains their mathematical meaning.
+[[file:../../modeling/models/sysml/assurance.sysml][Assurance SysML]] binds the QNT/Lean source set, remaining premises and
+ASCENT projection. The matrices are projections, not additional maintained
+registries. No build rules, compiler, runtime or native workload are changed.
+
+** Source evidence changes the input contract
+:PROPERTIES:
+:CUSTOM_ID: dynamic-read-evidence
+:END:
+
+[[file:../../../vendor/gambit/gsc/_source.scm::419][The active read-source]] reads through the runtime path reader and current
+readtable. Its optional extension search retries when the result is a fixnum;
+its fallback resolves a path relative to the source context. The active
+[[file:../../../vendor/gambit/gsc/_source.scm::457][include-expr->source]] passes #f for extension search, whereas the
+[[file:../../../vendor/gambit/gsc/_front.scm::218][top-level compile-source reader]] passes #t for a path input. In-memory source
+input follows another branch. Therefore extension-order observations belong to
+the enabled top-level path, not all ordinary include calls. The runtime
+[[file:../../../vendor/gambit/lib/_io.scm::10506][extension list]] orders .sld, .scm, .six and has a setter; the host fallback
+list differs. Bind the actual compiler context and preserve resolution/error
+answers, content, reader settings and relative path identity. The GSC suffix
+recipe passes an explicit .scm path, so its 34 literal generation requests do
+not enter extension search. The extension-priority counterexample is a wider
+reader-profile obligation, not evidence of a missing dependency in these 34
+requests. Dynamic include paths and actual compiler-context reads still need
+their own closure audit.
+
+[[file:../../../vendor/gambit/lib/_eval.scm::1145][The runtime reader]] constructs path settings including EOL encoding and
+reaches generic file opening. This does not establish immutable input reads.
+The same-name include definition at line 1559 belongs to the quoted historical
+datum beginning at [[file:../../../vendor/gambit/gsc/_source.scm::1386][line 1386]]. Its probe/close/reopen sequence is not an active
+caller in this source path. The earlier unqualified attribution and generated
+hypotheses are retained in the task evidence and corrected here; no native
+failure is inferred from that historical copy.
+
+[[file:../../../vendor/gambit/gsc/_ptree1.scm::1534][extract-defs]] places included source back into the expression stream and
+continues with the compiler environment. [[file:../../../vendor/gambit/gsc/fixnum.scm::7][include-adt]] changes core declarations
+around an include. Therefore filename-only dependency lists cannot stand in
+for phase/declaration/macro context. [[file:../../../vendor/gambit/gsc/makefile.in::312][The current broad prerequisites]] provide a
+conservative boundary, including fixnum.scm for all 34 generated C targets;
+they do not establish a complete mediated read API for arbitrary Scheme code.
+
+* RESEARCH Dynamic dependency closure is a replay contract
+:PROPERTIES:
+:CUSTOM_ID: dynamic-cut-protocol
+:END:
+
+An observation key is typed, not just a normalized pathname:
+
+#+NAME: build-observation-shape
+#+BEGIN_EXAMPLE
+ObservationKey = FileContent(resolved namespace identity, path)
+               | OpenOutcome(candidate, flags, result/error class)
+               | DirectoryEntries(path, ordering contract)
+               | SymlinkResolution(path, resolution context)
+               | Env(name, present/absent) | WorkingDirectory
+               | ProducerClosure | TargetProfile | CompilerContext
+               | DependencyOutput(action, group, consumer projection)
+ReadEvent = (attempt, sequence, key, value, input-view identity)
+CutReceipt = (ordered trace, producer/schema identity, completion witness,
+              dependency groups, snapshot authority, output-group witness)
+#+END_EXAMPLE
+
+A failed open is not automatically proof of absence: permissions and other
+errors have distinct outcomes. Case behavior, path aliases, extension priority,
+reader configuration and diagnostics can be observable. Namespace equivalence
+must be proved for a producer; canonicalization must not erase distinctions.
+
+For attempt t, let T_t be the ordered mediated read trace and C_t its key set.
+Read discovery is monotone within an attempt: C_t grows by union. A newly
+requested generated dependency must be validated in the same cohort before
+its value is consumed. A task may suspend, releasing capacity needed by its
+child, or discard and restart. Restarting can repeat work; it does not inherit
+an at-most-once minimality theorem. An old trace is a lookup hint, not authority
+for a changed branch. After successful reevaluation, the next trace may shrink;
+retain the union only while validating/owning an in-flight attempt, rather than
+accumulating every historical dependency forever.
+
+#+NAME: dynamic-closure-conditions
+#+BEGIN_EXAMPLE
+TraceComplete(t) = every producer-observable read/effect is mediated or declared
+ReplayStable(t) = same initial producer state + same ordered answers
+                  => same subsequent requests, termination and output group
+ReadyRead(t,d)   = dependency d committed in t's cohort before the consumed read
+D_next = D_current union newly observed dependency edges
+ClosureReady(t) = successful producer termination + no unresolved fetches
+                 + TraceComplete(t) + ReplayStable(t) + ReadyRead(t,*)
+#+END_EXAMPLE
+
+Finite monotone edge growth gives a bound on strict additions only. It proves
+neither producer termination nor trace completeness, and not that a particular
+fixed point describes actual compiler behavior. A finite universe of N actions
+has at most N*(N-1)/2 edges under a fixed topological order; input reads may be
+unbounded even with a finite action set. Cycles require explicit rejection in
+this DAG design. Recursive Scheme includes, phase cycles and self-hosting stage
+cycles are not silently solved by graph convergence. A separately justified
+cyclic evaluator would be another contract.
+
+Arbitrary unmediated compile-time I/O, clock/randomness or hidden host state
+makes a producer ineligible for reusable managed cuts. It must be isolated,
+explicitly parameterized, conservatively treated as volatile, or rejected from
+that reuse profile. Volatile execution still needs a coherent consumer result;
+it is not permission to publish mixed snapshots.
+
+Counterexamples retained as reasoning cases: record only selected foo.scm for a top-level extensionless input while
+an earlier-priority foo.sld appears; discover a dependency after reading its
+stale product; reuse an old branch trace when a changed selector chooses a new
+include; or report closure because no new edges appeared while hidden state
+changed the generated C. These are authored counterexample sketches, not
+executed QNT traces or demonstrated current native defects.
+
+* RESEARCH Input stability requires an issuer and a linearization point
+:PROPERTIES:
+:CUSTOM_ID: input-cohort-authority
+:END:
+
+The proposed managed profile uses an immutable read image. Materialization and
+namespace capture must themselves be coherent: copying live files one by one
+can create an incoherent image. A repository snapshot, a qualified snapshot
+provider or a mediated writer transaction must establish the image. The image
+includes probe/absence answers, dependency output groups, compiler stage,
+producer executable/library closure, relevant env/cwd and target configuration.
+A private directory alone does not establish those properties.
+
+Separate the immutable source/tool/configuration image from the cohort output
+catalogue. Generated dependencies are not frozen to stale files present at
+begin: they enter an append-only catalogue only after their producer is
+validated against that image. One action identity has one current committed
+group in this cohort; a conflicting second commitment invalidates the consumer
+attempt rather than updating its answers in place. A late discovered dependency
+awaits that catalogue entry. Internal publication does not itself count as an
+unmanaged source mutation that revokes every action. The auxiliary QNT ready
+set abstracts this service and does not implement/prove its catalogue.
+
+#+NAME: input-cohort-sequence
+#+BEGIN_EXAMPLE
+acquire coherent cohort S
+  -> begin attempt / lease S
+  -> read only immutable answers from S
+  -> discover and validate dependencies under S
+  -> successful complete staged output group
+  -> verify lease + dependency receipts
+  -> atomically admit manifest while holding the same publication authority
+  -> consumers acquire that manifest / retain its group lifetime
+Relevant writer: revoke old authority before exposing conflicting current state
+#+END_EXAMPLE
+
+Input generation and output publication must share a linearization rule. A
+writer winning first revokes admission; publication winning first creates a
+valid historical result, later invalidated as CURRENT by the writer. Old
+objects may stay in the cache, but cannot be returned as current without a new
+validity decision. Cancellation affects publication authority and child drain,
+not an assertion that an already accepted historical group never existed.
+
+A counter increment is not evidence that every external writer participates.
+A pre/post content comparison misses ABA, probe/open replacement and reads of
+different moments. Checking the lease and then renaming outside its authority
+also leaves a race. Watches, event delivery and Git cleanliness alone are not
+coherent snapshot receipts. Unmanaged tool mutation, dynamically loaded files
+and external namespace changes remain unresolved until the profile either
+binds or excludes them. The read adapter must never silently fall back from
+the immutable image to live paths.
+
+The auxiliary dependency_cut QNT module models a selector and two alternative
+inputs, prerequisite readiness, immutable reads, sealing, group staging,
+revocation and publication. worldWrite changes the live value and epoch;
+restartCut acquires a new attempt rather than reusing its old trace. Historical
+admitted remains true after revocation, whereas currentCut becomes false.
+The model assumes all relevant writes use worldWrite and read image acquisition
+is atomic. It does not prove those assumptions for Darwin or Gambit.
+
+* RESEARCH Output cutoff is per consumer, with complete group custody
+:PROPERTIES:
+:CUSTOM_ID: output-projection-proof
+:END:
+
+For a producer output group O and consumer a, define pi_a(O) to include every
+observable part that a uses. Sound cutoff requires consumer factorization:
+there is an H_a such that F_a(O, X) = H_a(pi_a(O), X). Equality of pi_a on old and
+new output then preserves the consumer result only while its other inputs X,
+producer identity and complete dependency cut also agree. It does not make all
+successors reusable. Propagate the changed projections to a fixed point over
+the validated DAG; recompute a consumer whose own complete key changed.
+
+#+NAME: gsc-consumer-observation-boundary
+| Edge | Required observation | What equal metadata cannot justify |
+|---+---+---|
+| module C -> C compiler | Actual C bytes, configured headers, options and producer closure | Skipping object compilation when C body changed |
+| ordered module C -> library metadata C | Full parsed record accepted by targ-link-info, input flags/name identity, ordered composition and compiler/target validation | Comparing only module names or a text substring |
+| executable C + library metadata C -> executable linkfile C | Executable record and library record, all other link-generation inputs | Ignoring _gsc.c because _gsc_.c is present |
+| module objects + descriptor object -> library | Ordered object identities and complete mode-dependent link inputs | Reusing library after changed native code |
+| executable object + linkfile object + libraries -> gsc | All native link inputs and their order/profile | Treating the executable module object as fixed after a shared macro edit |
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::880][targ-link-info]] reads generated-C leading data and validates producer version
+and target; [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1086][targ-get-mod]] extracts supply/demand, flags, symbols, resources
+and meta-info. Factoring this reader into a separately produced observation is
+a new producer interface requiring parity evidence. Exact bytes are a safe
+conservative edge observation only under the complete consumer-input contract;
+a coarser semantic stamp requires its own factorization proof. Hashes require
+an explicit collision policy and byte verification boundary; Lean uses exact
+values and claims no cryptographic theorem.
+
+Output truncation here means stopping downstream recomputation, never shortening
+artifact bytes. The complete output group includes required side products,
+mode/permissions/symlink identity when observable, ownership and successful
+exit. A changed dependency trace must be committed even if output bytes stay
+equal, or future changes can be missed. An unchanged producer result updates
+its new input receipt; it need not dirty consumers with equal observations.
+A missing side product defeats group reuse even if the main C file matches.
+
+Publish a complete immutable group through one manifest pointer. A sequence of
+renames is not an atomic multi-file transaction. Previous groups stay alive for
+existing readers; crash recovery must never mix old C and new metadata. The
+Boolean groupComplete in QNT represents an obligation, not a filesystem proof.
+
+* RESEARCH The 34-target population and the two-library protocol
+:PROPERTIES:
+:CUSTOM_ID: gsc-population-refinement
+:END:
+
+The [[file:correctness-map.org][canonical 34-row inventory]] preserves LIBRARY_MODULES order from the
+Make template: indices 0..32 are library modules, 33 is _gsc. _utils has index
+1 and _t-c-3 index 31. gsc_population defines the following mathematical slice:
+
+#+NAME: gsc-full-action-index
+| Population indices | Actions | Count |
+|---+---+---|
+| 0..33 | Per-module Scheme -> C | 34 |
+| 34..67 | Corresponding C -> object | 34 |
+| 68, 69 | Ordered library metadata C and descriptor object | 2 |
+| 70 | Compiler library | 1 |
+| 71, 72 | Executable linkfile C and its object | 2 |
+| 73 | Final gsc executable | 1 |
+
+Thus 74 is a scoped action inventory. Runtime library production, configured
+headers, bootstrap stages, installation aliases, cleanup and root orchestration
+are outside it. One library assembly action abstracts the selected mode;
+shared/static behavior is not qualified by this count.
+
+#+NAME: selected-action-injection
+| Ten-node QNT index | Full index | Meaning |
+|---+---+---|
+| 0, 1 | 31, 1 | _t-c-3 and _utils generation |
+| 2, 3 | 65, 35 | Their objects |
+| 4, 5 | 68, 69 | Library metadata and descriptor object |
+| 6 | 70 | Library |
+| 7, 8 | 71, 72 | Executable linkfile and its object |
+| 9 | 73 | Executable |
+
+An injection of labels is not a transition simulation. There are 64 omitted
+actions: 31 library generation/object pairs plus the executable pair. The
+selected consumers have 64 additional module-boundary edges: 31 generated C
+records into 68, 31 objects into 70, _gsc.c into 71 and its object into 73.
+Keep their ordered observation vectors as boundary values; additionally retain
+runtime/boot/profile inputs and omitted-job resource usage. The two executable
+edges are explicitly named by missingBoundaryEdges in QNT.
+
+A sound restricted correspondence needs all of the following:
+
+1. Initial selected output groups have valid full-producer cache origins. The
+   zero integer baseline is not the real compiler's initial cache state.
+2. Each omitted dependency is validated before its selected consumer; boundary
+   observations are unchanged for the restricted comparison. Omitted actions
+   may stutter only if they preserve the related state, including resource
+   accounting. A full-population job count cannot be replaced by selected jobs.
+3. The real selected producer factors through the modeled observations. Integer
+   addition in calculate is a scenario oracle, not Gambit compilation/linking.
+4. Every selected concrete transition refines an abstract transition or stutter;
+   discovery, restart, publication and failure have matching custody states.
+5. Progress and work-count transfer have separate premises. A safety-preserving
+   stutter may still consume time or perform redundant generation.
+
+These are open obligations. The current ten-node module is retained byte-for-
+byte as a bounded scheduler scenario; neither its safe predicate nor symbolic
+0/4/10 work counts become a theorem about 74 real actions. The new static
+inventory establishes naming/edge correspondence, not executable behavior.
+For no-change or an isolated leaf edit, boundary stability may be admissible
+after proof. A fixnum edit invalidates all 34 declared generation targets;
+freezing the omitted 32 generators is unjustified. Parameterized full-population
+scheduling and actual producer simulation remain required for that case.
+
+* OPEN Proof obligations and evidence delivery
+:PROPERTIES:
+:CUSTOM_ID: build-refinement-obligations
+:END:
+
+The [[file:../../../models/build/IncrementalBuild.lean][Lean source]] adds seven conditional lemmas, for 15 total: cut agreement
+restriction, completeness under cut extension, affected-edge monotonicity,
+immutable trace extension, snapshot-mediated reuse, all-consumer congruence,
+and a generic safety-preserving projected step. None proves a source premise
+merely by accepting it as a hypothesis. The projected-step lemma does not
+construct a GSC projection.
+
+#+NAME: build-proof-delivery
+| Contract | Existing conditional support | Required next theorem / evidence | Current boundary |
+|---+---+---+---|
+| B-CLOSURE | completeCutCanGrow; affectedEdgeExtension | Mediation/replay induction; all selector/probe/compiler-effect reads; finite well-founded dependency construction | Open, no complete real producer trace |
+| B-SNAPSHOT | immutableReadExtendsTrace; receiptReuseMatchesClean | Coherent materialization and writer/admission linearization imply CutAgreement at publication | Open issuer/filesystem refinement |
+| B-CUTOFF | projectionCutoff; allConsumerCutoff | Actual targ-link-info/targ-link consumer factorization and dependency-ordered substitution | Open Scheme reader/generator proof |
+| B-GROUP | Abstract stageGroup/publishCut guards | Group completeness, successful exit, unique writer, crash recovery and reader lifetime | Open; not supplied by Boolean guards |
+| B-POPULATION | Static inventory; projectedStepPreserves | Related initial states; ordered external vectors; step/stutter relation; full credit accounting; full-producer oracle | Open; label injection only |
+| B-PROGRESS | BudgetStep/BudgetTrace preservation | Fairness + terminating actions + finite stable discovery imply completion; bound repeated work separately | Open; safety does not prove progress |
+
+SysML owns these six subcontracts under existing BF-BUILD-CUT/BF-BUILD-BUDGET;
+it does not mark the 73 existing runtime/model obligations closed. The view
+tool checks the 34 authored records against the Make template and derives the
+Org/D2 matrices. ASCENT receives the exact source bundle, QNT/Lean receipt,
+contract IDs, statuses and open premises as hypotheses. It can retrieve missing
+proof relations; a successful join is not a support observation or admission.
+
+The current scope permits source typechecking and standalone conditional Lean
+kernel checking. No QNT exploration, generated workload, native test, compiler
+run or performance measurement is part of this study. Counterexamples above
+remain obligations to encode/explore later, not passed tests.
+
+* RESEARCH Quantified benefit boundary
+:PROPERTIES:
+:CUSTOM_ID: build-correctness-net-benefit
+:END:
+
+#+NAME: quantified-build-benefit
+| Case | Source/model-supported quantity | Added work | Positive-net condition / refutation |
+|---+---+---+---|
+| Valid no-change cohort | Target zero generation/compile/link executions across 74 slice actions; not zero validation work | Validate observed cuts, producer identities and complete groups | Saved recipe work exceeds manifest/snapshot/lookup cost; a perfect current Make no-op leaves little recipe work to remove |
+| Selected implementation-only leaf | Old ten-node oracle gives four executions {0,2,6,9} under stable metadata and external vectors | Real reader parity plus stable-output group comparison | Only a qualified unchanged observation can stop descriptor work; C body changes still require object/library/executable work |
+| Shared include-adt change | 34 declared generator candidates; actual executions/output changes not measured | Discover/verify all affected cuts; retry unstable attempts | No guaranteed generator saving; unchanged produced bytes/observations may cut downstream work |
+| Full population correspondence | 34 generation + 34 compilation + 6 composition = 74 actions; 64 omitted actions and 64 module-boundary edges in the small view | Preserve ordered vectors and account for omitted jobs | Any changing omitted observation defeats the frozen-boundary claim |
+| Cross-phase overlap | Existing phase1/phase3 jobserver parallelism is retained | Complete cross-directory DAG and one capacity owner | Critical-path reduction only for truly independent ready work; existing saturation or dependencies can eliminate the gain |
+
+#+BEGIN_EXAMPLE
+Net saved work = sum(cost of genuinely avoided recipe attempts)
+               - cut discovery/validation - coherent snapshot cost
+               - staging/group comparison - scheduler/receipt cost
+               - discarded/restarted attempt work
+T_candidate >= max(critical-path work, total admitted CPU work / capacity)
+#+END_EXAMPLE
+
+This is an accounting identity and lower bound, not a speedup estimate. Recipe
+costs, I/O contention, snapshot reuse and memory pressure are unknown. Reuse a
+shared immutable cohort across actions to avoid paying a full copy per target,
+but prove namespace and writer isolation first. Modern C and Zig both need the
+same observation, snapshot, publication and simulation support. Zig earns an
+incremental benefit only if a necessary owner/support path actually disappears
+and its added service/toolchain costs are lower. No such retirement is proved
+here, and zero build/runtime paths are retired.
+
+* RESEARCH Follow-up source and refinement proof boundary
+:PROPERTIES:
+:CUSTOM_ID: build-read-refinement-followup
+:END:
+
+[[file:read-snapshot-design.org][The real-read and credential study]] now traces prelude, reader, macro/evaluator
+and metadata entrances. Shared macro changes invalidate old input credentials;
+they do not necessarily make external output observations unequal. Revalidation
+may restore a restricted safety relation while all omitted work remains charged.
+The earlier fixed-boundary wording must be read with this distinction.
+Its initial fifteen-theorem scope is retained as history; the current
+follow-up contains twenty-six standalone theorems with separate scope.
+
+* RESEARCH Literature and what must be learned locally
+:PROPERTIES:
+:CUSTOM_ID: build-correctness-literature
+:END:
+
+[[https://simon.peytonjones.org/assets/pdfs/build-systems-jfp.pdf][Mokhov, Mitchell and Peyton Jones, Build Systems a la Carte: Theory and Practice]]
+separates scheduling from rebuilding, studies dynamic tasks, traces and early
+cutoff, and discusses nondeterminism and untracked dependencies. Its restarting
+scheduler analysis explains why correct discovery need not imply at-most-once
+work. We use these distinctions to expose Gambit's proof obligations; its
+algorithms do not certify the C metadata reader or filesystem isolation.
+
+[[https://www.mathematik.uni-marburg.de/~seba/publications/pluto-incremental-build.pdf][Erdweg, Lichter and Weiel, A Sound and Optimal Incremental Build System with Dynamic Dependencies]]
+provides a formal dynamic builder/dependency account with consistency conditions
+and explicit cycle treatment. Gambit must establish its own builder/read API
+and semantic observations before borrowing a soundness or optimality claim.
+
+[[https://arxiv.org/abs/2007.12737][Spall, Mitchell and Tobin-Hochstadt, Build Scripts with Perfect Dependencies]]
+studies filesystem tracing and hazards in a command-based build setting.
+Its lesson here is to name read/write hazards and observation authority, not
+to equate captured filenames with a coherent input snapshot. No tracing
+implementation is introduced.
+
+[[https://github.com/microsoft/BuildXL/blob/main/Documentation/Wiki/Advanced-Features/Filesystem-modes-and-Enumerations.md][BuildXL's filesystem/enum documentation]] explicitly treats absent probes and
+directory enumerations as dependencies. This supports the observation taxonomy;
+it does not prove that its platform adapters or profile fit this Darwin/Gambit
+cohort. Those choices remain open.

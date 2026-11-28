@@ -1,0 +1,209 @@
+{
+  "scope": "Causal source review of original 1-argument cost, not an optimization or a counterfactual runtime build",
+  "sourcePeriods": [
+    {
+      "revision": "4b9ac843",
+      "path": "lib/_c_intf/sfun-entry.inc",
+      "sha256": "88748c4be9e5306723054b6d95aa979d57ab88e3f08f362729de15e081a1fefc"
+    },
+    {
+      "revision": "3ab1444b",
+      "path": "lib/_c_intf/sfun-entry.inc",
+      "sha256": "6a6be2762d4b48a3f27fef2d2737fec0d3b12dcc0e657221f4a87257586d01f0"
+    },
+    {
+      "revision": "169b5705",
+      "path": "lib/_c_intf/sfun-entry.inc",
+      "sha256": "6a6be2762d4b48a3f27fef2d2737fec0d3b12dcc0e657221f4a87257586d01f0"
+    },
+    {
+      "revision": "4b9ac843",
+      "path": "lib/_mem/rc-allocation.inc",
+      "sha256": "992e0324d5b897c45aacc507abe3a59b6993630ec330d6e4ffcf384c2ee46c02"
+    },
+    {
+      "revision": "3ab1444b",
+      "path": "lib/_mem/rc-allocation.inc",
+      "sha256": "f95ee959e844cd865ec37c63a7ae0783c65c36dc7ec516d3f36885d00f7d0780"
+    },
+    {
+      "revision": "169b5705",
+      "path": "lib/_mem/rc-allocation.inc",
+      "sha256": "f95ee959e844cd865ec37c63a7ae0783c65c36dc7ec516d3f36885d00f7d0780"
+    },
+    {
+      "revision": "4b9ac843",
+      "path": "lib/_setup/vm-lifecycle.inc",
+      "sha256": "77d670e65228481e22785c5d40eaf207b2a786d2e0974e9cbf2c202bc41b13f9"
+    },
+    {
+      "revision": "3ab1444b",
+      "path": "lib/_setup/vm-lifecycle.inc",
+      "sha256": "77d670e65228481e22785c5d40eaf207b2a786d2e0974e9cbf2c202bc41b13f9"
+    },
+    {
+      "revision": "169b5705",
+      "path": "lib/_setup/vm-lifecycle.inc",
+      "sha256": "77d670e65228481e22785c5d40eaf207b2a786d2e0974e9cbf2c202bc41b13f9"
+    },
+    {
+      "revision": "4b9ac843",
+      "path": "lib/_setup/vm-registry.inc",
+      "sha256": "52df2b595d593bc1d99cf3d306d965453ed755c8de432a6ab8b8e7a78b7538ea"
+    },
+    {
+      "revision": "3ab1444b",
+      "path": "lib/_setup/vm-registry.inc",
+      "sha256": "52df2b595d593bc1d99cf3d306d965453ed755c8de432a6ab8b8e7a78b7538ea"
+    },
+    {
+      "revision": "169b5705",
+      "path": "lib/_setup/vm-registry.inc",
+      "sha256": "52df2b595d593bc1d99cf3d306d965453ed755c8de432a6ab8b8e7a78b7538ea"
+    }
+  ],
+  "changes": [
+    {
+      "path": "lib/_c_intf/sfun-entry.inc",
+      "sourceDiff": "diff --git a/lib/_c_intf/sfun-entry.inc b/lib/_c_intf/sfun-entry.inc\nindex 6642a4d0..317fd6e9 100644\n--- a/lib/_c_intf/sfun-entry.inc\n+++ b/lib/_c_intf/sfun-entry.inc\n@@ -41,17 +41,6 @@ ___EXP_FUNC(___SCMOBJ,___begin_sfun)\n   return ___FIX(___SFUN_HEAP_OVERFLOW_ERR);\n }\n \n-___EXP_FUNC(___SCMOBJ,___sfun_arg)\n-   ___P((___processor_state ps, void *scope, ___WORD index,\n-         ___SCMOBJ value), ())\n-{\n-  ___activation_record *record=___CAST(___activation_record*,scope);\n-  if (!record || record->owner!=ps || !record->roots || index<1)\n-    return ___FIX(___UNKNOWN_ERR);\n-  return ___FIX(___store_rc_root(ps,record->roots,___CAST(___SIZE_T,index),value)\n-               ? ___NO_ERR : ___UNKNOWN_ERR);\n-}\n-\n ___EXP_FUNC(___SCMOBJ,___sfun_marker)\n    ___P((___processor_state ps, void *scope, ___SCMOBJ *marker), ())\n {\n"
+    },
+    {
+      "path": "lib/_mem/rc-allocation.inc",
+      "sourceDiff": "diff --git a/lib/_mem/rc-allocation.inc b/lib/_mem/rc-allocation.inc\nindex dbaf1745..4e06ba16 100644\n--- a/lib/_mem/rc-allocation.inc\n+++ b/lib/_mem/rc-allocation.inc\n@@ -162,10 +162,12 @@ ___EXP_FUNC(void*,___register_rc)\n   h=___CAST(___rc_header*,ptr)-1; d=___ps->mem.rc_domain_;\n   /* First registration requires exclusive ownership of a private block.\n    * A registered block cannot be moved by re-registering it with another PS. */\n-  if (h->domain != 0) return h->domain == d ? ptr : 0;\n-  if (d == 0) return 0;\n+  if (d == 0 || (h->domain != 0 && h->domain != d)) return 0;\n   ___RC_LOCK(d);\n-  if (d->joined_round != 0 || d->phase != ___RC_OPEN || d->nodes == ~___CAST(___SIZE_T,0))\n+  if (!root_writer_open(___ps) || h->refcount <= 0)\n+    { ___RC_UNLOCK(d); return 0; }\n+  if (h->domain == d) { ___RC_UNLOCK(d); return ptr; }\n+  if (d->nodes == ~___CAST(___SIZE_T,0))\n     { ___RC_UNLOCK(d); return 0; }\n   h->prev=d->head.prev; h->next=&d->head;\n   d->head.prev->next=h; d->head.prev=h;\n@@ -271,13 +273,17 @@ ___EXP_FUNC(___SCMOBJ,___data_rc)\n /* One source gate owns mutator writes to the primary cell and typed payload.\n  * Primary borrows preserve logical identity. A generated argument span has\n  * one activation borrow, whose owner fills its cells between safe points. */\n-___BOOL ___store_rc_root(___processor_state ps, void *ptr,\n-                        ___SIZE_T index, ___SCMOBJ value)\n+static ___BOOL store_rc_root(___processor_state ps, void *ptr,\n+                            ___SIZE_T index, ___SCMOBJ value,\n+                            ___activation_record *record)\n {\n   ___rc_header *h;\n   ___rc_domain *d;\n   ___SCMOBJ *cell;\n   if (ptr == 0 || ps == 0 || ps != ___PSTATE) return 0;\n+  if (index != 0 && (!record || record->owner != ps || record->roots != ptr ||\n+      (record->kind != ___ACTIVATION_SFUN_ROOTED &&\n+       record->kind != ___ACTIVATION_SFUN_ACTIVE))) return 0;\n   h=___CAST(___rc_header*,ptr)-1; d=h->domain;\n   if (d == 0 || d != ps->mem.rc_domain_) return 0;\n   ___RC_LOCK(d);\n@@ -293,6 +299,25 @@ ___BOOL ___store_rc_root(___processor_state ps, void *ptr,\n   return 1;\n }\n \n+/* Raw root access cannot infer an activation from a borrow count. Only the\n+ * generated SFUN entry supplies its live record for a positive span index.\n+ * Colocation keeps one policy and avoids an inter-unit forwarding call. */\n+___BOOL ___store_rc_root(___processor_state ps, void *ptr,\n+                        ___SIZE_T index, ___SCMOBJ value)\n+{\n+  return store_rc_root(ps,ptr,index,value,0);\n+}\n+\n+___EXP_FUNC(___SCMOBJ,___sfun_arg)\n+   ___P((___processor_state ps, void *scope, ___WORD index,\n+         ___SCMOBJ value), ())\n+{\n+  ___activation_record *record=___CAST(___activation_record*,scope);\n+  if (!record || index<1) return ___FIX(___UNKNOWN_ERR);\n+  return ___FIX(store_rc_root(ps,record->roots,___CAST(___SIZE_T,index),value,record)\n+               ? ___NO_ERR : ___UNKNOWN_ERR);\n+}\n+\n ___BOOL ___try_set_data_rc(___processor_state ps, void *ptr, ___SCMOBJ value)\n {\n   return ___store_rc_root(ps,ptr,0,value);\n"
+    },
+    {
+      "path": "lib/_setup/vm-lifecycle.inc",
+      "sourceDiff": ""
+    },
+    {
+      "path": "lib/_setup/vm-registry.inc",
+      "sourceDiff": ""
+    }
+  ],
+  "workload": {
+    "source": "tests/sfun-entry.scm",
+    "calls": 4096,
+    "arities": [
+      0,
+      1,
+      8
+    ]
+  },
+  "mechanisms": [
+    "Arity0 permanent procedure uses no RC argument bank; arity1 and arity8 create/borrow canonical RC span and validate each actual argument before calling Scheme. These are unequal workloads, not interchangeable overhead controls.",
+    "Original source change adds actual activation kind and identity admission. A per-call cost mechanism exists even if normalized sfun_arg instructions are equal; downstream store/activation validation and executable layout can differ.",
+    "A/A differences on an identical executable prove the current timing cohort cannot identify small regression magnitude. They do not prove all original source differences are noise or free."
+  ],
+  "unresolved": [
+    "No isolated causal measurement of validation versus code/data layout versus system variation.",
+    "No stable one-argument net speedup or fixed-regression claim; preserve original and repeated cohorts without favorable selection."
+  ],
+  "policy": "No disabled checks, larger workload, heap increase, new timing environment, added repetitions or widened watchdog.",
+  "emittedMechanism": {
+    "exactFrozenPair": {
+      "baseline": {
+        "programSha256": "73b85135f95254c8fd103cc4fed1a296923df8a860c4e40e12c91568b9e3e53c",
+        "functions": {
+          "____sfun_arg": {
+            "body": "000000010002ae60\tcbz\tx1, 0x10002aea0\n000000010002ae64\tldr\tx5, [x1, #0x8]\n000000010002ae68\tcmp\tx5, x0\n000000010002ae6c\tb.ne\t0x10002aea0\n000000010002ae70\tldr\tx1, [x1, #0x18]\n000000010002ae74\tcmp\tx2, #0x0\n000000010002ae78\tccmp\tx1, #0x0, #0x4, gt\n000000010002ae7c\tb.eq\t0x10002aea0\n000000010002ae80\tstr\tx30, [sp, #-0x10]!\n000000010002ae84\tbl\t____store_rc_root\n000000010002ae88\tmov\tx1, #-0xffe8\n000000010002ae8c\tldr\tx30, [sp], #0x10\n000000010002ae90\tcmp\tw0, #0x0\n000000010002ae94\tmovk\tx1, #0xe00, lsl #16\n000000010002ae98\tcsel\tx0, xzr, x1, ne\n000000010002ae9c\tret\n000000010002aea0\tmov\tx0, #-0xffe8\n000000010002aea4\tmovk\tx0, #0xe00, lsl #16\n000000010002aea8\tret\n",
+            "instructions": 19,
+            "branches": 3,
+            "calls": [
+              "bl\t____store_rc_root"
+            ]
+          },
+          "____store_rc_root": {
+            "body": "0000000100015648\tcmp\tx1, #0x0\n000000010001564c\tccmp\tx0, #0x0, #0x4, ne\n0000000100015650\tb.eq\t0x1000156dc\n0000000100015654\tstp\tx30, x19, [sp, #-0x40]!\n0000000100015658\tmov\tx19, x0\n000000010001565c\tadrp\tx0, 996 ; 0x1003f9000\n0000000100015660\tadd\tx0, x0, #0x3d0\n0000000100015664\tstp\tx20, x21, [sp, #0x10]\n0000000100015668\tmov\tx21, x1\n000000010001566c\tmov\tx20, x3\n0000000100015670\tstr\tx22, [sp, #0x20]\n0000000100015674\tmov\tx22, x2\n0000000100015678\tbl\t0x1003b6644 ; symbol stub for: ___emutls_get_address\n000000010001567c\tldr\tx1, [x0]\n0000000100015680\tmov\tx2, x0\n0000000100015684\tcmp\tx1, x19\n0000000100015688\tb.eq\t0x1000156a0\n000000010001568c\tmov\tw0, #0x0\n0000000100015690\tldr\tx22, [sp, #0x20]\n0000000100015694\tldp\tx20, x21, [sp, #0x10]\n0000000100015698\tldp\tx30, x19, [sp], #0x40\n000000010001569c\tret\n00000001000156a0\tldur\tx19, [x21, #-0x18]\n00000001000156a4\tcbz\tx19, 0x10001568c\n00000001000156a8\tldr\tx0, [x1, #0x238]\n00000001000156ac\tcmp\tx19, x0\n00000001000156b0\tb.ne\t0x10001568c\n00000001000156b4\tmov\tx0, x19\n00000001000156b8\tstp\tx1, x2, [sp, #0x30]\n00000001000156bc\tbl\t0x1003b6bfc ; symbol stub for: _pthread_mutex_lock\n00000001000156c0\tldp\tx1, x2, [sp, #0x30]\n00000001000156c4\tldr\tx0, [x2]\n00000001000156c8\tcmp\tx1, x0\n00000001000156cc\tb.eq\t0x1000156e4\n00000001000156d0\tmov\tx0, x19\n00000001000156d4\tbl\t0x1003b6c08 ; symbol stub for: _pthread_mutex_unlock\n00000001000156d8\tb\t0x10001568c\n00000001000156dc\tmov\tw0, #0x0\n00000001000156e0\tret\n00000001000156e4\tldr\tx0, [x1, #0x238]\n00000001000156e8\tcbz\tx0, 0x1000156d0\n00000001000156ec\tldr\tx2, [x0, #0x78]\n00000001000156f0\tcmp\tx1, x2\n00000001000156f4\tb.ne\t0x1000156d0\n00000001000156f8\tldr\tw1, [x0, #0x90]\n00000001000156fc\tcbnz\tw1, 0x1000156d0\n0000000100015700\tldr\tx0, [x0, #0xd0]\n0000000100015704\tcbnz\tx0, 0x1000156d0\n0000000100015708\tldur\tx0, [x21, #-0x28]\n000000010001570c\tcmp\tx0, #0x0\n0000000100015710\tb.le\t0x1000156d0\n0000000100015714\tldur\tx0, [x21, #-0x8]\n0000000100015718\tcmp\tx22, x0\n000000010001571c\tb.hi\t0x1000156d0\n0000000100015720\tldur\tx0, [x21, #-0x10]\n0000000100015724\tcbnz\tx22, 0x10001575c\n0000000100015728\tcbz\tx0, 0x100015738\n000000010001572c\tldur\tx0, [x21, #-0x20]\n0000000100015730\tcmp\tx20, x0\n0000000100015734\tb.ne\t0x1000156d0\n0000000100015738\tsub\tx1, x21, #0x20\n000000010001573c\tldr\tx0, [x1]\n0000000100015740\tcmp\tx20, x0\n0000000100015744\tb.eq\t0x10001574c\n0000000100015748\tstr\tx20, [x1]\n000000010001574c\tmov\tx0, x19\n0000000100015750\tbl\t0x1003b6c08 ; symbol stub for: _pthread_mutex_unlock\n0000000100015754\tmov\tw0, #0x1\n0000000100015758\tb\t0x100015690\n000000010001575c\tcmp\tx0, #0x1\n0000000100015760\tb.ne\t0x1000156d0\n0000000100015764\tsub\tx2, x22, #0x1\n0000000100015768\tadd\tx1, x21, x2, lsl #3\n000000010001576c\tb\t0x10001573c\n",
+            "instructions": 74,
+            "branches": 19,
+            "calls": [
+              "bl\t0x1003b6644 ; symbol stub for: ___emutls_get_address",
+              "bl\t0x1003b6bfc ; symbol stub for: _pthread_mutex_lock",
+              "bl\t0x1003b6c08 ; symbol stub for: _pthread_mutex_unlock",
+              "bl\t0x1003b6c08 ; symbol stub for: _pthread_mutex_unlock"
+            ]
+          },
+          "____begin_sfun": {
+            "body": "000000010002acc0\ttbnz\tx1, #0x3f, 0x10002ae54\n000000010002acc4\tstp\tx30, x19, [sp, #-0x40]!\n000000010002acc8\tstr\txzr, [x3]\n000000010002accc\tstp\tx20, x21, [sp, #0x10]\n000000010002acd0\tmov\tx20, x0\n000000010002acd4\tmov\tx21, x1\n000000010002acd8\tstp\tx22, x23, [sp, #0x20]\n000000010002acdc\tmov\tx22, x2\n000000010002ace0\tmov\tx23, x3\n000000010002ace4\tbl\t____lifecycle_marker_prepare\n000000010002ace8\tmov\tx19, x0\n000000010002acec\tcbz\tx0, 0x10002ae48\n000000010002acf0\tmov\tw0, #0x2\n000000010002acf4\tcmp\tx21, #0x0\n000000010002acf8\tccmn\tx22, #0x4, #0x4, eq\n000000010002acfc\tstr\tw0, [x19, #0x20]\n000000010002ad00\tb.ne\t0x10002ad88\n000000010002ad04\tcmn\tx22, #0x4\n000000010002ad08\tb.ne\t0x10002ada4\n000000010002ad0c\tstr\tx24, [sp, #0x30]\n000000010002ad10\tbl\t____c_closure_self\n000000010002ad14\tmov\tx1, x0\n000000010002ad18\tmov\tx24, x0\n000000010002ad1c\tmov\tx0, x20\n000000010002ad20\tbl\t____borrow_rc_root\n000000010002ad24\tmov\tx22, x0\n000000010002ad28\tcbz\tx0, 0x10002ae3c\n000000010002ad2c\tmov\tx1, x21\n000000010002ad30\tmov\tx0, x20\n000000010002ad34\tbl\t____alloc_rc_roots\n000000010002ad38\tstr\tx0, [x19, #0x18]\n000000010002ad3c\tmov\tx1, x0\n000000010002ad40\tcbz\tx0, 0x10002ae2c\n000000010002ad44\tldr\tx2, [x22]\n000000010002ad48\tmov\tx0, x20\n000000010002ad4c\tbl\t____try_set_data_rc\n000000010002ad50\tcbz\tw0, 0x10002ae2c\n000000010002ad54\tldr\tx1, [x19, #0x18]\n000000010002ad58\tmov\tx0, x20\n000000010002ad5c\tbl\t____borrow_rc_root\n000000010002ad60\tcbz\tx0, 0x10002ae2c\n000000010002ad64\tmov\tx0, x24\n000000010002ad68\tbl\t____return_rc_root\n000000010002ad6c\tldr\tx24, [sp, #0x30]\n000000010002ad70\tmov\tx0, #0x0\n000000010002ad74\tstr\tx19, [x23]\n000000010002ad78\tldp\tx20, x21, [sp, #0x10]\n000000010002ad7c\tldp\tx22, x23, [sp, #0x20]\n000000010002ad80\tldp\tx30, x19, [sp], #0x40\n000000010002ad84\tret\n000000010002ad88\tsub\tw0, w22, #0x1\n000000010002ad8c\ttst\tx0, #0x7\n000000010002ad90\tb.ne\t0x10002ae04\n000000010002ad94\tldur\tx0, [x22, #-0x1]\n000000010002ad98\tand\tx0, x0, #0x7\n000000010002ad9c\tcmp\tx0, #0x6\n000000010002ada0\tb.eq\t0x10002ae1c\n000000010002ada4\tmov\tx1, x21\n000000010002ada8\tmov\tx0, x20\n000000010002adac\tbl\t____alloc_rc_roots\n000000010002adb0\tstr\tx0, [x19, #0x18]\n000000010002adb4\tcbz\tx0, 0x10002adf0\n000000010002adb8\tmov\tx1, x0\n000000010002adbc\tmov\tx2, x22\n000000010002adc0\tmov\tx0, x20\n000000010002adc4\tbl\t____try_set_data_rc\n000000010002adc8\tcbz\tw0, 0x10002ade0\n000000010002adcc\tldr\tx1, [x19, #0x18]\n000000010002add0\tmov\tx0, x20\n000000010002add4\tbl\t____borrow_rc_root\n000000010002add8\tcbnz\tx0, 0x10002ad70\n000000010002addc\tnop\n000000010002ade0\tldr\tx0, [x19, #0x18]\n000000010002ade4\tcbz\tx0, 0x10002adf0\n000000010002ade8\tbl\t____release_rc\n000000010002adec\tstr\txzr, [x19, #0x18]\n000000010002adf0\tmov\tx0, x19\n000000010002adf4\tbl\t____lifecycle_marker_abort\n000000010002adf8\tmov\tx0, #-0xfff8\n000000010002adfc\tmovk\tx0, #0xe00, lsl #16\n000000010002ae00\tb\t0x10002ad78\n000000010002ae04\tmov\tx1, #0x0\n000000010002ae08\tmov\tx0, x20\n000000010002ae0c\tbl\t____alloc_rc_roots\n000000010002ae10\tstr\tx0, [x19, #0x18]\n000000010002ae14\tcbnz\tx0, 0x10002adb8\n000000010002ae18\tb\t0x10002adf0\n000000010002ae1c\tmov\tw0, #0x3\n000000010002ae20\tstr\tx22, [x19, #0x10]\n000000010002ae24\tstr\tw0, [x19, #0x20]\n000000010002ae28\tb\t0x10002ad70\n000000010002ae2c\tmov\tx0, x24\n000000010002ae30\tbl\t____return_rc_root\n000000010002ae34\tldr\tx24, [sp, #0x30]\n000000010002ae38\tb\t0x10002ade0\n000000010002ae3c\tmov\tx0, x19\n000000010002ae40\tbl\t____lifecycle_marker_abort\n000000010002ae44\tldr\tx24, [sp, #0x30]\n000000010002ae48\tmov\tx0, #-0xffe8\n000000010002ae4c\tmovk\tx0, #0xe00, lsl #16\n000000010002ae50\tb\t0x10002ad78\n000000010002ae54\tmov\tx0, #-0xffe8\n000000010002ae58\tmovk\tx0, #0xe00, lsl #16\n000000010002ae5c\tret\n",
+            "instructions": 104,
+            "branches": 20,
+            "calls": [
+              "bl\t____lifecycle_marker_prepare",
+              "bl\t____c_closure_self",
+              "bl\t____borrow_rc_root",
+              "bl\t____alloc_rc_roots",
+              "bl\t____try_set_data_rc",
+              "bl\t____borrow_rc_root",
+              "bl\t____return_rc_root",
+              "bl\t____alloc_rc_roots",
+              "bl\t____try_set_data_rc",
+              "bl\t____borrow_rc_root",
+              "bl\t____release_rc",
+              "bl\t____lifecycle_marker_abort",
+              "bl\t____alloc_rc_roots",
+              "bl\t____return_rc_root",
+              "bl\t____lifecycle_marker_abort"
+            ]
+          }
+        }
+      },
+      "candidate": {
+        "programSha256": "1419c7d3c266979df67a2a25157b612896914b83d285985d373c9e022b85fb45",
+        "functions": {
+          "____sfun_arg": {
+            "body": "0000000100015810\tcmp\tx1, #0x0\n0000000100015814\tccmp\tx2, #0x0, #0x4, ne\n0000000100015818\tb.le\t0x1000158dc\n000000010001581c\tstp\tx30, x19, [sp, #-0x40]!\n0000000100015820\tstp\tx20, x21, [sp, #0x10]\n0000000100015824\tmov\tx20, x3\n0000000100015828\tldr\tx3, [x1, #0x18]\n000000010001582c\tcmp\tx3, #0x0\n0000000100015830\tccmp\tx0, #0x0, #0x4, ne\n0000000100015834\tb.eq\t0x100015868\n0000000100015838\tmov\tx4, x0\n000000010001583c\tadrp\tx0, 996 ; 0x1003f9000\n0000000100015840\tadd\tx0, x0, #0x3d0\n0000000100015844\tmov\tx19, x1\n0000000100015848\tmov\tx21, x2\n000000010001584c\tstp\tx4, x3, [sp, #0x28]\n0000000100015850\tbl\t0x1003b6804 ; symbol stub for: ___emutls_get_address\n0000000100015854\tldr\tx4, [sp, #0x28]\n0000000100015858\tmov\tx1, x0\n000000010001585c\tldr\tx0, [x0]\n0000000100015860\tcmp\tx4, x0\n0000000100015864\tb.eq\t0x10001587c\n0000000100015868\tmov\tx0, #-0xffe8\n000000010001586c\tldp\tx20, x21, [sp, #0x10]\n0000000100015870\tmovk\tx0, #0xe00, lsl #16\n0000000100015874\tldp\tx30, x19, [sp], #0x40\n0000000100015878\tret\n000000010001587c\tldr\tx0, [x19, #0x8]\n0000000100015880\tcmp\tx4, x0\n0000000100015884\tb.ne\t0x100015868\n0000000100015888\tldr\tw0, [x19, #0x20]\n000000010001588c\tsub\tw0, w0, #0x2\n0000000100015890\ttst\tw0, #0xfffffffd\n0000000100015894\tb.ne\t0x100015868\n0000000100015898\tldr\tx3, [sp, #0x30]\n000000010001589c\tldur\tx19, [x3, #-0x18]\n00000001000158a0\tcbz\tx19, 0x100015868\n00000001000158a4\tldr\tx0, [x4, #0x238]\n00000001000158a8\tcmp\tx19, x0\n00000001000158ac\tb.ne\t0x100015868\n00000001000158b0\tmov\tx0, x19\n00000001000158b4\tstp\tx1, x4, [sp, #0x28]\n00000001000158b8\tstr\tx3, [sp, #0x38]\n00000001000158bc\tbl\t0x1003b6dbc ; symbol stub for: _pthread_mutex_lock\n00000001000158c0\tldp\tx1, x4, [sp, #0x28]\n00000001000158c4\tldr\tx0, [x1]\n00000001000158c8\tcmp\tx4, x0\n00000001000158cc\tb.eq\t0x1000158e8\n00000001000158d0\tmov\tx0, x19\n00000001000158d4\tbl\t0x1003b6dc8 ; symbol stub for: _pthread_mutex_unlock\n00000001000158d8\tb\t0x100015868\n00000001000158dc\tmov\tx0, #-0xffe8\n00000001000158e0\tmovk\tx0, #0xe00, lsl #16\n00000001000158e4\tret\n00000001000158e8\tldr\tx0, [x4, #0x238]\n00000001000158ec\tcbz\tx0, 0x1000158d0\n00000001000158f0\tldr\tx1, [x0, #0x78]\n00000001000158f4\tldr\tx3, [sp, #0x38]\n00000001000158f8\tcmp\tx4, x1\n00000001000158fc\tb.ne\t0x1000158d0\n0000000100015900\tldr\tw1, [x0, #0x90]\n0000000100015904\tcbnz\tw1, 0x1000158d0\n0000000100015908\tldr\tx0, [x0, #0xd0]\n000000010001590c\tcbnz\tx0, 0x1000158d0\n0000000100015910\tldur\tx0, [x3, #-0x28]\n0000000100015914\tcmp\tx0, #0x0\n0000000100015918\tb.le\t0x1000158d0\n000000010001591c\tldur\tx0, [x3, #-0x8]\n0000000100015920\tcmp\tx21, x0\n0000000100015924\tb.hi\t0x1000158d0\n0000000100015928\tldur\tx0, [x3, #-0x10]\n000000010001592c\tcmp\tx0, #0x1\n0000000100015930\tb.ne\t0x1000158d0\n0000000100015934\tsub\tx0, x21, #0x1\n0000000100015938\tlsl\tx0, x0, #3\n000000010001593c\tldr\tx1, [x3, x0]\n0000000100015940\tcmp\tx20, x1\n0000000100015944\tb.eq\t0x10001594c\n0000000100015948\tstr\tx20, [x3, x0]\n000000010001594c\tmov\tx0, x19\n0000000100015950\tbl\t0x1003b6dc8 ; symbol stub for: _pthread_mutex_unlock\n0000000100015954\tmov\tx0, #0x0\n0000000100015958\tldp\tx20, x21, [sp, #0x10]\n000000010001595c\tldp\tx30, x19, [sp], #0x40\n0000000100015960\tret\n",
+            "instructions": 85,
+            "branches": 17,
+            "calls": [
+              "bl\t0x1003b6804 ; symbol stub for: ___emutls_get_address",
+              "bl\t0x1003b6dbc ; symbol stub for: _pthread_mutex_lock",
+              "bl\t0x1003b6dc8 ; symbol stub for: _pthread_mutex_unlock",
+              "bl\t0x1003b6dc8 ; symbol stub for: _pthread_mutex_unlock"
+            ]
+          },
+          "____store_rc_root": {
+            "body": "000000010001570c\tcmp\tx1, #0x0\n0000000100015710\tccmp\tx0, #0x0, #0x4, ne\n0000000100015714\tb.eq\t0x100015760\n0000000100015718\tstp\tx30, x19, [sp, #-0x40]!\n000000010001571c\tmov\tx19, x0\n0000000100015720\tadrp\tx0, 996 ; 0x1003f9000\n0000000100015724\tadd\tx0, x0, #0x3d0\n0000000100015728\tstr\tx20, [sp, #0x10]\n000000010001572c\tmov\tx20, x3\n0000000100015730\tstp\tx2, x1, [sp, #0x28]\n0000000100015734\tbl\t0x1003b6804 ; symbol stub for: ___emutls_get_address\n0000000100015738\tldp\tx2, x1, [sp, #0x28]\n000000010001573c\tmov\tx3, x0\n0000000100015740\tldr\tx0, [x0]\n0000000100015744\tcmp\tx2, #0x0\n0000000100015748\tccmp\tx0, x19, #0x0, eq\n000000010001574c\tb.eq\t0x100015768\n0000000100015750\tmov\tw0, #0x0\n0000000100015754\tldr\tx20, [sp, #0x10]\n0000000100015758\tldp\tx30, x19, [sp], #0x40\n000000010001575c\tret\n0000000100015760\tmov\tw0, #0x0\n0000000100015764\tret\n0000000100015768\tldur\tx2, [x1, #-0x18]\n000000010001576c\tcbz\tx2, 0x100015750\n0000000100015770\tldr\tx0, [x19, #0x238]\n0000000100015774\tcmp\tx2, x0\n0000000100015778\tb.ne\t0x100015750\n000000010001577c\tmov\tx0, x2\n0000000100015780\tstp\tx2, x3, [sp, #0x28]\n0000000100015784\tstr\tx1, [sp, #0x38]\n0000000100015788\tbl\t0x1003b6dbc ; symbol stub for: _pthread_mutex_lock\n000000010001578c\tldp\tx2, x3, [sp, #0x28]\n0000000100015790\tldr\tx0, [x3]\n0000000100015794\tcmp\tx19, x0\n0000000100015798\tb.eq\t0x1000157a8\n000000010001579c\tmov\tx0, x2\n00000001000157a0\tbl\t0x1003b6dc8 ; symbol stub for: _pthread_mutex_unlock\n00000001000157a4\tb\t0x100015750\n00000001000157a8\tldr\tx0, [x19, #0x238]\n00000001000157ac\tcbz\tx0, 0x10001579c\n00000001000157b0\tldr\tx3, [x0, #0x78]\n00000001000157b4\tldr\tx1, [sp, #0x38]\n00000001000157b8\tcmp\tx19, x3\n00000001000157bc\tb.ne\t0x10001579c\n00000001000157c0\tldr\tw3, [x0, #0x90]\n00000001000157c4\tcbnz\tw3, 0x10001579c\n00000001000157c8\tldr\tx0, [x0, #0xd0]\n00000001000157cc\tcbnz\tx0, 0x10001579c\n00000001000157d0\tldur\tx0, [x1, #-0x28]\n00000001000157d4\tcmp\tx0, #0x0\n00000001000157d8\tb.le\t0x10001579c\n00000001000157dc\tldur\tx0, [x1, #-0x10]\n00000001000157e0\tcbz\tx0, 0x1000157f0\n00000001000157e4\tldur\tx0, [x1, #-0x20]\n00000001000157e8\tcmp\tx20, x0\n00000001000157ec\tb.ne\t0x10001579c\n00000001000157f0\tldur\tx0, [x1, #-0x20]\n00000001000157f4\tcmp\tx20, x0\n00000001000157f8\tb.eq\t0x100015800\n00000001000157fc\tstur\tx20, [x1, #-0x20]\n0000000100015800\tmov\tx0, x2\n0000000100015804\tbl\t0x1003b6dc8 ; symbol stub for: _pthread_mutex_unlock\n0000000100015808\tmov\tw0, #0x1\n000000010001580c\tb\t0x100015754\n",
+            "instructions": 65,
+            "branches": 15,
+            "calls": [
+              "bl\t0x1003b6804 ; symbol stub for: ___emutls_get_address",
+              "bl\t0x1003b6dbc ; symbol stub for: _pthread_mutex_lock",
+              "bl\t0x1003b6dc8 ; symbol stub for: _pthread_mutex_unlock",
+              "bl\t0x1003b6dc8 ; symbol stub for: _pthread_mutex_unlock"
+            ]
+          },
+          "____begin_sfun": {
+            "body": "000000010002aec0\ttbnz\tx1, #0x3f, 0x10002b054\n000000010002aec4\tstp\tx30, x19, [sp, #-0x40]!\n000000010002aec8\tstr\txzr, [x3]\n000000010002aecc\tstp\tx20, x21, [sp, #0x10]\n000000010002aed0\tmov\tx20, x0\n000000010002aed4\tmov\tx21, x1\n000000010002aed8\tstp\tx22, x23, [sp, #0x20]\n000000010002aedc\tmov\tx22, x2\n000000010002aee0\tmov\tx23, x3\n000000010002aee4\tbl\t____lifecycle_marker_prepare\n000000010002aee8\tmov\tx19, x0\n000000010002aeec\tcbz\tx0, 0x10002b048\n000000010002aef0\tmov\tw0, #0x2\n000000010002aef4\tcmp\tx21, #0x0\n000000010002aef8\tccmn\tx22, #0x4, #0x4, eq\n000000010002aefc\tstr\tw0, [x19, #0x20]\n000000010002af00\tb.ne\t0x10002af88\n000000010002af04\tcmn\tx22, #0x4\n000000010002af08\tb.ne\t0x10002afa4\n000000010002af0c\tstr\tx24, [sp, #0x30]\n000000010002af10\tbl\t____c_closure_self\n000000010002af14\tmov\tx1, x0\n000000010002af18\tmov\tx24, x0\n000000010002af1c\tmov\tx0, x20\n000000010002af20\tbl\t____borrow_rc_root\n000000010002af24\tmov\tx22, x0\n000000010002af28\tcbz\tx0, 0x10002b03c\n000000010002af2c\tmov\tx1, x21\n000000010002af30\tmov\tx0, x20\n000000010002af34\tbl\t____alloc_rc_roots\n000000010002af38\tstr\tx0, [x19, #0x18]\n000000010002af3c\tmov\tx1, x0\n000000010002af40\tcbz\tx0, 0x10002b02c\n000000010002af44\tldr\tx2, [x22]\n000000010002af48\tmov\tx0, x20\n000000010002af4c\tbl\t____try_set_data_rc\n000000010002af50\tcbz\tw0, 0x10002b02c\n000000010002af54\tldr\tx1, [x19, #0x18]\n000000010002af58\tmov\tx0, x20\n000000010002af5c\tbl\t____borrow_rc_root\n000000010002af60\tcbz\tx0, 0x10002b02c\n000000010002af64\tmov\tx0, x24\n000000010002af68\tbl\t____return_rc_root\n000000010002af6c\tldr\tx24, [sp, #0x30]\n000000010002af70\tmov\tx0, #0x0\n000000010002af74\tstr\tx19, [x23]\n000000010002af78\tldp\tx20, x21, [sp, #0x10]\n000000010002af7c\tldp\tx22, x23, [sp, #0x20]\n000000010002af80\tldp\tx30, x19, [sp], #0x40\n000000010002af84\tret\n000000010002af88\tsub\tw0, w22, #0x1\n000000010002af8c\ttst\tx0, #0x7\n000000010002af90\tb.ne\t0x10002b004\n000000010002af94\tldur\tx0, [x22, #-0x1]\n000000010002af98\tand\tx0, x0, #0x7\n000000010002af9c\tcmp\tx0, #0x6\n000000010002afa0\tb.eq\t0x10002b01c\n000000010002afa4\tmov\tx1, x21\n000000010002afa8\tmov\tx0, x20\n000000010002afac\tbl\t____alloc_rc_roots\n000000010002afb0\tstr\tx0, [x19, #0x18]\n000000010002afb4\tcbz\tx0, 0x10002aff0\n000000010002afb8\tmov\tx1, x0\n000000010002afbc\tmov\tx2, x22\n000000010002afc0\tmov\tx0, x20\n000000010002afc4\tbl\t____try_set_data_rc\n000000010002afc8\tcbz\tw0, 0x10002afe0\n000000010002afcc\tldr\tx1, [x19, #0x18]\n000000010002afd0\tmov\tx0, x20\n000000010002afd4\tbl\t____borrow_rc_root\n000000010002afd8\tcbnz\tx0, 0x10002af70\n000000010002afdc\tnop\n000000010002afe0\tldr\tx0, [x19, #0x18]\n000000010002afe4\tcbz\tx0, 0x10002aff0\n000000010002afe8\tbl\t____release_rc\n000000010002afec\tstr\txzr, [x19, #0x18]\n000000010002aff0\tmov\tx0, x19\n000000010002aff4\tbl\t____lifecycle_marker_abort\n000000010002aff8\tmov\tx0, #-0xfff8\n000000010002affc\tmovk\tx0, #0xe00, lsl #16\n000000010002b000\tb\t0x10002af78\n000000010002b004\tmov\tx1, #0x0\n000000010002b008\tmov\tx0, x20\n000000010002b00c\tbl\t____alloc_rc_roots\n000000010002b010\tstr\tx0, [x19, #0x18]\n000000010002b014\tcbnz\tx0, 0x10002afb8\n000000010002b018\tb\t0x10002aff0\n000000010002b01c\tmov\tw0, #0x3\n000000010002b020\tstr\tx22, [x19, #0x10]\n000000010002b024\tstr\tw0, [x19, #0x20]\n000000010002b028\tb\t0x10002af70\n000000010002b02c\tmov\tx0, x24\n000000010002b030\tbl\t____return_rc_root\n000000010002b034\tldr\tx24, [sp, #0x30]\n000000010002b038\tb\t0x10002afe0\n000000010002b03c\tmov\tx0, x19\n000000010002b040\tbl\t____lifecycle_marker_abort\n000000010002b044\tldr\tx24, [sp, #0x30]\n000000010002b048\tmov\tx0, #-0xffe8\n000000010002b04c\tmovk\tx0, #0xe00, lsl #16\n000000010002b050\tb\t0x10002af78\n000000010002b054\tmov\tx0, #-0xffe8\n000000010002b058\tmovk\tx0, #0xe00, lsl #16\n000000010002b05c\tret\n",
+            "instructions": 104,
+            "branches": 20,
+            "calls": [
+              "bl\t____lifecycle_marker_prepare",
+              "bl\t____c_closure_self",
+              "bl\t____borrow_rc_root",
+              "bl\t____alloc_rc_roots",
+              "bl\t____try_set_data_rc",
+              "bl\t____borrow_rc_root",
+              "bl\t____return_rc_root",
+              "bl\t____alloc_rc_roots",
+              "bl\t____try_set_data_rc",
+              "bl\t____borrow_rc_root",
+              "bl\t____release_rc",
+              "bl\t____lifecycle_marker_abort",
+              "bl\t____alloc_rc_roots",
+              "bl\t____return_rc_root",
+              "bl\t____lifecycle_marker_abort"
+            ]
+          }
+        }
+      }
+    },
+    "combinedNamedEntryInstructions": {
+      "baseline": 93,
+      "candidate": 150,
+      "delta": 57
+    },
+    "arm64NamedEntryByteDelta": 228,
+    "forwardingCallRemoved": true,
+    "boundary": "Sum of two disjoint existing symbol bodies, including slow branches; static code footprint only, not instructions executed per call. Old SFUN calls shared store, new SFUN contains an inline specialization while raw store remains. Extra code footprint and stronger admission may alter cache/layout; this does not assign time causally."
+  }
+}

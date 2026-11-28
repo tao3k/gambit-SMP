@@ -1,0 +1,61 @@
+#+TITLE: Dual Gates and Root Materialization — Closure and Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: gate-empty-root-materialization-matrix
+:AUTHORITY: GateEmptyRootMaterialization
+:STATUS: conditional-models-source-open
+:END:
+
+Derived by native SysML queries. Benefits are conditional work/capacity bounds, not timings.
+
+** Contract
+
+| key | anchor | actionName | lemmaName | guardName | duty | status |
+|---+---+---+---+---+---+---|
+| derived-credit | setup.c:206-242; prior interrupt custody contract | exchangePending | reservationBeforeExchange | s.cs[i]==1 | Consumer CAS reservation precedes pending exchange; reservation survives seal and covers empty-result completion | C replacement pending |
+| producer-release | setup.c:66-92; gambit.h.in:11014-11026 | decrementP | lastDecrement | s.ps[i]==3 | Pending and wake publication plus last target access precede release decrement; all gate modifications remain RMW within incarnation | SC profile candidate |
+| producer-zero | setup.c:4834-4878; proposed native gate | observePZero | closedZeroQualified | not(s.po) | Observe closed zero through acquire and valid RMW frontier; open zero and last contributor alone are insufficient | C memory refinement conditional |
+| storage-commit | setup.c:4834-4878; mem.c:6852-6862 | issueEmpty | finalNeedsBothGates | emptyEligible | Both gates closed and drained; exclusive pending inspection after all claims/root handoffs; native empty receipt is not whole VM retirement | parent root/native obligations retained |
+| consumer-reserve | setup.c:206-242; proposed native gate | reserveC | closedGateDenies | s.seenCo[i] | One coherent open/count snapshot and CAS; close invalidates stale snapshot; reservation count not inferred from pending bit | bounded count; no incarnation reuse |
+| root-spill | gambit.h.in:6802-6818,7082-7098; _kernel.c:12400-12449 | spill | spillMaterializes | s.cs[i]==3 | R1 may be a C local and SELF may become live carrier; spill selected carrier before GC and publish correct root location | actual configuration and restore graph open |
+| root-reload | _kernel.scm:55-72,274-283,1971-1977; mem.c:6511-6537 | reload | reloadFresh | s.cs[i]==4 or s.cs[i]==5 | Collector rewrites scanned slot; reload live carrier before use; local R1 is not automatically a collector root | source witness not native admission |
+| consumer-zero | setup.c:1049-1113; prior interrupt custody contract | observeCZero | activeClaimBlocksFinal | s.cc==0 | Seal consumer gate only after producer closed-zero receipt; observe drained reservations and preserve deferred/unknown/root custody | whole roster and root closure open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| gate-cost | No per-signal heap or lease object; pending remains one coalescible domain slot | Per accepted callback: one snapshot load and four RMWs including wake; normal claim: one snapshot and three RMWs | Protocol counts only; SC is initial profile and weaker order is not admitted; existing flags already coalesce |
+| final-check | Ordered gate drains establish a stable native pending inspection instead of repeated speculative emptiness | Two close RMWs, at least two qualifying acquire observations, drain polling and exclusive pending inspection | No single zero or last decrement licenses VM cleanup; root/native/roster receipts remain necessary |
+| root-cost | Reuse generated register/saved/frame scanning and existing spill-reload mechanisms | For k live local carriers: k slot stores and k reloads per materialization round, plus actual frame/host overhead | Direct PSTATE registers need no extra local spill; k comes from effective masks/configuration, not an assumed constant |
+| net-condition | Eliminate unsafe acceptance/retirement gaps and redundant competing final drain decisions | Atomic admission, root completion and preserved unknown-result custody; source and memory-model proof work | No runtime speed or build-time benefit established; modern C is sufficient to express the contract; Zig removes none of these obligations |
+
+** Gate
+
+| key | qualified | duty |
+|---+---+---|
+| coherent-gates | False | Exact unsigned fields, non-wrap, lock-free signal ABI and no ordinary stores/reset within a live incarnation |
+| c-memory | False | C execution graph, modification-order/read-from and release/acquire proof; SC QNT is not a full C memory model |
+| closure-census | False | All producers, normal/derived writers, roots and cleanup requests covered by frozen parent domains |
+| r1-configuration | False | Actual generated artifact and effective host/local-register/argument-register settings bound to profile |
+| restore-closure | False | R1 to SELF, same-host edges, frames, saved values, exceptions and continuation captures all mapped |
+| final-authority | False | No old target access after decrement; native empty receipt separated from root/VM/OS retirement authority |
+| platform | False | Darwin signal safety and atomic lowering plus inherited host attestation remain unresolved; no native testing |
+
+** Shared-contract dependencies
+
+| dependent | prerequisite | obligation |
+|---+---+---|
+| producer-zero | producer-release | Last release observation must carry all prior contributions |
+| consumer-zero | producer-zero | Producer drain precedes consumer seal |
+| derived-credit | consumer-reserve | Reservation exists before exchange |
+| root-spill | derived-credit | Claim ownership spans root materialization |
+| root-reload | root-spill | Reload must read relocated scanned slot |
+| consumer-zero | root-reload | Last consumer exit follows root and restoration settlement |
+| storage-commit | producer-zero | Final inspection excludes future publication |
+| storage-commit | consumer-zero | Final inspection excludes normal claimers |
+| storage-commit | derived-credit | Pending empty cannot hide claimed active batch |
+| root-spill | consumer-reserve | Reserved target remains alive while carrier is local |

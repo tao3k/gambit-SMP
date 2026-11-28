@@ -120,7 +120,7 @@ invalid-input flag changes only at the actual thief field read.
 The whole child run took **42.256 seconds**; the positive TLC invocation took
 **4.536 seconds**. No bootstrap, runtime patch, stress retry or speedup was
 admitted. Exact hashes, timings and remaining requirements are in
-`evidence/source-results/compiled-stress-failure/chunk-cursor-model.json`.
+`.cache/research/legacy-evidence/evidence/source-results/compiled-stress-failure/chunk-cursor-model.json`.
 The initial ordinary-only run (505 states) is retained separately. The first
 combined attempt failed parsing because a local binder shadowed Quint's
 `fields` builtin; it did not execute model checking or native tests.

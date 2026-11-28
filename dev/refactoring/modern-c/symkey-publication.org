@@ -1,0 +1,192 @@
+#+TITLE: Native symbol/keyword publication and GC anchor ownership
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: QUALIFYING | PUBLISHED
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %40ITEM(Responsibility) %STATUS(State) %OWNER(Authority)
+
+* QUALIFYING ROOT-SYMKEY service replacement :refactoring:roots:audit:
+:PROPERTIES:
+:CUSTOM_ID: ROOT-SYMKEY
+:AUTHORITY: GambitSymkeyPublication
+:SOURCE: models/sysml/symkey-publication.sysml
+:BASE: 7abe6770067f7f4073001286d64437f53ab39c35
+:STATUS: QUALIFYING
+:END:
+
+The SysML component owns this bounded responsibility and the five gate needs.
+[[file:models/sysml/delivery-plan.sysml][The delivery model]] owns programme stages and the six ROOTS coverage groups.
+Before this cut, ROOT-NAMED and ROOT-GLOBALS are scoped closed; ROOT-SYMKEY
+is qualifying and ROOT-VIEWS, ROOT-WRITERS and ROOT-CENSUS remain open:
+*2 scoped closed / 4 remaining*, with responsibility groups as the unit.
+This is neither six predetermined commits nor six SMP acceptance families.
+The ROOTS stage and all twelve whole-runtime acceptance families remain
+subject to composed acceptance on one source identity. A completed bootstrap
+or original =test8= cannot supply a repair-line8/12 numerator.
+
+** Problem and complete responsibility
+
+At7abe6770, the UTF8 factory probes the shared table and later constructs
+and inserts without one transaction. Two callers can both miss, then each
+publish a different permanent object for the same name/subtype. Even a
+serialized pair of insertions after those two misses duplicates the count;
+the counterexample needs no simultaneous bucket write or undefined data race.
+Rehash also rewrites NEXT while native walkers can follow it independently.
+Passing the mutable anchor address straight to physical marking does not
+specify who owns it when a native publisher replaces that anchor.
+
+The replacement gives one existing registry gate authority over an entire
+native lookup/create/insert/rehash operation, including count and anchor
+publication. Native walkers use that same authority. GC instead captures
+its own two cells, marks outside the gate and conditionally commits moved
+anchors. The retired responsibility is split mutation authority, not merely
+one unchecked instruction. This does not claim a parallel, wait-free registry.
+
+** Real source and caller census
+
+All paths below refer to the selected vendor Git tree recorded by the
+portable qualification packet; the unrelated vendor index is not a source
+authority for this REV.
+
+| Responsibility / actual caller | Source | Contract / disposition |
+|--------------------------------+--------+------------------------|
+| Native factories, find, direct new, intern and rehash | =vendor/gambit/lib/_mem/symbols.inc= | Public names/signatures retained; internal helpers share one transaction; direct new rechecks canonical identity |
+| Static symbol/keyword insertion | =vendor/gambit/lib/setup.c:init_symkey_glo2= | Only direct-intern producer outside symbols.inc; exclusive bootstrap owner required |
+| Dynamic link/module names | =vendor/gambit/lib/setup.c:make_global_var; init_symkey_glo= | Existing factories; registry node registration remains the7abe responsibility |
+| C conversion factories | =vendor/gambit/lib/c_intf.c= | Existing native factory consumers; Scheme arguments/rooting remain caller-owned |
+| Reverse-global traversal | =vendor/gambit/lib/_mem/global-bindings.inc:glo_struct_to_global_var; find_global_var_bound_to= | Gate covers the complete bucket/NEXT traversal; no recursive call while holding it |
+| Native enumeration | =vendor/gambit/lib/os_tty.c:complete_word -> for_each_symkey -> visit_symbol= | Only actual source callback; permanent name reads and private visit-data writes; no registry/GC/Scheme reentry |
+| Anchor initialization | =vendor/gambit/lib/_mem/memory-lifecycle.inc= | Exclusive global setup before runtime publication |
+| Anchor capture and physical mark | =vendor/gambit/lib/_mem/root-origins.inc:mark_symkey_tables= | Existing RootTask scan lease owns two local cells until conditional commit |
+| Physical object interpretation | =vendor/gambit/lib/_mem/copy-reservations.inc:mark_array= | PERM has no copy/child traversal; MOVABLE/FORW updates the supplied cell; may refill/publish chunks, so no registry gate may span it |
+| Permanent allocation | =vendor/gambit/lib/_mem/permanent-allocation.inc= | Existing permanent gate; NULL-processor allocation returns failure and does not run Scheme GC |
+| Raw Scheme getters / iteration | =vendor/gambit/lib/_kernel.scm:##symbol-table; ##keyword-table; ##symkey-table-foldl= | Unchanged, ROOT-VIEWS OPEN; actual bucket vector/NEXT aliases cannot be declared closed by a native mutex |
+| Optional diagnostic raw walk | =vendor/gambit/lib/_mem/diagnostics.inc:print_global_var_name=, called under =___DEBUG_GARBAGE_COLLECT_globals= | Not admitted: configured =include/config.h= undefines =___DEBUG_GARBAGE_COLLECT=; diagnostic profile/caller closure remains ROOT-CENSUS |
+| Historical generated handler loop | =vendor/gambit/lib/_kernel.scm= global-nonprocedure handler | Inside =#if 0=; not a runtime reader in this source; enabling it requires new admission |
+
+The source census covers private runtime consumers, not arbitrary external
+code including private mem.h. A new reentrant foreach callback invalidates
+the NoReentry premise; a raw moving anchor publisher or concurrent character
+mutation invalidates native service admission. Complete alias and native
+borrow coverage remains a later prerequisite before ROOTS closes.
+
+** Conditional correctness argument
+
+#+NAME: symkey-premises
+| Premise | Concrete source/refinement obligation | Falsifier |
+|---------+--------------------------------------+-----------|
+| P1: every admitted native bucket/count/NEXT reader/writer uses one gate | Public service wrappers, exclusive direct bootstrap insertion, two reverse walkers and actual TTY callback | New ungated consumer, raw alias mutation or callback reentry |
+| P2: permanent publication lifetime | NULL-processor tables/names/nodes, no reclaim before exclusive global cleanup | Concurrent global cleanup or moving native publication |
+| P3: no GC/continuation escape inside the fragment | Private helpers allocate only permanent storage, callback has NoReentry, no join or safepoint under gate | New Scheme allocation, callback/nonlocal escape or unknown dead owner |
+| P4: moving test anchor is exclusive | Existing p1 relocation control temporarily replaces anchors and restores them before Scheme reentry | Concurrent moving publisher or raw access to half-restored anchors |
+| P5: source strings stay stable | Native C string lifetime / Scheme caller roots and no concurrent character mutation | Borrow escapes or string modified while hashing/copying |
+
+1. Under P1--P3, critical sections are ordered by the existing acquire/release
+   mutex. An existing name returns its permanent object; a missing name is
+   inserted before the next lookup enters. Thus at most one canonical object
+   and one count increment are published per admitted name/subtype. A gate
+   around insertion alone would not establish this property.
+2. Native rehash rewrites bucket/NEXT/count and installs the replacement
+   vector under the same authority. Readers cannot traverse an intermediate
+   topology. Hashing, string comparison and rehash remain real critical work.
+3. Construction failure before insertion leaves topology/count unchanged.
+   Rehash failure after insertion is different: that node is already accepted
+   and remains in the old valid table. Retrying allocation must not reinsert it.
+   Integer checks use min(fixnum bound, C index bound), and growth arithmetic
+   avoids an overflowing length-times-four predicate.
+4. GC captures =before[2]= and =cells[2]= under the gate. Its physical mark
+   owns only the local cells. A permanent anchor does not move and requires no
+   writeback; a newer permanent table is never overwritten by the captured
+   value. Under P4, a moved fixture anchor is committed only while the global
+   anchor still equals =before=. The task is SCANNED only after this handoff.
+   A stale unconditional writeback is an explicit native negative control.
+5. No native operation waits for GC while holding the registry gate under P3.
+   Marking releases that gate before any chunk/refill work. This excludes this
+   particular registry/GC wait cycle; it does not establish robust recovery
+   from arbitrary owner death, all FFI progress or scheduler fairness.
+
+** Model duties and evidence boundaries
+
+#+BEGIN: sysml-view :source models/sysml/symkey-publication.sysml :query GambitSymkeyPublication::formalDuty
+| Layer | Owns | Does not establish |
+|-------+------+--------------------|
+| SysML | Selected source/callers, lifetime premises, retirement, dependency and five gate needs | Native runtime acceptance |
+| ASCENT | Concrete projected needs, source identity, evidence/caller obligation coverage and commit readiness; report coverage facts | Correctness inferred merely from filenames or an LLM claim |
+| Existing QNT =runtime_roles.qnt::root_dispatch= | Source freeze, task claim/scan/finish, stale/unknown lease and completion interleavings | Symbol string uniqueness, concrete C pointer/layout or a deadline |
+| Existing Lean =RuntimeRoles.lean= | Conditional distinct-cell/census, partition and address laws | Mutex histories or proof that local anchor commit satisfies those premises |
+| Source refinement + actual native controls | P1--P5, concrete permanent type, conditional commit, failed growth and real factory calls | Exhaustive native schedules, arbitrary raw FFI or whole SMP |
+#+END:
+
+Neither QNT nor Lean is duplicated. The local anchor adapter introduces a
+new concrete-address obligation: moving values must return to the still-owned
+global cells before the task finishes. Existing relocation controls and the
+GC-publication counterexample test that adapter, rather than assuming the
+previous in-place-cell proof applies automatically.
+
+** Test and admission checklist
+
+- [X] Same source/profile complete bootstrap and core build; exact generated
+  artifacts checked independently of fixture-only reuse.
+- [X] Existing root-task fixture: seed941,12 generated histories plus mandatory
+  prefix,405 actual C actions; observer calibration21 to1 with production replay.
+- [X] Real table growth for both subtypes followed by actual GC.
+- [X] Predecessor native split-lookup counterexample13 to1,7 trials,
+  deletion-one-minimal and current implementation replay.
+- [X] Allocation-failure and capture/publication controls pass; unconditional
+  stale writeback is rejected with the expected native exit77.
+- [X] Complete original GSI408/40860.739s and original Make91.018s, including
+  existing moving anchors, map multi-shot, roots, frames and RC. Previous globals
+  controls11.377s and startup/unknown-join/early-drain controls5.079s pass.
+- [X] Native SysML/ASCENT projection, three coverage negative controls and
+  existing QNT tests/10000 samples of64 steps; no duplicate Lean model/rerun.
+- [X] Exact selected tree/source custody and five scoped gates, with21 missing/
+  stale/model-only negative controls; separate nine-field REV comment frozen
+  before publication. The first attempt refused a changed raw Git index;
+  HEAD, staged semantic entries and full HEAD-to-working diff were independently
+  unchanged. A fresh strict transaction passed; the custody check was not relaxed.
+
+The observer calibration is deliberately a wrong observation, not a production
+defect. The predecessor mutation executes actual old factory code with a
+deterministic legal two-miss schedule; production contains no scheduling hook.
+Neither finite histories nor deletion-one-minimal shrinking prove a globally
+minimal or exhaustive concurrent execution.
+
+** Benefit and added-cost matrix
+
+| Dimension | Before | Replacement / evidence | Added cost / remaining boundary |
+|-----------+--------+------------------------+--------------------------------|
+| Canonical native identity | Two misses create two objects/count increments in the real predecessor control | One complete transaction; actual13 to1 shrink/current replay passes,405-action PBT | Registry serialization; no throughput gain asserted |
+| Native topology readers | NEXT can be rewired during traversal | One gate for full native read/rehash | TTY/reverse walk O(table+entries); raw Scheme folds remain open |
+| GC anchor handoff | Mutable global address passed into mark | Two owned local cells + conditional moved-value commit | Four temporary SCM words (32 bytes on64bit), two short gate sections |
+| Synchronization metadata | Existing global/permanent gates from7abe | Reused | Zero new mutexes/header fields/persistent identity records or barriers |
+| Failed rehash | Accepted insertion precedes best-effort growth | Same acceptance boundary, now serialized and explicitly tested | Old table and accepted node retained; old permanent vectors still live until global cleanup |
+| Space peak for rehash | Both vectors coexist | No new permanent retention policy | Bucket storage at doubling approximately (N+1)+(2N+1) SCM words, plus existing old permanent generations; allocator rounding excluded |
+| Scheme / control semantics | Shared objects, multi-shot continuation and original scanner | Existing moving-root/map histories retained | Whole continuation/CFFI/generational closure remains separate |
+| Build work | Runtime source change needs current producer | Same cache/profile; test-only changes can reuse exact native producer | No new config/executor or frontend optimization; build duration is not a runtime benchmark |
+
+** Architectural questions and next dependencies
+
+Why is this refactoring? The service receives mutation authority for its
+whole lifecycle and GC receives an owned view plus commit protocol; split
+check/create and borrowed mutable anchor addresses retire. It is falsified by
+a second native identity/count increment, a walker seeing intermediate NEXT,
+or stale mark overwriting a newer publication. Extra heap or longer waits
+cannot repair those invariants and are not used.
+
+Why is this useful for modern SMP? A shared registry can be serialized while
+Scheme executions remain parallel. A defined source/reader boundary is a
+necessary predecessor of independent collector workers; it is not sufficient
+for W != R, whole-root coverage or Repair9 capacity. Coarse registry contention
+is an explicit cost to measure rather than a claim of universal scalability.
+
+How does it amplify Gambit? Canonical shared Scheme identities and existing
+multi-shot frame/root behavior remain available across parallel contexts.
+Collector work need not own a mutable global anchor address. No one-shot
+restriction, isolated actor heap or alternate language backend is imposed.
+This cut learns ownership separation, not an OCaml/Erlang mechanism transplanted
+without matching Gambit's shared-object and continuation semantics.
+
+Next: ROOT-VIEWS must specify Scheme reflection/iteration and alias ownership;
+ROOT-WRITERS must close remaining value stores/native borrows; ROOT-CENSUS must
+compose the frozen union and lifetimes. Then worker/arena and retirement stages
+can use those premises. No whole-SMP numerator is earned by this local cut.

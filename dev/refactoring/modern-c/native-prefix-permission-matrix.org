@@ -1,0 +1,163 @@
+#+TITLE: SFUN/Tcl prefix effects — source closure and root-permission return
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitNativePrefixPermission
+:END:
+Protocol safety and the actual NativeEntry publish step join are conditional. Native effect closure remains unresolved.
+
+** Component
+
+| componentId | actionSlice | sharedContract | proof | source |
+|---+---+---+---+---|
+| effect-closure | selectPlain/selectOpaque/replaceBeforeGrant/grantFast | callee-closure | NativePrefix.staleBindingCannotGrant | ext-mode |
+| source-identity | selectWrongSelf/grantDurable | source-set | NativePrefix.wrongSelfCannotBorrowItsWayIn | global-self |
+| root-preparation | grantFast/grantDurable/gcRound/reloadRoot/publishInputs | prefix-safety | NativePrefix.publishRequiresCurrentLocal | raw-prefix |
+| allocation-custody | obtainNativeMemory/captureOutcome/abandonBeforeRecord/recoverPrivateRecord | allocation-capture | NativePrefix.noRecordNoRecovery | rc-alloc |
+| entry-handoff | publishInputs/releaseSource/handoffBank | entry-join | NativePrefix.prefixToEntryStep | begin |
+
+** Profile
+
+| value | key | premise | admission | boundary |
+|---+---+---+---+---|
+| 0 | plain-fast | closed no-GC/no-reentry/no-abandon prefix, valid source identity | fast conditional; durable not required | libc, bindings, config and native thread lifetime remain unqualified |
+| 1 | collecting-adapter | all movable raw inputs and procedure covered by registered source set | durable only | reload canonical slots after collecting hook |
+| 2 | reentrant-adapter | durable source set plus live or owned native inputs and explicit nested owner | durable only | nested callback return does not refresh C locals |
+| 3 | abandoning-adapter | stable allocation intent and complete lifetime custody before hook | durable only; unrecorded result retained | rooting cannot recover an unrecorded pointer or preserve expired Tcl argv |
+| 4 | opaque-callout | effect closure unavailable | reject | persistent root is not an arbitrary-code safety proof |
+| 5 | wrong-self | source identity cannot be established | reject both modes | shared dynamic closure self is not fixed by RC refcount |
+| 6 | debug-io-unqualified | stdio/logging dependencies not qualified | reject both modes until separately sealed | DEBUG_LOG source wrapper has no direct Scheme call but is not a no-abandon certificate |
+
+** Call
+
+| key | source | caller | callee | effect | status |
+|---+---+---+---+---+---|
+| tcl-to-entry | tcl-entry | scheme_call_cmd | data_rc -> tcltk_call | raw snapshot; source owner and Tcl thread lifetime required | bounded-source |
+| generated-prefix | sort | c-make-function | BEGIN_SFUN -> begin_sfun -> SCMOBJ argument prefix | generator enforces argument order; type aliases resolved | bounded-source |
+| begin-to-bank | begin | begin_sfun | rc_entry_open / c_closure_self / borrow_rc_root / alloc_rc_roots | no direct Scheme call; locks and allocation dependencies remain | bounded-source |
+| bank-to-allocator | rc-bank | alloc_rc_roots | alloc_rc -> alloc_rc_no_register -> ALLOC_MEM | private native allocation followed by registration and FAL initialization | bounded-source |
+| allocation-leaf | malloc | alloc_mem | malloc or historical TempNewHandle branch | external allocator can only be sealed with selected target/effect profile | external-unresolved |
+| debug-leaf | logger | alloc_mem/free_mem | printf wrapper -> vfprintf -> fflush | external I/O; no direct Gambit GC shown | external-unresolved |
+| binding-mode | ext-mode | EXT wrapper | direct symbol or GSTATE function slot | all actual target writers must be excluded or version-leased | external-unresolved |
+| release-closure | rc-return | return_rc_root/release_rc | gate -> release_rc_locked -> optional FREE_MEM | free/logging effects included; malformed custody calls fatal_error | bounded-source |
+| lock-leaf | lock | RC gate operations | pthread mutex or ticket lock/CPU_RELAX | debug ticket variant reaches printf; no constant-time promise | external-unresolved |
+| fatal-callback | fatal | rc_custody_error | fatal_error -> setup callback or display -> exit | normal fast proof requires well-formed custody; no callback is assumed harmless | external-unresolved |
+| closure-self | global-self | dynamic trampoline -> begin_sfun | shared c_closure_self read after entry checks | identity must be captured reliably before borrow; supported architectures only | source-limitation |
+| static-tcl | closure-selector | SCMOBJ_to_FUNCTION | static c-define entry or dynamic make_c_closure fallback | do not assign dynamic self hazard to Tcl static entry | bounded-source |
+| converter-boundary | string-list | NONNULLCHARSTRINGLIST_to_SCMOBJ | NONNULLSTRING_to_SCMOBJ / make_pair -> alloc_scmobj | may collect after raw root prefix; current source includes GC slow path | bounded-source |
+| custom-c | custom-converter | c-type-converter | user supplied C converter name | prefix sealing cannot whitelist arbitrary C callouts by filename | external-unresolved |
+| error-propagation | error-exit | END_SFUN | end_sfun then propagate_error -> throw_error | C nonlocal exit after ordinary cleanup; abnormal prefix exits need stable custody | bounded-source |
+| default-signal | interrupt-default | heartbeat_intr | raise_interrupt -> pending/trip/abort notification | ordinary default is deferred; custom signal/cancel paths need own admission | bounded-source |
+
+** Issuer
+
+| key | source | signature | condition | gap |
+|---+---+---+---+---|
+| generated-prefix | sort | PrefixId, raw-input shape, converter cut, source map | all SCMOBJ aliases resolved and raw prefix precedes collecting conversions | generated C/custom declarator closure not fully qualified |
+| callee-lease | ext-mode | callee graph hash, selected ABI/config, binding generation, effect vector | all selected direct/indirect targets immutable for grant lifetime | native binding writer closure and loaded libc not proved |
+| source-owner | rc-borrow | StorageId, root span of every movable input, provenance and owner lifetime | durable protects procedure plus raw inputs; fast needs complete no-safepoint interval | procedure-only root is insufficient for arbitrary SCMOBJ arguments |
+| allocation-owner | rc-alloc | OperationId, stable intent, private result or published bank custody | intent before native allocator; stable pointer capture before release | allocator-return capture and arbitrary cancellation native proof missing |
+| entry-consumer | begin | same bank storage and source lease handed to NativeEntry | rooted bank becomes actual source for NativeEntry.publishCarrier | physical handle transfer/scan admission still unresolved |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| prefix-safety | conditional-model | 27 actions preserve root/intent coverage and mode separation |
+| entry-join | conditional-model | actual publishCarrier Step and Safe consumer seed; scoped root handoff premise |
+| callee-closure | unresolved | all selected allocator/free/lock/logging/indirect binding targets sealed through grant lifetime |
+| effective-profile | unresolved | actual loaded C23 configuration, symbol binding and libc effects qualified without assuming source snapshot equals binary |
+| source-set | unresolved | every movable raw SCMOBJ input and source identity covered; Tcl native buffers have separate lifetime |
+| allocation-capture | unresolved | native allocation-return to stable capture cannot abandon or has same-operation reconciliation custody |
+| nonlocal-exits | unresolved | fatal callback, cancellation, longjmp and nested host exits retain stable preparation custody |
+| dynamic-self | unresolved | supported dynamic closure identity binding replaced or excluded; no arm64 trampoline claim |
+| native-scan | unresolved | persistent source slots and bank span enter actual GC roster; locals reloaded after updates |
+| native-product | unresolved | prefix ownership and NativeEntry/NativeScope histories coupled through real C23 cuts; no global proof |
+
+** Gain
+
+| key | benefit | overhead | positive | refutation |
+|---+---+---+---+---|
+| qualified-fast | zero mandatory persistent source-root slots before publication | one effect/binding lease plus stable allocation intent; native allocation can still block | closed no-GC/no-reentry/no-abandon prefix and stable identity | no direct GC call is insufficient to sign fast permission |
+| durable | GC/reentry can preserve raw inputs through canonical roots | O(R) source slots/leases and post-GC reload for R movable roots | source set covers all inputs and native buffers remain valid | rooting only procedure misses raw arguments; rooted storage does not fix wrong source identity |
+| bank-reuse | one existing SFUN bank can feed NativeEntry; no mandatory duplicate bank | registration/storage handoff receipt and overlap scanning | bank lifetime/source span belongs to acknowledged consumer | pointer copy to registry is not a storage ownership transfer |
+| unknown | zero blind allocation/call replay before stable result is known | O(K) intent records for K pending operations; memory may remain unbounded | same operation owns record and reconciliation path | unknown pointer can remain unrecoverable; retention is not progress |
+| static-tcl | reuse static c-define and SCMOBJ-first vector prefix | Tcl owner/argv lifetime proof plus sealed native allocation path | same interpreter thread and no unqualified prefix callbacks | dynamic global self finding alone does not prove a Tcl static-entry bug |
+| modern-c | C23 can centralize effect leases, entry manifests and allocation custody | new checked adapters; all raw aliases and native ABI combinations must be qualified | retire managed-path ad hoc bootstrap only after complete caller migration | Zig does not remove effects, identity or C lifetime obligations |
+
+** Join
+
+| key | lemma | source | premise | status |
+|---+---+---+---+---|
+| fast-no-gc | NativePrefix.fastExcludesGc | begin | certified fast profile forbids GC before target roots; not a runtime detector | conditional-lemma |
+| identity-before-root | NativePrefix.wrongSelfCannotBorrowItsWayIn | global-self | correct source identity precedes any rooting claim | conditional-lemma |
+| reload-after-callback | NativePrefix.callbackReturnIsNotReload | logger | returned C local can be stale even when root slot is current | conditional-lemma |
+| unknown-retained | NativePrefix.unknownRetains | rc-alloc | stable intent and owned source/native inputs already admitted | conditional-lemma |
+| actual-entry-step | NativePrefix.prefixToEntryStep | begin | bank storage/source handoff and host facts are native premises | conditional-lemma |
+| entry-preserves-close | NativePrefix.preservesClosedIngress | begin | root preparation cannot reopen closed execution ingress | conditional-lemma |
+
+** Route
+
+| actionName | lemma | source | obligationId |
+|---+---+---+---|
+| selectPlain | NativePrefix.selectPlainPreserves | begin | prefix-safety |
+| selectCollecting | NativePrefix.selectCollectingPreserves | begin | prefix-safety |
+| selectReentrant | NativePrefix.selectReentrantPreserves | begin | prefix-safety |
+| selectAbandoning | NativePrefix.selectAbandoningPreserves | begin | prefix-safety |
+| selectOpaque | NativePrefix.selectOpaquePreserves | begin | prefix-safety |
+| selectWrongSelf | NativePrefix.selectWrongSelfPreserves | global-self | prefix-safety |
+| selectDebugIO | NativePrefix.selectDebugIOPreserves | logger | prefix-safety |
+| replaceBeforeGrant | NativePrefix.replaceBeforeGrantPreserves | ext-mode | prefix-safety |
+| grantFast | NativePrefix.grantFastPreserves | begin | prefix-safety |
+| grantDurable | NativePrefix.grantDurablePreserves | begin | prefix-safety |
+| denyProfile | NativePrefix.denyProfilePreserves | begin | prefix-safety |
+| closeAdmission | NativePrefix.closeAdmissionPreserves | begin | prefix-safety |
+| beginAllocation | NativePrefix.beginAllocationPreserves | rc-alloc | prefix-safety |
+| obtainNativeMemory | NativePrefix.obtainNativeMemoryPreserves | rc-alloc | prefix-safety |
+| enterHook | NativePrefix.enterHookPreserves | logger | prefix-safety |
+| returnHook | NativePrefix.returnHookPreserves | logger | prefix-safety |
+| gcRound | NativePrefix.gcRoundPreserves | collect | prefix-safety |
+| reloadRoot | NativePrefix.reloadRootPreserves | collect | prefix-safety |
+| captureOutcome | NativePrefix.captureOutcomePreserves | rc-alloc | prefix-safety |
+| publishInputs | NativePrefix.publishInputsPreserves | begin | prefix-safety |
+| abandonBeforeRecord | NativePrefix.abandonBeforeRecordPreserves | rc-alloc | prefix-safety |
+| loseRecordedResponse | NativePrefix.loseRecordedResponsePreserves | begin | prefix-safety |
+| recoverPrivateRecord | NativePrefix.recoverPrivateRecordPreserves | begin | prefix-safety |
+| recoverPublishedRecord | NativePrefix.recoverPublishedRecordPreserves | begin | prefix-safety |
+| releaseSource | NativePrefix.releaseSourcePreserves | begin | prefix-safety |
+| handoffBank | NativePrefix.handoffBankPreserves | begin | prefix-safety |
+| rollbackPlain | NativePrefix.rollbackPlainPreserves | begin | prefix-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| begin | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(___SCMOBJ,___begin_sfun) | source borrow, bank allocation, reload and registration order |
+| raw-prefix | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___BEGIN_SFUN_ARG_SCMOBJ(i) | raw input publication before other representations |
+| sort | vendor/gambit/gsc/_ptree2.scm | (append (keep scmobj-typ? numbered-param-typs) | resolved SCMOBJ types come first |
+| custom-converter | vendor/gambit/gsc/_ptree2.scm | (vector-ref def 2) | registered C type converter emits arbitrary named C call |
+| rc-alloc | vendor/gambit/lib/_mem/rc-allocation.inc | h = ___CAST(___rc_header*, ___ALLOC_MEM | native allocation before header initialization |
+| rc-bank | vendor/gambit/lib/_mem/rc-allocation.inc | void *___alloc_rc_roots | FAL initialization and root_count publication under gate |
+| rc-borrow | vendor/gambit/lib/_mem/rc-allocation.inc | ___SCMOBJ *___borrow_rc_root | root-cell lifetime and same-context checks |
+| rc-return | vendor/gambit/lib/_mem/rc-allocation.inc | void ___return_rc_root | valid return may reach free; invalid custody calls fatal path |
+| malloc | vendor/gambit/lib/os_base.c | ptr = malloc (bytes); | ordinary allocator; libc effects outside captured source |
+| logger | vendor/gambit/lib/os_base.c | result = vfprintf (stream, format, ap); | debug log also flushes stream; no direct Scheme dispatch in wrapper |
+| fatal | vendor/gambit/lib/os_base.c | ___GSTATE->setup_params.fatal_error (msgs); | explicit configurable callback; excluded from normal balance proof |
+| binding | vendor/gambit/lib/setup.c | = ___alloc_mem; | setup installs function pointer; later raw writers not closed by this assignment |
+| ext-mode | vendor/gambit/include/_gambit/module_generation.h.in | #define ___EXT(f)(___GSTATE->f) | late binding can go through mutable exported table |
+| alloc-macro | vendor/gambit/include/_gambit/runtime_protocols.h.in | #define ___ALLOC_MEM(bytes) | normal/debug ABI variants |
+| lock | vendor/gambit/include/_gambit/gvm_operations.h.in | #define ___SPINLOCK_LOCK(lock) ___MUTEX_LOCK(lock) | mutex/ticket variants; debug ticket path prints |
+| mutex | vendor/gambit/include/_gambit/activity_log.h.in | #define ___MUTEX_LOCK(mut) (pthread_mutex_lock | POSIX external primitive, not Scheme code |
+| global-self | vendor/gambit/lib/os_dyn.c | /* TODO: c_closure_self needs to be thread local */ | shared identity channel; a root borrow cannot repair wrong identity |
+| closure-support | vendor/gambit/lib/os_dyn.c | #ifndef C_CLOSURE_CODE_SIZE | unsupported trampoline path returns zero |
+| closure-selector | vendor/gambit/lib/c_intf.c | if ((*x = ___make_c_closure (obj, converter)) == 0) | c-define static entry is distinct from dynamic closure |
+| tcl-entry | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | ClientData snapshot then generated SFUN |
+| tcl-type | vendor/gambit/examples/tcltk/tcltk.scm | (scheme-object nonnull-char-string-list) char-string | one raw Scheme vector then string-list conversion |
+| string-list | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(___SCMOBJ,___NONNULLSTRINGLIST_to_SCMOBJ) | list builder calls string conversion and make_pair |
+| collect | vendor/gambit/lib/_mem/object-allocation.inc | if (___garbage_collect (___PSP words)) | still allocation can collect; boundary is before converters/marker |
+| error-exit | vendor/gambit/lib/setup.c | ___EXP_FUNC(void,___propagate_error) | nonzero error throws via caller catcher |
+| config-snapshot | vendor/gambit/include/config.h | /* #undef ___DEBUG_ALLOC_MEM */ | textual generated snapshot, not effective binary qualification |
+| interrupt-default | vendor/gambit/lib/os_setup.c | ___raise_interrupt (___INTR_HEARTBEAT); | default posts interrupt, not direct Scheme callback; routing remains external closure input |

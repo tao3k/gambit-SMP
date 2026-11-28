@@ -1,0 +1,144 @@
+#+TITLE: Startup Publication, Scheme Readiness and Native Slot Closure
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never :tangle no
+
+* Source ownership and retained failure
+:PROPERTIES:
+:AUTHORITY: GambitCopyCustody
+:SOURCE_BRANCH: modern-c
+:COMMIT_ADMITTED: false
+:END:
+
+[[file:models/sysml/copy-custody.sysml][SysML]] owns the contracts and handoffs; the component-specific
+[[file:models/quint/startup_custody.qnt][QNT]] and [[file:models/lean/StartupCustody.lean][Lean]] artifacts model startup separately from copy packing.
+The original frame-custody allocation failure and its exact source lock remain
+immutable. Its shared error message did not distinguish the first retry from
+slot reuse. Both the previous diagnostic and a new bounded forty-cycle
+same-yield diagnostic pass, so neither reconstructs the original execution.
+
+The caller error is nevertheless a real contract gap. =_thread.scm:1860= defines
+=thread-yield!= as a yield to Scheme threads on the same processor; the fast
+case keeps the current thread running. It does not acknowledge another native
+thread. A valid schedule can leave a newly published actor before Scheme entry
+for any finite number of those yields. The original 10000-yield condition is
+therefore not a sufficient completion proof. Raising that number is no repair.
+
+* Replaced responsibility chain
+
+#+NAME: startup-custody-handoff
+| Cut | Writer | Receipt | What it does not authorize |
+|-----+--------+---------+----------------------------|
+| Physical reservation | reserve_vm_resize | EMPTY plus NONE/known CLOSED; new fixed generation | Reusing an unknown native identity |
+| Context/root initialization | setup_pstate and resize coordinator | Rooted startup_thunk and immutable context generation before pthread_create | Scheme entry |
+| Member publication | resize coordinator under native gate | PUBLISHED plus RUN permission; new member set | Scheme initialization |
+| Native entry | start_processor_execution | Exact-generation PUBLISHED to NATIVE | Callback effect or scheduler-ready inference |
+| Marker/root entry | ___run | Rooted marker then NATIVE to SCHEME | Successful return or completed Scheme initialization |
+| Scheme initialization | both startup-processor! bodies | SCHEME to READY after processor initialization, before interrupts/scheduling | Native termination |
+| Retirement | old closed collective | Exact-generation READY plus external-root/borrow admission, then STOPPING | Successful join |
+| Close/reuse | coordinator after known join, or known never-entered rollback | CLOSED then EMPTY | Refund after unknown create/join |
+
+The fixed record uses no identity map. Generation exhaustion stays a refusal.
+An old actor cannot overwrite the next activation's ACK: slot overwrite requires
+known native close, and acknowledgment also compares the immutable context
+identity. A raw PSTATE retained by an unmanaged foreign caller is not admitted
+by this helper and still requires the broader FFI borrow protocol.
+
+Request generation and activation generation are distinct identities. An
+unchanged member keeps its birth generation when a later resize request is
+issued; it must not acknowledge that new request by rewriting its own birth.
+The same-count publication control exercises this distinction: the new managed
+request accepts already-READY older activations. The fixed-slot QNT models one
+activation lifecycle; refinement to an exact member/activation vector and the
+C request arbitration is still required. A raw foreign PSTATE alias cannot
+substitute for a retained immutable activation token.
+
+** Two completion contracts
+
+=___current_vm_resize= remains the asynchronous publication operation, required
+for arbitrary callbacks which can wait for their caller. The managed
+=___current_vm_resize_ready= operation is distinct: its callback must explicitly
+acknowledge Scheme initialization. Both use one request implementation. The
+standard =##cvmr= path moves to managed completion; it no longer infers readiness
+from member count or exposes that ambiguity to ordinary scheduler startup.
+
+The managed waiter runs after the resize synchronization loop, never inside the
+member-publication barrier. It holds no native mutex, uses the complete C-FFI
+root origin, and services pending synchronous operations, including GC. Waiting
+for the Scheme thunk to return would deadlock a scheduler that is meant to run
+indefinitely. READY is the completion endpoint. A superseding generation or a
+known returned/failed/stopping activation refuses a stale readiness receipt.
+Native scheduling fairness remains a liveness premise; CPU polling is a cost,
+not a startup-speed claim. Native acceptance keeps the original 25-second outer
+watchdog; no count or time limit is widened.
+If there are N members and R readiness polling passes, the selected implementation
+does O(N*R) state loads, plus synchronous services that were actually requested.
+There is no source-derived finite bound on R under arbitrary OS scheduling;
+lower CPU use would require a separately proved notification/participation protocol.
+
+** Independent native controls
+
+The managed fixture keeps allocation/create/unknown-join fault injection and
+rollback assertions, forces GC inside each startup callback before READY, and
+checks entry effects and exact-generation state immediately after the managed
+return. Its forty-cycle lane exercises two growth/retirement/reuse transitions
+per cycle. The separate publication control withholds ACK, runs exactly the old
+10000 Scheme yields, verifies no READY was fabricated, releases the real actors,
+and then obtains the managed receipt and performs GC/retirement. It is a
+reachable counterexample to publication/yield-count implying readiness, not a
+claim to reconstruct the old failing schedule.
+
+The unchanged multi-member isolation fixture also uses the old asynchronous
+request plus yield-count expectation. On this source it fails with exit 70 at
+healthy startup, before fault injection/unknown join. Its receipt is retained
+as real same-source counterevidence. A separate managed-caller derivative
+changes only that entry-completion contract and keeps the isolation body and
+watchdog; it passes the three-healthy-member/three-GC control. The ASCENT failure
+veto still sees the legacy failure. Neither receipt rewrites the other's scope.
+
+The collision preinclude initially included =gambit.h= before mem.c's
+=___INCLUDED_FROM_MEM= context, exposing existing public/internal RC prototype
+differences and failing compilation. That failed adapter and its header bytes
+are retained. The corrected test preinclude reproduces mem.c's original context
+and version before inclusion; it does not change production declarations.
+
+* Submission boundary
+
+A stronger explicit contract and scoped native controls do not establish the
+full C memory-model, arbitrary foreign callback, exception, scheduling or SMP
+refinement. The retirement/root protocol must remain coupled to those obligations.
+In particular, =execute_sync_op_loop= copies =___sync_op_struct= by value and
+VM resize is non-combining. Two pending resize calls can let the first request
+collect before the losing request executes. A copied C =arg[0]= is not itself a
+relocatable Scheme root. The one-request managed fixture does not close that
+window: the eventual redesign needs an origin-owned root handle and post-GC
+reload for every pending request, plus exception-safe release. This remains a
+source-refinement obligation rather than being hidden by the new READY receipt.
+The first compiler-host source-graph refusal, missing SDK support and ambient
+Nix-linker failure are retained separately from target runtime results. Restoring
+the exact qualified toolchain PATH is input fidelity, not a runtime repair.
+
+The retained native snapshot originally named the base bootstrap declaration
+and the asynchronous isolation caller. Maintained SysML routes identify the
+actual hosted recipe and the managed-caller derivative. The adapter validates
+the recipe digest against execution, the exact completion-only caller delta,
+and unchanged C-facing behavior/native scope; other substitutions are rejected.
+
+The authoritative runtime edits are =_kernel.scm= and =_thread.scm=. The managed
+producer regenerates their C and aggregate module bindings during the qualified
+bootstrap. The vendor checkout's checked-in bootstrap C is still historical.
+Regenerating and admitting those release artifacts, a stock bootstrap without
+the research AOT host, and non-C backend bindings are separate release gates.
+The current source lock does not claim those old generated files were updated.
+
+The derived intern catalog is a compact encoding of native SysML-evaluated
+artifact/scope/declaration tuples, with its digest bound into the model bundle.
+It is not a second layout/configuration authority. A token named =freeze= in
+=round_capacity.qnt= cannot pay a route requiring =copy_custody.qnt::freeze=;
+the ASCENT negative control removes only the latter. Declaration presence is
+still structural evidence and does not discharge a source/C simulation.
+The native reader limits a list to 256 items and the compiled program to 256
+rules. C-anchor inventory therefore has its own qualified positive/negative
+query; its exact-source result is a required premise of final evidence joins.
+The forty requirement tuples use native relation initial rows, and literal
+facts use bounded batches. No engine limit or proof obligation is removed.

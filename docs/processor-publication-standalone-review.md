@@ -6,7 +6,7 @@ passed the negative control, then Quint rejected the positive initializer with
 QNT409: `initializeFor` was reused for initialization and step contexts.
 This is a compiler translation denial, not a reachable ownership failure.
 The original log/model archive is preserved at
-`evidence/model-results/fixtures/vm-constructor-owned-rollback/processor-publication-init-alias-denial/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/vm-constructor-owned-rollback/processor-publication-init-alias-denial/`.
 
 The canonical model adds only `initStandaloneFixed`, with the exact body of
 `initializeFor(true, false, true)`. Original constructor entries, state fields,
@@ -20,7 +20,7 @@ threaded configurations are explored: memory failures, borrowed ownership,
 logging enabled/disabled and activity-log failures. Positive safety and progress
 pass over 1,050 distinct / 1,515 generated states in 4.551 seconds; the delayed
 cleanup control produces its expected counterexample. The new receipt is at
-`evidence/model-results/fixtures/vm-constructor-owned-rollback/processor-publication-contract/`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/vm-constructor-owned-rollback/processor-publication-contract/`.
 
 Because the canonical dependency changed, the full VM constructor models were
 requalified rather than transferring their old verdict. Four positive checks
@@ -28,7 +28,7 @@ and three negative controls pass with unchanged 90-second per-check caps:
 positive times 19.732, 19.866, 30.527 and 18.506 seconds. The full composition still
 explores threaded and nonthreaded configurations and its existing memory/backend
 domains. Fresh receipt:
-`evidence/model-results/fixtures/vm-constructor-owned-rollback/publication-rollback-dedicated-init-dependency/receipt.json`.
+`.cache/research/legacy-evidence/evidence/model-results/fixtures/vm-constructor-owned-rollback/publication-rollback-dedicated-init-dependency/receipt.json`.
 Only the current registry pointer changes; old receipts remain historical.
 
 The global collector now binds 80 bundles, 935 inputs, 85 models and 84 current

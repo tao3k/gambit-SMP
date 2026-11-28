@@ -19,6 +19,22 @@ not grant retry, source refinement or authorization.
 
 ## Python Entry
 
+The public Python Evidence API exports `engine_api` and `repository_clues`
+from `gambit_smp`. Normal Python introspection exposes their signatures,
+Scheme relation schema, slice response and checkpoint contract. The installed
+CLI for the same implementation is `gambit-smp trajectory clues`.
+Its `--help` exposes the Scheme declaration contract and source relation
+signatures. It evaluates caller-authored queries against registered Evidence
+and returns source-bound incremental slices; it requires no Context selection.
+The interface is documented in
+[the framework API](../../../docs/smp-trajectory-application.md#direct-logical-evidence-reads).
+
+## Low-Level Scenario Evaluation
+
+The following is the scenario's whole-view evaluation API, not the scoped
+incremental Evidence slice interface. It does not perform anchor selection,
+presentation folding or checkpoint comparison.
+
 `entry.json` names the component manifest, entry, constructor and source bindings.
 Python hashes and transports separate exact bytes; it does not concatenate this
 scenario, parse rules or implement inference. The Library links the dependency
@@ -58,7 +74,7 @@ the owner invalidates calls while already-owned result observations are independ
 Runtime ordinary Scheme procedures and mutable closure factories were removed
 from the current dependency asset and its declared exports under the explicitly
 approved declarative contract. Their exact old files and tests remain in
-`evidence/library/compiled-graph-057/contract-history`, not a compatibility path.
+`.cache/research/legacy-evidence/evidence/library/compiled-graph-057/contract-history`, not a compatibility path.
 The current dependency asset contains only statically lowered rule helpers.
 Aggregate, negation, lattice and recorded-only explanation boundaries are unchanged.
 This does not claim the old arbitrary-procedure or Actor API was implemented in

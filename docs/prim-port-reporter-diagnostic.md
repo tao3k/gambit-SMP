@@ -13,7 +13,7 @@ behavior difference; it does not prove that the behavior is correct.
 
 Use the existing sealed research framework and GNU GCC with recipe
 `smp-global-cleanup-prim-port-reporter-diagnostic`, defined in
-`evidence/research/vm-registry-reader-lease/prim-port-reporter.recipe.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/prim-port-reporter.recipe.json`.
 It selects the immutable global-cleanup completed producer and its source
 lock. It does not download or select a global installed runtime.
 

@@ -12,7 +12,7 @@ The reusable framework entrypoint is:
 ```sh
 uv run --locked gambit-smp recover-model --case ticket_queue_handoff \
   --from-dir "$RECOVERY_SOURCE_DIR" \
-  --out evidence/model-results/ticket-queue-handoff-raw-v2
+  --out .cache/research/legacy-evidence/evidence/model-results/ticket-queue-handoff-raw-v2
 ```
 
 Output directories must be fresh; the command documents the recovery procedure,

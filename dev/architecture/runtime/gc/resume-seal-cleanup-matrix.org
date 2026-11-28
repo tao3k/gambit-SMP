@@ -1,0 +1,122 @@
+#+TITLE: Whole-Round Resume Seal and Deferred Cleanup Matrix
+#+PROPERTY: header-args :eval never
+
+* Source caller matrix
+#+NAME: root-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| public-invocation-contract | doc/gambit.txi:19006-19044;lib/_kernel.scm:3884-3894 | Manual requires at-most-once release invocation; explicit call returns/raises using release result | Queue acceptance is not invocation/completion; error and timing cannot be redefined silently | Origin-specific adapters; opt-in effect/delay profile and public observation contract |
+| gc-sweep-and-teardown | lib/mem.c:4390-4451,4932-4935 | GC sweep and free_still_objs call release_foreign then free wrapper; cleanup_mem_pstate then frees RC chain | Deferred native dependencies can outlive wrapper/PSTATE; task enqueue cannot authorize native free | Detach only after stable accepted custody; drain or actually transfer RC/native/code ownership before teardown |
+| release-function-dispatch | lib/c_intf.c:1683-1711,5155-5189 | POINTER_to_SCMOBJ stores release_fn and native pointer; release_foreign clears both then invokes arbitrary C function | Cleared fields prevent retry; failure can follow destructive effects; source has no typed effect/affinity schema | Preinstalled descriptor/attempt; no raw clear-to-publish gap or blind replay |
+| conversion-rollback | lib/c_intf.c:5287-5312,5322-5347,5357-5382 | Three constructor conversions directly invoke release_fn on conversion failure | Ownership starts before a Scheme wrapper exists; new deferral can change return/error/cleanup ordering | Keep caller synchronous semantics unless separately qualified; reserve/native payload custody before failure transfer |
+| device-foreign-registration | lib/os_io.c:10162-10176,10458-10472 | Raw fd and stream constructors register device_cleanup_from_ptr and synchronously cleanup on wrapping error | Not every registration/rollback/leaf is qualified by one function pointer | Shared DeviceReleaseSpec plus per-leaf/origin profile; no installed-target coverage claim |
+| device-cleanup-waits | lib/os_io.c:1625-1681 | Unlink group; close read/write; EAGAIN waits in device_select; finally release | Destructive partial failures, unbounded I/O wait and native users; no proof of owner callback in this helper alone | Resumable direction/effect state and dedicated WaitContext; no group-unlink retry |
+| implicit-wait-context | lib/os_io.c:930-1023,1435-1488;lib/os_io.h:74-116 | select/poll uses stack-local state, PSTATE fdset and abort channel | Independent executor cannot borrow a released or destroyed context scratch lifetime | Owned wait buffers/capacity/wake endpoint; dependency pins and no managed collective in leaf wait |
+| error-versus-storage | lib/os_io.c:1603-1622,5831-5860 | device_release invokes virtual release then frees self even on error; close stage can change before OS error | Nonzero error does not imply native allocation alive or safe retry | Typed effects and allocation disposition; FailedFreed differs from AlivePartial/Unknown |
+| library-hidden-callbacks | lib/os_io.c:3948-3973,5124-5140;OpenSSL SSL_CTX_free documentation | TLS wrappers free strings, SSL_CTX/SSL and RC; configured session-remove callbacks may run inside SSL_CTX_free | Library call name is not a no-callback proof; local callback configuration/installed library unqualified | Bind effect profile to code/library/config revision; retain library and native dependency pins |
+| opaque-roots-and-shutdown | lib/mem.c:4023-4038,684-703,4932-4935;lib/setup.c:4572-4590 | FOREIGN scan is opaque; teardown frees still/RC before OS cleanup | Opaque payload is not a Scheme root descriptor; RC addref does not survive unconditional cleanup_rc | Existing traced root-domain ownership or rescan; drain/physical transfer before RC, wait, callback code withdrawal |
+| gc-recovery-consumers | lib/mem.c:6998-7085,4525-4568;lib/setup.c:1065-1113;include/gambit.h.in:10325-10334 | GC phases then resize/fudge/prepare, sync result delivery, CFUN register reload | RootAck/queue empty do not establish fresh fp/hp/limits, correct result or protected reload | Immutable WholeRoundResumeSeal plus current-generation active permit, safe error continuation and reload |
+
+* Benefit and peak-memory matrix
+#+NAME: root-costs-native
+| Capability | Removed work | Quantified bound | Added cost | Condition or falsifier |
+|---+---+---+---+---|
+| GC critical path | Move only qualified delayed release body off round-critical cleanup | Serial conditional work: old=Tcore+sum(Fi), new=Tcore+sum(Hi)+ledger/rescan costs | Reservation/handoff, root closure and new queue contention | Saving only if Fi exceeds Hi plus added costs and delay semantics permit; no measured time or universal positive benefit |
+| Task support | Reuse shared descriptor/queue/attempt/result machinery across eligible leaves | One reserve, acceptance, claim and terminal-publication transition per ordinary task; notifications/queries separate | Stable metadata, source/service custody and bounded admission pools | These are design operations, not four machine atomics or four syscall costs |
+| Root coverage | Preserve callback procedure/managed dependencies across delayed execution | Additional root scanning O(Rdeps); newly discovered roots require closed rescan before seal | Root-domain records, relocation-safe handles and retained dependency backing | Opaque foreign payload cannot silently become scanned; no new unseen managed edge after closure |
+| Native result ambiguity | GC can resume despite isolated native outcome uncertainty | Zero additional invocation on outcome query; zero refund without known disposition | Native task/backing retained, possibly indefinitely | Only effect-isolated admitted cohort; handoff/root/gate/capacity uncertainty still refuses resume |
+| Error and disposition | Avoid replay/free based on scalar error | At most one invocation per foreign release attempt; FailedFreed must not free again | Typed effect progress and allocation-disposition ledger | Current device_release can free on error; external close outcome and device-storage outcome differ |
+| Owner callback cycle | Publish accepted callback task then let owner reacquire before executing it | Cleanup waits handoff/root closure, not owner callback completion | Post-seal dispatch and activation/root/binding protocol | Unknown affinity/hidden callback or delayed-effect semantics rejects profile; no guaranteed callback latency |
+| Admission memory | Reserve delivery/root/native-dependency budget before released GC profile is admitted | For M admitted possible jobs: O(M) task slots plus exact retained native/root backing budget | Registration/reservation capacity can raise resident/peak memory | Pool failure before destructive transfer retains source; never block GC waiting for owner that waits for seal |
+| Whole-round peak | Keep physical backing distinct from wrapper retirement and receipt ACK | Peak=max_t(existing backing+task/receipt/wait pools+retained roots/native payload+quarantine) | Deferred cleanup may postpone native/RC/library release beyond this GC | Do not add independent maxima or refund on enqueue; no whole-round peak reduction proved |
+| Modern C architecture | Reuse Scheme semantic/FrameSpec output and C representation/conversion machinery | Zero additional Zig runtime-work reduction established | Both require effect/origin profiles, root transfer, stop/restore and ordering proofs | Modernization gain is role/ownership/phase separation, not a language-provided GC or automatic finalization proof |
+
+* Obligations and imported open premises
+#+NAME: root-needs-native
+| Need | Kind | Exact scope | Premise |
+|---+---+---+---|
+| RS-H | interleaving | resume_seal_cleanup:31-named-histories;safe;seed=17;100x100 | One selected foreign wrapper, one task/owner and one round; qualified semantic delay, isolation, roots, physical effects and safe error recovery are premises; no full-GC or real callback/fairness model |
+| RS-I | induction | GambitSMP.ResumeSealCleanup:missingCleanupRejects;missingRootsRejects;unknownCapacityRejects;unpreparedContextRejects;missingResultRejects;unknownWriterRejects;unknownBindingRejects;heldGateRejects;isolatedNativeOutcomeIndependent;queueOnlyInsufficient;unknownTransferRejects;noDelayPermissionRejects;acceptConserves;completionConserves;unknownRetainsCredit;stepConserves;traceConserves;unknownReleaseBlocksFree;errorCodeNotFreeAuthority;alreadyFreedRejectsRepeat;waitingOwnerCannotCallback;deferredCleanupBreaksThisCycle;staleSealRejected;acknowledgementNotZeroBacking;noReplayFromOutcomeLoss | 25 conditional declarations: complete seal gates, source/service credit Step/Trace, isolated outcome independence, disposition distinct from error, callback cycle and stale seal rejection; no all-action QNT/C simulation |
+| RS-SEAL | source-refinement | RS-SEAL:actual-source-refinement | Every admitted strong/weak/private/cleanup duty closes or has qualified deferred handoff; capacity success or safe-error outcome, context preparation, result delivery, binding, writer closure and current generation precede active permit; domain-wide finalizer inventory required |
+| RS-HANDOFF | source-refinement | RS-HANDOFF:actual-source-refinement | Reserve before destructive wrapper retirement; canonical task owns payload/dependencies/credits and accepted decision before source drops custody; queue notification or transport loss is not acceptance/completion |
+| RS-ROOTS | source-refinement | RS-ROOTS:actual-source-refinement | Foreign payload is opaque to scan; deferred managed dependencies must already be traced and rooted or trigger pre-seal rescan; native/RC/code/library storage survives actual cleanup_rc and old-reader drain |
+| RS-DISPATCH | source-refinement | RS-DISPATCH:actual-source-refinement | Only qualified native-only execution may overlap GC; owner/managed callback waits until active permit and rooted activation, while cleanup never waits for that callback; explicit WaitContext replaces PSTATE scratch |
+| RS-ORIGINS | source-refinement | RS-ORIGINS:actual-source-refinement | GC, explicit foreign-release!, constructor rollback and teardown have different invocation/error/timing contracts; at-most-once invocation preserved and delay permission is explicit, not inferred from unreachable wrapper |
+| RS-RECOVERY | source-refinement | RS-RECOVERY:actual-source-refinement | Unknown handoff/root/writer/capacity/binding/gate states refuse resume; isolated native result unknown may retain resources while GC resumes; typed effect/disposition forbids replay or refund inferred from scalar error |
+| RS-ORDER | native-memory-order | RS-ORDER:actual-C-memory-refinement | Release/acquire handoff/terminal/seal publication, code/root/native pin drain, generation wrap and external effect/stop boundary require actual C/platform refinement; no arbitrary owner-death repair |
+| RA-FINISH | source-refinement | RA-FINISH:actual-source-refinement | Strong termination includes pending/owned/private/ready/quarantined root and descendant obligations, separate weak generation and cleanup; empty queues or idle count alone not proof |
+| RA-RETURN | source-refinement | RA-RETURN:actual-source-refinement | RootAck never implies ResumeSeal; weak continuation movement, cleanup, capacity/fudge/context preparation and synchronized result delivery complete before active permit and reload |
+| RA-WAIT | source-refinement | RA-WAIT:actual-source-refinement | Workers/coordinator never wait for the same return permit, metadata gate or owner-affine destructor needed by round completion; complete wait graph, finite producers, worker capacity and fairness remain source/progress duties |
+| RA-ORDER | native-memory-order | RA-ORDER:actual-C-memory-refinement | Task publication, claim/attempt fencing, stable Ready result, stop/checkpoint transfer and whole-round seal use proved C happens-before and lifetime ordering; no volatile-only, timeout or machine-wrap qualification |
+| NR-COVERAGE | source-refinement | NR-COVERAGE:actual-source-refinement | Point-specific live roots include exported GVM registers, saved values, type caches, frame/denv roots, host locals and all RC domains; address/location coverage, lifetime and writable relocation slots required; no arbitrary C-stack inference |
+| NR-REENTRY | source-refinement | NR-REENTRY:actual-source-refinement | Reentry request closes new round admission, honors already-enlisted pending/in-flight root scans, validates current epoch/roots/binding and grants active participation before reload; no second scan may race protected reload; metadata pins retire after use |
+| NR-FFI | source-refinement | NR-FFI:actual-source-refinement | Acquire callback permission before RC payload/marker access, root proc before allocation, retain suspended parent activation roots, publish fresh parent view on callback exit; unknown writers, closure identity or nonlocal exit reject transfer |
+| NC-ENVELOPE | source-refinement | NC-ENVELOPE:actual-source-refinement | Publish qualified native participation and frozen context roots before acceptance; no-escape raw-enter through ready publication: cancellation/handler policy established before acceptance; no Scheme checkpoint, callback, logging, foreign unwind or local-only result ownership; OS preemption remains allowed |
+| NC-RESTORE | source-refinement | NC-RESTORE:actual-source-refinement | Before restoring masks/cancellation or propagating Scheme errors: release gate, publish outcome, retain result/root in stable service and restore VM/processor binding; stopped owner recovery needs independent scan/stop evidence |
+| RX-S | source-refinement | RX-S:actual-source-refinement | Initial relation, every real source action/stutter, concrete observation reflection and progress; freeze/last-use/drain/issue permit/reclaim; unknown outcomes retain custody; reopened generation invalidates permit |
+
+#+NAME: root-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| RS-SEAL | RS-H |
+| RS-SEAL | RS-I |
+| RS-HANDOFF | RS-H |
+| RS-HANDOFF | RS-I |
+| RS-ROOTS | RS-H |
+| RS-ROOTS | RS-I |
+| RS-DISPATCH | RS-H |
+| RS-DISPATCH | RS-I |
+| RS-ORIGINS | RS-H |
+| RS-ORIGINS | RS-I |
+| RS-RECOVERY | RS-H |
+| RS-RECOVERY | RS-I |
+| RS-ORDER | RS-H |
+| RS-ORDER | RS-I |
+| RS-ORDER | RA-ORDER |
+| RS-SEAL | RA-FINISH |
+| RS-SEAL | RA-RETURN |
+| RS-SEAL | RA-WAIT |
+| RS-HANDOFF | RA-WAIT |
+| RS-HANDOFF | RX-S |
+| RS-HANDOFF | NC-ENVELOPE |
+| RS-ROOTS | NR-COVERAGE |
+| RS-ROOTS | RS-HANDOFF |
+| RS-ROOTS | NR-FFI |
+| RS-DISPATCH | RS-ROOTS |
+| RS-DISPATCH | NR-REENTRY |
+| RS-DISPATCH | RA-WAIT |
+| RS-ORIGINS | RS-HANDOFF |
+| RS-ORIGINS | RX-S |
+| RS-ORIGINS | RS-DISPATCH |
+| RS-RECOVERY | RS-SEAL |
+| RS-RECOVERY | RS-HANDOFF |
+| RS-RECOVERY | NC-ENVELOPE |
+| RS-RECOVERY | NR-REENTRY |
+| RS-SEAL | RS-ORDER |
+| RS-SEAL | RS-ROOTS |
+| RS-SEAL | RS-ORIGINS |
+| RS-RECOVERY | NC-RESTORE |
+
+* Scoped closure observations
+#+NAME: root-closure-observed
+| Need | Current evidence | Source/runtime boundary |
+|---+---+---|
+| RS-H | Exact local formal root | Conditional model only; no C simulation |
+| RS-I | Exact local formal root | Conditional model only; no C simulation |
+| RS-SEAL | Unresolved source or native-order obligation | No source-simulation root |
+| RS-HANDOFF | Unresolved source or native-order obligation | No source-simulation root |
+| RS-ROOTS | Unresolved source or native-order obligation | No source-simulation root |
+| RS-DISPATCH | Unresolved source or native-order obligation | No source-simulation root |
+| RS-ORIGINS | Unresolved source or native-order obligation | No source-simulation root |
+| RS-RECOVERY | Unresolved source or native-order obligation | No source-simulation root |
+| RS-ORDER | Unresolved source or native-order obligation | No C-memory/platform refinement root |
+| RA-FINISH | Unresolved source or native-order obligation | No source-simulation root |
+| RA-RETURN | Unresolved source or native-order obligation | No source-simulation root |
+| RA-WAIT | Unresolved source or native-order obligation | No source-simulation root |
+| RA-ORDER | Unresolved source or native-order obligation | No source-simulation root |
+| NR-COVERAGE | Unresolved source or native-order obligation | No source-simulation root |
+| NR-REENTRY | Unresolved source or native-order obligation | No source-simulation root |
+| NR-FFI | Unresolved source or native-order obligation | No source-simulation root |
+| NC-ENVELOPE | Unresolved source or native-order obligation | No source-simulation root |
+| NC-RESTORE | Unresolved source or native-order obligation | No source-simulation root |
+| RX-S | Unresolved source or native-order obligation | No source-simulation root |

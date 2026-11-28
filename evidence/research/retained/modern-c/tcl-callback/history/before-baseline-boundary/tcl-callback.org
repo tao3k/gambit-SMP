@@ -1,0 +1,179 @@
+#+TITLE: Tcl callback stable identity and active owner contract
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: QUALIFYING BLOCKED | PUBLISHED
+#+PROPERTY: header-args :eval never
+
+* BLOCKED Tcl callback entry and normal-return ownership :roots:refactoring:audit:
+:PROPERTIES:
+:CUSTOM_ID: ROOT-TCL-CALLBACK
+:AUTHORITY: GambitTclCallback
+:SOURCE: models/sysml/tcl-callback.sysml
+:AUDIT_NUMBER: 3.5.2.4
+:BASE: 4b9d8656b678100f2172492580e7ec294d05b935
+:END:
+
+** Complete responsibility and actual source consumers
+
+The original scheme_call_cmd reads a Scheme vector from ClientData before calling
+its generated Scheme entry. SFUN conversion of strings and marker construction
+can collect before the Scheme body consumes that value. Command deletion invokes
+scheme_delete_cmd, which releases the still vector and Tcl's RC owner. Command
+existence and in-flight callback ownership must therefore be represented separately.
+
+The callback now adds an existing RC owner before reading any Scheme payload.
+It passes the stable native RC identity into the changed private tcltk_call ABI.
+The real c-define converts that pointer and the existing string list, builds its
+marker and only then reads the GC-updated vector through the existing data_rc API.
+The normal C return releases exactly that callback's RC owner. Tcl deletion releases
+only the command's owner; outer and inner callbacks retain independent owners.
+The Scheme name and Tcl result/string ownership remain; no parallel namespace,
+root table, API, runtime field or execution framework is introduced.
+
+The existing optional test-tcl-command compiles the real production header and a
+source-equal copy of the production Scheme entry, through the actual GSC generator.
+A narrow C entry adapter forces GC before entering that generated converter. The
+callback body forces GC again, recursively invokes the command, or deletes it
+from the inner/outer callback. The original construction suite still runs first.
+The existing process replay/shrink driver is reused; no additional test SCM exists.
+The old header callback is retained exactly except symbol renaming and a typed
+probe entry. The probe reads the actual RC refcount; the same old function first passes with an
+externally supplied callback owner, then fails without it. It observes absent
+callback ownership before any destructive
+GC/delete; it is not an assertion that an old generated ABI survived forced GC.
+
+** Conditional ownership argument and memory order
+
+Let C be1 while Tcl owns the registered command, A the number of active pinned
+callbacks, and R the RC count contributed by these participants. R=C+A. Valid
+owner-thread Tcl dispatch provides a live initial C before the first pin. Each
+callback increments R before allocation or reentry, nested deletion decrements C,
+and each normal callback return decrements A. R cannot reach zero while A>0.
+The existing RC mutex supplies acquire/release around count/unlink operations;
+no new atomics are needed for this synchronous owner-thread boundary. The RC cell
+stays in its existing scan domain; moving collection updates its vector/procedure
+edges. The raw native identity has no moving Scheme address embedded in it.
+
+The command constructor is the only admitted writer of its RC payload: proc first,
+then the owned still vector before Tcl publication. Callback code does not rebind
+that cell. Arbitrary Tcl_GetCommandInfo mutation, cross-thread/VM invocation,
+interpreter destruction or global cleanup is outside this source/lifetime premise.
+The existing RC addref overflow path is contract failure; it grants no phantom pin.
+
+Counterexamples: releasing Tcl's sole owner during an unpinned callback can retire
+the record before outer return. Pinning only after reading the payload preserves
+a stale address across earlier conversions. Passing a raw SCMOBJ while retaining
+only the native record does not force generated C locals to reload after GC.
+A count inferred only from command existence fails nested deletion. A normal-return
+pin cannot prove arbitrary continuation/exception escape through Tcl cleans up.
+That last case is explicitly open; it must not be presented as full CFFI closure.
+
+** Platform evidence and exclusions
+
+The fixed [[https://github.com/tcltk/tcl/blob/core-9-0-3/generic/tclBasic.c][Tcl source]] shows InvokeStringCommand dispatching proc/clientData
+and Tcl_DeleteCommandFromToken invoking deleteProc during command deletion.
+This explains why an application's active callback needs its own lifetime owner.
+The actual provider's version/header/library hashes are recorded separately;
+release-tag source is not claimed byte-equivalent to that binary.
+
+Only valid interpreter-owner calls returning normally are admitted. Arbitrary
+Scheme exceptions or multi-shot continuations escaping across Tcl, foreign thread
+cancellation, physical allocation failure, interpreter/global teardown and the
+dynamic C-closure trampoline are not qualified. Gambit's multi-shot continuation
+semantics are unchanged; this cut does not restrict them to one-shot operation.
+Existing QNT owns competing root/task histories and Lean distinct conditional laws;
+neither is duplicated, rerun, or claimed to prove this concrete C-to-Scheme adapter.
+
+** Benefit and new cost questions
+
+| Question | Mechanism / required evidence | Remaining boundary |
+|----------+-------------------------------+--------------------|
+| What retires? |Raw Scheme payload argument before allocating entry; command-only RC lifetime |Other native borrowers and complete writer census |
+| What becomes possible? |Nested command deletion retains active callback roots until the last normal return |Nonlocal exit and cross-owner callbacks |
+| What support is reused? |Public addref_rc/release_rc/data_rc and existing RC scanner |No new pin registry or root record |
+| What is added? |Two existing RC gate intervals; one pointer foreign wrapper/decoder per entry |Actual generated wrapper release must be checked |
+| What is saved? |Eliminates a stale-address and premature-retirement ownership premise |No claimed CPU, throughput or whole-round RSS reduction |
+| Why is it structural? |Native identity crosses the boundary, Scheme reloads only after entry conversion; callback owner survives command retirement |Composed source freeze/lifetime union remains3.6 |
+
+** Accounted space and calibration boundary
+
+The pointer converter allocates a foreign wrapper of3 payload words plus6 still
+words:72 accounted bytes at the recorded8-byte word profile, excluding allocator
+and alignment overhead. The generated END_SFUN_POINTER conversion releases its
+SCMOBJ reference on normal return; physical reclamation waits for still sweep.
+Thus unswept wrappers as well as active entries contribute to peak space. Deleting
+a command during a callback additionally retains its existing7-word vector and
+reachable Scheme graph until callback release; this is conditional retention, not
+a fixed whole-round RSS estimate. No new native allocation/root table is added.
+
+The first exploratory negative probe returned a fixed failure and is rejected as
+independent evidence. Its receipt is retained as superseded; only the calibrated
+count-observing probe, including its positive control, can satisfy publication.
+A generated-code inspection initially expected an expanded C converter name;
+actual GSC output uses BEGIN/END_SFUN macros. Source refinement now follows those
+macros to the actual converter and normal-return release, with the full binding
+compiled independently. No source/runtime failure was hidden by that inspection
+correction, and no resource limit changed.
+
+If C control never returns, this leaf supplies no independent recovery receipt for
+the extra RC reference. It can retain the record/object graph and impede owner
+domain teardown. That cost is explicit and remains an activation/exception-boundary
+obligation; a passing normal-return history is not evidence that unknown outcomes
+can release it. No result claims full callback or CFFI lifetime closure.
+
+** Actual results and publication hold
+
+[[file:../../../evidence/research/retained/modern-c/tcl-callback/source.json][The four-file source cut]] reconstructs candidate tree626c9f19 from4b9d8656 and records
+the actual vendor working merge. [[file:../../../evidence/research/retained/modern-c/tcl-callback/source-custody.json][Prior index/working versions]] remain reconstructible.
+The tests Make working file also retains its unrelated prototype hunks: the whole
+working tree is not the qualified candidate. No real index entry was changed.
+
+| Check / progress | Actual result | Admission boundary |
+|------------------+---------------+--------------------|
+| Source bootstrap |131.163s; phase1--4 twice; stock core31.874s |Actual production code before test-only calibration |
+| Final calibrated producer |Reused after byte-bound non-test source/configuration/generated/native equality |No zero-work claim for the earlier bootstrap; no second workspace |
+| Real Tcl target |15.042s; Tcl9.0.3;294 new actions and300 existing constructor actions |Owner-thread, same execution owner/VM, normal-return cases |
+| Negative-control calibration |Same old callback passes with external RC owner, fails without it |Actual refcount observation; fixed-failure probe rejected |
+| Shrink/replay |13 to1 deletion-one-minimal; both exported files replayed |Finite actual-implementation evidence, not arbitrary scheduling |
+| Production binding |Full tcltk.scm generated and compiled to object |No GUI/Tk display or every Tcl version qualification |
+| Before test-only calibration |GSI408/40819.572s; remaining Make57.097s |Historical same producer observation, not the final candidate's pass |
+| Final candidate GSI |407/408 twice;13.318s and13.339s |Both line41 inactive-thread failures retained; no third retry |
+| Final remaining Make |50.051s, all original prerequisites other than separately failed test11 |No manifest shrink; never relabelled full check success |
+| Actual service admission |Refused incomplete native source cut |Tests gate open; no five-gate packet, commit or push |
+| Pending inventory |123 staged/15 unstaged/0 untracked;130 unique paths |128 net HEAD plus2 index-only;15 review units |
+| Main programme |Working at3 of13 responsibilities; ROOTS4 scoped closed/2 open |3.5.2.4 unsubmitted; parent3.5.2/3.5/3.6 open |
+| Independent SMP12 |1 qualified prerequisite family/11 open |No repair-line or scoped PBT credit transferred |
+
+[[file:../../../evidence/research/retained/modern-c/tcl-callback/receipt.json][The scoped receipt has complete=false]]. [[file:../../../evidence/research/retained/modern-c/tcl-callback/retained-thread-failures.json][Both final GSI failures]] remain independent of
+focused successes. The final gsi, gsc and seed match4b9d8656 byte-for-byte; the
+original unit sources are unchanged. That supports source attribution, but does
+not transform either407/408 execution into a pass or authorize a weaker gate.
+[[file:../../../evidence/research/retained/modern-c/tcl-callback/admission.json][The existing submission service's refusal]] prevents a REV before native evidence closes.
+No commit/push was attempted; remote CI on4b9d8656 cannot qualify this working tree.
+
+The existing =test-tcl-command= target runs both the original construction suite
+and =--tcl-callback= through the shared root-task runner. Its Tcl tools/flags are
+resolved from the environment and actual provider configuration; [[file:../../../evidence/research/retained/modern-c/tcl-callback/dependency.json][provider identities]]
+are bound separately. The [[file:../../../evidence/research/retained/modern-c/tcl-callback/tcl-callback-legacy-minimal.trace][old minimal history]] and [[file:../../../evidence/research/retained/modern-c/tcl-callback/tcl-callback-current-minimal.trace][current replay history]] are durable inputs.
+No extra SCM/framework, profile, source workspace, heap, wait, timeout or duplicate
+QNT/Lean model was introduced. The outer supervisor remains separate from the
+unchanged producer600s, GSI300s and remaining-Make120s domain limits.
+
+Next preserve this candidate and its veto without another blind GSI retry. The
+remaining admission duty is the original-consumer gate, not a demand to fold the
+scheduler/Repair9 into this leaf. Any proposed baseline-failure qualification rule
+must be explicit and independently modeled; this work did not create one after
+observing failure. Nonlocal control, command/interpreter owner migration and
+activation cleanup remain separate future responsibilities.
+
+** Checked model and final custody
+
+[[file:../../../evidence/research/retained/modern-c/tcl-callback/formal.json][Native SysML/ASCENT results]] validate26 model inputs and four source premises.
+Eleven of twelve required native cases are supported; original-consumers is
+missing. Current ready is empty and the exact missing-case gap remains. Twenty-four
+independent rejection controls use an explicitly hypothetical complete input for
+calibration, not fabricated native evidence. Existing QNT/Lean and shared DSL
+hashes are unchanged. [[file:../../../evidence/research/retained/modern-c/tcl-callback/final-audit.json][The final custody audit]] verifies the actual SDK/source tree,
+all130 queued paths, unchanged123-path prototype index and2229 unselected working
+paths. [[file:../../../evidence/research/retained/modern-c/tcl-callback/remote.json][The remote observation]] records six successful existing4b9d8656 jobs;
+there is no candidate commit or candidate CI run.

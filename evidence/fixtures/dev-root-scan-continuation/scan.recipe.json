@@ -1,0 +1,167 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-root-scan-continuation",
+  "scope": "Quint controls for one continuation contract, one root-scan arbitration, and one GC recheck: current roots stay distinct from the saved stack, a pending view cannot be retired before reload, and a stale predicate still receives the publication notification. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 220,
+  "inputs": [
+    "models/gambit/continuation_saved_stack_origin.qnt",
+    "models/gambit/continuation_contract.qnt",
+    "models/gambit/root_scan_arbitration.qnt",
+    "models/gambit/gc_recheck_visibility.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-root-scan-continuation/binding.json",
+    "evidence/fixtures/dev-root-scan-continuation/observations.json",
+    "evidence/fixtures/dev-root-scan-continuation/scan.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "cont-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/continuation_contract.qnt"
+      }
+    },
+    {
+      "id": "cont",
+      "capability": "quint.test",
+      "dependsOn": [
+        "cont-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/continuation_contract.qnt",
+        "parsed": "cont-parse",
+        "main": "continuation_contract",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "currentAndSavedDistinctTest",
+          "savedTraversalTest",
+          "currentRootsAloneControlTest"
+        ]
+      }
+    },
+    {
+      "id": "scan-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/root_scan_arbitration.qnt"
+      }
+    },
+    {
+      "id": "scan",
+      "capability": "quint.test",
+      "dependsOn": [
+        "scan-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/root_scan_arbitration.qnt",
+        "parsed": "scan-parse",
+        "main": "root_scan_arbitration",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "enlistedPendingHasCustodianTest",
+          "returnCannotCancelOwedClaimTest",
+          "returnDuringClaimTest",
+          "claimReplyUnknownKeepsOwnerTest",
+          "readyReplyLostQueriesSameRecordTest",
+          "rootAckStillOwesChildTest",
+          "childBeforeRootAckTest",
+          "rootDoneDoesNotGrantReturnTest",
+          "weakStillMayMoveFramesTest",
+          "roundSealThenProtectedReloadTest",
+          "retireOnlyAfterReloadTest",
+          "idleWorkerExitKeepsPendingTest",
+          "freshCheckpointExitTest",
+          "partialCheckpointResumeNoRepeatTest",
+          "lateOldGenerationRejectedTest",
+          "unknownWriterKeepsDebtTest",
+          "stopAloneNotRecoveryTest",
+          "noCheckpointNoRequeueWitnessTest",
+          "pendingViewLifetimeTest",
+          "weakRequiresDescendantDrainTest",
+          "newEpochRejectsOldClaimTest",
+          "replacementWorkerFinishesRoundTest",
+          "earlyPermitCounterexampleTest",
+          "queueEmptyDropClaimCounterexampleTest",
+          "restartPartialCopyCounterexampleTest",
+          "duplicateUnknownClaimCounterexampleTest",
+          "retirePendingViewCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "recheck-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/gc_recheck_visibility.qnt"
+      }
+    },
+    {
+      "id": "recheck",
+      "capability": "quint.test",
+      "dependsOn": [
+        "recheck-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/gc_recheck_visibility.qnt",
+        "parsed": "recheck-parse",
+        "main": "gc_recheck_visibility",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "publicationBeforeRegistrationTest",
+          "stalePredicateStillGetsNotificationTest",
+          "publicationAfterRegistrationTest",
+          "visiblePredicateRetainsOwnershipTest",
+          "completedMutexHandoffRequiresVisibilityTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "cont-parse",
+        "cont",
+        "scan-parse",
+        "scan",
+        "recheck-parse",
+        "recheck"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-root-scan-continuation/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

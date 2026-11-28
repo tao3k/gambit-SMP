@@ -1,0 +1,152 @@
+#+TITLE: Runtime / TLS — bootstrap, checked status, epoch and shutdown matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitRuntimeTlsReady
+:END:
+Safety-model closure does not certify native caller coverage, C23 execution or performance.
+
+** Gain
+
+| key | saved | added | condition | status |
+|---+---+---+---+---|
+| status-unification | can consolidate4 unchecked Unix allocator-key operation sites with checked native key policy | status-normalized backend, key storage modes and operation/lifetime receipts | reuse checked policy not blindly malloc-backed helper in bootstrap; current paths retired0 | source-bound/conditional |
+| readiness | one runtime gate replaces using unrelated plain/volatile flags as complete service authority | one release publication and matching cold-entry acquire/lifetime admission | all native readers migrate; no global atomic required on every object under held owner scope | conditional-model |
+| fast-rebind | preserve fast TLS benefit while rejecting old cache epoch after thread-only cleanup/rebind | fast-handle clear/epoch metadata and validated current handle refresh | same-thread raw fast access cannot bypass closing; finite1->2 witness only | conditional-model |
+| late-work | can avoid early key/cache teardown followed by implicit TSD/cache recreation | phase-limited finalizer permits and derived-work accounting; cannot delete legitimate callback work | real source repeat cleanup is known; whole callback DAG still incomplete | conditional |
+| retirement | explicit cache then generic/allocator key and service retirement gates | all-owner roster, unknown-operation custody and provider quiescence | no native liveness guarantee or measured speedup; source order must actually migrate | unresolved |
+
+** Consumer
+
+| key | source | access | lifetime | limit |
+|---+---+---+---+---|
+| generic-vs-allocator | generic-key | two distinct key families and key-storage ownership conventions | generic TSD subsystem versus allocator cache service | generic checked helpers allocate key wrappers; recursion dependency must be preserved |
+| unix-allocator | unix-set | unchecked allocator pthread key/create/set/clear/delete sites | live key plus current OS thread and cache epoch | normal void return and NULL destructor do not supply cleanup receipts |
+| windows-allocator | windows-status | TlsAlloc/Get/Set/Free checks and panic paths; once flag controls creation | native loader/bootstrap, key and thread state | not proof of concurrent init, panic unwinding or loaded ABI |
+| fast-getter | fast-slot | native __thread pointer returned when nonnull in legacy macro | owner scope and matching runtime/cache epoch in replacement | Tcl_FinalizeThread returning does not retire OS TLS storage |
+| finalizer | tsd-recreate | exit callbacks and later cleanup can recreate TSD; limited authorized work continues after public close | parent cleanup permit and phase-valid services | no Tcl_Obj service after its own finalization; no blanket full Ready |
+| global-retire | all-threads | cache alias drain, complete roster, both key deletions and final provider teardown | stable runtime supervisor until all statuses known | model1 owner and at most2 cache epochs does not prove unbounded admission/ABA |
+
+** Issuer
+
+| key | source | signature | gap |
+|---+---+---+---|
+| bootstrap-owner | static-bootstrap | pre-reserved native domain and permitted completed bootstrap services; no self-wait/full Ready escalation | source init comment notes callbacks, complete callees/recursive paths unqualified |
+| key-owner | unix-key | observed create/set/delete status tied to key/runtime/thread/cache incarnation | specialized Unix void return cannot certify success; ignored OS result must change |
+| fast-owner | fast-slot | same native thread clears/publishes fast handle at exact cache epoch; active scopes drain | static TLS not externally writable and source fast finalization reset not shown |
+| shutdown-owner | exit-callback | inherit cleanup capabilities before public close, settle children and all owners before keys/provider die | all-thread comments/second cleanup pass are not a completion receipt |
+| memory-order-owner | plain-flags | matching release/acquire edge and stable metadata handle, exact same publication epoch | volatile or unrelated mutex read cannot manufacture that edge |
+
+** Writer
+
+| key | source | access | closure | limit |
+|---+---+---+---+---|
+| global-flags | global-init | subsystemsInitialized, listLockPtr and allocator table fields are different publication families | captured ordered stores | complete callers/launch serialization not proved |
+| posix-status | unix-key | 4 unchecked specialized pthread key create/set/clear/delete results | captured provider bodies | checked generic TLS helper semantics cannot be silently substituted |
+| windows-status | windows-status | checked TlsSetValue/Free/Get/Alloc, panic exits and once flags | captured provider bodies | native error/panic/SEH and init concurrency unresolved |
+| fast-tls | fast-slot | tcachePtr assignment in GETCACHE; no source reset in captured finalizers | captured macro and call chain | legal post-finalize reentry and all raw readers need qualification |
+| exit-callbacks | exit-callback | handlers popped then called; cleanup afterwards and repeated TSD finalization | captured event/thread/TSD functions | all callback implementations and inherited task production unresolved |
+| provider-free | allocator-finalize | legacy synchronization/key/cache/provider destruction order | captured direct calls | actual all-native-thread roster and every unknown operation not yet closed |
+
+** Refinement
+
+| key | lemma | source | premise |
+|---+---+---+---|
+| global-ready | RuntimeTlsReady.runtimeReadyHasServices | global-init | native service subset only, not complete Tcl object/IO/language readiness |
+| cache-protects-key | RuntimeTlsReady.cacheRetainsServices | unix-clear | pending/Ready/closing cache retains both key families and allocator tables |
+| unknown-owner | RuntimeTlsReady.unknownInstallRetainsOwner | unix-set | unknown set/clear keeps native owner duty; no assumption of physical value |
+| no-free-alias | RuntimeTlsReady.freeHasNoAliases | free-before-clear | managed order intentionally stronger than legacy free-before-clear |
+| late-parent | RuntimeTlsReady.lateWorkRetainsParent | tsd-recreate | one modeled derived-work credit; full producer closure is external |
+| ready-order | RuntimeTlsReady.readyHappensBefore | plain-flags | given matching release/acquire edge plus initialization/read program order; not inferred from volatile |
+| retire | RuntimeTlsReady.retiredHasNoServices | all-threads | one-owner cohort witness, checked key delete and provider drain |
+| parent-install | RuntimeTlsReady.guardedPriorInstall | prior | explicit install-receipt mirror into actual prior Guard/Step; full product not proved |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| service-safety | conditional-model | one admitted owner, stable supervisor, epoch-stamped handles and authoritative key/install/clear outcomes |
+| platform-source | source-bound | five newly captured files match immutable tree blob/size; POSIX/Windows policies and call chains distinguished |
+| bootstrap-reentry | unresolved | all initialization callback targets, partial capability DAG and static-lock/direct allocator closure |
+| status-provider | unresolved | Unix statuses must be observed or qualified; Windows panic/nonreturn/SEH and exact operation outcomes |
+| fast-thread-exit | unresolved | all raw fast readers, explicit same-thread invalidation or verified OS-thread-death/join; returned finalization is not death |
+| roster-cleanup | unresolved | all admitted native owners and inherited finalization producers close; repeat TSD and every unknown result settled |
+| c23-order | unresolved | real matching release/acquire/reads-from at same runtime and cache epoch; legacy plain/volatile flags not proof |
+| full-refinement | unresolved | loaded platform profile, arbitrary owner count/epochs, native CFG and full parent product not established |
+
+** Route
+
+| actionName | lemma | source | obligation |
+|---+---+---+---|
+| beginThreadClose | RuntimeTlsReady.beginThreadClosePreserves | thread-exit | service-safety |
+| rebindCache | RuntimeTlsReady.rebindCachePreserves | fast-slot | service-safety |
+| refreshHandle | RuntimeTlsReady.refreshHandlePreserves | fast-slot | service-safety |
+| closeEmptyOwner | RuntimeTlsReady.closeEmptyOwnerPreserves | thread-exit | service-safety |
+| reserveRuntime | RuntimeTlsReady.reserveRuntimePreserves | global-init | service-safety |
+| initializeLocks | RuntimeTlsReady.initializeLocksPreserves | static-bootstrap | service-safety |
+| initializeTables | RuntimeTlsReady.initializeTablesPreserves | bucket-init | service-safety |
+| createGenericKey | RuntimeTlsReady.createGenericKeyPreserves | generic-key | service-safety |
+| createAllocKeyKnown | RuntimeTlsReady.createAllocKeyKnownPreserves | unix-key | service-safety |
+| createAllocKeyUnknown | RuntimeTlsReady.createAllocKeyUnknownPreserves | unix-key | service-safety |
+| bootstrapBorrow | RuntimeTlsReady.bootstrapBorrowPreserves | init-reentry | service-safety |
+| bootstrapReturn | RuntimeTlsReady.bootstrapReturnPreserves | init-reentry | service-safety |
+| initializationReentry | RuntimeTlsReady.initializationReentryPreserves | init-reentry | service-safety |
+| publishRuntime | RuntimeTlsReady.publishRuntimePreserves | global-init | service-safety |
+| observeRuntime | RuntimeTlsReady.observeRuntimePreserves | plain-flags | service-safety |
+| beginCacheInstall | RuntimeTlsReady.beginCacheInstallPreserves | unix-set | service-safety |
+| rawSetterReturned | RuntimeTlsReady.rawSetterReturnedPreserves | unix-set | service-safety |
+| recordKnownInstall | RuntimeTlsReady.recordKnownInstallPreserves | checked-set | service-safety |
+| installUnknown | RuntimeTlsReady.installUnknownPreserves | unix-set | service-safety |
+| publishCache | RuntimeTlsReady.publishCachePreserves | fast-slot | service-safety |
+| publishFast | RuntimeTlsReady.publishFastPreserves | fast-slot | service-safety |
+| acquireNormal | RuntimeTlsReady.acquireNormalPreserves | fast-slot | service-safety |
+| releaseNormal | RuntimeTlsReady.releaseNormalPreserves | thread-exit | service-safety |
+| admitFinalizer | RuntimeTlsReady.admitFinalizerPreserves | exit-callback | service-safety |
+| beginGlobalClose | RuntimeTlsReady.beginGlobalClosePreserves | process-finalize | service-safety |
+| deriveLateTsdWork | RuntimeTlsReady.deriveLateTsdWorkPreserves | tsd-recreate | service-safety |
+| drainLateTsdWork | RuntimeTlsReady.drainLateTsdWorkPreserves | tsd-recreate | service-safety |
+| finishFinalizer | RuntimeTlsReady.finishFinalizerPreserves | exit-callback | service-safety |
+| closeCache | RuntimeTlsReady.closeCachePreserves | thread-exit | service-safety |
+| clearFastKnown | RuntimeTlsReady.clearFastKnownPreserves | fast-slot | service-safety |
+| clearTlsKnown | RuntimeTlsReady.clearTlsKnownPreserves | unix-clear | service-safety |
+| clearTlsUnknown | RuntimeTlsReady.clearTlsUnknownPreserves | unix-clear | service-safety |
+| freeCacheKnown | RuntimeTlsReady.freeCacheKnownPreserves | free-before-clear | service-safety |
+| attestRosterClosed | RuntimeTlsReady.attestRosterClosedPreserves | all-threads | service-safety |
+| deleteGenericKey | RuntimeTlsReady.deleteGenericKeyPreserves | generic-key-delete | service-safety |
+| deleteAllocKeyKnown | RuntimeTlsReady.deleteAllocKeyKnownPreserves | unix-key-delete | service-safety |
+| deleteAllocKeyUnknown | RuntimeTlsReady.deleteAllocKeyUnknownPreserves | unix-key-delete | service-safety |
+| freeGlobalLocks | RuntimeTlsReady.freeGlobalLocksPreserves | allocator-finalize | service-safety |
+| retireRuntime | RuntimeTlsReady.retireRuntimePreserves | allocator-finalize | service-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| global-init | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclEvent.c | TclInitSubsystems(void) | generic subsystem flag is distinct from allocator tables/key publication |
+| static-bootstrap | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | static pthread_mutex_t allocLock = PTHREAD_MUTEX_INITIALIZER; | bootstrap allocator mutex uses no dynamic storage |
+| bucket-init | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | bucketInfo[i].blockSize = MINALLOC << i; | listLockPtr already assigned before all table/objLock initialization |
+| generic-key | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadStorage.c | tsdGlobal.key = TclpThreadCreateKey(); | generic TSD key distinct from allocator cache key |
+| unix-key | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | pthread_key_create(&key, NULL); | allocator key create status ignored; no allocator destructor registered |
+| unix-set | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | pthread_setspecific(key, arg); | allocator setter ignores return status |
+| checked-set | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | if (pthread_setspecific(*ptkeyPtr, ptr)) { | generic helper checks result, but requires its own key-storage lifecycle |
+| unix-clear | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | pthread_setspecific(key, NULL); | allocator clear status ignored and occurs after cache free |
+| unix-key-delete | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | pthread_key_delete(key); | allocator key delete status ignored |
+| free-before-clear | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | TclFreeAllocCache(ptr); | both platform alloc-cache cleanup bodies free before TLS clear |
+| windows-status | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/win/tclWinThrd.c | Tcl_Panic("TlsSetValue failed from TclpSetAllocCache"); | checked setter fails through panic; normal-return inference needs panic/provider qualification |
+| windows-key | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/win/tclWinThrd.c | tlsKey = TlsAlloc(); | plain once flag and checked allocation failure; caller serialization still required |
+| plain-flags | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | static volatile int initialized = 0; | volatile is not a C23 same-epoch acquire witness |
+| fast-slot | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | tcachePtr = GetCache(); | fast TLS assignment; captured cleanup code never explicitly clears static tcachePtr |
+| thread-exit | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThread.c | TclFinalizeThreadAllocThread(); | normal nonquick thread-data cleanup invokes allocator thread finalization |
+| exit-callback | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclEvent.c | exitPtr->proc(exitPtr->clientData); | thread exit handlers are called before TSD/cache cleanup |
+| process-finalize | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclEvent.c | TclFinalizeSynchronization(); | generic synchronization cleanup before allocator-specific teardown |
+| tsd-recreate | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclEvent.c | TclFinalizeThreadData(/* quick */ 0); | process finalization repeats cleanup because intermediate work can recreate TSD |
+| all-threads | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadStorage.c | IMPORTANT: All Tcl threads must be finalized before calling this! | source precondition is not an implemented all-owner receipt |
+| generic-key-delete | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadStorage.c | TclpThreadDeleteKey(tsdGlobal.key); | generic key deletion is separate from allocator key deletion |
+| allocator-finalize | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | TclpFreeAllocCache(NULL); | allocator lock teardown then platform allocator-key retirement in legacy path |
+| prior | dev/refactoring/modern-c/models/quint/cache_ready_publication.qnt | action installTlsKnown= | actual parent install-receipt action; metadata mirror remains conditional |
+| helper-alloc | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | ptkeyPtr = (pthread_key_t *)TclpSysAlloc(sizeof(pthread_key_t), 0); | generic checked key helper allocates wrapper; not a zero-cost bootstrap substitute |
+| generic-set-status | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/unix/tclUnixThrd.c | if (pthread_key_delete(*ptkeyPtr)) { | checked generic delete contrasted with unchecked specialized allocator path |
+| init-reentry | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclEvent.c | calls back into | initialization comment identifies reentry requirement; exact callback/native-lock path remains unqualified |

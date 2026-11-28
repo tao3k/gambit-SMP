@@ -140,7 +140,7 @@ def vm_actlog_abort_unit(args, compiler, environment, version):
         include.write_text(block)
         if args.native_runtime_root:
             from gambit_smp.runtime_identity import check
-            identity_path = ROOT / "evidence/source-results/source031-native-gc-fixtures/identity.json"
+            identity_path = ROOT / ".cache/research/legacy-evidence/evidence/source-results/source031-native-gc-fixtures/identity.json"
             identity = json.loads(identity_path.read_text())
             runtime = args.native_runtime_root.resolve()
             check(runtime, identity)
@@ -706,5 +706,9 @@ def main():
     return 0 if receipt["status"] == "source-unit-pass" else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('source-unit')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('source-unit', main))

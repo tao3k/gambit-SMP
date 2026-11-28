@@ -1,0 +1,111 @@
+# GC Modernization: Benefit, Maintenance and Retirement Matrix
+
+Theory/design only. Current mechanisms are established at the selected source
+boundary by the [audit](gc-current-mechanism-audit.md).
+The [target architecture](gc-native-runtime-design.md) is unimplemented;
+[arguments/refuters](gc-native-runtime-arguments.md) are conditional.
+No native or performance test and no positive economic bound is reported.
+
+Compare complete alternatives from today's Gambit: retain/repair current
+collector; reconstruct the selected capability in modern generated C; add only
+useful Zig tools to that C path; or directly reconstruct it in Zig. Modern C
+requires its own schema/generator/runtime/migration/verification investment.
+No intermediate modern-C implementation is a prerequisite to Zig.
+
+## Capability and Support Report
+
+| ID | Current source / necessary modernization | Benefit versus current path | Modern C support after fair reuse | Zig support after fair reuse / net condition |
+| --- | --- | --- | --- | --- |
+| VM01 Allocation and heap classes | Sectioned full-copy movable plus still/permanent [CA01/02/05] | Local young fast allocation and explicit mature/pinned rights | Generated layout/builders, allocator/pool integrations and bounds | Typed builders/allocator abstractions may reduce residual support; actual managed allocator, layout and capacity logic remain |
+| VM02 Survivor promotion | Unchanged copied header, no active aging [CA03] | Avoid repeated copying/traversal of mature survivors during minor collections | Promotion algorithm, forwarding/identity, worker buffers and failure custody | Same obligations; language does not supply promotion or survivor policy |
+| VM03 Generational stores | Inspected direct stores/inactive SSB [CA04] | Remember old/pinned/frame-to-young edges instead of scanning all mature objects at every minor | Generated typed writer entry points, card/slot queues and epoch resets | comptime/types can share variants; complete store semantics, atomics and native writer census remain |
+| VM04 Concurrent major marking | Current participating mutators stop for full phases [CA06/07] | Overlap admitted mature tracing with execution; potential pause/throughput tradeoff | SATB/root/init protocol, atomic access, logs, pacing/phase closure | Same collector proof; ordinary defer does not replace cross-thread protocol |
+| VM05 Parallel work | Existing forwarding CAS, stealing and termination [CA07] | Separate contexts/workers, redistribute actual tracing and share capacity | Context extraction, native queues/synchronization and actual membership | Shared native support may lower repeated plumbing; no automatic speedup or correctness from replacing C |
+| VM06 Roots and RC | Explicit frame/register/global roots, owner gap/TODO [CA08/11] | One complete root owner and scan/transfer lifecycle | Typed RootRegistry, handles, generated adapters and independent root oracle | Can reduce bespoke native builders/cleanup after reuse; root completeness and registry algorithms remain |
+| VM07 Continuations | Stack/heap capture, RETN/RETI and dynamic transfer [CA09] | Explicit frame/activation epochs and stable code users under generations | Frame recipes/decoder, barriers/capture restore and code lifetime | Same Scheme semantics; Zig native stack/closures do not replace them |
+| VM08 FFI and blocking | Native still/RC/marker interfaces [CA05/11] | Defined borrow/pin/copy, participation and callback owner restoration | Generated wrappers and lifecycle/error cleanup; retain required native islands | Ordinary error/cleanup syntax may remove residual repetition; conversion/root/control work remains |
+| VM09 Weak/will/foreign release | Strong then weak/will and still destructor path [CA10] | Declared minor/major semantics and owner-affine delayed cleanup | Typed weak work and resource-task/drain service | Shared support can amortize; native effect classification and exactly-owned drain remain |
+| VM10 Compiler/LLVM integration | C scanner mixes check/root/boxing and rendering [GC-S14] | Explicit semantic store/root/safe-point operations feed any admitted provider | Fund common C generator and optional LLVM adapter | Real Zig hosts can retire old C generation on selected routes; LLVM supplies no collector or private root registry |
+| VM11 Shutdown/modules | Current VM/root/frame users have broad native dependencies | Complete last-user storage/code/worker retirement | Explicit state/ownership products and all caller migration | Native ownership constructs aid local support; async multi-owner lifetime remains project code |
+| VM12 Complete cost | Existing implementation has reuse value and legacy costs | A coherent runtime instead of stacked new and old authorities | Full C reconstruction, generator/library/target maintenance and qualification | Full Zig rewrite/tool/ABI/target/island cost must be below justified incremental savings; wider GC redesign is not free |
+
+![GC benefit versus implementation-language increment](gc-native-benefit-boundaries.svg)
+[D2 source](gc-native-benefit-boundaries.d2).
+
+## Quantifiable Theoretical Boundaries
+
+VN01. Source constants give concrete current units: msection=131072 words split
+into halves; selected inline dynamic-object threshold=255 words; heap fudge is
+MAX_NB_FRAME_SLOTS+1+SUBTYPED_BODY with MAX_NB_FRAME_SLOTS=8192 [GC-S01/S05].
+They describe this source design, not current workload pause/copy cost. The
+new nursery/promotion/major/page ledger must derive its own capacity bounds;
+no headroom or worker count can be imported just from those values.
+
+VN02. For a fixed workload horizon, separate runtime work terms:
+R=active/native root work; L=reachable current movable words; S=still work;
+Y=young allocation; P=promoted survivor words; D=remembered locations/cards;
+W=managed/root mutation events; Q=major/log/phase work; F=weak/finalization work.
+The source current full cycle traverses/copies live movable work and handles
+still/roots; the proposed minor instead handles R, D, P and its young closure,
+with additional major work amortized over its actual cycles. These are symbolic
+cost drivers, not a measured equation with invented coefficients.
+
+A positive runtime-work condition is that avoided repeated mature traversal/
+copying exceeds remembered/SATB/root barriers, promotion/publication, major
+amortization, coordination, fragmentation and extra metadata cost. Mutation-
+heavy workloads with low old live volume can violate it. Root-heavy captured
+control can dominate minor work. A high survivor rate can make direct promotion
+and mature pressure unattractive. Generation count alone predicts none of these.
+
+VN03. Define managed-language performance/space/latency constraints separately
+from engineering costs, or use an explicit valuation to combine them.
+Compute three full ledgers: modern C versus current, direct Zig versus current,
+and Zig versus fully costed modern C at equal admitted capability. Common
+collector gains belong in both modernization ledgers, once each. Shared
+architecture can have different realization costs; C generators/libraries are
+not already written or free, and Zig tool/FFI/control integration is not free.
+
+VN04. Theoretical positive Zig net requires
+lower(complete C realization/lifecycle cost minus complete Zig
+realization/lifecycle cost, including valued outcome differences) > 0,
+plus positive total net for the chosen route. Local residual savings can come
+from common typed products, native storage/growth/error cleanup and generic
+support across allocator, root registry, barrier buffers and release tasks.
+Only necessary consumers count; actual adapters, algorithm support and upgrades
+remain. No number of consumers, lines of C, percentage saving or crossover
+threshold is justified by this source audit.
+
+VN05. Keep four decisions separate: semantic/correctness admission, workload
+algorithm benefit, full reconstruction economics, and incremental Zig economics.
+A native test could later falsify a premise but would not retroactively supply
+a missing theory argument. All four are still open here; no implementation or
+native experiment is performed to hide a theoretical gap.
+
+## Replacement and Retirement Order
+
+| ID | Dependency / modernization work | Eligible old responsibility / closure condition |
+| --- | --- | --- |
+| RT01 | Exact source/config/profile and current mechanism census | Replace generation/SMP assumptions inferred from names; identify actual admitted feature and caller domain |
+| RT02 after RT01 | Shared ObjectLayout/TraceSpec and semantic allocation/store/root/point operations | Retire C-scanner-only semantic authority; all primitive/FFI/frame/typed writers classified independently |
+| RT03 after RT02 | RootRegistry, actual owner/scan/transfer and marker-before-allocation protocol | Retire reliance on PSTATE-local RC chain plus special scan assignment after every caller migrates |
+| RT04 after RT02/03 | Young/mature/pinned allocator, promotion, actual capacity and complete layout publication | Replace section-flip allocation/collection organization in the chosen cohort; preserve native stable-address and still protection contracts explicitly |
+| RT05 after RT02/03/04 | Unified mutation/root/init/weak/CAS/bulk protocol and memory model | Retire direct uninstrumented selected managed writes and inactive SSB as an assumed solution; unknown native writers remain unadmitted |
+| RT06 after RT04/05 | Coordinated minor and qualified concurrent-major/weak/finalization lifecycle | Replace old phase/worker coupling only after complete roots, barriers, capacity, termination and owner-affine effects close |
+| RT07 after RT03/06 | Continuation/FFI/module/bootstrap and shutdown users rebuilt with the new protocol | Retire old frame/control/root/native adapters with zero remaining callers; retain historical failures and independent acceptance evidence |
+| RT08 after RT01–07 | Equal-capability cost bounds and actual responsibility deletion | Select direct Zig or modern C by justified whole-lifecycle benefit; a new facade around the old collector is not a completed full runtime replacement |
+
+Algorithm change and implementation-language migration may share a coordinated
+delivery, but their evidence and costs stay distinguishable. Existing correct
+algorithms and C ecosystem value are assets. A comprehensive Zig reconstruction
+is a research candidate, not a reason to discard those assets or assume positive
+maintenance value before the necessary-support design closes.
+
+## Quantified Conditional Extension
+
+The [quantified benefit assessment](modernization-quantified-benefit.md) now
+derives avoided payload copies as sum(s*(k-1)), distinguishes that component
+from total program time, and provides Zig cost thresholds S>U+I/T. Its numbers
+are explicitly parameterized examples rather than project runtime or staffing
+estimates. The [modernization direction](gambit-modernization-direction.md)
+separates the Gambit capability decision from language selection. This refines
+VN02–05 without accepting the collector, a workload gain or a positive full net.

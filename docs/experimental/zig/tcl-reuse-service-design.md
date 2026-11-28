@@ -1,0 +1,233 @@
+# TclReuseService: Private Binding, Producer Closure and Publication
+
+The service must certify three independent facts: it is calling the correct Tcl
+instance, all old cancellation authority has settled, and the owner stays idle
+from reset through next-epoch publication. A private reset function alone certifies
+none of them. This extends [the interpreter reuse contract](tcl-interpreter-reuse-design.md)
+with [pinned source evidence](tcl-reuse-service-evidence.md).
+Structures and operations below are design contracts only.
+
+## Private Stub Access Is a Bound Capability
+
+SD01. The core attaches its public stub table to the interpreter and provides
+that table as Tcl package data. In a real stub-linked extension, Tcl_InitStubs
+checks the mechanism/version, retrieves package data, and obtains the internal
+table through public hooks. Slot 237 supplies TclResetCancellation. The statically
+linked stub object owns table-pointer globals in the consumer image; they are not
+per-interpreter host receipts. This is the concrete access path for the source-bound
+facade, not a proof of installed private ABI support. [SX02–SX04]
+
+SD02. Admission distinguishes three build paths:
+
+| Build path | What the call establishes | Required boundary |
+| --- | --- | --- |
+| USE_TCL_STUBS plus matching stub archive | The actual stub initializer can populate public/private pointer globals | Require successful initialization, matching table/image/header identity, reset entry, owner and image lease |
+| No USE_TCL_STUBS | Tcl_InitStubs macro invokes Tcl_PkgInitStubsCheck | Version acceptance does not initialize private globals; do not mint a binding receipt from it |
+| Direct private symbol link | A header may declare the symbol | Export/link/load/visibility and source ABI are unqualified; importing a header is insufficient |
+
+The Unix build constructs the stub archive from PIC-capable stub objects with
+its configured flags. This is useful build evidence, not a macOS linker receipt.
+A compatible Tcl version string and public stub magic do not identify the private
+layout or loaded image. Tk initialization is a separate library boundary.
+[SE01, SX02–SX04]
+
+SD03. A failed Tcl_InitStubs may leave an earlier private global non-NULL; a later
+initialization can also rebind globals. Reject any failed initialization and
+invalidate the facade's attempted capability. Capture the bound public/private
+entries in a C-owned binding record only after all checks succeed. Prevent calls
+from consulting a mutable global that another binding could redirect. Serialize
+binding/retirement or isolate instances; every captured table and function pointer
+keeps its provider image alive. Do not call a stale cached table after unload or
+accept a second Tcl image merely because its public version matches. [SX02–SX04]
+
+The facade owns private headers, table layout and reset access. Scheme and an
+optional Zig emitter receive opaque native capabilities and typed results.
+They do not repeat the private struct layout or hard-code slot offsets. Any
+provider/header/ABI/image-generation change invalidates binding and dependent
+idle/pending/reset/publication receipts. Scheme semantics need not be recompiled
+unless their common contract changes; native layout artifacts still obey their
+own invalidation rules. [SO01]
+
+## Real Producer and Consumer Closure
+
+SD04. The pinned 350-file C/H/Objective-C corpus yields 14 matching files and 112
+lexical hits for a declared symbol set. Tables, declarations and comments are
+classified separately from real producers. The selected lifecycle is:
+
+```text
+TclCreateInterp -> CancelInfo + owner async token + cancelTable registration
+native CancelEval / builtin interp cancel -> pending record -> AsyncMark
+owner invocation -> CancelEvalProc -> installed self/descendant flags
+checks -> actual evaluation/control returns -> qualified pending settlement
+owner reset / safe deletion -> flags clear or token/record disposal
+```
+
+Only this selected source graph is closed here. A lexical negative result is not
+an indirect-call, generated-build, Tk, plugin or installed-runtime certificate.
+[SE01, SX01, SX05–SX12]
+
+SD05. Producer classes require different accounting:
+
+| Actual source class | Request ownership / closure requirement |
+| --- | --- |
+| Core per-interpreter token registration | Record each generation and owner before exposing the interpreter; ChildCreate uses internal TclCreateInterp, bypassing a public-constructor wrapper |
+| Native Tcl_CancelEval caller | Bind old epoch at acceptance; publish API lease before pointer use; seal/join every caller, including ancestor targets |
+| Builtin interp cancel inside an accepted evaluation | Its synchronous request is covered by that actual evaluation's lifetime; do not pretend it passed a host wrapper. Final settlement follows the last accepted source scope return |
+| testasync create/mark/marklater | Fixture producers include delayed cross-thread marks and a script-capable handler; not automatically present or admitted in production |
+| ThreadCancel fixture | Actual cross-thread CancelEval caller; its thread-ID lookup does not supply host epoch/generation custody |
+| Dynamically loaded or embedding API consumer | Public functions/stub fields permit new callers; loaded-module/handler manifest and admission hooks are necessary. Untracked native callers keep reuse unresolved |
+
+Raw native cancellation accepted while idle can affect the next script; it cannot simply be discarded under an unchanged raw Tcl contract. Epoch-bound requests need an explicit job-specific disposition policy.
+
+A host seal alone cannot stop a Tcl script still running inside an accepted call
+from issuing interp cancel or creating a child. Either lifecycle hooks register
+those actions and their generations, or the profile must explicitly restrict
+those paths and prove the restriction. Do not count a smaller allowed API as a
+transparent optimization. Child/tree closure is part of complete modernization,
+not a wrapper around public Tcl_CreateInterp alone. [SX05–SX07, SO01]
+
+SD06. Consumer coverage includes VM polls, NRCommand, Tcl_ServiceEvent,
+Tcl_DoOneEvent, Tcl_ServiceAll and after's wait loop. The current Gambit event
+thread calls DoOneEvent(DONT_WAIT), which can invoke async handlers before ordinary
+event processing and return 1. Thus an empty queue, a Scheme mutex or the end of
+one evaluator is not owner idleness. Every accepted native/event/async/cleanup
+entry must belong to the common control-scope ledger. [SE01, SX08–SX10]
+
+SD07. A blind Tcl_AsyncInvoke(NULL, OK) drain is not generally admissible. The
+actual testasync handler reads Tcl_GetObjResult(interp) before its NULL branch
+and can evaluate a script. It is source-level evidence that handler context and
+side effects need qualification; it is not evidence that this fixture is loaded
+or that a native crash occurred. Passing some unrelated interpreter to avoid
+NULL changes the callback context and may execute different script effects.
+Require an explicit handler context/effect/progress policy, not a guessed safe
+argument. Native extensions, including unreviewed Tk paths, remain open. [SX07–SX11]
+
+![Private binding and ownership](tcl-service-binding.svg)
+[D2 source](tcl-service-binding.d2).
+
+## Owner Idleness Is a Temporary Borrow
+
+SD08. Six receipts and one live BarrierTicket connect the proof. Receipt fields
+record issuer-owned facts; copying their bytes does not grant new authority.
+
+| Receipt | Issuance condition and lifetime |
+| --- | --- |
+| BindingReceipt | Successful qualified stub binding to one provider image/header/ABI generation; image lease retained |
+| ProducerClosureReceipt | Old ingress sealed, all request leases and accepted source scopes joined, affected ancestors/children and dynamic producers accounted |
+| OwnerIdleReceipt | Correct OS owner holds exclusive BarrierTicket; all admitted native/NRE/event/async/control scopes have returned, tree frontier stable and nesting zero |
+| PendingSettlementReceipt | Every old target mark applied or explicitly settled without observation; no active invocation/late writer can reinstall old state; mode and handler domain recorded |
+| ResetReceipt | Same ticket/binding/target tree, live idle and pending receipts, non-forced clear-state postcondition observed under owner exclusivity |
+| EpochPublicationReceipt | All prerequisites still valid, old execution/cancel authority revoked, fresh descriptor synchronized and admitted |
+
+OwnerIdleReceipt is a borrowed interval, not a reusable Boolean. Any entry or
+callback-capable action invalidates it and requires closure again. Its scope
+counter decrements only after actual native return, never in a deletion hook
+while Tcl frames still exist. Tcl_InterpActive/numLevels and asyncReady are
+cross-checks, not complete negative-stack witnesses. [SX08–SX10, SO01, SL02]
+
+SD09. The parser supplies a concrete reason: command substitution increments the
+level, evaluates nested text, then decrements and calls TclResetCancellation.
+The surrounding host direct-evaluation activation can still exist. The earlier
+no-other-reset direct-path counterexample remains valid, while this newly reviewed
+reset caller disproves a universal “direct paths never reset” inference.
+All reset writers must remain within counted control scopes. [SX10]
+
+SD10. Existing private reset clears CANCELED and TCL_CANCEL_UNWIND under its zero-level
+or force condition. It does not drain a pending token, identify a host epoch,
+reset all application state, certify delivery, clear every diagnostic/message
+buffer, or revoke a callback. Its OK result can mean no change. The source-bound
+facade must obtain owner idleness and zero nesting, use force=0 and verify the
+flag postcondition while its ticket is live. Record diagnostic/result residue
+separately; the NULL-message cancellation lane and independently owned outcome
+avoid inferring causal identity from stale Tcl strings. [SX09–SX12, SO01]
+
+## Two Settlement Paths, With Different Costs
+
+SD11. **Existing thread-wide service path.** After closing/joining every relevant
+producer and actual source scope, the exclusive owner services async work outside
+an active invocation. Every eligible handler on that thread must satisfy the
+context, effect, reentry and finite-progress policy. Charge descendants before
+parent completion; repeat closure when needed. Only then can pending settlement,
+owner-idle renewal and the private reset be certified. Raw asyncReady is zero
+inside an active invocation and supplies no receipt. The current source supports
+the mechanisms, not an implemented host domain or unrestricted plugin qualification.
+[SX06–SX11]
+
+SD12. **Proposed targeted cancellation settlement path.** For a broad embedding
+that cannot qualify unrelated thread handlers, investigate a Tcl-owned operation
+that settles only each target's pending cancel token and installed flags after
+actual old scopes/requests return. It must preserve token identity/handler order,
+leave unrelated ready handlers intact, use correct owner/TLS and report
+`applied`, `settled-after-return` or `none` without inventing observation.
+This operation is absent from the inspected existing interface and requires
+source integration; slot 237 is not sufficient. [SX05, SX09, SX12]
+
+Its lock order must follow the existing cancelLock -> asyncMutex order used by
+CancelEval/mark and deletion. AsyncInvoke releases asyncMutex before calling the
+cancel callback, which then takes cancelLock. A proposed settle helper must not
+invert this or run arbitrary callbacks under both locks. Clearing a target's
+ready bit must not clear another handler's readiness; delete/recreate is not an
+equivalent shortcut because create appends to handler order. Keep old senders
+closed throughout. Even targeted settlement cannot stop an untracked native
+caller from issuing a new stale CancelEval later; producer authority closure
+remains mandatory. These are conditional design requirements, not new source APIs.
+[SX05–SX06, SX09]
+
+SD13. Reset-to-publication critical interval:
+
+```text
+successful binding + stable target tree + old producer closure
+ -> owner-exclusive ticket + actual idle receipt
+ -> qualified pending settlement
+ -> revalidate idle; non-forced reset; inspect clear-state postcondition
+ -> prohibit callback-capable work / stale binding / renewed old writer
+ -> lifecycle-lock revalidation and release publication of fresh epoch
+```
+
+Prepare receipt/descriptor storage before the critical interval; do not allocate
+Scheme objects, reset mutable results, log through user callbacks, free foreign
+resources or run async/event/delivery work between the final observation and
+publication. If such work is necessary, invalidate the receipt and repeat closure.
+A C or Zig allocator choice alone does not establish callback freedom. New jobs
+acquire the descriptor under the same lock or equivalent release/acquire relation.
+An authorized new-epoch cancel is valid; queued old requests may not retarget it.
+A barrier failure leaves the epoch sealed with its original custodian and owned
+outcomes, with safe owner retirement as the fallback when users truly leave.
+[SD08–SD12, SL01, SO01]
+
+![Producer and service closure](tcl-service-producers.svg)
+[D2 source](tcl-service-producers.d2).
+
+SD14. Qualification must separately close: real stub-linked build and native
+image correspondence; private hook/table/entry identity; serialized binding or
+stable captured entry use; every actual creator/cancel source; owner/control-scope
+coverage; handler context/domain for thread-wide service or implementation and
+proof of targeted settlement; reset postcondition; and callback-free publication.
+Missing any item prevents a reuse receipt. The source corpus does not promote
+those installed/native predicates. Captured Scheme continuations and GC roots
+still obey Gambit; no Tcl receipt revives a returned C activation. [SE01, SX01–SX12,
+SL01–SL02, SO01]
+
+SD15. Modernization moves private ABI facts into one provider and old-epoch
+ownership into one common native contract, derived by Scheme. Existing ad hoc
+public-wrapper assumptions, global-pointer tests and per-adapter return-code
+reuse recipes can retire only after all callers/failure exits migrate. Modern
+generated C can own that architecture; optional Zig consumes the same facade
+and cannot count the facade or GC obligations as eliminated. The targeted option
+may reduce unrelated handler work but adds library integration/upgrade support.
+[Arguments](tcl-reuse-service-arguments.md), [caller inventory](tcl-reuse-service-callers.json)
+and [net-benefit matrix](tcl-reuse-service-benefit-matrix.md) keep those balances explicit.
+
+![Receipt publication chain](tcl-service-publication.svg)
+[D2 source](tcl-service-publication.d2).
+
+## Targeted Settlement Follow-up
+
+The [core-operation design](tcl-targeted-cancel-design.md) refines SD12: token and
+request identities, attributed marks, preserved raw idle debt, an explicit
+managed-clean admission predicate, readiness repair, and final revalidation/reset/
+publication under common core exclusion. A pending receipt is provisional and
+cannot authorize erasing raw activity. Complete mixed-domain refinement remains
+unresolved. See [arguments](tcl-targeted-cancel-arguments.md) and
+[matrix](tcl-targeted-cancel-benefit-matrix.md); this adds no existing stub entry
+or implementation.

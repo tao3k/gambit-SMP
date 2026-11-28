@@ -1,0 +1,89 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-rest-lifetime-reentry",
+  "scope": "Quint controls for one rest slot and one reentry: pin before close, close before pin, no raw read after retire, one resume claim, and a lost install is not a write. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "dev/refactoring/modern-c/models/quint/smp_resume_closure_extent.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-rest-lifetime-reentry/binding.json",
+    "evidence/fixtures/dev-rest-lifetime-reentry/observations.json",
+    "evidence/fixtures/dev-rest-lifetime-reentry/lifetime.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {"source": "dev/refactoring/modern-c/models/quint/smp_resume_closure_extent.qnt"}
+    },
+    {
+      "id": "lifetime",
+      "capability": "quint.test",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/smp_resume_closure_extent.qnt",
+        "parsed": "parse",
+        "main": "smp_rest_record_lifetime",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "restPinWinsBeforeCloseTest",
+          "restCloseWinsBeforePinTest",
+          "restRawPointerFirstReadControlTest"
+        ]
+      }
+    },
+    {
+      "id": "reentry",
+      "capability": "quint.test",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/smp_resume_closure_extent.qnt",
+        "parsed": "parse",
+        "main": "smp_rest_reentry",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "restLostInstallReplyTest",
+          "restRetryNeedsRepairedEpochTest",
+          "restResumeOnceTest",
+          "restEarlyReleaseControlTest",
+          "restReplayControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["parse", "lifetime", "reentry"],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-rest-lifetime-reentry/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+#+TITLE: Conditional Cancellation Arguments and Distinguishing Traces
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Conditional Cancellation Arguments and Distinguishing Traces :ffi:
+:PROPERTIES:
+:ID: 6ec10351-73fc-5415-b8db-1b7ef75f7339
+:CUSTOM_ID: conditional-cancellation-arguments-and-distinguishing-traces
+:SOURCE_PATH: docs/experimental/zig/tcl-cancel-propagation-arguments.md
+:SOURCE_SHA256: 4eee002c7b5a922dc348a2eefd853e70d9cea908d16fabca626b5f50da4b30b1
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Handwritten design arguments over [[file:tcl-cancel-propagation-design.org][CP01–CP15]],
+with [[file:tcl-cancel-propagation-evidence.org][source evidence]].
+These are not executed tests, whole-program analyses or mechanically checked proofs.
+All source-composed cases are inert entries in the [[file:../../../../../docs/experimental/zig/tcl-cancel-propagation-cases.json][case ledger]].
+
+*** Conditions and Arguments
+:PROPERTIES:
+:ID: 2c07f7ce-ece9-50f8-9490-fd48922570e1
+:CUSTOM_ID: conditions-and-arguments
+:END:
+
+AP01. *Custody after acceptance.* Assume all dispatchers acquire leases under
+CP10's lifecycle lock, generation checks cannot be bypassed, accepted scopes are
+registered before entry, and receivers acknowledge actual root/resource ownership.
+A request either rejects before lease publication or remains counted until its
+API call returns. Evaluation owns live roots/markers; a result producer owns its
+snapshot until acceptance/disposal. Close cannot authorize deletion while either
+kind remains. Induction over request, scope, child-task and delivery transitions
+preserves at least one custodian of each live obligation. This proves conditional
+safety, not eventual return. Losing an allocation/snapshot/queue operation leaves
+its prior custodian liable; failure must not mint a receipt. [CP09–CP12]
+
+AP02. *Bytecode catch exclusion.* Assume cancellation is installed and remains
+set when an exceptional bytecode path reaches checkForCatch, no unsupported
+foreign jump occurs, and the reached runtime code matches PX07. That branch goes
+to abnormalReturn before processCatch. The bytecode catch target is therefore
+not selected on that exit; library stack cleanup still runs. This says nothing
+about another interpreter, pre-check native side effects, earlier return paths,
+or every Try compiler layout. Ordinary CANCELED is consumed on observation;
+only the persistent-unwind premise supports repeated exclusion. [CP02–CP03]
+
+AP03. *NRE propagation is a composed property.* If a catch callback returns OK
+with unwind still installed, and NRCommand checks before any reset removes it,
+NRCommand yields error. If a Try handler/finally enters through a readiness check
+while unwind persists, evaluation can reject it before its user script. Neither
+statement proves that catch result-variable traces are effect-free, nor that a
+reset cannot intervene. The premise must be discharged for each API, flags,
+NRE root/deferred callback and level history. AC04 exhibits the danger of omitting
+it. The broad TIP intent cannot replace that per-route derivation. [CP04–CP06]
+
+AP04. *No stale-pointer request after close.* Dispatch publication and sealing
+share the lifecycle lock. Every dispatch is before the seal and counted, or after
+it and rejected without using the pointer. Wait for count zero while retaining
+the interpreter/image lease. Owner deletion can then remove even pending library
+async state without a later authorized sender accessing that generation. Pointer
+address reuse alone cannot satisfy the generation check. This is a host protocol
+proof conditioned on every caller following it; Tcl's cancelTable mutex alone
+does not establish the host's epoch or last-use boundary. [CP08–CP12]
+
+AP05. *Retirement drain.* Assume closed finite scope/child frontiers, cooperative
+returns, fair owner/delivery service, complete roots/native custody, and a finite
+well-founded derived-task relation. Terminal closure waits for real returns and
+sender leases, owns outcomes, then performs owner retirement and counts deletion
+callbacks/releases. Charge every child before its parent's terminal decrement;
+no zero-pending gap can precede child publication. After all descendants and
+receivers settle, root/string/image/scanner grace can finish. An acyclic dependency
+order prevents the deleter waiting on itself. This proves conditional eventual
+retirement, not arbitrary cancellation latency or execution of skipped finally.
+[CP07–CP12, CP14–CP15]
+
+AP06. *Reuse needs additional evidence.* Retirement may dispose a pending
+unobserved cancellation with a truthful host disposition; reuse cannot silently
+leave it for the next request. Require both no late senders and a qualified owner
+pending-handler/reset barrier. A zero flag, zero asyncReady or one returned
+inner scope is insufficient. With that barrier plus complete child reset and
+no intervening new work, a next epoch can be admitted. Such a barrier is not
+proved for current direct Tcl_Eval/NOERR and all compiled Try routes. Reuse
+remains unresolved; do not expose a private reset just to make the argument close.
+[CP05, CP08, CP11–CP13]
+
+AP07. *Scheme semantics do not follow from Tcl cancellation.* Cancellation can
+be an explicit result/cancellation API for a declared domain. It cannot generally
+stand for a saved Scheme continuation, a returning exception handler or the exact
+source/destination wind sequence. A delayed Scheme throw after native return
+also changes context/effect order unless separately proved equivalent. Learning
+from the OCaml paper means making this boundary explicit, while preserving
+Gambit's stronger continuation behavior in the supported corridor. [PE02–PE03,
+CP14, PL01–PL02, PD01]
+
+AP08. *Latency and retained space.* Let K be the sum of actual remaining
+cooperative segments across the accepted descendant closure, S owner scheduling
+and wakeup delay, A async service/rechecks, D durable delivery/cleanup, G final
+root/image grace. Only with finite qualified bounds on each term is
+~T_drain <= K + S + A + D + G~ defensible for serial critical-path accounting;
+a dependency DAG may give a tighter critical path. Otherwise the upper bound
+is unbounded. Retained space is the union of live payload graphs plus distinct
+scope/request/snapshot/queue records. Shared graphs are counted once. Repeated
+unobserved requests and unmanaged event producers invalidate a constant-space
+or finite-drain claim. No coefficients or performance percentages are assumed.
+[CP02, CP07–CP15]
+
+*** Counterexamples and Missing-Premise Cases
+:PROPERTIES:
+:ID: 339e97a8-2995-500a-834d-55f29fb390b2
+:CUSTOM_ID: counterexamples-and-missing-premise-cases
+:END:
+
+| ID | Inert distinguishing history | Failed inference / required correction |
+|-
+| AC01 | CancelEval returns OK while a native handler loops without polling or returning | Acceptance does not imply evaluation return; retain custody, latency unbounded |
+| AC02 | UNWIND request, then plain cancel overwrites the shared pending flags before async callback | API acceptance is not monotone host intent; use sealed monotone host batching |
+| AC03 | Pure bytecode error reaches checkForCatch with persistent unwind; enclosing catch target exists | Treating cancellation as an ordinary catchable result contradicts the branch |
+| AC04 | NRE catch produces OK; a return-to-zero TEOV_Exception clears flags before NRCommand's OK recheck | Reassertion requires no intervening reset; conditional source-composed hazard, exact API/level occurrence unqualified |
+| AC05 | Direct Tcl_Eval dispatches commands with NOERR and returns through direct cleanup | Object-return reset cannot be assumed for this actual bridge route; retained-interpreter reset unresolved |
+| AC06 | Noncompiled catch writes resultVar; a native variable trace has an effect before outer cancel check | Catch bypass intent does not prove absence of intermediate bookkeeping/trace effects |
+| AC07 | Try schedules finally while persistent unwind remains; readiness rejects its script | Native resource release cannot depend on user finally execution |
+| AC08 | Compiler Try source unavailable; engineer infers all layouts use one catch range | Registered compiler and generic VM branch do not close every inline exit; preserve compiler-lowering gap |
+| AC09 | Outer vwait done is written, then the inner event handler remains blocked | done bit does not retire outer stack/trace/native scope |
+| AC10 | update sees no events and returns local OK, while outer scope/late async request remains | Local success/empty queue is not quiescence or cancellation settlement |
+| AC11 | Old cancellation arrives after top-level reset; next user evaluation consumes it | Close request dispatch and dispose/service pending cancellation before reuse |
+| AC12 | Parent returns, idle child retains propagated cancel state; unrelated interpreter has queued event | Parent return is not child reset, and thread event queue is not one interpreter's frontier |
+| AC13 | Sender reads raw pointer, owner deletes/recreates at same address, sender calls CancelEval | Library address lookup cannot authenticate host generation; publish lease before unlock |
+| AC14 | Tcl result string borrowed, next eval/reset-result overwrites it before Scheme delivery | Snapshot and independently root the payload before reentry; source of cancellation stays separate |
+| AC15 | Queue empty observed; deletion callback creates release task after parent decremented | Charge derived obligation before decrement; empty queue alone cannot close epoch |
+| AC16 | AsyncReady is zero inside active AsyncInvoke; another handler re-marks itself forever | Zero-ready is not settled; broad Invoke can create unbounded work |
+| AC17 | Arbitrary Scheme continuation longjmps over Tcl NRE callbacks or vwait UntraceVar | Result adapter/defer cannot restore skipped library cleanup; reject or qualify explicit native corridor |
+| AC18 | Recipient gone; Tcl deletion frees background error and result string | Disposal may settle resources but is not successful Scheme result delivery |
+
+AC04 is deliberately conditional: the callback ordering is source-supported,
+but a coherent pinned revision, exact level/deferred history and installed native
+observation are not established. It is a reason to retain an admission gap, not
+a published claim that all Tcl versions swallow unwind. None of these rows is
+a test result. Each links to source premises in the case/trace ledgers.

@@ -137,7 +137,7 @@ states, 14,872 generated, zero queued; safety and weak-fair progress pass in
 24.830 seconds. Joins-only reclamation produces a 16-state counterexample.
 Campaign001 had a map-domain evaluation error, preserved as a rejected model
 run, not presented as a protocol defect. Receipt/source context is bound in
-`evidence/model-results/sync-retirement-round-closure/`.
+`.cache/research/legacy-evidence/evidence/model-results/sync-retirement-round-closure/`.
 
 The candidate repair point is root convergence in the next outer round, before
 downward propagation, with explicitly tracked pending-retirement ownership.
@@ -275,7 +275,7 @@ queued in 28.396 seconds. Six- and seven-state controls reject scanning field
 zero twice and retiring the eager producer on export. A first-run builtin-name
 parse error is retained as rejected tooling/model input, not protocol evidence.
 Source/paper identity and receipts are in
-`evidence/model-results/eager-tail-scan-partition/`.
+`.cache/research/legacy-evidence/evidence/model-results/eager-tail-scan-partition/`.
 
 This closes a local abstraction gap, not diagnostic014's duplicate vector-body
 origin. Do not add a to-space skip, global lock or unconditional export delay.

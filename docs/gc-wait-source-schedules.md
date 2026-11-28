@@ -33,7 +33,7 @@ incorrectly forced GNU11 while the configured header selects C23 `thread_local`.
 The source was not missing TLS configuration. The denied receipt is retained;
 no runtime source or configure flags were changed to mask the error.
 
-The portable diagnostic is `evidence/model-results/gc-wait-source-schedules.json`.
+The portable diagnostic is `.cache/research/legacy-evidence/evidence/model-results/gc-wait-source-schedules.json`.
 Its source/binary/input hashes preserve historical identity; later changes must
 not rewrite it or treat it as current whole-runtime acceptance.
 

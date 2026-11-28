@@ -1,0 +1,73 @@
+{
+  "sourceTree": "93b2a9d91a0e769ed277c6e841706bd261a39a72",
+  "baseRevision": "7abe6770067f7f4073001286d64437f53ab39c35",
+  "mutations": [
+    {
+      "file": "lib/_mem/symbols.inc",
+      "source": "7abe6770067f7f4073001286d64437f53ab39c35",
+      "hook": "after original UTF8 lookup miss"
+    }
+  ],
+  "mutationSources": {
+    "_mem/symbols.inc": "extern void test_symkey_split(const char*);\n#line 1818 ___MEM_SOURCE_FILE\n/*---------------------------------------------------------------------------*/\n\n/*\n * Routines to manage symbol table, keyword table and global variable\n * table.\n */\n\n/*\n * The hashing functions '___hash_UTF_8_string (str)' and\n * '___hash_scheme_string (str)' must compute the same value as the\n * function 'targ-hash' in the file gsc/_t-c-3.scm.  A fixnum error\n * code is returned when there is an error.\n *\n * These functions implement an adaptation of the FNV1a hash algorithm\n * (see https://tools.ietf.org/html/draft-eastlake-fnv-12).  Instead\n * of iterating over bytes, an iteration over Unicode code points is\n * used.  This will give the same result if the string contains only\n * ISO-8859-1 characters.  However, only the lower 29 bits of the\n * standard 32 bit FNV1a algorithm are returned so the result fits in\n * a fixnum on a 32 bit word architecture.\n */\n\n#define FN1a_prime        0x01000193\n#define FN1a_offset_basis 0x011C9DC5\n\n#define HASH_STEP(h,c) (((h)^(c)) * FN1a_prime) & ___MAX_FIX32\n\n___SCMOBJ ___hash_UTF_8_string\n   ___P((___UTF_8STRING str),\n        (str)\n___UTF_8STRING str;)\n{\n  ___UM32 h = FN1a_offset_basis;\n  ___UTF_8STRING p = str;\n  ___UCS_4 c;\n\n  for (;;)\n    {\n      ___UTF_8STRING start = p;\n      ___UTF_8_get_var (&p, c);\n      if (p == start || c > ___MAX_CHR)\n        return ___FIX(___CTOS_UTF_8STRING_ERR);\n      if (c == 0)\n        break;\n      h = HASH_STEP(h,c);\n    }\n\n  return ___FIX(h);\n}\n\n\n___SCMOBJ ___hash_scheme_string\n   ___P((___SCMOBJ str),\n        (str)\n___SCMOBJ str;)\n{\n  ___SIZE_T i, n = ___INT(___STRINGLENGTH(str));\n  ___UM32 h = FN1a_offset_basis;\n\n  for (i=0; i<n; i++)\n    h = HASH_STEP(h,___ORD(___STRINGREF(str,___FIX(i))));\n\n  return ___FIX(h);\n}\n\n\n___HIDDEN ___SCMOBJ symkey_table\n   ___P((unsigned int subtype),\n        (subtype)\nunsigned int subtype;)\n{\n  switch (subtype)\n    {\n    case ___sKEYWORD:\n      return ___GSTATE->keyword_table;\n    default: /* assume ___sSYMBOL */\n      return ___GSTATE->symbol_table;\n    }\n}\n\n\n___HIDDEN void symkey_table_set\n   ___P((unsigned int subtype,\n         ___SCMOBJ new_table),\n        (subtype,\n         new_table)\nunsigned int subtype;\n___SCMOBJ new_table;)\n{\n  switch (subtype)\n    {\n    case ___sKEYWORD:\n      ___GSTATE->keyword_table = new_table;\n      break;\n    default: /* assume ___sSYMBOL */\n      ___GSTATE->symbol_table = new_table;\n      break;\n    }\n}\n\n\n___HIDDEN ___SCMOBJ alloc_symkey_table\n   ___P((unsigned int subtype,\n         ___SIZE_TS length),\n        (subtype,\n         length)\nunsigned int subtype;\n___SIZE_TS length;)\n{\n  ___SCMOBJ tbl = ___make_vector (NULL, length+1, ___NUL);\n\n  if (!___FIXNUMP(tbl))\n    ___VECTORELEM(tbl, 0) = ___FIX(0);\n\n  return tbl;\n}\n\n\nvoid ___intern_symkey\n   ___P((___SCMOBJ symkey),\n        (symkey)\n___SCMOBJ symkey;)\n{\n  unsigned int subtype = ___INT(___SUBTYPE(symkey));\n  ___SCMOBJ tbl = symkey_table (subtype);\n  int i = ___INT(___SYMKEY_HASH_FIELD(symkey))\n          % (___INT(___VECTORLENGTH(tbl)) - 1)\n          + 1;\n\n  /*\n   * Add symbol/keyword to the appropriate list.\n   */\n\n  ___SYMKEY_NEXT_FIELD(symkey) = ___VECTORELEM(tbl, i);\n  ___VECTORELEM(tbl, i) = symkey;\n\n  ___VECTORELEM(tbl, 0) = ___FIXADD(___VECTORELEM(tbl, 0), ___FIX(1));\n\n  /*\n   * Grow and rehash the table when it is too loaded (above an average\n   * list length of 4).\n   */\n\n  if (___INT(___VECTORELEM(tbl, 0)) > ___INT(___VECTORLENGTH(tbl)) * 4)\n    {\n      int new_len = (___INT(___VECTORLENGTH(tbl))-1) * 2;\n      ___SCMOBJ newtbl = alloc_symkey_table (subtype, new_len);\n\n      if (!___FIXNUMP(newtbl))\n        {\n          for (i=___INT(___VECTORLENGTH(tbl))-1; i>0; i--)\n            {\n              ___SCMOBJ probe = ___VECTORELEM(tbl, i);\n\n              while (probe != ___NUL)\n                {\n                  ___SCMOBJ symkey = probe;\n                  int j = ___INT(___SYMKEY_HASH_FIELD(symkey))%new_len + 1;\n\n                  probe = ___SYMKEY_NEXT_FIELD(symkey);\n                  ___SYMKEY_NEXT_FIELD(symkey) = ___VECTORELEM(newtbl, j);\n                  ___VECTORELEM(newtbl,j) = symkey;\n                }\n            }\n\n          ___VECTORELEM(newtbl, 0) = ___VECTORELEM(tbl, 0);\n\n          symkey_table_set (subtype, newtbl);\n        }\n    }\n}\n\n\n___SCMOBJ ___new_symkey\n   ___P((___SCMOBJ name, /* name must be a permanent object */\n         unsigned int subtype),\n        (name,\n         subtype)\n___SCMOBJ name;\nunsigned int subtype;)\n{\n  ___SCMOBJ obj;\n  ___SCMOBJ tbl;\n\n  switch (subtype)\n    {\n    case ___sKEYWORD:\n      obj = ___alloc_scmobj (NULL, ___sKEYWORD, ___KEYWORD_SIZE<<___LWS);\n      break;\n    default: /* assume ___sSYMBOL */\n      obj = ___alloc_scmobj (NULL, ___sSYMBOL, ___SYMBOL_SIZE<<___LWS);\n      break;\n    }\n\n  if (___FIXNUMP(obj))\n    return obj;\n\n  tbl = symkey_table (subtype);\n\n  /* object layout is same for ___sSYMBOL and ___sKEYWORD */\n\n  ___SYMKEY_NAME_FIELD(obj) = name;\n  ___SYMKEY_HASH_FIELD(obj) = ___hash_scheme_string (name);\n\n  if (subtype == ___sSYMBOL)\n    ___SYMBOL_GLOBAL_FIELD(obj) = ___CAST(___SCMOBJ,___CAST(___glo_struct*,0));\n\n  ___intern_symkey (obj);\n\n  return obj;\n}\n\n\n___SCMOBJ ___find_symkey_from_UTF_8_string\n   ___P((char *str,\n         unsigned int subtype),\n        (str,\n         subtype)\nchar *str;\nunsigned int subtype;)\n{\n  ___SCMOBJ tbl;\n  ___SCMOBJ probe;\n  ___SCMOBJ h = ___hash_UTF_8_string (str);\n\n  if (h < ___FIX(0))\n    return h;\n\n  tbl = symkey_table (subtype);\n  probe = ___VECTORELEM(tbl, ___INT(h) % (___INT(___VECTORLENGTH(tbl))-1) + 1);\n\n  while (probe != ___NUL)\n    {\n      ___SCMOBJ name = ___SYMKEY_NAME_FIELD(probe);\n      ___SIZE_T i;\n      ___SIZE_T n = ___INT(___STRINGLENGTH(name));\n      ___UTF_8STRING p = str;\n      ___UCS_4 c;\n      for (i=0; i<n; i++)\n        if (___UTF_8_get_var (&p, c) !=\n            ___CAST(___UCS_4,___ORD(___STRINGREF(name,___FIX(i)))))\n          goto next;\n      if (___UTF_8_get_var (&p, c) == 0)\n        return probe;\n    next:\n      probe = ___SYMKEY_NEXT_FIELD(probe);\n    }\n\n  return ___FAL;\n}\n\n\n___SCMOBJ ___find_symkey_from_scheme_string\n   ___P((___SCMOBJ str,\n         unsigned int subtype),\n        (str,\n         subtype)\n___SCMOBJ str;\nunsigned int subtype;)\n{\n  ___SCMOBJ tbl;\n  ___SCMOBJ probe;\n  ___SCMOBJ h = ___hash_scheme_string (str);\n\n  tbl = symkey_table (subtype);\n  probe = ___VECTORELEM(tbl, ___INT(h) % (___INT(___VECTORLENGTH(tbl))-1) + 1);\n\n  while (probe != ___NUL)\n    {\n      ___SCMOBJ name = ___SYMKEY_NAME_FIELD(probe);\n      ___SIZE_TS i = 0;\n      ___SIZE_TS n = ___INT(___STRINGLENGTH(name));\n      if (___INT(___STRINGLENGTH(str)) == n)\n        {\n          for (i=0; i<n; i++)\n            if (___STRINGREF(str,___FIX(i)) != ___STRINGREF(name,___FIX(i)))\n              goto next;\n          return probe;\n        }\n    next:\n      probe = ___SYMKEY_NEXT_FIELD(probe);\n    }\n\n  return ___FAL;\n}\n\n\n___SCMOBJ ___make_symkey_from_UTF_8_string\n   ___P((___UTF_8STRING str,\n         unsigned int subtype),\n        (str,\n         subtype)\n___UTF_8STRING str;\nunsigned int subtype;)\n{\n  ___SCMOBJ obj = ___find_symkey_from_UTF_8_string (str, subtype);\n\n  if (obj == ___FAL)\n    {\n      ___SCMOBJ name;\n      ___SCMOBJ err;\n      test_symkey_split(str);\n\n      if ((err = ___NONNULLUTF_8STRING_to_SCMOBJ\n                   (NULL, /* allocate as permanent object */\n                    str,\n                    &name,\n                    -1))\n          != ___FIX(___NO_ERR))\n        return err;\n\n      obj = ___new_symkey (name, subtype);\n    }\n\n  return obj;\n}\n\n\n___SCMOBJ ___make_symkey_from_scheme_string\n   ___P((___SCMOBJ str,\n         unsigned int subtype),\n        (str,\n         subtype)\n___SCMOBJ str;\nunsigned int subtype;)\n{\n  ___SCMOBJ obj = ___find_symkey_from_scheme_string (str, subtype);\n\n  if (obj == ___FAL)\n    {\n      ___SIZE_T n = ___INT(___STRINGLENGTH(str));\n      ___SCMOBJ name = ___alloc_scmobj (NULL, ___sSTRING, n<<___LCS);\n\n      if (___FIXNUMP(name))\n        return name;\n\n      memmove (___BODY_AS(name,___tSUBTYPED),\n               ___BODY_AS(str,___tSUBTYPED),\n               n<<___LCS);\n\n      obj = ___new_symkey (name, subtype);\n    }\n\n  return obj;\n}\n\n\nvoid ___for_each_symkey\n   ___P((unsigned int subtype,\n         void (*visit) (___SCMOBJ symkey, void *data),\n         void *data),\n        (subtype,\n         visit,\n         data)\nunsigned int subtype;\nvoid (*visit) ();\nvoid *data;)\n{\n  ___SCMOBJ tbl = symkey_table (subtype);\n  int i;\n\n  for (i=___INT(___VECTORLENGTH(tbl))-1; i>0; i--)\n    {\n      ___SCMOBJ probe = ___VECTORELEM(tbl, i);\n\n      while (probe != ___NUL)\n        {\n          visit (probe, data);\n          probe = ___SYMKEY_NEXT_FIELD(probe);\n        }\n    }\n}\n\n\n/*---------------------------------------------------------------------------*/\n\n\n#define fromspace_offset ((___MSECTION_SIZE>>1) - tospace_offset)\n\n#define start_of_fromspace(ms) ms->base + fromspace_offset\n\n#define start_of_tospace(ms) ms->base + tospace_offset\n\n#define SET_MAX(var,val) do { if ((var) < (val)) var = val; } while (0)\n#define SET_MIN(var,val) do { if ((var) > (val)) var = val; } while (0)\n\n\n/* End internal memory fragment. */\n"
+  },
+  "sourceInputHashes": {
+    "lib/mem.c": "cfa99eb996b9b117aa09fe60697373673f1c38ac3c8230c321dd39245bd0f043",
+    "lib/_mem/symbols.inc": "8a3fafb4c9d6ed065eeccdb60895855026851d1b791db24e578cf3a136d90975",
+    "lib/_mem/root-origins.inc": "f261f541877ccf2cee3a5d207794f0a34683488d340e41e2a8edf5dcb492ea80",
+    "tests/root-task.scm": "92974536e80cea48fc4ed017635b18e6e5d144a4166188df71aa777451d52fa7"
+  },
+  "fixtureEntryReplacement": "(define (intern-suite)\n (set! family 'intern) (set! trials 0)\n (let* ((commands (append (make-list 6 (vector 0 0 0)) (list (vector 6 0 0)) (make-list 6 (vector 7 0 0))))\n        (failed (trial commands 0)) (wanted (signature failed)))\n  (if (not (equal? wanted '(6 1))) (error \"legacy duplicate control missed\" failed))\n  (let* ((minimal (shrink commands 0 wanted)) (again (trial minimal 0)) (one? (one-minimal? minimal 0 wanted)))\n   (if (not (and (= (length minimal) 1) one? (equal? wanted (signature again)))) (error \"actual legacy shrink failed\" minimal again))\n   (with-output-to-file (trace-file \"legacy-minimal\") (lambda () (write (list (trace-tag) 1 minimal 0)) (newline)))\n   (write (list 'SYMKEY-LEGACY-IMPLEMENTATION-SHRINK-PASS 'from (length commands) 'to (length minimal) 'deletion-one-minimal one? 'replayed #t 'trials trials)) (newline))))\n\n",
+  "checks": [
+    {
+      "stage": "mem-command",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.17557358302292414,
+      "markers": {}
+    },
+    {
+      "stage": "mutated-mem",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 1.2410055420186836,
+      "markers": {}
+    },
+    {
+      "stage": "compile-mutant",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 4.767185458011227,
+      "markers": {}
+    },
+    {
+      "stage": "actual-legacy-replay-shrink",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 1.423407791997306,
+      "markers": {
+        "SYMKEY-LEGACY-IMPLEMENTATION-SHRINK-PASS": true
+      }
+    },
+    {
+      "stage": "compile-current",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 4.796756166993873,
+      "markers": {}
+    },
+    {
+      "stage": "current-minimal-replay",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.8134910420048982,
+      "markers": {
+        "(root-task-result pass 1)": true
+      }
+    }
+  ],
+  "minimalTrace": "(symkey-publication-trace 1 (#(6 0 0)) 0)\n",
+  "newCheckout": false,
+  "copiedSourceFiles": 3,
+  "recipe": "Use exact selected source and existing configure/Make compiler argv. Copy only mem.c and the named fragment overrides plus existing root-task.scm as isolated mutation artifacts. Replace only the recorded fixture entry; other generators/oracle/native replay/shrinker remain from Git. Compile via the existing mem.o command with original lib include path, link through gsc -ld-options-prelude. Legacy: run --symkey-publication then replay legacy-minimal.trace against unmodified C. Fault: --intern-growth-fault and --intern-gc-publish. Stale writeback: --intern-gc-publish must exit77. Tools resolve from the configured environment; no new profile/executor or SDK copy."
+}

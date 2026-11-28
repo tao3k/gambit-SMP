@@ -53,7 +53,7 @@ consumer dependency pin has NOT been relabeled as this uncommitted candidate.
   Initial policy failures were repaired in code, not waived or downgraded.
 
 Raw command observations, including failed builds/tests and earlier candidate
-identities, are retained in `evidence/library/rust-evidence-047/`. Earlier wheels
+identities, are retained in `.cache/research/legacy-evidence/evidence/library/rust-evidence-047/`. Earlier wheels
 are not the matching final candidate. No performance-speedup claim is made.
 
 ## Still Open

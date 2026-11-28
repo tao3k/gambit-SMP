@@ -1,9 +1,54 @@
 """Shared Quint/TLC backend; no case names, native admission or CLI."""
 import re
 import socket
+import json
 
 from gambit_smp.framework import execute
 from gambit_smp.tlc_values import merge_shapes, shape, value
+
+
+def interpret_simulation(code, output, timed_out, *, negative):
+    """Accept a completed bounded run, not a TLC proof or a native witness.
+
+    Counterexample transport supports scalar Boolean/string record states.
+    Unknown Quint value shapes fail closed instead of executing trace text.
+    """
+    if type(code) is not int or type(timed_out) is not bool or type(negative) is not bool:
+        return False, None
+
+    def decode(term):
+        kind = term.get('kind')
+        if kind in ('bool', 'str'):
+            if type(term.get('value')) is not (bool if kind == 'bool' else str):
+                raise ValueError('typed simulation scalar required')
+            return term['value']
+        if kind != 'app' or term.get('opcode') != 'Rec':
+            raise ValueError('unsupported simulation value')
+        args = term['args']
+        if len(args) % 2:
+            raise ValueError('record key/value pairs required')
+        result = {}
+        for key, item in zip(args[::2], args[1::2]):
+            if key.get('kind') != 'str' or key.get('value') in result:
+                raise ValueError('unique record names required')
+            result[key['value']] = decode(item)
+        return result
+
+    try:
+        data = json.loads(output)
+        expected = 'violation' if negative else 'ok'
+        if (timed_out or code != (1 if negative else 0) or data.get('stage') != 'running'
+                or data.get('status') != expected or data.get('errors') != []
+                or not isinstance(data.get('trace'), list) or not data['trace']):
+            return False, None
+        if not negative:
+            return True, None
+        states = [decode(term) for term in data['trace']]
+        if len(states) < 2:
+            return False, None
+        return True, {'schema': 'gambit-smp-counterexample.v1', 'states': states}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False, None
 
 
 def admitted_model(code, output, timed_out, old):

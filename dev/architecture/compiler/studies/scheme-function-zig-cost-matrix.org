@@ -1,0 +1,174 @@
+#+TITLE: Gambit Modernization and the Incremental Zig Decision
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: compiler
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Gambit Modernization and the Incremental Zig Decision :compiler:
+:PROPERTIES:
+:ID: 6e25c292-6e99-53fd-af74-8fecddbfd711
+:CUSTOM_ID: gambit-modernization-and-the-incremental-zig-decision
+:SOURCE_PATH: docs/experimental/zig/scheme-function-zig-cost-matrix.md
+:SOURCE_SHA256: f2d4e3904c43864a9f36fac2e291d3b365134542a3ee7f2e2bf4a52c5ad63b63
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Source-grounded theoretical report. No implementation,
+native test, timing experiment, measured maintenance saving or positive economic
+bound. Read the [[file:scheme-function-zig-design.org][real reverse path]],
+[[file:scheme-function-zig-evidence.org][source/paper ledger]] and
+[[file:scheme-function-zig-arguments.org][conditional arguments]].
+
+**Modernization can have architectural value without proving that Zig adds net
+value. The present evidence supports a real Zig backend design candidate; it
+does not yet select Zig over equally modern C.** The scientific object is
+Gambit's semantics, runtime protocols, native generation and measurable service
+behavior. Language selection is one falsifiable engineering decision inside it.
+
+*** Equal Capability Controls
+:PROPERTIES:
+:ID: f8da0612-e4e6-5bc0-a67c-72fffc335e33
+:CUSTOM_ID: equal-capability-controls
+:END:
+
+~B0~ means the inspected legacy C path. ~C-G~ means modern C services with the
+same Scheme-generated semantic descriptors, typed generated operations, opaque
+service interfaces, mature C libraries and independent LLVM provider where
+useful. ~C-ZT~ adds useful Zig tools to that C design without assuming Zig-owned
+runtime services. ~Zig~ means real generated Zig hosts and/or Zig native services
+with the same semantic/runtime admission obligations. C-G is not forced to
+duplicate everything manually; Zig is not awarded compiler/runtime redesign
+gains that C-G can share. An all-C solution may already use Clang/LLVM.
+
+*** Mechanism, Savings and Responsibility Matrix
+:PROPERTIES:
+:ID: 9b844df7-aaaa-5acb-a00c-a60c5f4fd5a8
+:CUSTOM_ID: mechanism-savings-and-responsibility-matrix
+:END:
+
+| ID / capability | Existing source work or pain | Equally modern C-G / C-ZT | Real Zig backend/services | What can retire and positive-increment condition | Present conclusion |
+|-
+| SM01 Semantic completion | C scanner invents checks/resumes and materialization [SF-S07] | Scheme generates the same completed operations; C validates/renders them | Same Scheme authority; Zig validates/renders them | Old semantic-in-C scan only after full primitive/control closure; no duplicate Zig liveness engine | Necessary common restructuring; no unique Zig saving |
+| SM02 Typed object/operation construction | Macro layout and unmanaged cross-field assumptions [SF-S09] | Generated typed builders/opaque services, overflow and ownership checks | Types/comptime/error sets can reduce handwritten builders and local error plumbing | Saving only on residual code generators/libraries do not already remove; GC proof remains | Mechanism plausible; residual support delta unbounded |
+| SM03 Proper tail execution | Current reverse already local GOTO; trampoline handles host steps [SF-S04/S10] | Local loops + same dispatch protocol, or admitted tail edges | Local loops + explicit dispositions; alternative always_tail rejection | Replace old host control only after all edges close; dispatch cost versus equal C dispatch counted | No automatic speedup or tail correctness from Zig syntax |
+| SM04 Allocation/check/completion | Post-cons check and reserve, scanner root arrays [SF-S04/S09] | Same InitSpec/B/layout/root protocol with generated C | Same tagged words and explicit GC/root services; no private native list allocator | Old macros retire only for selected producers; Zig must reduce residual implementation burden beyond generated C | n pairs/3n words conditional common cost; no GC saving shown |
+| SM05 Exceptions/forcing/FFI | Public checks and optional Scheme forcing; native call/unwind [SF-S02/03/10] | Explicit Scheme control protocol plus qualified C islands | Error unions help local service failures, but Scheme escape needs dispositions/islands | Fewer manual ordinary cleanup exits must outweigh bridge/control redesign and retained islands | Local ergonomics are not whole-control savings |
+| SM06 Frame/maps/PointIds | Existing frame fields, C packing, ordinal tables [SF-S06/S08] | One generated packer and independent decoder | One Zig packer and independent decoder; comptime can reject inconsistent declarations | Old separate packers/ordinal reconstruction retire only once; schemas already generated in C must be credited | Common structural gain; Zig residual unproved |
+| SM07 Modules/VM ownership | Fixup, constants, globals, init, multi-VM TODO [SF-S11] | Common immutable image + explicit per-VM runtime binding | Same binder contract, native memory/cleanup helpers may share across services | No old host query or module inference; no per-VM pointer hidden in shared image | Major modernization value; language does not supply publication proof |
+| SM08 Generated native route | _front delegates to C dumper and c-intf [SF-S05/S08] | New typed C emitter can remove macro scaffolding, but generated C still compiles; direct LLVM provider can bypass C | Scheme-host C generation/preprocessing becomes zero on the converted Zig route; Zig parsing/checking/native compile remains | Zero old dumper calls for that route; retained runtime/FFI C and module split cost stay counted | Concrete work substitution, no cold-build or startup speed ratio |
+| SM09 LLVM engineering services | Existing target seam; specialized codegen still needed [SF-S05, SF-P03/04/06] | Isolated LLVM provider and shared runtime contract available to C | Same provider reachable from Zig; C API interop and product ownership may simplify orchestration | Compiler provider upgrades must not require duplicating Scheme semantics; dialect/C++/ABI adapter cost included | LLVM benefit is real capability opportunity, not exclusive Zig leverage |
+| SM10 High-level/region optimization | Primitive expansion/lambda lifting can erase useful meaning [SF-S06] | Earlier semantic export and effect/escape passes with lawful lowering | Same export/passes; generated Zig alone does not reconstruct erased facts | Remove redundant lowerings only after effect/identity/continuation proof; reverse output cannot be region-freed at return | Independent research opportunity; no admitted pass or allocation reduction |
+| SM11 Shared service support | Product planning, byte storage, executor/cleanup and loader need support across components | Mature C libs + generated wrappers and shared ownership records | Allocator/error/defer/comptime abstractions may lower repeated residual support | Compare actual necessary consumers and deleted code/authority, not number of potential components | Shared support can amortize fixed cost; no proven crossover component count |
+| SM12 Portability and lifetime maintenance | Existing configured C/FFI domain is broad [SF-S08/S10/11] | Maintain C generators, platform adapters, compiler contracts and retained C libraries | Also maintain Zig frontend/emission/tool evolution, unsupported targets/tail ABIs and native-control integration | Higher C residual cost must exceed Zig-specific upgrades, qualification and retained-island costs | Cost can dominate; selecting modern C is a valid modernization outcome |
+
+[[file:../../system/diagrams/gambit-modernization-decision.svg][Common benefit versus language increment]]
+[[file:../../system/diagrams/gambit-modernization-decision.d2][D2 source]].
+
+*** Quantification Without Invented Performance Numbers
+:PROPERTIES:
+:ID: 67424359-4528-577c-b661-510e9071b207
+:CUSTOM_ID: quantification-without-invented-performance-numbers
+:END:
+
+SM13. Source-bounded counts for public reverse are in SF03/SF17. For n successful
+iterations, the selected artifact schedule has n cons, n heap tests and n loop
+polls; no per-iteration native recursive call is present already. Conditional
+pair storage is 3n words. Therefore “Zig eliminates recursion/GC/allocation”
+cannot support the economic case. Zero generated-C units for converted products
+is a structural target, not zero compilation work, zero retained C units or a
+prediction that macOS startup interface computation disappears.
+
+SM14. Use a fixed maintenance horizon T and admitted capability set K. Define
+burdens in agreed engineering-cost units, with runtime/build/memory/latency
+outcomes separately constrained or explicitly valued; do not add seconds,
+bytes and person-days directly. For each candidate include one-time design,
+migration and verification; recurrent compiler/service/target upgrades;
+retained C/control islands; duplicated authorities during transition; and
+admitted regressions. The complete common modernization net versus B0 is a
+different ledger from Zig versus C-G:
+
+#+BEGIN_SRC text :eval never
+Net_modernization(P,T,K) = valued outcomes versus B0 - full added lifecycle cost
+Delta_Z(T,K) = avoided residual C-G support and maintenance
+             - added Zig migration, emitter, tool, ABI and target obligations
+             - extra bridge, retained-island, qualification and regression cost
+#+END_SRC
+
+Avoided C code is credited only after the replacement's domain/callers and
+actual retirement obligation close; future hypotheses may be scenario inputs
+but are not retired-work receipts. Shared support used by k components is
+charged once, plus per-consumer adapters and upgrades. Theoretical bounds use
+~lower(saving) - upper(cost) > 0~, with common uncertainty and dependencies
+preserved. An unbounded cost is not zero. If outcomes/capabilities differ, report
+a tradeoff/Pareto comparison rather than falsely calling it equal-capability
+net benefit.
+
+*** Concrete Maintenance Events to Account For
+:PROPERTIES:
+:ID: 0aa34e80-b0ba-5dbc-9feb-bac51db4d1c7
+:CUSTOM_ID: concrete-maintenance-events-to-account-for
+:END:
+
+| ID / event | C-G must maintain after reuse | Zig must maintain after reuse | Necessary condition / falsifier |
+|-
+| SE01 Pair representation change | Scheme size recipe; generated offsets/builders; C decoder/root ABI checks | Same recipe/decoder/root checks; Zig emitter/type/layout update | Saving only if Zig removes additional manual synchronization; generated C may erase it already. |
+| SE02 New force/error/control edge | Semantic operation, root/frame completion, C service/disposition realization | Same semantic work plus Zig control-island disposition/cleanup audit | Ordinary defer cannot replace continuation/nonlocal-control reasoning. |
+| SE03 Module publication or VM ownership change | Common product/binder lifetime and init/cycle policy; C consumer migration | Same policy plus Zig storage/slice/lifetime adapters | Neither language proves escaped callback/continuation drain. |
+| SE04 New target or host ABI | C frontend/linker/runtime profile and decoder/call tests | Zig frontend/linker profile, codegen support and tail/dispatch evidence | Unsupported required target rejects selection for K; reducing K is a separate product tradeoff. |
+| SE05 LLVM/MLIR provider upgrade | Adapter/dialect/pass/IR product invalidation and runtime contract checks | Same provider obligations plus Zig FFI/build integration if present | Isolation can limit invalidation; Zig does not remove unstable API or C++ dialect work. |
+| SE06 Shared byte/executor/cleanup service upgrade | Library plus wrapper/owner/cancellation/drain logic for actual users | Standard facilities plus remaining owner/cancellation/drain logic | Amortize one shared implementation, not semantic obligations; include per-consumer migration. |
+| SE07 Delete legacy renderer/protocol | Show zero live caller/reference, bootstrap and independent control coverage | Same, including retained C foreign islands and newly generated Zig clients | Deleting one function does not retire module-wide emitters or global macros. |
+| SE08 Bootstrap/compiler-tool upgrade | Scheme compiler closure and C runtime/native dependencies | Same closure plus Zig emitted-source/tool compatibility | Self-hosting through Zig needs complete compiler dependency domain; no automatic developer-time saving. |
+
+*** Retirement Order and Net Gates
+:PROPERTIES:
+:ID: 85f51baa-9fef-5907-85ef-22ccd905fa14
+:CUSTOM_ID: retirement-order-and-net-gates
+:END:
+
+| ID | Replacement dependency | Actual old responsibility eligible for retirement | What stays / gate |
+|-
+| SR01 | Selected semantic features, source identities and operation/caller census | Implicit feature/control inference in downstream rendering | Scheme meaning, macro evaluation and target feedback stay; absence of unclassified edges required. |
+| SR02 | SF06 completed graph with actual roots/checks/control | C-scanner-only semantic decisions | Scheme completion stays; independent operation/root correspondence required before deletion. |
+| SR03 | Common physical plan with independent decode/offset checks | C emitter's private point numbering/map packing authority | Object/frame/GC contract stays; renderer cannot discover hidden obligations. |
+| SR04 | Qualified Zig object, chosen dispatch cohort and complete imported services | Selected Scheme-host C emission, macro expansion and compilation | Zig compilation, runtime/foreign C and public Scheme/primitive separation stay; no forwarding into targ-dump. |
+| SR05 | Rooted image + explicit module binder + all code/VM users | Old selected C table construction and host-discovery coupling | Initialization/global semantics, lifetime and failure custody stay; module-cycle and reentry policy must close. |
+| SR06 | SR01–05, all callers/foreign/kernel/bootstrap users rebuilt and qualified | Legacy protocol branches and associated workarounds in the declared cohort | Historical patches/failed receipts stay; no global path retirement from this function alone. |
+
+SM15. *Positive Zig increment needs all of:* equal admitted capability,
+bounded residual C support after maximum sensible reuse, actual eliminated
+responsibility rather than a forwarding wrapper, enough necessary shared users
+to amortize fixed cost, and complete tool/ABI/control/target/lifetime cost below
+the conservative saving. A language feature is evidence of a mechanism; it is
+not a positive cost bound. C-ZT wins when tools help without justifying a Zig
+runtime rewrite. C-G wins when generators/libraries remove the residual work
+or Zig's extra integration dominates. No crossover k or percentage is supported
+by current source and papers.
+
+SM16. **If Zig does not pass, continue the same modernization program in modern
+C with optional independent LLVM/MLIR services.** The substantial decisions are
+explicit control/root/allocation/ownership contracts, decoupled native products,
+lawful higher-level optimization, and responsibility deletion with complete
+evidence. This function makes that program concrete. It does not itself prove
+parallel GC redesign, whole-language Zig support, native correctness, total
+positive net or Zig-specific positive net.
+
+*** Fully Costed Alternatives From Current Gambit
+:PROPERTIES:
+:ID: 1da6a5eb-137e-5dd0-bf46-e4ce607938d8
+:CUSTOM_ID: fully-costed-alternatives-from-current-gambit
+:END:
+
+The [[file:../../runtime/control/studies/map-scheme-zig-cost-matrix.org][map matrix]] makes explicit that C-G itself
+requires generator, validator, runtime/service, migration and lifecycle work.
+Shared architectural value does not imply equal or zero realization cost.
+Compare each complete candidate with current Gambit, then compare them with
+each other; Zig need not wait for an intermediate modern-C implementation.

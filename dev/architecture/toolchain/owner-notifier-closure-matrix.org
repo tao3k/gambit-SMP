@@ -1,0 +1,44 @@
+#+TITLE: Owner Holders, Notifier Closure and Net-Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: owner-notifier-matrix
+:AUTHORITY: OwnerNotifierClosure
+:END:
+
+Derived from native SysML. Proposed owner/notifier protocol is not current implementation.
+
+** Holder
+
+| key | anchor | actualEdge | requiredChange |
+|---+---+---+---|
+| stream-and-lexer | stream.ss:19,40-65; lexer.ss:20,42-44,54-105 | token-stream owns char-stream/buffer/grammar/EOF; char-stream owns port/location/history; no owner token currently exists | Every governed resource-capable view must carry the proposed managed owner anchor; detached token/chunk views retain only their own necessary owners |
+| parser-control | lang-reader.ss:131-216,218-260; defparser.ss:17-40 | Active parser paths and ordinary K/E closures reference stream, rules, tokens and port; captured continuation retains actual surviving frames | Trace exact live control/capture paths without cloning token/list-tail identity or assuming every lexical variable survives tail-call elimination |
+| readenv-and-handler | runtime/syntax.ss:255-266; _io.scm:12694-12698 | readenv owns input port/current readtable and invokes dynamically selected handler with readenv | Reader/handler aliases that can use old input must protect its owner; opaque mutable/native handlers retain legacy ownership |
+| exception-stacktrace | runtime/error.ss:16-20,37-43,67-72; runtime/syntax.ss:71,169-171 | StackTrace holds continuation; raise can capture before catch graft and replacement raise can capture again | Include original/replacement/secondary errors and captures in owner coverage; notification code must not invoke error/logging paths that capture testator |
+| native-rc | mem.c:703-826,3969-3986; os_dyn.c:748-769,1047-1053 | Registered RC data strongly marks a Scheme procedure, whose environment may retain reader/control objects | Real borrow/pending work retains roots; notifier/control payload is rootless and cannot wait for a GC notice while itself rooting the owner |
+| will-action-and-frame | mem.c:4039-4064; _kernel.scm:2082-2116; _nonstd.scm:1874-1895 | Will action is strong; execution clears will fields but passes testator through active action and dispatcher locals; public execution does not require GC selection | Private will/action handles, GC dispatch provenance, noncapturing/nonpublishing leaf, normal return and frame/root retirement proof before sealing |
+| jobs-and-controller | _kernel.scm:1925-1939,2071-2077,2153-2156; std/db/sqlite.ss:42-45,64-67 | GC job FIFO retains registered thunks; execute-jobs does not clear registry; SQLite shows module-level finalizer actions but not restricted notifier qualification | Prefer one owner-independent drain job and per-owner rootless slots; no job/controller closure may capture owner or testator |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| holder-coverage | False | Source-bound alias/control graph covers every resource-capable view, including raw aliases and all processor native roots |
+| action-closure | False | Action, weak handle, job and controller do not escape or strongly capture owner; top-level naming alone is insufficient |
+| dispatch-provenance | False | Private GC dequeue ticket binds owner generation/close epoch; public will-execute or direct action call cannot forge selection evidence |
+| nonresurrection | False | No public will-testator access, owner publication, user call, capture, or error-stacktrace route through notifier; generic user will semantics preserved elsewhere |
+| callback-frame-exit | False | Distinguish action return, dispatcher frame/root retirement and winding/escape; GVM/GC root-map or equivalent source/native proof required |
+| rootless-mailbox | False | Slot reserved before registration, no allocation/user callback on notice path, stable rootless payload and control-storage lifetime through unknown replies |
+| notice-to-release-refinement | False | Sealed notice is only one contribution to RA admission/drain/settlement join; native ordering, thread affinity and grace remain open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| persistent-jobs | If otherwise one job per owner: W persistent owner-capturing GC-job registrations can become one owner-independent drain registration | O(W) rootless preallocated per-owner slots plus dispatcher scan/queue work | Proposed organization, not a claimed existing gxi implementation or speed measurement; no owner backedges in drain closure |
+| finalization-allocation | No mandatory event allocation/error formatting while notifier holds testator | Registration-time slot reservation, failure rollback, normal-return/frame-exit and publication protocol | No allocation on notification path is an admission premise to prove, not a property provided by Zig or a function name |
+| retention-and-latency | Prevent self-retention and invalid release from manual execution, resurrection or early notification | Separate selected/prepared/returned/retired/sealed states and identities; captured errors may retain resources indefinitely | No bounded GC latency, callback-return deadline or throughput gain inferred |
+| native-baseline | Prior reset/ignored-string/rootless-ack gains remain distinct, not counted again | Same semantic root/publication support in modern C or Zig | Modern C remains mandatory; no uniquely Zig net gain established here |

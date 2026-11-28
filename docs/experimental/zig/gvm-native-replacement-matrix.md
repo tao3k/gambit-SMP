@@ -1,0 +1,130 @@
+# Native GVM Products: C Retirement and Quantitative Accounting
+
+Date: 2026-10-20. Design only. Companion to the
+[shared runtime contract](gvm-shared-runtime-contract.md) and
+[source evidence](gvm-shared-runtime-evidence.md). No old path is retired here.
+
+## 1. Replace Emission and Packaging, Retain Their Obligations
+
+CR identifiers below are local to this design. They do not replace M1-M12 in
+the [native request migration](native-request-configuration-migration.md).
+M2-M8 construction retirement and compiler/runtime retirement are different
+claims: removing a command template does not remove Scheme-to-C generation.
+
+| ID | Current source path / work | Native replacement or retained responsibility | Retirement condition |
+| --- | --- | --- | --- |
+| CR01 | `_back.scm` target interface; frontend/GVM optimization | Retain Gambit target authority; export typed GVM plus capabilities/profile | Export is additional responsibility, not a frontend replacement |
+| CR02 | `_t-c-1.scm:337-393` scans procedures/constants and emits C heap/module output | Native procedure bodies, constant graph and module product | All consumed c-intf/module fields represented; no hidden C body fallback for the admitted unit |
+| CR03 | `_t-c-2.scm:379-449,833-915` emits checks, cache handling and return descriptors through C macros | Native CFG plus explicit prepare/transfer/resume and Gambit-compatible maps | SR02-SR05 close; deleting macro text alone earns nothing if semantics disappear |
+| CR04 | `_t-cpu.scm:165-180` assembles bytes/fixup vectors, then compiles `cpu.scm` using the C backend | Direct object and Gambit materialization/fixup plan | No generated-C wrapper/compiler invocation; code/object/global/bridge fixup roles preserved |
+| CR05 | `_t-cpu.scm:64-135` target linking/info placeholders and partially specified primitive target | New target integration and explicit capability manifest | Complete module/link/primitive domain demonstrated; existing file presence is not qualification |
+| CR06 | `_t-cpu-abstract-machine.scm:992-1021` native primitive or C-defined Scheme dispatch | Inline admitted primitive or declared shared-runtime transfer | Coverage denominator explicit; C runtime library remains until each replacement is justified |
+| CR07 | `_t-c-1.scm:337-393` consumes embedded declarations/procedures/initializers/object bindings | Separate C adapter island with full effects/ownership, or native adapter with equivalence evidence | A no-C claim requires zero remaining generated C adapters for that product; otherwise report partial removal |
+| CR08 | Header label/closure/frame/check/jump macros | Remove repeated macro expansion for native-selected Scheme units; keep the runtime protocol and C target definitions | Native producer covers the exact configured representation and root/control behavior |
+| CR09 | `setup.c` call/run/trampoline, module/fixup/entry machinery | Reuse initially; add an admitted native product adapter rather than a second loader | Only the C-text dependency may retire; init, error, resource and continuation lifetime duties remain |
+| CR10 | `mem.c`, runtime C helpers, Scheme runtime libraries and C FFI | Retain current admitted collector/runtime cohort; compile/cache these as independent artifacts | No wholesale retirement proposed; native lowering is not a collector rewrite |
+| CR11 | Managed compile/archive/link command resolution and legacy scripts | Use the existing typed native request owner for selected native products | Actual M2-M8 callers replaced per mode and E01-E32 evidence; native route must not reenter retired scripts |
+| CR12 | Portable C backend and configured GCC support | Retain first-class BC reference/bootstrap/portability path | Native-selected units stop using it; global C target deletion is neither required nor proposed |
+
+The migration order is a dependency order: profile/typed export -> complete
+native product/constant/metadata semantics -> control/roots and runtime bridges
+-> module/FFI integration -> close SR gates -> retire selected C emission and
+packaging calls -> retire now-unused managed construction callers. SR gates
+apply to a declared capability domain, not a hand-picked passing example.
+
+The existing `_t-cpu` route is especially useful evidence: it generates native
+code but still asks the C backend to create the object. Eliminating that wrapper
+is a separate task from generating machine instructions. An OS object linker
+cannot replace the Scheme object/global fixups or initialization semantics.
+
+P0 keeps platform code/data permission requirements in the adapter capability.
+Direct AOT relocation may avoid some writable-code fixups, but the pinned
+loader/runtime assumptions must be reconciled. arm64e authentication and native
+bridge behavior remain unresolved; this document makes no installed-platform
+admission claim.
+
+## 2. What Can Be Counted Before Timing
+
+For an identical supported module set and semantic change, partition actual C
+compiler input units by role:
+
+```text
+C_before = R_before + G_before + P_before + F_before + L_before
+C_after  = R_after  + G_remaining + P_remaining + F_remaining + L_remaining
+delta_C  = C_before - C_after
+```
+
+R = runtime/support, G = generated Scheme body units, P = native packaging C
+units, F = FFI C adapter units, L = generated linker/support C units. Assign
+each invocation one role or an explicit mixed role; do not count an invocation
+twice. Report mixed units separately if their body cannot yet be removed.
+For unchanged reusable R inputs, `R_after = R_before` on a cold cohort build
+and may be zero on a valid incremental reuse; credit that reuse to the cache
+architecture, not intrinsically to Zig. Native compiler service work is added
+elsewhere, not concealed by this C-only equation.
+
+The structural upper bound for **C preprocessing eliminated by bypass** is the
+actual preprocessing work of the removed G/P/F/L units. Remaining adapters,
+runtime builds and C-selected units still incur their costs. Count bytes/tokens
+and invocations independently; a unit count is not a time estimate. Changing
+`gcc` to `zig cc` alone earns zero bypassed-unit credit.
+
+For a complete no-generated-C module capability, require
+`G_remaining = P_remaining = F_remaining = L_remaining = 0` for that product's
+declared scope. Linking previously built C runtime objects is compatible with
+that claim. A process-wide or cold-build no-C claim would be different and is
+not proposed.
+
+The earlier Darwin approximately-five-second window includes Scheme expander
+execution and interface instantiation. A native backend's C bypass cannot
+retroactively remove that earlier work. Only independently admitted AOT/reuse
+or compiler execution changes earn credit against those components; retain the
+[first-compile boundary correction](darwin-first-compile-boundary.md).
+
+## 3. Ten Backend-Specific Benefit/Cost Rows
+
+All observed baselines and deltas in this table are **unknown**. These are
+measurement definitions and future acceptance rules, not work requested now.
+They refine the existing [Q01-Q18 ledger](zig-modernization-benefit-ledger.md).
+
+| ID / ledger join | Quantity and denominator | Benefit mechanism / added cost | Future acceptance boundary |
+| --- | --- | --- | --- |
+| N01 / Q02 | C emission bytes, preprocessing tokens/bytes and compiler invocations by R/G/P/F/L role per same change | CR02-CR04/CR07-CR08 eliminate text round trips; export/serialization adds work | Actual removed units and bytes, including remaining wrappers; no timing inference |
+| N02 / Q04-Q05 | Native service invocations, IR bytes, cache hits and invalidated products by edit/provider/runtime change | Typed products reuse unchanged work; profile validation and provider startup cost remain | Minimal correct invalidation, no stale hit; provider changes and cohort ABI changes have different closures |
+| N03 / Q06 | Admitted GVM op/primitive/constant/control/FFI cases over the complete selected domain | LLVM machinery replaces selected handwritten backend work | 100% required cases covered or explicit rejection; 1588 primitive names are not 1588 admitted lowerings |
+| N04 / Q07 | Native/C transfer counts, local edges, closure allocations/captured words, boxing operations per same result | Direct CFG/specialization can reduce operations; cross-backend bridges may increase cost | Matched effects/control/identity; BG and BH optimization windows reported separately |
+| N05 / Q10 | Live root slots, stores/reloads and spill bytes per safepoint and delivered result | Proved liveness/effects may reduce publication; D0 can add writeback | Zero missing roots/stale uses first; every eliminated store tied to a valid proof |
+| N06 / Q09-Q11 | FFI conversion bytes, calls, callback/throw exits and blocking request/reacquire latency | Shared Scheme calls avoid service serialization; ordinary native service still has ownership costs | Include copies, queues, errors and tail latency; no blanket zero-copy credit |
+| N07 / Q12-Q14 | Mutator work, GC CPU/wall/participation delay, worker/VM counts, tail-stack bound | Same-runtime reuse reduces rewrite scope; new backend may change allocation/poll behavior | Correct matched graphs/cores/configurations; no parallel-GC speedup credited to language choice |
+| N08 / Q15 | Native code, descriptors, constants, LLVM service RSS, retained continuations/resources | Less C intermediates or smaller code versus new metadata/service memory | Peak and retained bytes together; descriptor lifetime cannot be shortened to improve the number |
+| N09 / Q16-Q17 | Owned backend/runtime components, handwritten target rules, maintainer hours and supported target/provider pairs | Upstream register allocation/object/debug machinery can replace owned mechanisms | Count only actually retired work; compatibility testing and toolchain upgrades charged as recurring costs |
+| N10 / Q18 | Passed SR01-SR08 plus relevant E/M gates over all required profile cases | One contract enables multiple backends and independent provider upgrades | All required gates conjunctive; an implementation/model/doc count is not native admission |
+
+Use B0 = existing C path, B1 = equivalent new contract/backend architecture
+implemented with C/existing tooling, Z1 = Zig implementation. B0 -> Z1 measures
+the overall redesign; B1 -> Z1 isolates Zig's incremental contribution. Compare
+the same D0/D1 control strategy, runtime and admitted optimizations. Otherwise
+an ABI/algorithm change is misattributed to Zig. Compare MLIR transforms on/off
+separately, with the same semantic domain.
+
+For runtime time, record mutually exclusive observed intervals plus bridge/poll
+frequencies. Do not add overlapping GC CPU and mutator wall time. For build
+time, include export, service startup, optimization, native codegen, object
+materialization, adapters and final linking. Work elimination gives a plausible
+mechanism; native compilation can still cost more than the removed C stage.
+
+## 4. Leverage and Its Limits
+
+The LLVM opportunity is to replace selected architecture-specific instruction
+selection/register allocation/object-emission maintenance and admit useful
+optimizations behind one Gambit semantic contract. Zig can carry that service,
+typed resource ownership and C integration without owning the managed heap.
+The incremental Zig case remains an engineering/maintenance comparison against
+B1; LLVM leverage is not exclusive to Zig.
+
+The architectural win is strongest when CR02-CR04 remove actual generation and
+packaging work and CR11 removes redundant managed callers. If every C wrapper,
+resolver and target rule stays active while Zig/MLIR add versions and services,
+N01/N09 must show that cost explicitly. Collector replacement, higher-order
+optimization, startup AOT and C bypass are separate benefits with separate
+evidence. None is established by drawing this architecture.

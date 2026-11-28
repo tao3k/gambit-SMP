@@ -64,7 +64,7 @@ a 16-state counterexample (20.759 seconds); positive safety and weak-fair
 progress cover 4,695 distinct states, 14,872 generated, zero queued in 24.830
 seconds. Ten initial configurations cover the stated population/prefix bounds.
 The portable source-bound bundle is
-`evidence/model-results/sync-retirement-round-closure/`. This local evidence
+`.cache/research/legacy-evidence/evidence/model-results/sync-retirement-round-closure/`. This local evidence
 publication does not mean a GitHub push or native execution admission.
 
 ## Paper Connection

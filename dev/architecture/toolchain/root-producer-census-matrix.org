@@ -1,0 +1,108 @@
+#+TITLE: Root Producer Census, FFI Admission and Idle Duty Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: root-producer-census-matrix
+:AUTHORITY: RootProducerCensus
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** Census
+
+| key | anchor | condition | status | qntAction | leanLemma |
+|---+---+---+---+---+---|
+| vm-object | mem.c:6573-6587,6847 | processor-zero VM object body; root ownership stable until strong phase closes | entry-closed; slot-layout-open | scanFamily | scanPreserves |
+| symbols-keywords | mem.c:6651-6664,6848 | processor-zero symbol/key table roots; table bodies use object scan semantics | entry-closed; external-writers-open | scanFamily | scanPreserves |
+| globals | mem.c:6591-6647,6852 | all processors partition SINGLE_VM sublists or per-VM global slots using floor endpoints; fixed n and np required | entry-closed; mutation-and-snapshot-open | scanFamily | scanPreserves |
+| continuation-denv | mem.c:3817-3965,6854,4096-4099,4145 | each processor live stack with frame GC map plus break-frame captured chain; denv is a traced object edge, not a separate arbitrary C root | entry-closed; generated-map-open | scanFamily | scanPreserves |
+| registers | mem.c:6511-6522,6856; gambit.h.in:7057-8058 | each processor ps->r array; compiler must spill actual live machine values before synchronized GC | entry-closed; spill-completeness-open | scanFamily | scanPreserves |
+| saved | mem.c:6526-6537,6858; gambit.h.in:8059-8083 | each processor saved array; explicit SAVE macros retain temporary Scheme arguments across allocating calls | entry-closed; caller-coverage-open | scanFamily | scanPreserves |
+| type-cache | mem.c:6541-6552,6860 | each processor type_cache array | entry-closed; all-writers-open | scanFamily | scanPreserves |
+| processor-object | mem.c:6556-6569,6862 | each processor Scheme object body, including threaded language state reachable through its fields | entry-closed; layout-open | scanFamily | scanPreserves |
+| external-still | mem.c:164-175,4210-4247,6800 | each processor setup traverses still chain and seeds objects with nonzero external refcount; descendants are scanned under active credit | entry-closed; lifetime-and-raw-writes-open | scanFamily | scanPreserves |
+| rc-payload | mem.c:277,306,723-825,3969-3986,6845-6850 | registered h->data is a root slot; registration is per PSTATE but only processor zero currently walks its RC chain | structural-gap; nonzero-profile-rejected | scanFamily | scanPreserves |
+| ffi-temporary | c_intf.c:6511-6561; os_dyn.c:639-672,744-769; tcltk.scm:150,193-194,316-326 | Explicit marker proc needs a root before allocating; implicit closure relies on RC and c_closure_self; Tcl still vector already has external protection | admission-gap; no-native-defect-claim | protectArgument | markerBeforeAllocation |
+| weak-exclusion | mem.c:4035-4085,5046-5103,6872-6907 | Will testators and weak table edges follow weak policy; do not add them as strong roots to make coverage look complete; reachable actions follow strong scan policy | policy-separated; cross-worker-global-cut-open | issueReceipt | incompleteManifestBlocks |
+
+** Settle
+
+| key | anchor | condition | status | qntAction | leanLemma |
+|---+---+---+---+---+---|
+| copy | mem.c:3578-3611,3667-3813 | Forwarding visibility does not discharge payload initialization; copying call returns before caller can idle | call-order-closed; layout-refinement-open | finishPayload | zeroClosesDebts |
+| tail | mem.c:3602-3624,4196-4204 | PAIR first field follows inline tail, remaining field follows body scan; tail completion cannot be inferred from only scan_and_advance | call-order-closed; exact-tail-proof-open | finishTail | zeroClosesDebts |
+| cursor | mem.c:3663,3808,4324-4334 | Local alloc cursor is committed before control returns; incomplete-chunk scan compares against current alloc_heap_ptr | call-order-closed; full-path-proof-open | commitCursor | zeroClosesDebts |
+| publication | mem.c:3251-3305,4348-4368 | Body/end marker/link precede published tail; active producer covers synchronous call; independent producers require explicit credit | ordering-seams-closed; C-memory-order-open | commitPublish | transferPreserves |
+| scanner | mem.c:4243-4247,4252-4271,6717-6727 | Popped still node and dequeued chunk remain in live native scanner frames; recursive children settle before next idle attempt | call-order-closed; native-unwind-open | finishScan | zeroClosesDebts |
+| still-derived | mem.c:3633-3645,6686-6690 | Movable scanning may enqueue still objects, so still/movable local loop repeats until no still work remains | fixed-point-loop-closed; producer-census-open | drainDerived | zeroClosesDebts |
+| idle | mem.c:6738-6767 | Under termination mutex, decrement only after local drain/steal; waiter seeing zero returns without reacquiring; nonzero wake reacquires first | control-flow-closed; count-coverage-open | idle | zeroClosesDebts |
+
+** Caller
+
+| key | anchor | condition |
+|---+---+---|
+| rc-owner | mem.c:277,306,723-825,3969-3986,6845-6850 | Registration binds to current PSTATE rc_head, but strong scan invokes mark_rc only on processor zero; nonzero RC with a unique movable payload cannot be admitted by current closure evidence |
+| callback-entry | c_intf.c:6511-6561; gambit.h.in:10043-10059; os_dyn.c:744-769 | Explicit proc_or_false is not materialized before marker allocation; TODO remains; implicit closure path relies on architecture-gated RC and non-thread-local c_closure_self |
+| still-root | mem.c:1490-1496,1647,1730-1737,4210-4247,6798-6805; tcltk.scm:297-337 | Every participating processor seeds nonzero-refcount still objects during setup; Tcl vector starts with external protection independently of its RC payload |
+| local-drain | mem.c:3504-3663,3667-3813,4196-4204,4235-4383,6682-6767 | A counted owner remains responsible for synchronous copy, inline tail, alloc cursor, popped still node and dequeued chunk until descendants and cursor advances settle |
+| gc-entry | setup.c:1022-1029,1065-1105; mem.c:3458-3459,7002-7023 | Sync-op dispatch and setup barriers establish source rendezvous seams; they do not themselves close arbitrary external root mutation or prove generated register maps |
+
+** Protocol
+
+| key | anchor | condition |
+|---+---+---|
+| manifest | mem.c:6511-6664,6798-6864 | Enumerate ten root families plus callback admission and weak-phase exclusions; exact physical slot completeness and supported configuration remain separate obligations |
+| writer-close | mem.c:723-825; setup.c:5900-5922 | Close new register/write/read/unlink/exit admission, drain accepted operations without holding GC-required locks, then freeze root membership and payload versions; current API does not implement this protocol |
+| stable-scan | mem.c:3981-3984,6511-6664 | Scanner records stable owner, epoch and payload version; a value read lease alone cannot prevent set_data_rc or unlink; stale snapshot never issues a receipt |
+| idle-custody | mem.c:6682-6767 | idle decrements only after own root producers and all private/published/scanner/derived responsibilities settle; active credit transfers before a thief scans |
+| receipt | mem.c:6864,7016 | Full root census plus same-epoch stable scans and no outstanding owner duties permit a conditional closure receipt; peer-return and storage retirement remain separate |
+
+** Route
+
+| key | anchor | qntAction | leanLemma | condition |
+|---+---+---+---+---|
+| registration | mem.c:723-825 | admitWrite | freezeDrainsLeases | Accepted writers retain a lease until commit or abort; freeze requires closed admission and empty accepted set; a writer awaiting GC blocks freeze without a scan-ready handoff |
+| custody | mem.c:6717-6727 | dequeue | transferPreserves | Receiver must already have active credit and source loses queue custody only on accepted dequeue |
+| coverage | mem.c:6511-6664,6845-6864 | scanFamily | scanPreserves | Every modeled root family needs a fresh scan; family aggregation is not a native slot-map proof |
+| publication | mem.c:3602-3624,3663,4324-4334 | commitCursor | zeroClosesDebts | Copy completion, inline tail, cursor commit and scanner work cannot disappear at idle; model debt is ghost state |
+| retirement | mem.c:6864,7016 | issueReceipt | incompleteManifestBlocks | Source-shaped nonzero-RC omission may terminate accounted work but cannot issue root-complete receipt |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| root-scan | Reuse current register/saved/cache/frame walkers and still seed traversal | RootDomain manifest and ownership/admission protocol; exact maps and cleanup ordering | No additional graph traversal is required merely for the receipt; added census bookkeeping and changed RC coverage are real |
+| credit | Avoid per-object publication atomics for synchronous owner-covered paths | Seven ghost duty classes with real idle/exit discipline; detached work needs durable credit | Existing worker count may cover work but cannot cover omitted roots or uncontrolled FFI writers |
+| rc-coverage | Retire processor-zero-only RC scan authority once every registered domain is owned | Scan all registered payload slots and synchronize register/write/unlink; retain still external roots | Additional RC scan cost is proportional to roots previously omitted; this is correctness cost, not a performance regression benchmark |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| roots | admitWrite;commitWrite;abortWrite;needsGC;closeAdmission;freeze;scanFamily;closeProducer | freezeDrainsLeases;waitingWriterPreventsFreeze;scanPreserves;idleNeedsOwnRoots;rcOmissionBlocks;committedWriteInvalidates | Prove physical slot census, stable domain ownership and root-map spill coverage, then linearize registration/writes/removal against freeze; current RC API lacks these guards |
+| work | startCopy;finishPayload;finishTail;commitCursor;beginPublish;commitPublish;scanPrivate;dequeue;discover;drainDerived;finishScan | zeroClosesDebts;transferPreserves | Refine seven nonempty duty classes to arbitrary copy/frame/chunk tasks with multiplicity; no duty can clear while another task in the same abstract class remains |
+| callback | protectArgument;allocateMarker | markerBeforeAllocation | Protect explicit proc before allocating marker and keep closure/RC lease until re-reading movable payload; qualify implicit trampoline only on supported architectures |
+| receipt | idle;issueReceipt | incompleteManifestBlocks;netBenefit | Count exactness and all-scanned input must compose with previous work-closure model; no full simulation or C memory-model proof is claimed |
+
+** Prior
+
+| key | path | invariant | qntAction | leanLemma | condition |
+|---+---+---+---+---+---|
+| strong-receipt | models/build/strong_closure_receipt.qnt | safe | idle | zeroClosesDebts | Previous rootCoverage Boolean is refined into explicit root-family membership, writer leases and fresh scan observations; product refinement remains open |
+| scan-count | models/gambit/gc_scan_termination.qnt | safe | closeProducer | idleNeedsOwnRoots | Counted producer assumption now requires current source root owner coverage and cannot erase nonzero RC or marker gaps |
+| work-closure | models/gambit/gc_work_closure.qnt | terminationSafe | finishScan | zeroClosesDebts | Existing canonical object graph remains a separate payload-closure model; this study checks root admission and idle duties, not actual object bytes |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| producer-closure | False | Entry census is closed for inspected in-tree dispatch; arbitrary FFI aliases, native stack roots and generated maps are not a full root certificate |
+| vm-ownership | False | Nonzero RC registration/scan asymmetry and exit cleanup require explicit VM domain membership and storage handoff |
+| gc-seal | False | Private synchronous call-return order is established structurally; arbitrary task coverage, multiplicity and exceptional paths still need full source simulation |
+| scan-coverage | False | Families aggregate real slots; per-point GVM spills, frame descriptors, PAIR tails and C configurations remain unqualified |
+| retirement | False | Accepted writers/readers, callback marker, RC unlink/free and processor cleanup must drain without lock cycles; writer awaiting its own GC needs pre-GC scan-ready handoff |
+| source-replacement | False | New RootDomain admission, preallocation root materialization and all-owner RC scan are proposed changes, not current runtime features |
+| platform | False | Current plain RC links/data/refcounts and legacy FIFO synchronization need C happens-before qualification; inherited host attestation remains unresolved |

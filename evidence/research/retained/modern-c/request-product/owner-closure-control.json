@@ -1,0 +1,83 @@
+{
+  "sourceTree": "8f7fd9879eb31bef88d17b3b1dea05669c474501",
+  "profileSha256": "884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69",
+  "sameCaseText": "(define main (current-thread))\n(define gate (make-mutex))\n(define left (make-mutex))\n(define right (make-mutex))\n(mutex-lock! gate)\n(define (actor first second)\n  (make-thread (lambda ()\n    (mutex-lock! first)\n    (thread-send main 'ready)\n    (mutex-lock! gate)\n    (mutex-unlock! gate)\n    (thread-send main 'waiting)\n    (mutex-lock! second))))\n(define a (actor left right))\n(define b (actor right left))\n(thread-base-priority-set! a +nan.0)\n(thread-base-priority-set! b +nan.0)\n(thread-start! a)\n(thread-start! b)\n(thread-receive)\n(thread-receive)\n(mutex-unlock! gate)\n(thread-receive)\n(thread-receive)\n(define worker\n  (##thread-start-on! 1\n    (make-thread (lambda ()\n      (thread-sleep! 0.05)\n      (##gc)\n      (display \"CYCLE-GC-DONE\\n\") (force-output)))))\n(display \"CYCLE-READY\\n\") (force-output)\n(thread-base-priority-set! a +nan.0)\n(display \"CYCLE-SETTER-RETURNED\\n\") (force-output)\n(thread-join! worker)\n(display \"CYCLE-JOINED\\n\") (force-output)\n",
+  "sameCaseSha256": "0721b59230e13534c642a90efbadc1a59fb47c17154ffcb1ce05d0b1434d3452",
+  "observations": [
+    {
+      "label": "baseline",
+      "exit": -9,
+      "timeout": true,
+      "seconds": 5.008683749998454,
+      "runtimeSha256": "762b0191ebf71efc0a2a48abc1315bd0b8a6b054585859073cd2084b306fcca5",
+      "caseSha256": "0721b59230e13534c642a90efbadc1a59fb47c17154ffcb1ce05d0b1434d3452",
+      "cycleReady": true,
+      "gcDone": true,
+      "setterReturned": false,
+      "joined": false,
+      "process": {
+        "exit": -9,
+        "timeout": true,
+        "seconds": 5.008683749998454,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      },
+      "stdoutSha256": "8fd9ce4199c32be5eedbc7dcda7ceea8ccfbd466fe73fa2aaf8f8b055113d915",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "CYCLE-READY\nCYCLE-GC-DONE\n",
+      "stderr": ""
+    },
+    {
+      "label": "rejected",
+      "exit": -9,
+      "timeout": true,
+      "seconds": 5.020290458996897,
+      "runtimeSha256": "7b1c683018f0e1f4f3cce54fa1db3549f870641430cb64a8e5c5379195df19e7",
+      "caseSha256": "0721b59230e13534c642a90efbadc1a59fb47c17154ffcb1ce05d0b1434d3452",
+      "cycleReady": true,
+      "gcDone": false,
+      "setterReturned": false,
+      "joined": false,
+      "process": {
+        "exit": -9,
+        "timeout": true,
+        "seconds": 5.020290458996897,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      },
+      "stdoutSha256": "d1cb50ff9f55607633faf3dcc5434922d0044c45efc2ed072e2e41971e00a5ef",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "CYCLE-READY\n",
+      "stderr": ""
+    },
+    {
+      "label": "candidate",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.35191395800211467,
+      "runtimeSha256": "4a205df20a73edebcf551645821cd4290bc7bfa4042af29e016ff0e1ad0a7d13",
+      "caseSha256": "0721b59230e13534c642a90efbadc1a59fb47c17154ffcb1ce05d0b1434d3452",
+      "cycleReady": true,
+      "gcDone": true,
+      "setterReturned": true,
+      "joined": true,
+      "process": {
+        "exit": 0,
+        "timeout": false,
+        "seconds": 0.35191395800211467,
+        "parentReaped": true,
+        "processGroupQuiescent": true
+      },
+      "stdoutSha256": "473222afdf255348633ba747f37e4b6f2448914301e6134cb64ffb91d4935c8f",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "CYCLE-READY\nCYCLE-SETTER-RETURNED\nCYCLE-GC-DONE\nCYCLE-JOINED\n",
+      "stderr": ""
+    }
+  ],
+  "limits": {
+    "secondsPerRole": 5,
+    "heapRaised": false,
+    "waitExtended": false
+  },
+  "boundary": "Identical p2 diagnostic bytes/cwd/profile environment. Historical hangs remain failures; candidate naturally completes both setter and joined GC. One diagnostic is not a throughput benchmark, liveness theorem or whole SMP pass."
+}

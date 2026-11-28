@@ -1,0 +1,193 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-still-admission",
+  "scope": "Quint controls for one still receipt, one still-init safepoint, and one materialization custody: a receipt is admitted only after the still point, init cannot pass the safepoint early, and materialization keeps custody until the frame is published. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 280,
+  "inputs": [
+    "models/gambit/still_receipt_admission.qnt",
+    "models/gambit/still_init_safepoint.qnt",
+    "models/gambit/still_materialization_custody.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-still-admission/binding.json",
+    "evidence/fixtures/dev-still-admission/observations.json",
+    "evidence/fixtures/dev-still-admission/admission.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "receipt-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/still_receipt_admission.qnt"
+      }
+    },
+    {
+      "id": "receipt",
+      "capability": "quint.test",
+      "dependsOn": [
+        "receipt-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/still_receipt_admission.qnt",
+        "parsed": "receipt-parse",
+        "main": "still_receipt_admission",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "closedUnenteredCancelTest",
+          "rawSuccessUnknownTest",
+          "rawFailureUnknownTest",
+          "publishIsNotSettlementTest",
+          "knownFailureRefundTest",
+          "duplicateRefundReplayTest",
+          "lostDeliveryQueryTest",
+          "rawFreeUnknownTest",
+          "failedFreeNoRefundTest",
+          "duplicateFreeReplayTest",
+          "sweepInvalidatesTest",
+          "sweepGateExcludesCommitTest",
+          "retiredSnapshotTest",
+          "drainedReleaseCommitTest",
+          "rawBorrowBlocksRetireTest",
+          "borrowDrainTest",
+          "unknownCreditCounterexampleTest",
+          "duplicateCreditCounterexampleTest",
+          "splitCommitCounterexampleTest"
+        ]
+      }
+    },
+    {
+      "id": "safe-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/still_init_safepoint.qnt"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.test",
+      "dependsOn": [
+        "safe-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/still_init_safepoint.qnt",
+        "parsed": "safe-parse",
+        "main": "still_init_safepoint",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "requestBeforeAllocateTest",
+          "requestDuringInitTest",
+          "completeThenAckTest",
+          "interruptDeferredTest",
+          "interruptAfterInitTest",
+          "nestedPreallocationRootsTest",
+          "nestedAfterInitializationTest",
+          "unknownFullCustodyTest",
+          "sameOperationResolveTest",
+          "beforeLinkAbortTest",
+          "newRequestAfterAckTest",
+          "uninitializedParticipationControlTest",
+          "mutatorAfterAckControlTest",
+          "lostOuterRootControlTest",
+          "sharedScratchClobberControlTest",
+          "innerExitClearsParentControlTest",
+          "staleAckControlTest",
+          "earlyCallbackControlTest",
+          "unknownRefundControlTest",
+          "abortLinkedUninitializedControlTest",
+          "filledButUnrootedControlTest"
+        ]
+      }
+    },
+    {
+      "id": "mat-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/still_materialization_custody.qnt"
+      }
+    },
+    {
+      "id": "mat",
+      "capability": "quint.test",
+      "dependsOn": [
+        "mat-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/still_materialization_custody.qnt",
+        "parsed": "mat-parse",
+        "main": "still_materialization_custody",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "shellBeforeEnrollmentTest",
+          "unknownOutsideLeaseGcTest",
+          "unknownLeaseBlocksGcTest",
+          "deadBeforeStoreAbortTest",
+          "deadAfterStoreAbortTest",
+          "joinAloneRetainsLeaseTest",
+          "resultRootHandoffTest",
+          "lostCompletionResponseTest",
+          "relocatedInputsReloadedTest",
+          "dirtyAcrossGcTest",
+          "deathAfterCompletionTest",
+          "unpublishedAllocationGcTest",
+          "invalidShellControlTest",
+          "rootDropControlTest",
+          "pstateCleanupControlTest",
+          "unknownRawWriterGcControlTest",
+          "deathWithoutClosureControlTest",
+          "postStoreBarrierGapControlTest",
+          "prematureResultControlTest",
+          "duplicateDeliveryControlTest",
+          "staleAliasGuardTest",
+          "staleAliasControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "receipt-parse",
+        "receipt",
+        "safe-parse",
+        "safe",
+        "mat-parse",
+        "mat"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-still-admission/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}

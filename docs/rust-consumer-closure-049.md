@@ -44,7 +44,7 @@ and original receipts were not rewritten.
 
 ## Matching Results, Not Whole Closure
 
-Raw observations are under `evidence/library/rust-consumer-049/`; complete
+Raw observations are under `.cache/research/legacy-evidence/evidence/library/rust-consumer-049/`; complete
 per-test logs, outcomes, domains and fixture receipts remain in
 `.data/rust-consumer-current-graph-049-007/validation/`.
 

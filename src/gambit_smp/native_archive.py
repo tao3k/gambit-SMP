@@ -9,6 +9,145 @@ import shlex
 import hashlib
 
 from gambit_smp.framework import digest, relative
+from gambit_smp.output_observations import recorded, binding, TRANSCRIPT_SUFFIXES
+
+
+PUBLICATION = "gambit-observation-publication.v1"
+
+
+def observation_text(text):
+    from gambit_smp.protocol_evidence import portable
+    text = portable(text)
+    return re.sub(r"/(?:Users|home)/[^/\s\"'<>]+", "<HOME>", text)
+
+
+def observation_inventory(source):
+    files = {}
+    for path in source.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("observation inventory must not contain aliases")
+        if path.is_file():
+            files[path.relative_to(source).as_posix()] = digest(path)
+    return files
+
+
+def publish_observation(source, destination, declaration):
+    """Export Cache-only historical derivatives, never Git evidence or qualification."""
+    source = source.resolve(strict=True)
+    from gambit_smp.artifact_storage import runtime_output
+    from gambit_smp.framework import ROOT
+    destination = destination.resolve()
+    if destination.is_relative_to(ROOT):
+        destination = runtime_output(ROOT, destination)
+    if destination.is_relative_to(source) or source.is_relative_to(destination):
+        raise ValueError("raw and published observations must be separate")
+    raw_spec = declaration.read_bytes()
+    spec = json.loads(raw_spec)
+    if (set(spec) != {"schema", "scope", "files", "omitted", "bindings"}
+            or spec["schema"] != "gambit-observation-publication-source.v1"
+            or not isinstance(spec["scope"], str) or not spec["scope"]
+            or "receipt.json" not in spec["files"]):
+        raise ValueError("explicit historical publication inventory required")
+    expected = dict(spec["files"])
+    if set(expected) & set(spec["omitted"]):
+        raise ValueError("published and omitted inventories must be disjoint")
+    for name, row in spec["omitted"].items():
+        if set(row) != {"sha256", "reason"} or not row["reason"]:
+            raise ValueError("omitted observations require a reason and identity")
+        expected[name] = row["sha256"]
+    for name in expected:
+        relative(source, name).relative_to(source)
+        if name in {"archive.json", "publication.json"}:
+            raise ValueError("publication metadata name is reserved")
+    if expected != observation_inventory(source):
+        raise ValueError("raw observation inventory changed")
+    prepared = {}
+    for name in spec["files"]:
+        raw = (source / name).read_bytes()
+        text = raw.decode("utf-8")
+        if "\0" in text:
+            raise ValueError("binary observation requires explicit omission")
+        # Preserve all original digest/verdict fields. They name raw bytes, not
+        # the redacted derivative, whose identity belongs to archive.json.
+        if name.endswith(".json"):
+            def redact(value):
+                if isinstance(value, str):
+                    return observation_text(value)
+                if isinstance(value, list):
+                    return [redact(v) for v in value]
+                if isinstance(value, dict):
+                    keys = [observation_text(k) for k in value]
+                    if len(set(keys)) != len(keys):
+                        raise ValueError("redaction would merge observation keys")
+                    return dict(zip(keys, (redact(v) for v in value.values())))
+                return value
+            text = json.dumps(redact(json.loads(text)), ensure_ascii=True, indent=2) + "\n"
+        else:
+            text = observation_text(text)
+        prepared[name] = text.encode()
+    from gambit_smp.native_review import pointer
+    for binding in spec["bindings"]:
+        if (set(binding) != {"document", "pointer", "artifact"}
+                or binding["document"] not in prepared or binding["artifact"] not in prepared
+                or pointer(json.loads((source / binding["document"]).read_text()), binding["pointer"])
+                   != spec["files"][binding["artifact"]]):
+            raise ValueError("raw observation binding differs")
+    if expected != observation_inventory(source) or declaration.read_bytes() != raw_spec:
+        raise ValueError("raw observations changed during redaction")
+    destination.mkdir(parents=True, exist_ok=False)
+    for name, raw in prepared.items():
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    (destination / "publication.json").write_bytes(raw_spec)
+    record = dict(schema=PUBLICATION, archiveOnly=True, runtimeAdmitted=False,
+                  releaseAdmitted=False, nativeGcPassed=False, executionAuthorized=False,
+                  observedParentExit=None, claim="historical-observation-only",
+                  scope=spec["scope"], rawSourcesPreserved=True,
+                  transform="repository-home-temp-redaction-v1",
+                  publisherSha256=digest(Path(__file__)),
+                  declarationSha256=digest(declaration), originalFiles=spec["files"],
+                  omitted=spec["omitted"], files={name: digest(destination / name) for name in prepared})
+    (destination / "archive.json").write_text(json.dumps(record, indent=2) + "\n")
+    validate_publication(destination)
+    if expected != observation_inventory(source):
+        raise ValueError("raw observations changed during publication")
+    return record
+
+
+def validate_publication(source):
+    saved = json.loads((source / "archive.json").read_text())
+    spec = json.loads((source / "publication.json").read_text())
+    if (saved.get("schema") != PUBLICATION or saved.get("archiveOnly") is not True
+            or saved.get("rawSourcesPreserved") is not True
+            or saved.get("claim") != "historical-observation-only"
+            or saved.get("observedParentExit") is not None
+            or saved.get("transform") != "repository-home-temp-redaction-v1"
+            or any(saved.get(k) is not False for k in (
+                "runtimeAdmitted", "releaseAdmitted", "nativeGcPassed", "executionAuthorized"))
+            or digest(source / "publication.json") != saved.get("declarationSha256")
+            or spec.get("schema") != "gambit-observation-publication-source.v1"
+            or saved.get("scope") != spec.get("scope")
+            or saved.get("originalFiles") != spec.get("files")
+            or saved.get("omitted") != spec.get("omitted")
+            or set(saved["files"]) != set(spec["files"])
+            or "receipt.json" not in saved["files"]):
+        raise ValueError("historical publication identity or admission boundary differs")
+    actual = observation_inventory(source)
+    expected = dict(saved["files"], **{
+        "publication.json": saved["declarationSha256"], "archive.json": digest(source / "archive.json")})
+    if actual != expected:
+        raise ValueError("published observation inventory changed")
+    for name in expected:
+        path = relative(source, name)
+        text = path.read_text()
+        if observation_text(text) != text or "\0" in text:
+            raise ValueError("published observation contains a private path or binary")
+    from gambit_smp.native_review import pointer
+    for binding in spec["bindings"]:
+        if pointer(json.loads(relative(source, binding["document"]).read_text()), binding["pointer"]) != spec["files"][binding["artifact"]]:
+            raise ValueError("published observation changed its raw binding")
+    return saved
 
 
 def archive(source, destination, observed_exit, identity=None):
@@ -80,7 +219,7 @@ def archive(source, destination, observed_exit, identity=None):
     return record
 
 
-def source_unit_checked(source, saved):
+def source_unit_checked(source, saved, *, root=None):
     if (saved.get("schema") != "gambit-actlog-abort-source-unit.v1"
             or saved.get("status") != "source-unit-pass" or saved.get("sourceStable") is not True
             or saved.get("runtimeAdmitted") is not False or saved.get("releaseAdmitted") is not False):
@@ -100,12 +239,14 @@ def source_unit_checked(source, saved):
         if row["compile"]["exit"] != 0 or row["compile"]["timeout"]:
             raise ValueError("source fixture compilation failed")
         result = row["observation"]
-        output = (source / (name + "-observe.log")).read_text()
+        from gambit_smp.framework import ROOT
+        output = recorded(ROOT if root is None else root, source / (name + '-observe.log'))
         if name in expected:
-            if (result["exit"] != 0 or result["timeout"] or json.loads(output) !=
+            if (result["exit"] != 0 or result["timeout"] or output.get('structured') !=
                     {"checks": expected[name], "arrayLive": 0, "mutexLive": 0}):
                 raise ValueError("source-unit log does not support positive result")
-        elif result["exit"] != 1 or result["timeout"] or output != "EXPECTED-MUTEX-ERROR\n":
+        elif (result["exit"] != 1 or result["timeout"] or output.get('terminalTags') != {'EXPECTED-MUTEX-ERROR': 1}
+              or output.get('lineCount') != 1 or output.get('endsWithNewline') is not True):
             raise ValueError("source-unit negative control did not fail as expected")
 
 
@@ -616,6 +757,10 @@ def validate(root, name):
     root = root.resolve()
     manifest = relative(root, name)
     saved = json.loads(manifest.read_text())
+    if saved.get("schema") == PUBLICATION:
+        validate_publication(manifest.parent)
+        return {str(path.relative_to(root)): sha for filename, sha in observation_inventory(manifest.parent).items()
+                for path in [relative(manifest.parent, filename)]}
     if (saved.get("schema") not in {"gambit-component-observation-archive.v1", "gambit-scoped-suite-archive.v1", "gambit-source-unit-archive.v1", "gambit-failed-bootstrap-archive.v1", "gambit-failed-suite-archive.v1", "gambit-compiler-probe-archive.v1"} or
             saved.get("archiveOnly") is not True or
             any(saved.get(key) is not False for key in ("runtimeAdmitted", "releaseAdmitted", "nativeGcPassed"))):
@@ -623,6 +768,11 @@ def validate(root, name):
     inputs = {name: digest(manifest)}
     for filename, expected in saved["files"].items():
         path = relative(manifest.parent, filename)
+        if path.suffix.casefold() in TRANSCRIPT_SUFFIXES:
+            recorded(root, path, expected, outputs=saved.get('outputs'))
+            if not saved.get('outputs'):
+                inputs.update(binding(root, path, expected))
+            continue
         if digest(path) != expected:
             raise ValueError("component archive artifact changed: " + filename)
         relative_name = path.relative_to(root).as_posix()
@@ -636,7 +786,9 @@ def validate(root, name):
         compiler_probe_checked(receipt, saved["files"].get("identity.json"))
         expected = {"receipt.json", "identity.json", "scheme-to-c.log", "c-to-dynamic-module.log", "compiler-invocation.json"}
         command = json.loads((manifest.parent / "compiler-invocation.json").read_text())
-        parsed = compiler_invocation((manifest.parent / "c-to-dynamic-module.log").read_text())
+        parsed = recorded(root, manifest.parent/'c-to-dynamic-module.log',
+                          saved['files']['c-to-dynamic-module.log'], outputs=saved.get('outputs')).get('compilerInvocation')
+        if parsed is None: raise ValueError('recorded compiler invocation required')
         if (set(saved["files"]) != expected or set(saved["originalFiles"]) != expected - {"compiler-invocation.json"}
                 or saved.get("observedParentExit") is not None or saved.get("rawLogBoundByOriginalReceipt") is not False
                 or any(saved["files"][name] != saved["originalFiles"][name] for name in ("receipt.json", "identity.json"))
@@ -681,7 +833,7 @@ def validate(root, name):
             raise ValueError("source-unit parent exit differs")
         if not set(receipt["artifacts"]).issubset(saved["files"]):
             raise ValueError("source-unit artifacts omitted")
-        source_unit_checked(manifest.parent, receipt)
+        source_unit_checked(manifest.parent, receipt, root=root)
         return inputs
     if saved["schema"] == "gambit-scoped-suite-archive.v1":
         from gambit_smp.suite_primitives import admitted_suite, campaign_status
@@ -699,8 +851,9 @@ def validate(root, name):
                 name = f'{row["mode"]}-{shard["shard"]}.log'
                 if name not in saved["files"]:
                     raise ValueError("suite shard log missing")
-                accepted = admitted_suite(shard["exit"], (manifest.parent / name).read_text(),
-                                          shard["timeout"], len(shard["files"]))
+                observed = recorded(root, manifest.parent/name, saved['files'][name], outputs=saved.get('outputs'))['suite']
+                accepted = (shard['exit'] == 0 and not shard['timeout'] and
+                            observed['completions'].count(len(shard['files'])) == 1 and not observed['failed'])
                 if shard["accepted"] != (accepted and shard["sourceStable"]):
                     raise ValueError("suite shard log contradicts acceptance")
         return inputs
@@ -725,7 +878,16 @@ def main():
                         help="inspect a historical compiler image against --source archive.json; never execute it")
     parser.add_argument("--interrupted-parent", type=Path,
                         help="archive partial suite process observations against an actual timed-out root receipt")
+    parser.add_argument("--publication", type=Path,
+                        help="raw Cache inventory for a traceable redacted export; not reproducible Git evidence")
     args = parser.parse_args()
+    if args.publication is not None:
+        if any(value is not None for value in (args.identity, args.compiler_image,
+                                               args.interrupted_parent, args.observed_parent_exit)):
+            raise ValueError("historical publication cannot invent a parent outcome")
+        record = publish_observation(args.source, args.out, args.publication)
+        print(json.dumps(dict(artifacts=len(record["files"]), archiveOnly=True, runtimeAdmitted=False)))
+        return
     if args.interrupted_parent is not None:
         if args.identity is None or args.compiler_image is not None or args.observed_parent_exit is not None:
             raise ValueError("interrupted observation requires identity and no invented exit or compiler image")
@@ -743,5 +905,9 @@ def main():
     print(json.dumps(dict(artifacts=len(record["files"]), runtimeAdmitted=False)))
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('native-archive')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('native-archive',main))

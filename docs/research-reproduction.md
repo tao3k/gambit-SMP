@@ -29,6 +29,14 @@ records the exact historical commit and bundle SHA; the old bundle can still be
 read using `git show <historicalCommit>:<historicalBundle>` or reproduced in an
 isolated checkout of that commit. Do not copy old receipts into a new run.
 
+The optional `transportRepository` selects an explicitly configured mirror in
+the same provisioning manifest. It now selects `https://github.com/tao3k/gambit.git`,
+whose `research/pinned-gerbil-gambit` branch publishes the unchanged locked
+commit. `.gitmodules` and cache remotes must match that transport URL; the
+original `repository` still matches the immutable source lock. Commit, complete
+tree, parent and per-file checks are unchanged. Changing transport does not
+rebind historical evidence or admit a runtime.
+
 Provisioning fetches the exact revision, never an upstream branch tip. TLS is
 not disabled. For offline use, prepare a portable bare Git object cache before
 disconnecting, or transfer objects from an already verified local source repo:
@@ -116,7 +124,7 @@ schedules from restored source, preserving both direct-destruction negative
 outcomes. The 288 previously committed model-result files stayed byte-identical.
 The bounded observation is `evidence/source-026-clean-reproduction.json`;
 the new schedule logs and extracted source are hashed under
-`evidence/model-results/sync-retirement-submodule-clean-004/archive.json`.
+`.cache/research/legacy-evidence/evidence/model-results/sync-retirement-submodule-clean-004/archive.json`.
 This closes this audited slice/correspondence, not all historical model contexts,
 the full configured toolchain or the five pending native gates.
 
@@ -135,11 +143,14 @@ cache status does not authorize deleting evidence or rewriting an old receipt
 as a new portable run.
 
 `vendor/gambit` is a Git submodule fixed to
-`7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`. The existing Gerbil checkout's
+`7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`. The original Gerbil checkout's
 `.gitmodules`, remote and HEAD confirmed that this revision belongs to
 `https://git.cons.io/mighty-gerbils/gambit.git`, not `gambit/gambit` on GitHub.
 The historical `vyzo/gambit` GitHub mirror did not provide this revision either.
 Do not substitute either mirror's latest HEAD for the reviewed source.
+
+The current authorized fork transport is recorded above. Publishing this exact
+commit to that fork did not change its original provenance or any source bytes.
 
 An earlier HTTPS initialization attempt failed certificate verification; the
 upstream network route is not qualified. TLS verification remains enabled.
@@ -297,7 +308,7 @@ runtime admission. Do not rerun its unchanged timed-out positive merely to make
 this command green. Complete the processor-owned queue/local-scan model first.
 
 Portable model snapshots, raw-log-derived archives and diagnostic timing records
-are preserved under `evidence/model-results/`. Archive-only and controls-only
+are preserved under `.cache/research/legacy-evidence/evidence/model-results/`. Archive-only and controls-only
 receipts are explicitly non-admitted. See
 [Quint execution budget](quint-execution-budget.md) and
 [recursive composition](gc-recursive-queue-wait.md).

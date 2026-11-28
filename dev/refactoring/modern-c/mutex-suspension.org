@@ -1,0 +1,126 @@
+#+TITLE: Mutex decisions and scheduler continuation ownership
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: IN_PROGRESS BLOCKED | READY PUBLISHED
+#+PROPERTY: header-args :eval never
+
+* READY Decision before suspension :rev:scheduler:roots:
+:PROPERTIES:
+:CUSTOM_ID: REV-MUTEX-SUSPENSION
+:AUTHORITY: GambitMutexSuspension
+:SOURCE: models/sysml/mutex-suspension.sysml
+:BASE_REVISION: 29f09a81cc4cba2b96c9ee677d7b5074fb88f81f
+:STATUS: native source cut qualified; shared ASCENT admission still required
+:END:
+
+[[file:models/sysml/mutex-suspension.sysml][SysML owns the bounded cut]]; the existing shared
+[[file:../../modeling/ascent/commit-admission.rules.scm][ASCENT submission policy]] consumes its five Needs and actual receipts.
+[[file:repair-driven-gc-smp-design.org][The coupled repair9 architecture]] remains the target. This is one source
+responsibility replacement, not a ninth acceptance gate or a substitute for
+authoritative request ownership, independent workers or exit quiescence.
+
+** Source inventory and causal boundaries
+
+| Mechanism | Actual current source | Effect and limit |
+|-----------+-----------------------+------------------|
+| Thread-target request | lib/_thread.scm: thread-intr!, propagate!, other-interrupt!, resume-execution! | Result mutex and two routes remain; no per-request repair-image drain catcher/wind exists in this committed branch |
+| Scheduler save | include/gambit.h.in: THREAD_SAVE | Installs stack break when needed and writes existing thread continuation frame; it does not allocate a fresh heap continuation wrapper |
+| User capture | include/gambit.h.in: CONTINUATION_CAPTURE | Builds stack-backed wrapper with frame/denv, deferring heap materialization; preserve this capability |
+| Materialization | lib/_mem/continuation-roots.inc: mark_captured_continuation | Reached stack-backed frames are copied or forwarded during GC; traversal does not by itself identify who originally captured or retained them |
+| Old mutex slow path | lib/_thread.scm: mutex-lock-out-of-line! | THREAD_SAVE surrounds owner inspection, so even an immediate outcome installs a scheduler frame root |
+| New mutex slow path | same existing procedure | Mutex lock owns decision; only actual blocked branch saves before publishing BTQ/current/TOQ state |
+
+The source relation does not delete public dynamic-wind, change Scheme
+multi-shot continuation semantics, share mutable wrapper denv, or replace the
+result mutex with an asynchronous actor response. It does not implement the
+repair image's prepared catcher/wind fusion. The structures are absent here.
+
+** Independent evidence and falsification
+
+The exact baseline probe in a fresh real Scheme thread returned
+=(MUTEX-SUSPENSION-PROBE #t #t #f)=: empty saved frame before, successful
+immediate acquisition, nonempty saved frame after. Real implementation histories
+shrunk12 actions to1, =(1)= (anonymous immediate acquisition), preserving
+=unnecessary-saved-continuation= and deletion-one-minimal replay. This is excess
+root publication, not proof of an unbounded leak or attribution of the entire
+repair9 allocation sample.
+
+The candidate must pass the same witness and finite generated histories, then
+real blocking with interrupt replies and moving GC. Actual generated frame maps,
+existing map multi-shot restoration, wide roots and official mutex/timeout/
+abandonment controls remain required. A smaller capture count cannot waive
+those tests. Any different result/exception, wait ordering, deadlock or lost
+moving root rejects this cut.
+
+** Formal division
+
+No second QNT state machine or Lean proof is introduced. The unchanged
+[[file:../../../models/gambit/abandoned_mutex_waiter_transfer.qnt][waiter-transfer QNT]] owns target-end versus ownership-transfer interleavings.
+Its concrete transfer procedure is unchanged. This cut instead needs source
+equivalence of decision effects under the existing mutex lock, generated
+liveness/map inspection, and native root observations. Existing general frame
+laws stay conditional; none is advertised as a proof of native timing or full
+arbitrary-continuation equivalence. LLM source review is the ambient review
+mechanism, not another execution/verifier component.
+
+** Benefit and added-cost matrix
+
+| Outcome | Work retired | Work retained / added | Qualification |
+|---------+--------------+-----------------------+---------------|
+| Immediate slow acquisition | One THREAD_SAVE and its new saved-frame publication | Existing mutex/thread lock and owner/result updates | Baseline12-to1 actual shrink; candidate same trace passes, probe changes #t/#t/#f to #t/#t/#t |
+| Already expired wait | Same unnecessary save if no wait is committed | Original timeout conversion and mutex reacquisition | Included in48 native histories /576 positive actions; no deadline increase |
+| Actual blocking and interruption | No removal credited | Existing save, BTQ/TOQ, mapped resume, retry, GC and reply work | Two actual wait histories, twelve synchronous GC callbacks each, then release/join pass |
+| Physical storage | No runtime fields added | Generated local liveness/code size may change | Header/layout sources unchanged;290 layout assertions retained; peak unmeasured |
+| Whole repair9 | No closure credited | Authoritative mailbox/park, true allocation attribution and original population remain | OPEN; short p2 control is not p11 stress |
+
+The baseline p1 short control produced a negative allocation statistic; it is
+invalid and cannot enter a benefit calculation. Short wall intervals are
+observations without a distribution, affinity control or full-load acceptance.
+Do not transplant the repair image's499MB/120k attribution to this branch.
+The candidate's short control also contains negative allocation statistics.
+No allocation reduction, throughput gain or original-load speedup is admitted.
+
+** Actual qualification and publication boundary
+
+[[file:../../../evidence/research/retained/modern-c/mutex-suspension/receipt.json][Portable source-bound receipt]] retains actual results and failed preflights;
+[[file:../../../tests/fixtures/mutex-suspension/immediate-minimal.scm][the real baseline replay]] is inert Scheme data. The selected runtime tree is
+=0686ccfe0d2e6cf8ddc931204f7fadac78838af4= and contains only the existing SMP
+procedure edit, one native Scheme fixture and its existing Make integration.
+Pre-existing unrelated staged/working prototypes are not that tested tree.
+
+Two complete bootstrap passes took171.560 seconds; stock core47.593 seconds.
+The new Make target compiled once and ran two parents in2.630 seconds. Existing
+roles, frame/map multi-shot and wide roots, native scope, RC and official test12
+passed. Existing RootTask/continuation replay/shrink took54.165 seconds. The
+complete original GSI inventory passed408/408 in69.651 seconds. Independent
+official9/10/entry/inline targets passed. Native SysML validation, D2 and a
+Scheme-reader equality check of the entire non-SMP source arm passed.
+
+The whole original Make check still fails at test8: child exit70, Make exit2,
+no timeout,35.292 seconds for the remaining-check stage. Current redirected
+output is empty; no new first-cause attribution is invented. The prior baseline
+also failed test8, with an earlier separate Heap-overflow diagnosis. An unchanged
+C source is relevant evidence, not proof that every later exit70 has that cause.
+This failure remains open, alongside full compiled/stress/Gerbil/performance
+acceptance. The bounded mutex source gate does not credit those whole-runtime
+requirements.
+
+Generated C remains profile-bound: only =lib/_thread.c= changes relative to the
+qualified preceding SMP producer; the generated link product stays identical.
+The full generated cohort and executable hashes are retained. The REV does not
+replace checked-in distribution C with a partial SMP cohort. Its unchanged
+non-SMP arm and the existing configured =from-scratch= path remain explicit;
+all native claims here use the fully regenerated SMP producer.
+
+** Five gates
+
+- [X] Exact producer and required native consumers, failures retained.
+- [X] Learning distinguishes source save, capture, materialization and retention.
+- [X] Process names the old authority replaced and remaining coupled work.
+- [X] Native SysML validated; shared ASCENT must require all five Needs and the
+  source/profile/artifact/audit controls before actual publication.
+- [X] Questions, falsifiers and limits are explicit above.
+
+No runtime commit before the open gates close. Keep test8 physical reservation
+and full original repair9 capacity as visible independent obligations, rather
+than adding them all to this REV or claiming this local root reduction solves them.

@@ -47,7 +47,7 @@ native budget. The actual sealed run is PASS in 404.745/600 seconds, with
 seed 48.583 seconds and full from-scratch 197.708 seconds, both exit zero
 without timeout. All two-pass phase counts are established and the corrected
 atomic interpreted fixture passes 1/1. The completed producer reference is
-`evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json`.
+`.cache/research/legacy-evidence/evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json`.
 The subsequent original 379-file interpreted campaign is PASS, 379/379, in
 83.548/300 seconds. Its runtime transfer reports 2243 copy-on-write files,
 zero byte copies and no hardlinks; no fresh toolchain build was performed.

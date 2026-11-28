@@ -1,0 +1,180 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "dev-producer-promotion-barrier",
+  "scope": "Quint controls for one stack-handler producer, one promotion-interval handoff, and one generational barrier: a missing producer is not an authorized write, a reserve failure is not forwarded, and an unchecked frame store cannot be sealed. Not a GSI trace, native admission, or family acceptance.",
+  "budgetSeconds": 240,
+  "inputs": [
+    "models/gambit/stack_handler_producer.qnt",
+    "models/gambit/promotion_interval_handoff.qnt",
+    "models/gambit/generational_barrier.qnt",
+    "tests/recipes/framework-contracts/evidence-entry.json",
+    "evidence/dsl/observation-contract.ss",
+    "evidence/fixtures/dev-producer-promotion-barrier/binding.json",
+    "evidence/fixtures/dev-producer-promotion-barrier/observations.json",
+    "evidence/fixtures/dev-producer-promotion-barrier/barrier.recipe.json"
+  ],
+  "steps": [
+    {
+      "id": "prod-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/stack_handler_producer.qnt"
+      }
+    },
+    {
+      "id": "prod",
+      "capability": "quint.test",
+      "dependsOn": [
+        "prod-parse"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_handler_producer.qnt",
+        "parsed": "prod-parse",
+        "main": "stack_handler_producer",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "authorizedProducerTest",
+          "corruptControlFlowCounterexampleTest",
+          "missingProducerCounterexampleTest",
+          "nativeTaggedValueRejectsNormalProducerTest"
+        ]
+      }
+    },
+    {
+      "id": "hand-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/promotion_interval_handoff.qnt"
+      }
+    },
+    {
+      "id": "hand",
+      "capability": "quint.test",
+      "dependsOn": [
+        "hand-parse"
+      ],
+      "budgetSeconds": 50,
+      "arguments": {
+        "source": "models/gambit/promotion_interval_handoff.qnt",
+        "parsed": "hand-parse",
+        "main": "promotion_interval_handoff",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "physicalExtentTest",
+          "counterOnlyControlTest",
+          "fragmentationControlTest",
+          "reserveFailureTest",
+          "tailTransferTest",
+          "targetRejectTest",
+          "lostAckTest",
+          "unknownRollbackControlTest",
+          "doubleOwnerControlTest",
+          "unfinishedOfferControlTest",
+          "staleOfferControlTest",
+          "derivedReaderDrainTest",
+          "queuedReaderControlTest",
+          "dequeuedReaderControlTest",
+          "earlyResetControlTest",
+          "drainIsNotPayloadDeathControlTest",
+          "pinAfterResetControlTest",
+          "postForwardFailureTest",
+          "lateRefundPeakControlTest"
+        ]
+      }
+    },
+    {
+      "id": "bar-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/generational_barrier.qnt"
+      }
+    },
+    {
+      "id": "bar",
+      "capability": "quint.test",
+      "dependsOn": [
+        "bar-parse"
+      ],
+      "budgetSeconds": 70,
+      "arguments": {
+        "source": "models/gambit/generational_barrier.qnt",
+        "parsed": "bar-parse",
+        "main": "generational_barrier",
+        "seed": "0x11",
+        "maxSamples": 1,
+        "expectedTests": [
+          "matureFrameTest",
+          "denvOverflowTest",
+          "nativeRootTest",
+          "sharedFrameAliasTest",
+          "closeWaitsWriterTest",
+          "abortLeavesDirtyTest",
+          "discardedHintsFallbackTest",
+          "preflightFailureTest",
+          "unpublishedReserveRefundTest",
+          "pendingForwardRootTest",
+          "partialFailureCustodyTest",
+          "nextEpochResetTest",
+          "uncheckedFrameControlTest",
+          "rootCannotRepairOmittedFrameControlTest",
+          "earlyCardClearControlTest",
+          "orphanDirtyCardControlTest",
+          "lostOverflowControlTest",
+          "pendingWriterCutControlTest",
+          "partialPayloadReadControlTest",
+          "publishedRollbackControlTest",
+          "prematureRefundControlTest",
+          "lostCopyOwnerControlTest",
+          "prematureSourceFreeControlTest",
+          "implicitGCControlTest",
+          "staleCutControlTest",
+          "incompleteFinishControlTest"
+        ]
+      }
+    },
+    {
+      "id": "evidence",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "prod-parse",
+        "prod",
+        "hand-parse",
+        "hand",
+        "bar-parse",
+        "bar"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "tests/recipes/framework-contracts/evidence-entry.json",
+        "observationBinding": "evidence/fixtures/dev-producer-promotion-barrier/binding.json",
+        "queries": {
+          "MissingCase": "MissingCase",
+          "UnknownCase": "UnknownCase",
+          "DuplicateCase": "DuplicateCase",
+          "MissingField": "MissingField",
+          "WrongField": "WrongField",
+          "ExtraField": "ExtraField",
+          "missing_step": "missing_step"
+        },
+        "expected": {
+          "MissingCase": [],
+          "UnknownCase": [],
+          "DuplicateCase": [],
+          "MissingField": [],
+          "WrongField": [],
+          "ExtraField": [],
+          "missing_step": []
+        }
+      }
+    }
+  ]
+}
