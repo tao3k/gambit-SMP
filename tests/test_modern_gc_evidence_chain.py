@@ -34,6 +34,8 @@ CBMC_WAVE11_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave11_inline256
 CBMC_WAVE12_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave12_sentinel_mpmc_chase_lev_and_wb_pso.c"
 CBMC_WAVE13_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave13_faa_mpmc_cached_chase_lev_and_fast_minor_pso.c"
 CBMC_WAVE14_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave14_ttas_cas_ticketlock_remset_split_and_imm_sentinel_pso.c"
+CBMC_WAVE15_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave15_fill_rest_yield_pso.c"
+CBMC_WAVE16_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave16_futex_mutex_rest_and_concurrent_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -689,6 +691,86 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(w14["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
         self.assertEqual(w14["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
         self.assertEqual(w14["unifiedMulticoreMatrixAndStress"]["passed"], 140)
+
+        # Wave 15 4-thread CBMC PSO weak-memory mutants + ARM64 NEON/8-wide homogeneous vector fill,
+        # 128-byte cache-line isolated & single-load rest gate + register-cached fp_cur, TSan-clean
+        # lock-free empty-runqueue ##thread-yield! with polite backoff, and constant-order SRFI-230 leaf lowering
+        cbmc_w15 = CBMC_WAVE15_PATH.read_text()
+        for macro in ("MUTANT_1", "MUTANT_2", "MUTANT_3", "MUTANT_4", "MUTANT_5"):
+            self.assertIn(macro, cbmc_w15)
+            self.assertIn(macro, blueprint)
+
+        kernel_scm = (ROOT / "vendor/gambit/lib/_kernel.scm").read_text()
+        kernel_c = (ROOT / "vendor/gambit/lib/_kernel.c").read_text()
+        for sym in ("___init_f64_fill", "___init_f32_fill", "___rest_hooks_gate_closed()"):
+            self.assertIn(sym, kernel_scm)
+            self.assertIn(sym, kernel_c)
+        self.assertIn("___rest_hooks_gate_cacheline_guard_", rc_alloc)
+        aligned_alloc = (ROOT / "vendor/gambit/lib/_mem/aligned-allocation.inc").read_text()
+        self.assertIn("still_slab_locks_", aligned_alloc)
+        for sym in ("___rest_hooks_gate_closed_inline", "___rest_fast_grant_fits_gated_inline"):
+            self.assertIn(sym, life_h)
+        self.assertIn("___gc_atomic_slot_store_release", rp_h)
+        thread_hdr = (ROOT / "vendor/gambit/lib/_thread#.scm").read_text()
+        thread_scm = (ROOT / "vendor/gambit/lib/_thread.scm").read_text()
+        self.assertIn("macro-btq-leftmost-atomic-ref", thread_hdr)
+        self.assertIn("___gc_atomic_slot_store_release", thread_hdr)
+        self.assertIn("macro-btq-leftmost-atomic-ref", thread_scm)
+        self.assertIn("___CPU_RELAX()", thread_scm)
+        for sym in (
+            "macro-dispatch-load-order",
+            "macro-dispatch-store-order",
+            "macro-dispatch-rmw-order",
+            "macro-with-vector-index",
+            "macro-raw-slot-store-void!",
+            "macro-raw-flag-tas!",
+        ):
+            self.assertIn(sym, srfi230_src)
+
+        w15 = receipt["verificationResults"]["wave15VectorFillRestGateLockFreeYieldAndSrfi230Leaf"]
+        self.assertEqual(w15["cbmcWave15PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w15["cbmcWave15PsoSafe"]["totalChecks"], 107)
+        self.assertEqual(w15["cbmcWave15PsoSafe"]["failedChecks"], 0)
+        self.assertEqual(w15["cbmcWave15PsoMutants"]["killed"], 5)
+        self.assertEqual(w15["runtimeTsanQualification"]["passed"], 20)
+        self.assertEqual(w15["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w15["runtimeAsanUbsanQualification"]["passed"], 20)
+        self.assertEqual(w15["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w15["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w15["unifiedMulticoreMatrixAndStress"]["passed"], 144)
+
+        # Wave 16 8-thread CBMC PSO weak-memory mutants + 3-state OS-futex alloc_mem_lock,
+        # 94.7% smaller ___H___kernel stack frame with ___rest_key_scratch & overflow-free rest grant,
+        # and zero-frame tail-check leaf concurrent.scm
+        cbmc_w16 = CBMC_WAVE16_PATH.read_text()
+        for macro in ("MUTANT_1", "MUTANT_2", "MUTANT_3", "MUTANT_4", "MUTANT_5"):
+            self.assertIn(macro, cbmc_w16)
+            self.assertIn(macro, blueprint)
+
+        for sym in ("alloc_mem_futex_state_", "rest_key_scratch_", "rest_key_scratch_cap_"):
+            self.assertIn(sym, ms_h)
+        for sym in ("___gc_futex_wake_one_u32", "___gc_futex_mutex_lock", "___gc_futex_mutex_unlock", "___REST_KEY_SMALL_CAP", "___rest_key_scratch"):
+            self.assertIn(sym, life_h)
+        self.assertIn("___gc_futex_mutex_lock", cfg_src)
+        self.assertIn("___rest_key_scratch", rc_alloc)
+        for sym in ("key_vals_small", "___rest_key_scratch"):
+            self.assertIn(sym, kernel_scm)
+            self.assertIn(sym, kernel_c)
+        for sym in ("%lfq-enq-slow!", "%lfq-deq-retry!"):
+            self.assertIn(sym, conc_src)
+
+        w16 = receipt["verificationResults"]["wave16FutexAllocLockSmallKernelFrameAndLeafConcurrent"]
+        self.assertEqual(w16["cbmcWave16PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w16["cbmcWave16PsoSafe"]["threads"], 8)
+        self.assertEqual(w16["cbmcWave16PsoSafe"]["totalChecks"], 28)
+        self.assertEqual(w16["cbmcWave16PsoSafe"]["failedChecks"], 0)
+        self.assertEqual(w16["cbmcWave16PsoMutants"]["killed"], 5)
+        self.assertEqual(w16["runtimeTsanQualification"]["passed"], 22)
+        self.assertEqual(w16["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w16["runtimeAsanUbsanQualification"]["passed"], 22)
+        self.assertEqual(w16["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w16["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w16["unifiedMulticoreMatrixAndStress"]["passed"], 148)
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 
