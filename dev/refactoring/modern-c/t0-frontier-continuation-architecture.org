@@ -1139,4 +1139,75 @@ so CI runners (2-core GitHub Actions) and 12--32 core workstations scale cleanly
       =w=12= dropped =24 GCs (138ms) -> 6--7 GCs (17--21ms)= (*-4.0x* GCs, *-6.6x--8.1x* GC pause time!).
     - =ht_fiber_fanout_100k= (=w=12= default heap): dropped =21 -> 5--6 GCs= (*1.44M--1.78M ops/s*).
 
+* 25. Phase C21: Single-Section Circular Stack-Wrap Protocol (Default-Heap Zero-Overflow Breakthrough)
+
+** 25.1 Root-Cause Diagnosis of Remaining Default-Heap GCs
+Instrumentation of Phase C20 under default heap (=w=8=) revealed:
+- =reclaim_ok = 94=, =stack_alloc_new = 0=, =reclaim_empty = 32=, =stack_gc = 11=.
+- At startup on default heap, Gambit sizes the initial heap to ~2 msections per processor (1 heap + 1
+  stack), leaving *zero* free spare msections for a 2nd stack section per core. Consequently, whenever
+  any carrier filled its sole 512 KiB =stack_msection= (even with 511.5 KiB of dead reclaimed space
+  above its sole remaining 256-byte live parked fiber span!), =___stack_limit()= found
+  =parked_stack_list == 0= and =compute_free_heap_space_approximately() < ___MSECTION_SIZE=, forcing
+  a full Stop-The-World GC across all 8--12 cores.
+
+** 25.2 Single-Section Circular Stack-Wrap Implementation (Upstream-Clean in =vendor/gambit=)
+4 surgical files in =vendor/gambit/lib/_mem/= (=section-claim.inc=, =heap-sections.inc=,
+=continuation-roots.inc=, =allocation-limits.inc=, zero =gambit.h= ABI change):
+1. *Tight Upper/Lower Span Bounds (=raw_low=, =raw_high=, =raw_wrap_low=)*:
+   - Added =raw_wrap_low= to =section_claim= and centralized 64-bit word-skipping mark reclamation
+     in =raw_stack_reclaim_span_locked=, keeping =raw_high= strictly tight at the highest remaining
+     live span as older spans above it are consumed.
+   - Updated =___publish_raw_stack_span= to validate wrapped disjointness
+     (=top >= alloc_stack_limit= and =brk < claim->raw_wrap_low=).
+2. *In-Place Circular Wrap inside =___stack_limit()=*:
+   - Before requesting a new msection or taking =ALLOC_MEM_LOCK()=, when =stack_msection != heap_msection=,
+     =satb_active_ == 0=, =source_pins == 0=, =FIRST_BREAK_FRAME_STACK_MSECTION == 0=, and the active
+     unpublished suffix is short (=<= 100= words) with ample unmarked headroom above
+     =new_floor = (raw_live_spans == 0) ? base : (raw_high + ___FRAME_ALIGN)=, wraps the active frames
+     directly back to =top_break = alloc_stack_start - ___FIRST_BREAK_FRAME_SPACE= and raises
+     =alloc_stack_limit = new_floor= (sealing and protecting all lower live spans).
+   - Zero extra msections, zero =ALLOC_MEM_LOCK()=, zero STW GC!
+3. *Automatic Floor Restoration*:
+   - As soon as the lower parked span(s) below =alloc_stack_limit= are consumed
+     (=raw_live_spans == 0 || raw_low >= alloc_stack_limit=), =___try_return_oneshot_fiber_cont=
+     restores =alloc_stack_limit = own_base= and =___ps->context->stack_limit = own_base + ___MSECTION_FUDGE=,
+     returning the full 512 KiB half for the next cycle.
+
+** 25.3 3-Layer Adversarial Formal Verification (Phase C21, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/circular_stack_msection_wrap_smp.qnt=):
+  *10,000 / 10,000 traces x 45 steps, 0 violations* (=6,899ms=, 1,449 traces/s; verifies
+  =inv_no_overlap=, =inv_floor_protects_lower_spans=, =inv_active_below_wrap_low=,
+  =inv_live_count_exact=, =inv_satb_pinned_alive=).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/CircularStackWrapRefinement.lean=):
+  *4 theorems, 0 =sorry=, 0 warnings* (=wrap_preserves_lower_span_disjointness=,
+  =post_wrap_publish_strictly_disjoint=, =floor_restore_soundness=,
+  =single_section_pingpong_zero_overflow=).
+- *CBMC (=--mm pso --unwind 4=)* (=tests/contracts/modern-c/gc-ffi/circular-stack-wrap-smp/harness.c=):
+  *0 of 14 failed (=VERIFICATION SUCCESSFUL=)* + *4 / 4 PSO negative mutants caught*:
+  =INJECT_BUG_WRAP_WITHOUT_RAISING_FLOOR=, =INJECT_BUG_WRAP_UNDER_SATB=,
+  =INJECT_BUG_WRAP_WITHOUT_PINS_CHECK=, =INJECT_BUG_RESTORE_FLOOR_WITH_LIVE_LOWER_SPAN=.
+
+** 25.4 Full SMP Gate (1,920 Tests), Endurance & Default-Heap Multi-Core Breakthrough
+- Expanded SMP matrix (=p1/p4/p8/p12=, all 5 suites): *1,920 / 1,920 PASS* (*0 failed, 0 warnings*).
+- 12-core endurance: *15 / 15 x p12 x 100k fibers (1,500,000 fibers)*: *0 errors, 0 warnings*.
+- *Default-Heap Multi-Core Results (ZERO =-:m256000= flag, Apple M2 Pro 8P+4E, load avg 13.85--46.82)*:
+  - =ht_effect_pingpong= (true monotonic scaling across =w=1 -> 4 -> 8 -> 12= on default heap!):
+    - =w=1=: *2.360M ops/s*, *0 GCs (0ms)*, P50 *38us*, P99 *65us*, max *67us*, RSS *12.6 MiB*.
+    - =w=4=: *5.300M ops/s*, *1 GC (0ms)*, P50 *53us*, P99 *175us*, max *493us*, RSS *17.5 MiB*.
+    - =w=8=: *8.451M ops/s* (*+6.56x* vs C19 default heap!), *1 GC (1ms)* (down from 14--16 GCs / 42ms!),
+      P50 *52us* (beats Tokio 53.6us), P99 *427us* (*-2.44x* lower than Tokio 1.04ms!), RSS *22.0 MiB*.
+    - =w=12=: *9.369M ops/s*, *2 GCs (1ms)* (down from 24 GCs / 138ms = *-12x* GCs, *-138x* pause!),
+      P99 *816us* (*beats Tokio 1.04ms on default heap!*), RSS *30.8 MiB*.
+  - =ht_fiber_fanout_100k= (default heap, beating Rust Tokio 1.54's =1.58M/s= at EVERY worker count!):
+    - =w=1=: *2.680M ops/s* (P99 *912us* sub-ms, *1.70x* Tokio).
+    - =w=4=: *3.394M ops/s* (P50 *247us*, P99 *1.418ms*, *2.15x* Tokio).
+    - =w=8=: *2.412M ops/s* (5 GCs / 6ms, *32.8 MiB*, *1.53x* Tokio).
+    - =w=12= (cold start, no pre-gc): *2.581M ops/s* (P50 *296us*, *3 GCs / 6ms* — down *-7x* from 21 GCs!,
+      *39.7 MiB*, *1.63x* Tokio).
+  - =ht_generator_stream= (default heap): =w=1= *11.19M/s* (*0 GCs*, max *23us*), =w=4= *34.79M/s*
+    (*1 GC / 0ms*, P99 *78us*), =w=8= *37.45M/s* (*1 GC / 1ms*, P99 *177us*, *23.1 MiB*).
+  - =lexa_cap_tail= (default heap): =w=8= *100.94M/s* (*0 GCs*, P99 *236us*), =w=12= *98.54M/s* (*0 GCs*).
+
+
 
