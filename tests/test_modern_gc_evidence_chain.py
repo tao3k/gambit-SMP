@@ -28,6 +28,7 @@ CBMC_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp_chase_lev_and_
 CBMC_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp4_refc_and_pacing_pso.c"
 CBMC_WAVE7_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave7_futex_barrier_and_static_gen_pso.c"
 CBMC_WAVE8_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave8_segqueue_and_sync_barrier_pso.c"
+CBMC_WAVE9_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave9_direct_binding_and_ffi_park_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -441,6 +442,48 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(w8["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
         self.assertEqual(w8["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
         self.assertEqual(w8["unifiedMulticoreMatrixAndStress"]["passed"], 116)
+
+        # Wave 9 CBMC PSO weak-memory mutants + native O(1) direct global binding, 256-bit primitive override bloom,
+        # inline concurrent/SRFI-230 macros, and blocking-FFI unpark conditional broadcast anchors
+        cbmc_w9 = CBMC_WAVE9_PATH.read_text()
+        for macro in (
+            "MUTANT_DIR_DROP_PUBLISH_RELEASE",
+            "MUTANT_PAGE_DROP_ENTRY_RELEASE",
+            "MUTANT_PRIM_SET_OVERRIDE_BEFORE_CELL",
+            "MUTANT_FFI_SKIP_BROADCAST_WHEN_BLOCKING",
+        ):
+            self.assertIn(macro, cbmc_w9)
+            self.assertIn(macro, blueprint)
+
+        np_h = (ROOT / "vendor/gambit/include/_gambit/native_platform.h.in").read_text()
+        for sym in ("direct_cap", "prim_override_bits"):
+            self.assertIn(sym, np_h)
+        de_h = (ROOT / "vendor/gambit/include/_gambit/declarations_end.h.in").read_text()
+        for sym in ("___BINDING_NOINLINE", "direct_cap", "prim_override_bits"):
+            self.assertIn(sym, de_h)
+        gs_inc = (ROOT / "vendor/gambit/lib/_mem/global-storage.inc").read_text()
+        for sym in ("___GLOBAL_DIRECT_MAX_PAGES", "direct_cap"):
+            self.assertIn(sym, gs_inc)
+        gb_inc = (ROOT / "vendor/gambit/lib/_mem/global-bindings.inc").read_text()
+        self.assertIn("prim_override_bits", gb_inc)
+        self.assertIn("sync_op_state_u32", life_h)
+        self.assertIn("sync_op_state_u32", setup_src)
+        self.assertIn("sync_block_new_parks > 0", setup_src)
+        for sym in ("macro-lf-queue-head", "macro-ws-deque-top"):
+            self.assertIn(sym, conc_src)
+        srfi230_src = (ROOT / "vendor/gambit/lib/srfi/230/230.scm").read_text()
+        for sym in ("macro-order->code", "macro-raw-fx-load", "macro-raw-slot-cas!"):
+            self.assertIn(sym, srfi230_src)
+
+        w9 = receipt["verificationResults"]["wave9DirectBindingAndInlineConcurrent"]
+        self.assertEqual(w9["cbmcWave9PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w9["cbmcWave9PsoMutants"]["killed"], 4)
+        self.assertEqual(w9["runtimeTsanQualification"]["passed"], 14)
+        self.assertEqual(w9["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w9["runtimeAsanUbsanQualification"]["passed"], 14)
+        self.assertEqual(w9["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w9["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w9["unifiedMulticoreMatrixAndStress"]["passed"], 120)
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 
