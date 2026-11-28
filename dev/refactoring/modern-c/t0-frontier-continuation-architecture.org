@@ -1816,3 +1816,61 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - SRFI-226 throughput (Apple M2 Pro 12c): =s226_prompt_noop= =w=1= *1.06M/s* (=w=8= *7.19M/s*),
     =s226_call_1cc= =w=1= *0.99M/s* (=w=12= *5.07M/s*), =s226_1shot_comp= =w=1= *752k/s* (=w=12=
     *3.68M/s*).
+
+* 36. Phase C30: =(gambit fiber)= Cross-Thread/Cross-Scheduler =%fk-sched= Ownership, Non-Blocking =try-send/recv= & Single-Word Packed-Tail Linearizable =fiber-channel-close!=
+** 36.1 Root Causes Fixed & Packed-Tail Linearizability Protocol
+1. *External OS-Thread Crash (=SIGSEGV=) & Cross-Scheduler Steal on Channel Wakeups*:
+   - Previously, =fiber-send!= and =fiber-recv!= assumed every channel waker ran on the same
+     =run-fibers= carrier as the parked waiter and dereferenced =(%carrier-wctx)= under
+     =(declare (not safe))=. Calling =(fiber-send! ch val)= from an external OS thread crashed
+     with =SIGSEGV (exit 139)=; calling across two independent =run-fibers= pools stole the
+     parked =%fiber-k= onto the wrong scheduler, corrupting sharded quiescence counters.
+   - *Fix*: Added immutable field 5 =(%fk-sched)= to =%fiber-k= (initialized once at allocation
+     in =%make-fiber-k=) and =%wake-fk!= routing (same-scheduler carrier -> fast local LIFO;
+     external OS thread or foreign scheduler -> target scheduler's lock-free =global-q= + OS
+     parker wake). Added safe non-carrier OS-thread fallback in =fiber-send!= / =fiber-recv!=.
+2. *Non-Blocking Channel API & Single-Word Packed-Tail Linearizable Close*:
+   - Added =fiber-try-send!=, =fiber-try-recv!=, =fiber-channel-close!=, and
+     =fiber-channel-closed?= (exported in both =fiber#.scm= and =fiber.sld=).
+   - *Split-Flag Close Race Caught Under =p=12= Stress & Fixed*: An initial split =ch.closed=
+     flag allowed (a) a pre-close sender that won =tail= CAS to be preempted before writing
+     =seq[idx]= while a receiver saw =closed=1= + =seq[idx] < 2*pos+1= and returned premature
+     =#!eof=, and (b) a preempted sender to claim a ring slot after =close!=.
+   - *Fix*: Eliminated the separate =closed= field and packed =ch.tail= as a single atomic word
+     =(pos << 1) | closed_bit= (zero extra cache-line loads on the send hot path). Senders
+     atomically verify =(raw_t & 1) == 0= inside the =CAS(tail, raw_t, (pos + 1) << 1)= slot
+     claim; =fiber-channel-close!= atomically seals bit 0 via =%ch-seal-tail-seq!= (=seq_cst=
+     CAS loop), permanently freezing =final_tail = raw_t >> 1=, then drains =rx-fast=, =tx-fast=,
+     =rwq=, and =swq= with Dekker re-checks. Closed receivers call =%ch-drain-closed-or-eof!=,
+     returning =#!eof= *only* once =head >= final_tail= so every pre-close claimed item is
+     linearizably drained with exact conservation (=sent_cnt == recv_cnt=).
+   - Also cleared =ctx.lifo-n= (=___ctx_f[15]=) defensively on E-core straggler LIFO spills.
+
+** 36.2 3-Layer Formal Verification, CPU-Adaptive Tests & Benchmarks
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=fiber_channel_close_and_cross_sched_wake_smp.qnt=): 5/5 unit tests passed +
+    *=10,000= traces, 0 violations* (=seed=0x9b33b23e322afc86=).
+  - *Lean 4* (=FiberChannelCloseAndCrossSchedWakeRefinement.lean=): 4 theorems, *0 =sorry=*,
+    0 warnings.
+  - *CBMC =--mm pso=* (=fiber-channel-close-cross-sched-smp/harness.c=): =0 of 12 failed= across
+    all 3 models (cross-scheduler wake routing, 2-thread PSO Dekker close vs =rx-fast= park, and
+    3-thread PSO packed-tail =(pos << 1) | closed_bit= Sender/Closer/Receiver conservation) +
+    *5/5 negative mutants caught* (=INJECT_BUG_BLIND_CALLER_LIFO=, =INJECT_BUG_CLOSE_NO_FENCE=,
+    =INJECT_BUG_PARK_SKIP_CLOSED_RECHECK=, =INJECT_BUG_CLOSE_SKIP_WAKE_DRAIN=,
+    =INJECT_BUG_SPLIT_CLOSED_FROM_TAIL=).
+- *CPU-Adaptive Adversarial Test Suite*:
+  - =vendor/gambit/lib/gambit/fiber/test/test.scm=: expanded to *77 / 77 assertions* covering
+    external OS-thread <-> fiber bidirectional bridges (=cap=4, 0=), cross-scheduler
+    (=sched-A <-> sched-B=) bridges (=cap=4, 0=), =fiber-try-send!= / =fiber-try-recv!= /
+    idempotent =fiber-channel-close!= drain ordering, and adaptive-P concurrent close-vs-send/recv
+    linearizability stress (=cap in {0, 1, 2, 4, 8}= with GC).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "fiber"= (=C= + =js=, =((module-ref gambit/fiber) (warnings))=):
+    *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*; standalone =(import (gambit fiber))=
+    verified cleanly without pre-importing =(gambit concurrent)=.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x ={fiber, effect, srfi/226, concurrent,
+    srfi/230, parallel}= x 4 rounds, 0 failures).
+  - *20 / 20* =p=12= =(gambit fiber)= stress runs (400/400 concurrent close-race rounds, 0 failures).
+  - MPMC =fiber-channel= (=cap=64=, 100k msgs, Apple M2 Pro 12c): =w=1= *1.03M ops/s*,
+    =w=4= *2.03M ops/s*, =w=8= *2.96M ops/s* (SPSC: =w=1= *1.49M ops/s*, =w=8= *1.66M ops/s*).
+
