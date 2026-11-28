@@ -2703,3 +2703,81 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 51. Phase C45: Generator Slow-Path Unwind-Hook Coherency, Multi-Value Yield, and Winding-Transition Fault Safety (=(gambit effect)=)
+
+** 51.1 Root-Cause Defects Fixed
+1. *Dedicated Slow-Path Generator Resumption Preserving =%gen-unwind-fn=*:
+   - Previously, whenever a generator yielded via the slow path (inside =with-continuation-mark=,
+     an inner =with-handler=, a nested prompt, a frozen multi-shot frame, or a 0/multi-value
+     =yield=), =%gen-sub-k= stored an =effect-continuation= and the next =(g)= invocation
+     delegated to generic =(resume sk #f)=. Generic =resume= installed a replay prompt frame
+     carrying =unwind-hook = 'replay= rather than =(%gen-unwind-fn gen)= (and froze =pframe=),
+     so any subsequent exception, outer prompt abort, outer suspending effect abort, or
+     cross-thread fault left the generator permanently wedged in =%GEN-RUNNING=
+     (="generator already running"= forever instead of =#!eof=).
+   - Added dedicated zero-closure 4-argument =%gen-resume-ec-cont!= and atomic =%gen-resume-ec!=
+     in =vendor/gambit/lib/gambit/effect/generator.scm= (declared in =_internal#.scm=), replacing
+     =(resume sk #f)=. Both fast (=same-dynwind?=) and winding paths now install
+     =unwind-hook = (%gen-unwind-fn gen)= on the replayed prompt frame, clear consumed one-shot
+     continuation slots immediately, restore captured =prefix=/=marks=/=handlers=, and run
+     =%mc-run-unwind-hooks! prefix 'restore=.
+2. *Full 0/1/2/N Multiple-Value =yield= Support Without Post-Pop Arity Wedge*:
+   - Previously, =(perform yield)= (0 values) or =(perform yield a b ...)= (>=2 values) entered
+     =%perform-suspend-dispatch= with fixed-arity =(lambda (ek val) ...)= in
+     =%gen-yield-slow-handler= /after/ =pframe= (and its =unwind-fn=) had already been popped,
+     raising =wrong-number-of-arguments-exception= and wedging =gen.state= in =%GEN-RUNNING=.
+   - Upgraded =%gen-yield-slow-handler= to accept =#!optional (v1 %ABSENT) (v2 %ABSENT) #!rest more=,
+     atomically publishing =%GEN-SUSPENDED= and returning =(values)= / =v1= / =(values v1 v2)= /
+     =(apply values v1 v2 more)= with zero overhead on the 1-argument fast path.
+3. *Winding-Transition Guard (='unwind-guard=) With Exact Trampoline Verification*:
+   - During cross-=dynamic-wind= resumption (=not same-dynwind?=) in both =%gen-resume-swap-cont!=
+     and =%gen-resume-ec-cont!=, a fault inside the generator's =dynamic-wind= =before=-thunk
+     (or a trampolined caller =after=-thunk) occurred before the post-unwind landing thunk
+     installed =pframe=, bypassing caller's =with-exception-catcher= and wedging =%GEN-RUNNING=.
+   - Added O(depth) =%gen-winding-guard-safe?= walking caller =dynwind= frames up to LCA with
+     =sub-dw= and checking that every unwound caller =after=-thunk runs under an active
+     =%mc-eh-trampoline?=. When true (including when zero caller frames are unwound), a
+     temporary ='unwind-guard= frame copying pure caller =marks=/=barriers=/=handlers= and
+     carrying =eh-scope= + =unwind-fn= is pushed onto =st.mc= before =##continuation-graft= and
+     atomically stripped by the landing thunk. When false (untramped bare caller =after=-thunk),
+     no guard frame is pushed, guaranteeing zero stale =st.mc= frames.
+
+** 51.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=generator_slowpath_unwind_and_multival_smp.qnt=): 5/5 unit tests passed (=201 ms=) +
+    *=10,000= traces, 0 violations* (=384 ms=, =seed=0x92e415fffa8b68aa=).
+  - *Lean 4* (=GeneratorSlowpathUnwindAndMultivalRefinement.lean=): 5 theorems, *0 =sorry=*,
+    0 warnings (=slowpath_resume_preserves_unwind_hook=,
+    =multival_yield_transitions_to_suspended=,
+    =winding_guard_sound_and_no_stale_frame=,
+    =winding_guard_zero_caller_pollution=,
+    =landing_thunk_atomically_replaces_guard=).
+  - *CBMC =--mm pso=* (=generator-slowpath-unwind-smp/harness.c=): =0 of 16 failed= +
+    *4/4 negative mutants caught* (=MUTANT_DROP_SLOWPATH_UNWIND_HOOK=,
+    =MUTANT_MULTIVAL_ARITY_WEDGE=,
+    =MUTANT_STALE_GUARD_ON_UNTRAMPED_THROW=,
+    =MUTANT_NO_GUARD_ON_BEFORE_THROW=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "effect"= (=C= + =js=, =(warnings)=): *0 errors, 0 warnings*;
+    upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded to *583 / 583 assertions* (+39)
+    passing at =p=1=, =p=4=, and =p=12= (slow-path mark/handler/nested-generator faults & outer
+    aborts, 0/1/2/3-value yields, fast & slow winding =before=-thunk faults, trampolined vs.
+    untramped caller =after=-thunk faults, cross-thread slow-path migration, and adaptive-P SMP
+    torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =(gambit effect)= stress runs.
+  - Microbenchmarks (Apple M2 Pro, =p=12=, interpreted driver): =gen_fast_yield_1val= *0.255 Mops/s*,
+    =gen_slow_marked_yield= *0.403 Mops/s*, =gen_multival_yield_2val= *0.311 Mops/s*.
+
+
+
+
+
+
+
+
+
+
+
+
