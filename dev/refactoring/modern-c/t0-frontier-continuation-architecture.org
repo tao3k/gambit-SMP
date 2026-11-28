@@ -3216,3 +3216,65 @@ resource guards, and one-shot continuation atomicity:
 
 
 
+* 58. Phase C52: Deep-Handler Delegation, Dynamic Scope Isolation & Cross-Extent Splicing for Tail-Resumptive Effects (=(gambit effect)=)
+
+** 58.1 Root Causes Audited & Fixed
+A deep-handler algebraic-effect soundness audit of =(gambit effect)= reproduced three
+concrete semantic divergences between =tail:= handlers and suspending handlers in
+=effect/handler.scm= (=perform=):
+1. *Infinite self-recursion on tail-handler delegation*:
+   - =perform= previously executed a matched ='tail= clause =proc= while leaving its own
+     handler frame (and any inner frames above it) on =st.handlers=.
+   - Live repro: =(with-handler ((tail: ask () 10)) (with-handler ((tail: ask () (+ 1 (perform ask)))) (perform ask)))=
+     infinitely re-entered the inner =ask= handler instead of delegating to the outer =ask= handler
+     (whereas the equivalent suspending handler returned =11=). Same in mixed =(tail: e1 ...)= +
+     suspending =(e2 ...)= blocks.
+2. *Dynamic scope hijacking by inner handlers*:
+   - Live repro: when an inner handler for =e2= wrapped =(perform e1)= handled by an outer =tail: e1=
+     clause that itself called =(perform e2)=, =e1='s clause resolved =e2= against the *inner* =e2=
+     handler instead of the *outer* =e2= handler (=inner-e2= instead of =outer-e2=).
+3. *Cross-extent suspend/resume & exception stack coherency*:
+   - *Fix* (=effect/handler.scm=): Temporarily shift =st.handlers= to =outer-handlers = (cdr fs)=
+     while executing =proc=. On return, fast-path =(eq? cur-h outer-handlers)= with a single
+     zero-allocation pointer restore =(%st-handlers-set! cst handlers)=; if an outer suspending
+     effect was resumed under additional resumer handlers (=cur-h != outer-handlers=), splice
+     =(append (%list-prefix-until handlers outer-handlers) cur-h)= to preserve both paused inner
+     handlers and all resumer handlers. Under non-trampoline =cur-eh=, wrap =proc= in zero-capture
+     =macro-dynamic-bind exception-handler= that restores the paused prefix before delegating to
+     =cur-eh= (so an inner =with-exception-catcher= pops inner frames while retaining the outer
+     tail handler, and a continuable =with-exception-handler= return re-hides the paused prefix
+     for =proc= to resume in its exact outer scope).
+
+** 58.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=effect_tail_handler_delegation_and_scope_isolation_smp.qnt=): 5/5 unit tests
+    passed (=57 ms=) + *=10,000= traces, 0 violations* (=58 ms=, =seed=0xb8c7d0e15322f808=).
+  - *Lean 4* (=EffectTailHandlerDelegationAndScopeIsolationRefinement.lean=): 5 theorems,
+    *0 =sorry=*, 0 warnings (=tail_delegation_hits_outer_not_self=,
+    =tail_outer_handler_isolated_from_inner_handlers=,
+    =tail_return_same_extent_restores_exact_stack=,
+    =tail_return_cross_extent_preserves_resumer_handlers=,
+    =tail_exception_unwind_and_continuable_return_exact=).
+  - *CBMC =--mm pso=* (=effect-tail-delegation-smp/harness.c=): =0 of 28 failed= +
+    *4/4 negative mutants caught* (=MUTANT_TAIL_NO_SCOPE_SHIFT=,
+    =MUTANT_TAIL_BLIND_OVERWRITE_ON_RESUME=,
+    =MUTANT_TAIL_NO_EH_RESTORE_BEFORE_CATCHER=,
+    =MUTANT_TAIL_CONTINUABLE_WRONG_SCOPE=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "effect"= (=C= + =js=, =(warnings)=): *0 errors, 0 warnings*;
+    upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded to *620 / 620 assertions* (+9),
+    all passing at =p=1=, =p=4=, and =p=12= (2- and 3-level tail delegation, dynamic scope
+    isolation, mixed tail+suspend blocks, cross-extent suspend/resume splicing with extra resumer
+    handlers, continuable & inner-catcher exceptions, and adaptive-P SMP torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =effect= stress runs.
+  - Microbenchmarks (Apple M2 Pro, =p=12=, interpreted driver):
+    =tail_perform_in_prompt= *2.429 Mops/s*,
+    =tail_perform_bare= *2.052 Mops/s*,
+    =tail_delegation_2level_in_prompt= *1.744 Mops/s*,
+    =tail_delegation_2level_bare= *1.396 Mops/s*.
+
+
+
+
