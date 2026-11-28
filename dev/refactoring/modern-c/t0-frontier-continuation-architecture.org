@@ -2256,6 +2256,62 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
     *40 / 40* =p=12= stress runs (=20x fiber + 20x parallel=).
 
+* 44. Phase C38: =(gambit concurrent)= Lock-Free =lf-queue= Progress, Dekker-Safe =ws-deque= Slot Clearing, Overflow-Safe =%next-pow2= & =concurrent-table= Hardening
+** 44.1 Bugs Fixed
+1. *Signed Fixnum Overflow Infinite Loop in =%next-pow2=*:
+   - Previously, =%next-pow2= in =vendor/gambit/lib/gambit/concurrent/concurrent.scm= doubled =p=
+     via =(##fx* p 2)= without checking for signed fixnum wraparound, hanging at 100% CPU
+     when =make-ws-deque= or =make-concurrent-table= received a capacity exceeding the largest
+     positive power-of-2 fixnum.
+   - *Fix*: Replaced with portable shift-wrap detection =(if (##fx<= nxt p) (error ...))=.
+2. *Lock-Freedom Violation in =lf-queue-try-dequeue!= Across Unlinked Segment Boundaries*:
+   - Previously, when =h >= 256= and =svec[2] == ___FAL= while a stalled producer had
+     incremented =tail_ctr > 256= before linking the successor segment, =%lfq-deq-fast!=
+     returned =___DELETED= (retry) after 32 spins, causing =lf-queue-try-dequeue!= to spin
+     indefinitely waiting on the stalled producer.
+   - *Fix*: Return =___UNB2= (empty) immediately whenever =h >= 256= and =svec[2] == ___FAL=,
+     preserving strict linearizability (no item can exist in an unlinked successor segment) and
+     non-blocking lock-free progress.
+3. *Chase-Lev =ws-deque-try-pop!= GC Slot Pinning*:
+   - Previously, =%ws-pop-raw!= retained popped heap pointers in =slots[b & mask]= until ring
+     wraparound.
+   - *Fix*: Clear =slots[b & mask]= to =#f= with =___GC_WRITE_BARRIER= strictly on the Dekker-exclusive
+     =t < b= branch (never on =t == b=, where a racing thief may speculatively load the slot).
+4. *=concurrent-table= Negative Size Race, Release Ordering, & Custom Hash/API Validation*:
+   - Upgraded =%ctr-add-rel!= / =%ctr-sub-rel!= to release ordering (=2=) pairing with acquire
+     load in =concurrent-table-size=, and clamped =concurrent-table-size= to =max(0, raw)= so
+     transient concurrent insert/delete reorderings never return =-1=.
+   - Validated =eq-fn=, =hash-fn= in =make-concurrent-table= and =updater= in
+     =concurrent-table-update!=; hardened =%ct-bucket-idx= to handle exact =bignum= hashes
+     deterministically via =(##modulo h (##fx+ mask 1))= and reject non-integer hash values
+     instead of bitwise-ANDing heap pointer tags under =(declare (not safe))=.
+
+** 44.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=concurrent_lfq_wsdeque_table_smp.qnt=): 4/4 unit tests passed (=296 ms=,
+    including =buggyLfqLivelockDetectedTest=) + *=10,000= traces, 0 violations*
+    (=1333 ms=, =seed=0xc4c76b8e3c98fe24=).
+  - *Lean 4* (=ConcurrentLfqWsdequeTableRefinement.lean=): 5 theorems, *0 =sorry=*, 0 warnings
+    (=lfq_unlinked_next_returns_empty_lockfree=, =ws_pop_t_lt_b_disjoint_from_thief_steal=,
+    =concurrent_table_size_always_nonnegative=, =concurrent_table_size_exact_at_quiescence=,
+    =next_pow2_wrap_guard_terminates_cleanly=).
+  - *CBMC =--mm pso=* (=concurrent-lfq-wsdeque-table-smp/harness.c=): =0 of 18 failed= +
+    *4/4 negative mutants caught* (=INJECT_BUG_LFQ_SPIN_ON_UNLINKED_NEXT=,
+    =INJECT_BUG_WS_CLEAR_SLOT_WHEN_T_EQ_B=, =INJECT_BUG_TABLE_SIZE_NEGATIVE=,
+    =INJECT_BUG_CONCURRENT_POW2_OVERFLOW=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "concurrent"= (=C= + =js=, =((module-ref gambit/concurrent)
+    (warnings))=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/concurrent/test/test.scm=: expanded to *79 / 79 assertions*
+    passing at =p=1=, =p=4=, and =p=12= (overflow-safe =%next-pow2=, API & bignum/bad-hash
+    guards, =ws-deque= slot clearing, 4-segment =lf-queue= boundary conservation, and
+    adaptive-P concurrent insert/delete size non-negativity with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =(gambit concurrent)= stress runs.
+  - Microbenchmarks (Apple M2 Pro, =p=12=): =lf-queue= enq+deq *1.715 Mops/s*, =ws-deque=
+    push+pop *2.056 Mops/s*.
+
+
 
 
 
