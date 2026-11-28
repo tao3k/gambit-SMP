@@ -2204,6 +2204,59 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - 200,000-iteration direct =call-with-one-shot-composable-continuation= stress benchmark
     (previously crashed at ~1,500 iterations): *0.322 Mops/s* (=acc=600000=, 0 crashes).
 
+* 43. Phase C37: =(gambit fiber)= Detached-Fiber Fault Isolation & Guaranteed Parker Cleanup + =(gambit parallel)= Proper-List & Overflow-Safe =next-pow2= Guards
+** 43.1 Bugs Fixed
+1. *Permanent Multi-Worker Deadlock & Parker Leak on Detached-Fiber Uncaught Exception*:
+   - Previously, detached fiber thunks in =%worker-run-task= (=vendor/gambit/lib/gambit/fiber/scheduler.scm=)
+     ran bare =(task)= with no exception handler. Any uncaught exception killed the carrier OS
+     worker thread without incrementing =%wctx-completed=, permanently preventing
+     =%sched-quiescent?= (=completed == spawned=) from converging, deadlocking =run-fibers= on
+     multi-worker pools, and leaking both parked OS worker threads and the off-heap C =parker=.
+   - *Fix*: Added zero-capture =%detached-fiber-abort!= and =%detached-err-handler= and wrapped
+     detached =(task)= execution with =(##with-exception-handler %detached-err-handler task)=.
+     On uncaught error, =##continuation-graft= unwinds =dynamic-wind= / =with-finally= cleanups
+     onto =%wctx-sched-k=, flushes any buffered nursery credits, clears per-carrier =tc= to =#f=
+     (preventing cross-fiber mark/prompt/handler leaks), increments =%wctx-completed=, and
+     returns the carrier OS worker alive to =%worker-dispatch=. Also wrapped =(for-each
+     thread-join! threads)= in =run-fibers= so =%destroy-parker!= always executes.
+2. *Silent Improper-List Truncation in =(gambit parallel)= Combinators*:
+   - Previously, =parallel-map=, =parallel-for-each=, and =parallel-reduce= checked =(##pair? lst)=
+     instead of =(list? lst)= before calling =(##list->vector lst)= under =(declare (not safe))=,
+     silently truncating improper lists such as ='(1 . 2)= to ='(1)=.
+   - *Fix*: Replaced pair checks with proper =(list? ...)= validation across =combinators.scm=.
+3. *Fixnum-Shift Overflow Infinite Loop in =(gambit parallel)= =next-pow2=*:
+   - Previously, =next-pow2= in =deque.scm= looped =(##fxarithmetic-shift-left p 1)= without
+     checking for signed fixnum wraparound, hanging at 100% CPU when given a capacity exceeding
+     the largest positive power-of-2 fixnum.
+   - *Fix*: Added portable wrap detection =(if (##fx<= nxt p) (error ...))= that works across
+     32-bit, 64-bit, and JS targets with zero platform-specific constants.
+
+** 43.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=fiber_detached_fault_isolation_and_parallel_guards_smp.qnt=): 4/4 unit tests
+    passed (=62 ms=, including =buggyDetachedKillDetectedTest=) + *=10,000= traces, 0 violations*
+    (=434 ms=, =seed=0x289e21c915b43b31=).
+  - *Lean 4* (=FiberDetachedFaultIsolationAndParallelGuardsRefinement.lean=): 4 theorems,
+    *0 =sorry=*, 0 warnings (=detached_abort_preserves_quiescence_and_clears_tc=,
+    =all_workers_survive_detached_faults=, =next_pow2_guard_prevents_overflow=,
+    =proper_list_guard_rejects_improper=).
+  - *CBMC =--mm pso=* (=fiber-detached-fault-isolation-smp/harness.c=): =0 of 27 failed= +
+    *4/4 negative mutants caught* (=INJECT_BUG_DETACHED_KILLS_WORKER=,
+    =INJECT_BUG_DETACHED_LEAKS_TC=, =INJECT_BUG_LEAK_PARKER_ON_EXIT=,
+    =INJECT_BUG_NEXT_POW2_OVERFLOW=).
+- *Full Gates*:
+  - Official Gambit =##build-module "fiber"= and =##build-module "parallel"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches* in all new code.
+  - =vendor/gambit/lib/gambit/fiber/test/test.scm=: expanded from 88 to *93 / 93 assertions*
+    passing at =p=1=, =p=4=, and =p=12= (including multi-worker detached fault isolation with
+    =dynamic-wind= / =with-finally= cleanup and zero continuation-mark leakage).
+  - =vendor/gambit/lib/gambit/parallel/test/test.scm=: expanded from 158 to *165 / 165
+    assertions* passing at =p=1=, =p=4=, and =p=12= (improper-list rejection across all 3
+    combinators + portable max-pow2 overflow guard).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x fiber + 20x parallel=).
+
+
 
 
 
