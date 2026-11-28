@@ -31,6 +31,7 @@ CBMC_WAVE8_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave8_segqueue_an
 CBMC_WAVE9_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave9_direct_binding_and_ffi_park_pso.c"
 CBMC_WAVE10_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave10_inline_binding_rest_and_gc_steal_pso.c"
 CBMC_WAVE11_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave11_inline256_cow_bucket_ticket_and_mature_cache_pso.c"
+CBMC_WAVE12_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave12_sentinel_mpmc_chase_lev_and_wb_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -349,7 +350,14 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         rc_alloc = (ROOT / "vendor/gambit/lib/_mem/rc-allocation.inc").read_text()
         self.assertIn("___WORD_STORE_RELAXED(&___rest_before_collect_pops", rc_alloc)
         parallel_src = (ROOT / "vendor/gambit/lib/gambit/parallel/parallel.scm").read_text()
-        self.assertIn("(atomic-fxbox-set! (macro-work-stealing-deque-bottom q) (##fx+ b 1) 'release)", parallel_src)
+        self.assertTrue(
+            "(atomic-fxbox-set! (macro-work-stealing-deque-bottom q) (##fx+ b 1) 'release)" in parallel_src
+            or (
+                "(%fxatom-store-rel! bot-box (##fx+ b 1))" in parallel_src
+                and "(atomic-fxbox-set! box val 'release)" in parallel_src
+            ),
+            "parallel.scm deque-push-bottom! must publish bottom with release ordering",
+        )
 
         # Wave 6 remembered-set card-map, value-aware write barrier, and gc_is_dest Release-Acquire anchors
         cfg_src = (ROOT / "vendor/gambit/lib/_mem/configuration.inc").read_text()
@@ -566,6 +574,36 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(w11["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
         self.assertEqual(w11["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
         self.assertEqual(w11["unifiedMulticoreMatrixAndStress"]["passed"], 128)
+
+        # Wave 12 CBMC PSO weak-memory mutants + native forced-inline bindings, 504-slot single-vector
+        # ___UNB2 sentinel MPMC queue, relaxed-peek Chase-Lev + 128-byte padded SRFI-230 boxes,
+        # and target-first / local-nursery generational write barrier anchors
+        cbmc_w12 = CBMC_WAVE12_PATH.read_text()
+        for macro in (
+            "MUTANT_LFQ_SENTINEL_DROP_RELEASE",
+            "MUTANT_LFQ_CLEAR_TO_FALSE_NOT_SENTINEL",
+            "MUTANT_CHASE_LEV_DROP_SEQ_CST_FENCE",
+            "MUTANT_CHASE_LEV_DROP_PUSH_RELEASE",
+            "MUTANT_WB_SKIP_LOCAL_NURSERY_CARD",
+        ):
+            self.assertIn(macro, cbmc_w12)
+            self.assertIn(macro, blueprint)
+
+        self.assertIn("static inline __attribute__((always_inline))", de_h)
+        for sym in ("%lfq-slot-empty", "___UNB2", "t_peek < b_peek"):
+            self.assertIn(sym, conc_src)
+        self.assertIn("(##make-vector 16 0)", srfi230_src)
+        self.assertIn("val_in_local_nursery", gen_src)
+
+        w12 = receipt["verificationResults"]["wave12AlwaysInlineSentinelMpmcChaseLevAndTargetFirstWb"]
+        self.assertEqual(w12["cbmcWave12PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w12["cbmcWave12PsoMutants"]["killed"], 5)
+        self.assertEqual(w12["runtimeTsanQualification"]["passed"], 17)
+        self.assertEqual(w12["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w12["runtimeAsanUbsanQualification"]["passed"], 17)
+        self.assertEqual(w12["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w12["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w12["unifiedMulticoreMatrixAndStress"]["passed"], 132)
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 

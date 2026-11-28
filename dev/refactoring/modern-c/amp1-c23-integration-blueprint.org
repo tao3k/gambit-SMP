@@ -1441,3 +1441,145 @@ Formal model: =dev/refactoring/modern-c/models/cbmc/wave10_inline_binding_rest_a
 - *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
   =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
   Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+* Wave 12: Forced-Inline Binding Fast Paths, 504-Slot Single-Vector Sentinel MPMC Queue, Zero-Barrier Chase-Lev Peek + 128-Byte Padded SRFI-230 Boxes, and Target-First Write Barrier
+
+** Empirical Post-Wave-11 Flamegraph Diagnosis (Post-Wave-11 =e938fcfb= on 12-Core Apple Silicon)
+- *Direct =sample= Top-of-Stack Profile (=p12= across true HT workloads & =par_sync_mailbox_cas=)*:
+  - =___binding_glo_load= + =___binding_prm_load= still accounted for *2,689*
+    top-of-stack samples across all 4 HT workloads (=ht_graph_bfs_churn=
+    =683+455=1,138= [21% of active CPU], =ht_workstealing_dag= =711+128=839=,
+    =ht_mpmc_pipeline= =195+168=363=, =ht_concurrent_kv_ycsb= =208+141=349=)
+    because GCC-16 at =-O1= declined to inline =static inline= helpers without
+    =__attribute__((always_inline))= inside single-host =___H_*= functions even
+    when =___LBLCOUNT < 4000 && ___GLOCOUNT < 1000=.
+  - =lf-queue-try-dequeue!= (=2,824= samples) and =lf-queue-enqueue!= (=854=
+    samples) dominated =ht_mpmc_pipeline=: 128-slot two-vector segments
+    (=slots= + =states=) allocated 3 vectors per 128 items and forced every
+    consumer dequeue to load producer cacheline =tt_p=.
+  - =ws-deque-try-steal!= (=2,521= samples) executed an =acquire= load on empty
+    polls and returned immediately on peer-thief CAS collisions; adjacent
+    SRFI-230 =atomic-fxbox= cells (1-word vectors) false-shared Apple Silicon
+    128-byte cachelines (=done-ctr= vs =wave-gate=, driving =1,379=
+    =atomic-fxbox-ref= samples).
+  - =___gc_write_barrier_slow_val= + =___gc_write_barrier_slow= accounted for
+    *340* top samples in =par_sync_mailbox_cas=, *90* in =ht_mpmc_pipeline=,
+    and *48* in =ht_concurrent_kv_ycsb= due to probing mature sections for
+    =val= before checking whether the target =obj= was young or =val= resided
+    in the local nursery.
+
+** CBMC =--mm pso= Formal Verification & 5/5 Mutant Killing
+- Model: =dev/refactoring/modern-c/models/cbmc/wave12_sentinel_mpmc_chase_lev_and_wb_pso.c=
+- Command: =cbmc --mm pso --bounds-check --signed-overflow-check --unwind 5=
+- SAFE baseline: *0 of 34 failed* (=VERIFICATION SUCCESSFUL=, =rc=0=) covering
+  single-vector sentinel MPMC release-acquire publication + tail-cacheline
+  elision + clear-to-sentinel, Chase-Lev zero-barrier relaxed empty peek +
+  classic Le et al. PPoPP '13 2-item =StoreLoad= arbitration, and target-first
+  / local-nursery generational write barrier card publication.
+- Mutants killed (*5/5*, all =rc=10= =VERIFICATION FAILED=):
+  1. =MUTANT_LFQ_SENTINEL_DROP_RELEASE= (1/34 failed)
+  2. =MUTANT_LFQ_CLEAR_TO_FALSE_NOT_SENTINEL= (1/35 failed)
+  3. =MUTANT_CHASE_LEV_DROP_SEQ_CST_FENCE= (1/34 failed)
+  4. =MUTANT_CHASE_LEV_DROP_PUSH_RELEASE= (2/34 failed)
+  5. =MUTANT_WB_SKIP_LOCAL_NURSERY_CARD= (1/34 failed)
+
+** Native Implementation (4 Clean =vendor/gambit= Files on top of =e938fcfb=)
+1. *Forced-Inline Binding Fast Paths* (=include/_gambit/declarations_end.h.in=):
+   upgraded =___BINDING_FAST_ATTR= to =static inline __attribute__((always_inline))=
+   under =defined(__OPTIMIZE__)= while strictly retaining the
+   =___LBLCOUNT < 4000 && ___GLOCOUNT < 1000= guard (protecting giant Gerbil
+   modules and =-O0= sanitizer debug frames). Drove =___binding_glo_load= from
+   *1,797 -> 0 (-100.0%)* across all 4 HT workloads.
+2. *504-Slot Single-Vector =___UNB2= Sentinel MPMC Queue*
+   (=lib/gambit/concurrent/concurrent.scm=): replaced 128-slot two-vector
+   segments with 504-slot movable single-vector segments (=505 <= ___MSECTION_BIGGEST=
+   [512] words, 6x fewer vector allocations, 4x fewer segment transitions)
+   initialized to non-heap immediate sentinel =___UNB2= (preserving SATB
+   logging while eliding card-dirtying slow calls on clear); consumer fast path
+   reads =slots[off]= acquire directly without touching producer tail =tt_p=,
+   with bounded exponential CAS backoff (=1..8= =___CPU_RELAX()=).
+3. *Zero-Barrier Relaxed Chase-Lev Peek + Bounded Steal Retry & 128-Byte Padded SRFI-230 Boxes*
+   (=lib/gambit/concurrent/concurrent.scm=, =lib/srfi/230/230.scm=): added
+   relaxed =t_peek >= b_peek= empty short-circuit and bounded 4-attempt
+   peer-thief CAS retry in =%ws-steal-raw!=; padded =atomic-flag=,
+   =atomic-box=, and =atomic-fxbox= backing cells to 16 words (128 bytes =
+   1 Apple Silicon cacheline) eliminating cross-core false sharing and
+   reordered =macro-order->code= to test ='acquire= and ='relaxed= first.
+4. *Target-First / Local-Nursery Generational Write Barrier Fast Path*
+   (=lib/_mem/generational.inc=): reordered =___gc_write_barrier_slow_val= to
+   probe target =obj= first (eliding mature lookup of =val= for cross-core
+   young targets and young still targets) and short-circuit mature->local-nursery
+   writes directly to card marking without a second radix lookup, cutting
+   =___gc_write_barrier_slow= samples by *-49.1% to -83.3%*.
+
+** Comprehensive Verification, Interleaved A/B LBO, Rust-Beating Benchmarks, & Gerbil v0.19 Qualification
+- *Post-Wave-12 Flamegraph Confirmation (=.cache/tasks/wave12-profile/sample_w11_vs_w12_summary.json=, =p12=)*:
+  - =___binding_glo_load=: *1,797 -> 0 (-100.0%)* across all 4 HT workloads
+    (=195->0=, =208->0=, =683->0=, =711->0=).
+  - =___binding_prm_load= in user HT modules: =168->0=, =455->0=, =128->0=
+    (*-100.0%*).
+  - =___gc_write_barrier_slow=: =ht_mpmc_pipeline= *90 -> 24 (-73.3%)*,
+    =ht_concurrent_kv_ycsb= *48 -> 8 (-83.3%)*, =par_sync_mailbox_cas=
+    *340 -> 173 (-49.1%)*.
+  - =lf-queue-enqueue!=: *854 -> 475 (-44.4%)*; =atomic-fxbox-ref=:
+    *1,379 -> 1,036 (-24.9%)*.
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave12-profile/track_a_summary.json=)*:
+  *132/132 PASS* (=run-multicore-suite= *100/100* + =amp4= *4/4* + Wave 6–12
+  adversarial *28/28* across =p1,p4,p8,p12=), plus =amp4[p8]= *10/10*,
+  =c14[p8]= *20/20*, =c8[p8]= *5/5*, and official =srfi/230= (*68/68* x4) &
+  =gambit/concurrent= (*55/55* x4).
+- *Native Apple Clang 21 Sanitizers (real symbol verification on runtime & =@gambit409008@C= modules via =nm=)*:
+  - *TSan* (=.cache/tasks/wave12-profile/runtime_tsan_w12_results.json=,
+    =mem.o= 31, =gsi= 4, =concurrent.o1= 12 TSan symbols): *17/17 PASS*,
+    *0 TSan warnings*, plus official =srfi/230= (68/68) and =gambit/concurrent=
+    (55/55) with *0 warnings*.
+  - *ASan+UBSan* (=.cache/tasks/wave12-profile/runtime_asan_ubsan_w12_results.json=,
+    =mem.o= 778, =gsi= 10 ASan / 8 UBSan, =concurrent.o1= 292 ASan symbols):
+    *17/17 PASS*, *0 ASan errors*, *0 UBSan errors*, plus official =srfi/230=
+    (68/68) and =gambit/concurrent= (55/55) with *0 errors*.
+- *Interleaved A/B LBO (Pre-Wave-12 =wave11-e938fcfb-build= vs Post-Wave-12 =unified=, 5 pairs, =.cache/tasks/wave12-profile/ab_wave12_lbo.json=)*:
+  - =ht_mpmc_pipeline=: *1.04x* (=p1=), *1.11x* (=p4=, GC =11.85->8.55ms=),
+    *1.51x* (=p8=, =43.04->28.52ms=, GC =10.75->5.76ms= *-46.4%*, =cpuRatio=0.714=,
+    RSS =38.6->31.8 MiB=, =p50= =20.2->13.9ms=, =p99.9= =24.8->19.4ms=),
+    *1.22x* (=p12=, =36.42->29.92ms=, GC =7.67->6.04ms= *-21.3%*, =cpuRatio=0.833=).
+  - =ht_graph_bfs_churn=: *1.05x* (=p1=), *1.03x* (=p4=), *1.10x* (=p8=,
+    =17.55->15.92ms=, =cpuRatio=0.846=, =p99.9= =1897->1118us= *-41.1%*),
+    =p50= lower across every topology (=55->52us=).
+  - =ht_concurrent_kv_ycsb=: *1.06x* (=p8=, =12.66->12.00ms=), *1.05x* (=p12=,
+    =13.49->12.82ms=).
+  - =ht_workstealing_dag[p4]=: *1.08x* (=11.04->10.26ms=, =p50= =84->67us=);
+    =par_oldgen_churn_live[p12]=: *1.16x* (=19.76->17.03ms=);
+    =par_alloc_gc_m65536[p12]=: *1.08x* (=14.68->13.57ms=);
+    =par_rest_alloc_m65536[p12]=: *1.06x* (=26.57->25.08ms=).
+- *Paired 10-Workload Rust (Tokio+Rayon) vs Wave 12 Gambit SMP (=.cache/tasks/wave12-profile/rust-vs-gambit-wave12/comparison_w12.json=, =workers=12=)*:
+  - *Wave 12 Gambit SMP SURPASSES Rust on THREE concurrent multicore workloads*:
+    - =ht_graph_bfs_churn=: =p4= *1.0x* (=23.4ms vs 22.6ms=), =p8= *195.6M ops/s*
+      (=16.1ms vs 25.6ms=, *0.63x — 1.59x faster than Rust!*), =p12=
+      *220.8M ops/s* (=14.2ms vs 23.4ms=, *0.61x — 1.65x faster than Rust!*,
+      RSS =39.9 vs 88.8 MiB= [*2.23x lower*]).
+    - =ht_concurrent_kv_ycsb=: =p4= *30.23M ops/s* (=16.3ms vs 20.6ms=, *0.79x*),
+      =p8= *38.44M ops/s* (=12.8ms vs 16.4ms=, *0.78x*), =p12= *39.56M ops/s*
+      (=12.4ms vs 16.2ms=, *0.77x — 1.31x faster than Rust!*, RSS =32.4 vs 68.8 MiB=
+      [*2.12x lower*]).
+    - =par_gc_pause_live_heap=: =p4= *0.95x* (=18.5ms vs 19.4ms=), =p8= *0.92x*
+      (=11.5ms vs 12.5ms=), =p12= *0.69x* (=11.7ms vs 17.0ms= — *1.45x faster
+      than Rust!*).
+  - =ht_mpmc_pipeline=: =p8= *3.45M ops/s* (=27.9ms=, =8.0x= of Rust vs Wave 11
+    =22.4x=), =p12= *3.28M ops/s* (=29.3ms=, =8.9x= vs Wave 11 =16.9x=).
+  - =ht_workstealing_dag=: =p8= *3.72M ops/s* (=17.6ms=, =5.5x= of Rust vs
+    Wave 11 =21.6x=), =p12= *1.76M ops/s* (=37.3ms=, =5.0x= vs Wave 11 =9.0x=).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Qualification (=.cache/tasks/wave12-gerbil-spot/=)*:
+  =prepare= (=3.67s=, =2.33 MiB=, =exit=0=), =boot-gxi= (=0.18s=, =52.25 MiB=,
+  =exit=0=), =stage0= full bootstrap compiler build (=857.61s real=, =536.32s
+  user=, peak RSS *1,034.23 MiB* [=1,084,473,344= bytes — *-4.10 MiB* lower than
+  Wave 11!], =exit=0=), plus =boot-gxi= =GAMBOPT=p4= and =GAMBOPT=p12=
+  =(import :gerbil/expander :gerbil/compiler)= smoke PASS
+  (=GERBIL_W12_SMOKE_PASS_p4= / =p12=); original
+  =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Cleanliness & Architectural Audits*: Zero internal plan-execution labels
+  across all 4 modified =vendor/gambit= source files;
+  =tests/test_families_8_12_audit.py= *7/7 OK*; =sysml -strict -validate dev=
+  zero errors.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
