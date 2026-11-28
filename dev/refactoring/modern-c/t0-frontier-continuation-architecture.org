@@ -3278,3 +3278,45 @@ concrete semantic divergences between =tail:= handlers and suspending handlers i
 
 
 
+* 59. Phase C53: Lexical Tail-Capability Creation-Site Dynamic Scope Isolation (=(gambit effect)=) & O(1)-Stack Tail-Recursive Channel Wakeup Cascade (=(gambit fiber)=)
+
+** 59.1 Root Causes Audited & Fixed
+A combined lexical-capability soundness audit of =(gambit effect)= and channel wakeup stack audit of =(gambit fiber)= resolved two concrete defects:
+1. *Dynamic scope hijacking in =call-with-tail-capability= / =perform-cap= (=effect/capability.scm=)*:
+   - =call-with-tail-capability= previously stored only =live-box = (cons #t #f)= and never recorded the creation-site handler stack, so =perform-cap= executed the capability handler in the *call-site* handler stack instead of the *creation-site* handler stack.
+   - Live repro: an outer =call-with-tail-capability= whose handler called =(perform e2)= returned =(inner-e2 inner-e2)= instead of =(outer-e2 inner-e2)= when invoked inside an inner =(with-handler ((tail: e2 () 'inner-e2)) ...)= (diverging from =call-with-suspend-capability=), and failed with an error when the outer =e2= was a suspending handler resumed under an extra =e3= handler.
+   - *Fix* (=effect/capability.scm=, =effect/_internal#.scm=):
+     - Store creation-site =outer-handlers = (if st (%st-handlers st) '())= in =(cdr live-box)= (=(cons #t outer-handlers)= — zero extra allocation!).
+     - In =perform-cap= (='tail= branch): on the 99% same-scope fast path (=(eq? cur-h outer-handlers)=), perform a direct tail call with zero handler-stack writes and zero allocations.
+     - When inner handlers intervene (=cur-h != outer-handlers=), split =cur-h= via =%cap-split-handlers= at =(car outer-handlers)= (or ='()= when =outer-handlers= is empty) to obtain =(prefix target-h)= — automatically handling capabilities whose own body was suspended and resumed under additional resumer handlers — shift =st.handlers = target-h=, guard non-trampoline =cur-eh= with zero-capture =macro-dynamic-bind exception-handler=, and on return restore =cur-h= in O(1) when =(eq? after-h target-h)= or splice =(append prefix after-h)= across outer suspend/resume.
+2. *Unbounded non-tail mutual recursion & delayed peer wakeup in channel wakeup cascades (=fiber/channel-ring.scm=)*:
+   - =%ch-wake-one-receiver!= and =%ch-wake-one-sender!= previously invoked each other in *non-tail* position *before* waking the already-popped peer =rk= / =sk=, building an O(N) stack chain that pinned continuation frames and delayed peer handoff under deep =cap=1= MPMC bursts.
+   - *Fix* (=fiber/channel-ring.scm=): Deliver =(%fk-val-set! rk item)= + =(%wake-fk! rk)= (and symmetrically =(%fk-val-set! sk #t)= + =(%wake-fk! sk)=) *first*, placing the reciprocal Dekker =seq_cst= waiter check and wakeup call in strict *tail position* for guaranteed O(1) stack space and immediate peer handoff.
+
+** 59.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=tail_cap_scope_isolation_and_channel_tail_wake_smp.qnt=): 5/5 unit tests passed (=87 ms=) + *=10,000= traces, 0 violations* (=215 ms=, =seed=0xc6859185e2dd9e3c=).
+  - *Lean 4* (=TailCapScopeIsolationAndChannelTailWakeRefinement.lean=): 5 theorems, *0 =sorry=*, 0 warnings (=tail_cap_split_isolates_inner_handlers=, =tail_cap_same_extent_return_exact=, =tail_cap_cross_extent_splice_preserves_inner_and_resumer=, =tail_cap_exception_and_continuable_coherency=, =channel_tail_wake_cascade_constant_stack_and_liveness=).
+  - *CBMC =--mm pso=* (=tail-cap-scope-and-channel-wake-smp/harness.c=): =0 of 78 failed= + *4/4 negative mutants caught* (=MUTANT_TAIL_CAP_NO_SCOPE_SHIFT=, =MUTANT_TAIL_CAP_BLIND_OVERWRITE_ON_RESUME=, =MUTANT_TAIL_CAP_NO_EH_RESTORE=, =MUTANT_CHANNEL_WAKE_NON_TAIL_STACK=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "effect"= & =##build-module "fiber"= (=C= + =js=, =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded to *630 / 630 assertions* (+10), all passing at =p=1=, =p=4=, and =p=12= (outer/inner scope isolation, empty-outer top-level isolation, cross-extent outer suspend/resume splicing, resumed-body capability boundary preservation, inner-catcher escape, continuable exception recovery, multi-value returns, and adaptive-P SMP torture with =##gc=).
+  - =vendor/gambit/lib/gambit/fiber/test/test.scm=: expanded to *156 / 156 assertions* (+3), all passing at =p=1=, =p=4=, and =p=12= (500-pair =cap=1= MPMC deep wakeup cascade stress).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) + *40 / 40* =p=12= stress runs (=20x effect= + =20x fiber=).
+  - Microbenchmarks (Apple M2 Pro, =p=12=, interpreted driver):
+    =tail_cap_same_scope_dispatch= *2.701 Mops/s*,
+    =tail_cap_isolated_scope_dispatch= *1.152 Mops/s*,
+    =channel_cap1_mpmc_cascade_msgs= *0.907 Mops/s*.
+
+
+
+
+
+
+
+
+
+
+
+
+
