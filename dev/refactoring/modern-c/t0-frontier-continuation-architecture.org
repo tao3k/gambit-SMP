@@ -2083,6 +2083,59 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - =gen_yield_100k= (Apple M2 Pro): *0.66M/s* (vs. 0.45M/s before), *199,999 / 199,999* (100%)
     in-place one-shot stack rewinds preserved.
 
+* 41. Phase C35: =(srfi 226)= Raw =call/1cc= Transactional Control-State Restore + Public API Validation
+** 41.1 Bugs Fixed
+1. *Fatal VM Crash & Zombie Prompts/Marks/Handlers on Raw =call/1cc= Escape*:
+   - Previously, the ='raw= branch of =call/1cc= (taken when the requested prompt tag is not
+     active) stored ='()= for =prefix= and =handlers= without freezing active outer =mc= frames,
+     =%capture-1cc-raw!= dropped =prefix= and =handlers=, and =%invoke-raw-parts= never restored
+     =st.mc=, =st.marks=, =st.barriers=, or =st.handlers=. Escaping an inner
+     =call-with-continuation-prompt= + =with-continuation-mark= + =with-handler= via raw
+     =call/1cc= left zombie prompts/marks/effect handlers behind; a subsequent =(perform ...)=
+     crashed the VM with =*** FATAL ERROR -- Break restore source frame is outside its stack grant=.
+   - *Fix*:
+     - Freeze non-empty =mc= via =%freeze-mc-prefix!= and capture full =(mc, marks, barriers,
+       handlers)= in =call/1cc='s ='raw= branch and =%capture-1cc-raw!=.
+     - Updated =%invoke-raw-parts= (and callers =%invoke-raw-cell= and =%invoke-one-shot-cell=)
+       to transactionally restore =(st.mc, st.marks, st.barriers, st.handlers)=: directly before
+       jump when =(%mc-same-dynwind? sub-k)= holds (preserving =%return-oneshot-same-dynwind!=
+       O(1) stack reclaim), or inside a post-unwind landing thunk via =##continuation-graft=
+       when =dynamic-wind= frames separate caller and target so =after=-thunks observe intact
+       inner prompts/marks/handlers and raising inside an =after=-thunk rolls back cleanly.
+2. *Live =SIGSEGV= on Invalid =(srfi 226)= Public API Arguments*:
+   - Under =(declare (not safe))=, calling =(call-with-continuation-prompt 123)= or passing
+     non-procedures, non-prompt-tags, or a non-list =key-list= to =continuation-mark-set->list*=
+     crashed with =SIGSEGV (exit 139)=.
+   - *Fix*: Added explicit fast inline validation (=procedure?=, fast =eq? tag %default-prompt-tag=
+     or =continuation-prompt-tag?=, =list?=) across =prompt.scm=, =cont.scm=, and =marks.scm=.
+
+** 41.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=srfi226_raw_call1cc_transactional_restore_smp.qnt=): 5/5 unit tests passed
+    (=61 ms=) + *=10,000= traces, 0 violations* (=438 ms=, =seed=0xe520db11e2c913bd=).
+  - *Lean 4* (=Srfi226RawCall1ccTransactionalRestoreRefinement.lean=): 4 theorems, *0 =sorry=*,
+    0 warnings (=raw_fast_restore_eliminates_zombies=,
+    =raw_dynwind_complete_preserves_after_and_restores_cap=,
+    =raw_dynwind_throw_preserves_inner_scope=, =prompt_args_guard_rejects_invalid=).
+  - *CBMC =--mm pso=* (=srfi226-raw-call1cc-restore-smp/harness.c=): =0 of 16 failed= + *4/4
+    negative mutants caught* (=INJECT_BUG_SKIP_RAW_MC_RESTORE=,
+    =INJECT_BUG_EAGER_RAW_WIPE_BEFORE_AFTER=, =INJECT_BUG_SKIP_RAW_BARRIER_CHECK=,
+    =INJECT_BUG_UNCHECKED_PROMPT_PROC=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"= (=C= + =js=, =((module-ref srfi/226) (warnings))=):
+    *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - Live cross-module reproducer (=raw call/1cc= escaping prompt + mark + =with-handler=,
+    followed by =perform=): returns =(escaped-ok #f () clean-unhandled)= with 0 crashes.
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: expanded to *202 / 202 assertions* passing at
+    =p=1=, =p=4=, and =p=12= (raw escape, nested outer prompt preservation, =dynamic-wind=
+    normal/throwing =after=-thunk, promoted multi-shot replay, 22 API validation checks, and
+    adaptive-P SMP torture with concurrent =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =(srfi 226)= stress runs.
+  - Microbenchmarks (Apple M2 Pro, =p=12=): prompted =call/1cc= *0.164 Mops/s*, raw =call/1cc=
+    escaping inner prompt *0.221 Mops/s*.
+
+
 
 
 
