@@ -29,6 +29,7 @@ CBMC_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp4_refc_and_paci
 CBMC_WAVE7_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave7_futex_barrier_and_static_gen_pso.c"
 CBMC_WAVE8_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave8_segqueue_and_sync_barrier_pso.c"
 CBMC_WAVE9_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave9_direct_binding_and_ffi_park_pso.c"
+CBMC_WAVE10_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave10_inline_binding_rest_and_gc_steal_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -484,6 +485,49 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(w9["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
         self.assertEqual(w9["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
         self.assertEqual(w9["unifiedMulticoreMatrixAndStress"]["passed"], 120)
+
+        # Wave 10 CBMC PSO weak-memory mutants + native inline_pages[32], relaxed bloom, universal inline
+        # ___group_demand_commit, zero-call ___rest_hooks_gate fast path, packed scan_state GC chunk-stealing,
+        # and fast selective-evacuation minor admission anchors
+        cbmc_w10 = CBMC_WAVE10_PATH.read_text()
+        for macro in (
+            "MUTANT_INLINE_PAGE_DROP_RELEASE",
+            "MUTANT_PRIM_BLOOM_DROP_RELEASE",
+            "MUTANT_REST_GATE_CLEAR_WHILE_ARMED",
+            "MUTANT_GC_STEAL_DROP_CHUNK_RELEASE",
+            "MUTANT_GC_STEAL_RESURRECT_AFTER_ZERO",
+        ):
+            self.assertIn(macro, cbmc_w10)
+            self.assertIn(macro, blueprint)
+
+        for sym in ("___GLOBAL_INLINE_PAGES", "inline_pages"):
+            self.assertIn(sym, np_h)
+            self.assertIn(sym, de_h)
+        for sym in ("___binding_glo_slow", "___binding_prm_slow"):
+            self.assertIn(sym, de_h)
+        rp_h = (ROOT / "vendor/gambit/include/_gambit/runtime_protocols.h.in").read_text()
+        self.assertIn("___LBLCOUNT < 4000", rp_h)
+        self.assertIn("___group_demand_commit", rp_h)
+        for sym in ("___rest_hooks_gate", "___rest_fast_grant_fits_inline"):
+            self.assertIn(sym, life_h)
+        self.assertIn("___rest_hooks_gate", rc_alloc)
+        coll_h = (ROOT / "vendor/gambit/lib/collector.h").read_text()
+        self.assertIn("scan_state", coll_h)
+        self.assertIn("scan_state", hs_src)
+        cr_round = (ROOT / "vendor/gambit/lib/_mem/collection-round.inc").read_text()
+        self.assertIn("scan_state", cr_round)
+        self.assertIn("continue_steal", cr_round)
+        self.assertIn("evac_selective", cp_src)
+
+        w10 = receipt["verificationResults"]["wave10InlineBindingRestAndGcSteal"]
+        self.assertEqual(w10["cbmcWave10PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w10["cbmcWave10PsoMutants"]["killed"], 5)
+        self.assertEqual(w10["runtimeTsanQualification"]["passed"], 15)
+        self.assertEqual(w10["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w10["runtimeAsanUbsanQualification"]["passed"], 15)
+        self.assertEqual(w10["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w10["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w10["unifiedMulticoreMatrixAndStress"]["passed"], 124)
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 
