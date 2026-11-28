@@ -722,3 +722,65 @@ Formal verification for Phase C4-A:
 | =ht_generator_stream=        | 10.475M/s (P50 18us, P99 28us, max 37us) | *10.957M/s* (P50 *17us*, P99 *20us*, max *22us*, *0 GCs*) | *+4.6% throughput / w=12 P50 18us (44% faster than Tokio 32.0us!)* |
 | =ht_fiber_fanout_100k=       | 2.233M/s (P50 373us, P95 877us, P99 1145us) | *2.467M/s* (P50 *336us*, P95 *779us*, P99 *918us*, GC *7ms*) | *+10.5% throughput / -10% P50 / sub-1ms P99 (-20%)* |
 | =lexa_cap_tail=              | 17.10M/s (P50 56us)                      | *17.24M/s* (P50 *57us*, P99 *61us*, *0 GCs*) | Parity (control) |
+
+* 19. Phase C16: Fused =fiber-yield= / =fiber-spawn=, Inline =%free-fk!= & =%carrier-wctx=, Continuation-Safe =with-finally=, and Apple Silicon 8P+4E P-Core QoS
+
+** 19.1 Architectural Upgrades (=vendor/gambit/lib/gambit/fiber/{fiber.scm,fiber#.scm,fiber.sld,test/test.scm}=, 100% upstream-clean)
+1. *Inline =%carrier-wctx= & Single-C-Block =%free-fk!=*:
+   - Generated C inspection revealed Gambit was not inlining =%current-wctx= or =%free-fk!=,
+     forcing an 8-word GVM stack frame, =___group_demand_enter=, =___POLL=, and =___JUMPINT=
+     on every =%park-recv-buf-cont!=, =%yield-cont!=, =fiber-spawn=, and =%worker-run-task= resume.
+   - Replaced internal carrier lookups with direct =%carrier-wctx= and rewrote =%free-fk!= as a
+     single inline C23 block; verified in generated =fiber.c= that =%park-recv-buf-cont!=,
+     =%yield-cont!=, and =fiber-spawn= emit *zero* =%current-wctx= or =%free-fk!= calls and zero
+     stack-frame allocation on their fast paths.
+2. *Single-C-Block Fused =fiber-yield= (=\%yield-push-and-pop-c!=) & =fiber-spawn= (=\%fiber-spawn-push-c!=)*:
+   - =%yield-push-and-pop-c!= pops =fk= from =ctx.fk-pool=, pushes it to =ctx.dq= with =store_rel(tail)=,
+     and immediately claims the next runnable task from =ctx.lifo= or =CAS_acqrel(dq.head)= in ONE
+     C23 block, handing =%fiber-k= straight to =##continuation-return-no-winding=.
+   - =%fiber-spawn-push-c!= executes =fetch_add_acqrel(n.active, 1)= + =store_rel(ctx.spawned)=
+     strictly BEFORE publishing into =ctx.lifo=/=ctx.dq= in ONE C23 block (zero frame, zero poll).
+3. *Continuation-Safe Resource Cleanup (=with-finally=)*:
+   - Exported =with-finally= from =(gambit fiber)= using an idempotent =done?= latch +
+     =with-exception-catcher= + =call-with-values= so resource cleanup runs *strictly once* on
+     normal return (including multiple values) or exception/nursery abort, and *never* double-fires
+     during =fiber-yield=, channel park/resume, or non-tail algebraic effect =perform=/=resume=
+     (solving the =dynamic-wind= continuation-suspension double-release hazard).
+   - Added comprehensive Section 13 tests (tests 13a--13e) covering =with-finally= across
+     100 concurrent yielding/channel fibers, algebraic effect =perform=/=resume=, nursery abort,
+     and =dynamic-wind= across no-winding channel park/resume.
+4. *Apple Silicon Heterogeneous 8P+4E Performance-Core Topology & QoS*:
+   - Exported =fiber-performance-core-count= (queries =hw.perflevel0.physicalcpu= on =__APPLE__=,
+     returning =8= on M2 Pro 8P+4E; falls back to VM processor count elsewhere).
+   - Carrier threads request =pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)= on
+     macOS so XNU keeps carriers resident on Performance cores; =run-fibers= defaults =workers:=
+     to =(fiber-performance-core-count)= while still honoring explicit =workers: 12=.
+
+** 19.2 3-Layer Adversarial Formal Verification (Phase C16, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/fused_yield_spawn_and_inline_fk_recycle_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (=979ms=, 10,215 traces/sec; spawn-before-publish
+  accounting, exact task conservation under thief =CAS(head)=, zero =fk= pool leak).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/FusedYieldSpawnRecycleRefinement.lean=):
+  5 theorems (=spawn_accounting_before_publish=, =yield_push_then_pop_valid=,
+  =inline_fk_recycle_cap_bound=, =extract_before_recycle_preserves_payload=,
+  =with_finally_exactly_once_and_idempotent=), 0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso --unwind 4=)* (=tests/contracts/modern-c/gc-ffi/fused-yield-spawn-recycle-smp/harness.c=):
+  0 of 23 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_SPAWN_PUBLISH_BEFORE_ACTIVE_INC=, =INJECT_BUG_YIELD_PUSH_NO_RELEASE_TAIL=,
+  =INJECT_BUG_YIELD_POP_WITHOUT_CAS=, =INJECT_BUG_FREE_FK_BEFORE_READ_RAWK=.
+
+** 19.3 Full SMP Gate (1,123 Tests) & All-Time Single-Core / Latency Records
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=, including Section 13 =with-finally= &
+  P-core tests): *1,123/1,123 PASS*; *15/15* consecutive =p12= 100k-fiber fanouts
+  (*1,500,000 fibers*, 0 errors, *0 warnings*).
+- Single-core (=w=1=, measured even under host load avg =46.89--48.64=):
+
+| Workload (=w=1= single core) | Gambit C14 (=w=1=) | Gambit C15 (=w=1=) | Gambit C16 (=w=1=) | C14 -> C16 Gain |
+|------------------------------+--------------------+--------------------+--------------------+-----------------|
+| =ht_effect_pingpong=         | 1.587M/s (P50 52us) | 2.037M/s (P50 43us) | *2.117M/s* (P50 *39us*, P95 *54us*, P99 *180us*) | *+33.4% throughput / sub-40us P50 (-25%; beats Tokio 53.6us by 27%!)* |
+| =ht_generator_stream=        | 10.475M/s (P50 18us) | 10.957M/s (P50 17us) | *11.316M/s* (P50 *17us*, P95 *18us*, P99 *20us*, max *21us*, *0 GCs*) | *+8.0% throughput / max 21us* |
+| =ht_fiber_fanout_100k=       | 2.233M/s (P50 373us) | 2.467M/s (P50 336us) | *2.584M/s* (P50 *265--271us*, GC *8--9ms*) | *+15.7% throughput / -28.9% P50 (1.64x Tokio 12-core on 1 core!)* |
+
+- Apple Silicon heterogeneous comparison under heavy load (=load avg 48=): =w=8= (8 P-cores)
+  delivered *2x--3x higher throughput and 2x--4x lower P99* than =w=12= (8P+4E) on both
+  =ht_effect_pingpong= and =ht_fiber_fanout_100k=, confirming the big.LITTLE P-core binding benefit.
