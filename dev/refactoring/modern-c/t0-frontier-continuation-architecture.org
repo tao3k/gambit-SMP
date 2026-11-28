@@ -3320,3 +3320,39 @@ A combined lexical-capability soundness audit of =(gambit effect)= and channel w
 
 
 
+* 60. Phase C54: Metacontinuation Prefix Relativization & Pointer-Shared Tail Re-Basing Across Cross-Extent Replays (=(srfi 226)= & =(gambit effect)=)
+
+** 60.1 Root Causes Audited & Fixed
+A cross-extent delimited-continuation and algebraic-effect soundness audit of =(srfi 226)= and =(gambit effect)= reproduced five concrete failures whenever a captured continuation containing nested inner prompts (non-empty =prefix=) was replayed in a new dynamic extent:
+1. *Mark leakage across replayed inner prompts*:
+   - Captured inner prompt frames in =prefix= retained their creation-time =(%pf-marks f)= pointers instead of sharing a tail with the replayed =st.marks = (append cap-marks caller-marks)=.
+   - Live repro (=PA=): =(continuation-mark-set->list (current-continuation-marks pt-in) 'k)= returned =(inner-m outer-m resumer-m)= instead of =(inner-m)= because =%list-prefix-until= never matched the stale =pf-marks= pointer.
+2. *Resumer mark, handler, and continuation-barrier erasure on inner prompt return or abort*:
+   - When a replayed inner prompt returned normally (=%mc-return1=, =%mc-return-vals=, =%mc-return1-with-fn=) or aborted (=%abort-to-pframe!=), restoring the stale creation-site =pf-marks= / =pf-barriers= / =pf-handlers= wiped out the resumer's dynamic extent:
+     - Live repro (=PB=): returning from replayed =pt-in= erased ='resumer-m= from =st.marks= (=(outer-m)= instead of =(outer-m resumer-m)=).
+     - Live repro (=PC= / =PD=): returning from or aborting an inner =with-handler= / =pt-in= inside a resumed continuation erased resumer effect handlers (raising ="perform: unhandled effect"=).
+     - Live repro (=PE=): returning from a replayed inner prompt erased the resumer's active =call-with-continuation-barrier=, allowing =call-with-composable-continuation= to capture straight across an active barrier (=BARRIER-BYPASSED!=).
+3. *Fix — Capture-Time Relativization & Pointer-Shared Tail Re-Basing* (=srfi/226/prompt.scm=, =srfi/226/cont.scm=, =srfi/226/226#.scm=, =srfi/226/_internal#.scm=, =effect/handler.scm=, =effect/resume.scm=, =effect/generator.scm=):
+   - *Capture-time relativization* (=%mc-relativize-prefix=): whenever =(pair? prefix)= (zero overhead on the flat =(null? prefix)= fast path), freeze live frames in-place, retain ='unwind-guard= frames by exact =eq?= identity for LCA diffing, and clone each inner prompt/underflow frame storing only its relative suffix =(rel-m, rel-b, rel-h)= strictly inside the capture boundary (also eliminating outer capture-site GC retention). Applied at all 5 delimited capture sites (=call-with-composable-continuation=, =call-with-non-composable-continuation=, delimited =call/1cc=, =call-with-one-shot-composable-continuation=, and =%perform-suspend-dispatch=).
+   - *Replay-time pointer-shared tail re-basing* (=%mc-rebase-prefix= + =%tail-for-rel=): on every replay (one-shot, multi-shot, non-composable, effect =resume= / =resume-multishot=, and generator slow-path resume), clone each non-guard frame in =prefix= with =(%list-tail-n new-list (- cap-len rel-len))= (or =base-list= when =rel= is empty). Every re-based inner frame receives *exact =eq?=-shared tails* inside the live replayed =st.marks=, =st.barriers=, and =st.handlers= without mutating the shared multi-shot template — preserving resumer marks, handlers, and barriers inductively across arbitrary nested re-captures.
+   - *Companion hardening*: preserve dynamic-frame identity in =%mc-diff-list= (=%mc-frame-in?=) for re-based prompt frames with unwind hooks; skip overwriting =st.marks/barriers/handlers= on ='unwind-guard= frames in =%mc-return1= / =%mc-return-vals= / =%mc-return1-with-fn= / =%gen-finish!=; add ='unwind-guard=-skip loop to =%gen-finish!= and =%tc-rewind-escape = 'suspending= marking to =%gen-yield-swap-cont!= winding path.
+
+** 60.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=mc_prefix_relativize_and_rebase_smp.qnt=): 5/5 unit tests passed (=65 ms=) + *=10,000= traces, 0 violations* (=288 ms=, =seed=0x5f2586d6dcae2b45=).
+  - *Lean 4* (=McPrefixRelativizeAndRebaseRefinement.lean=): 5 theorems, *0 =sorry=*, 0 warnings (=tailForRel_exact_append=, =replayed_inner_prompt_marks_no_leak=, =replayed_inner_prompt_return_preserves_resumer_state=, =replayed_inner_prompt_barrier_monotonic=, =multishot_rebase_purity_and_independence=).
+  - *CBMC =--mm pso=* (=mc-prefix-rebase-smp/harness.c=): =0 of 52 failed= + *4/4 negative mutants caught* (=MUTANT_NO_REBASE_MARKS=, =MUTANT_NO_REBASE_HANDLERS=, =MUTANT_NO_REBASE_BARRIERS=, =MUTANT_MUTATE_SHARED_PREFIX_IN_PLACE=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"= & =##build-module "effect"= (=C= + =js=, =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: expanded to *281 / 281 assertions* (+8), all passing at =p=1=, =p=4=, and =p=12= (replayed inner prompt mark isolation, resumer mark/barrier preservation on return & abort, one-shot & multi-shot barrier enforcement, inductive nested re-capture, and adaptive-P concurrent multi-shot SMP torture with =##gc=).
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded to *639 / 639 assertions* (+9), all passing at =p=1=, =p=4=, and =p=12= (re-based inner suspending handlers, =return:= clauses, slow-path generators across resumer extents, and adaptive-P concurrent =resume-multishot= SMP torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) + *40 / 40* =p=12= stress runs (=20x srfi/226= + =20x effect=).
+  - Microbenchmarks (Apple M2 Pro, =p=12=, interpreted driver):
+    =composable_1shot_flat_capture_replay= *0.506 Mops/s*,
+    =composable_nested_prompt_rebased_replay= *0.837 Mops/s*,
+    =effect_nested_handler_rebased_resume= *0.848 Mops/s*.
+
+
+
+
+
