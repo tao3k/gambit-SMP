@@ -26,6 +26,7 @@ LEAN_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/lean/Amp4PacingAndRefcR
 CBMC_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/modern_gc_amplification_pso.c"
 CBMC_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp_chase_lev_and_radix_pso.c"
 CBMC_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp4_refc_and_pacing_pso.c"
+CBMC_WAVE7_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave7_futex_barrier_and_static_gen_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -360,6 +361,51 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertIn("__atomic_load_n(&section->gc_is_dest, __ATOMIC_ACQUIRE)", cr_src)
         cp_src = (ROOT / "vendor/gambit/lib/_mem/copy-planning.inc").read_text()
         self.assertIn("fast_minor_pre_nb", cp_src)
+
+        # Wave 7 CBMC PSO weak-memory mutants + native OS futex, spare pool, and GEN_STATIC anchors
+        cbmc_w7 = CBMC_WAVE7_PATH.read_text()
+        for macro in (
+            "MUTANT_FUTEX_DROP_WAKE_FENCE",
+            "MUTANT_FUTEX_DROP_WAITER_SEQ_CST",
+            "MUTANT_STATIC_CLEAR_DIRTY_WITH_NONSTATIC_REF",
+            "MUTANT_STATIC_SKIP_MATURE_WRITE_BARRIER",
+        ):
+            self.assertIn(macro, cbmc_w7)
+            self.assertIn(macro, blueprint)
+
+        life_h = (ROOT / "vendor/gambit/lib/lifecycle.h").read_text()
+        self.assertIn("___gc_futex_wait_u32", life_h)
+        self.assertIn("___gc_futex_wake_all_u32", life_h)
+        ms_h = (ROOT / "vendor/gambit/include/_gambit/memory_state.h.in").read_text()
+        for sym in (
+            "major_static_gen",
+            "major_survive_count",
+            "static_major_dirty",
+            "msection_spare_head_",
+            "nb_msections_static_",
+            "major_static_skipped_sections_",
+        ):
+            self.assertIn(sym, ms_h)
+        mv_src = (ROOT / "vendor/gambit/lib/_mem/movable-sections.inc").read_text()
+        for sym in ("msection_spare_pool_pop", "msection_spare_pool_push", "msection_spare_pool_purge", "MADV_FREE_REUSABLE"):
+            self.assertIn(sym, mv_src)
+        obj_src = (ROOT / "vendor/gambit/lib/_mem/object-scanning.inc").read_text()
+        self.assertIn("has_reached_gc_hash_tables", obj_src)
+        for sym in ("major_scan_dirty_static_section", "major_initial_mark_seed_static_dirty_parallel"):
+            self.assertIn(sym, cm_src)
+
+        receipt = json.loads(RECEIPT_PATH.read_text())
+        w7 = receipt["verificationResults"]["wave7FutexBarrierZeroMmapAndStaticGen"]
+        self.assertEqual(w7["cbmcWave7PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w7["cbmcWave7PsoMutants"]["killed"], 4)
+        self.assertEqual(w7["runtimeTsanQualification"]["passed"], 12)
+        self.assertEqual(w7["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w7["runtimeAsanUbsanQualification"]["passed"], 12)
+        self.assertEqual(w7["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w7["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w7["unifiedMulticoreMatrixAndStress"]["passed"], 112)
+        self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
+        self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 
 
 if __name__ == "__main__":

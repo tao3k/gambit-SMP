@@ -661,3 +661,121 @@ verified =true= via SHA-256) in =.cache/tasks/wave6-gerbil-qual/=:
 - *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
   =releaseAdmitted= remain strictly =false= until an upstream macOS-clean
   Gerbil tree completes full recursive =gxtest ./...= with =OK=.
+
+* Wave 7 Lock-Free OS Futex Barrier, Zero-mmap Steady State, & Chez-Style =GEN_STATIC= Immortal Generation
+
+Profile-driven engineering on Apple M2 Pro (8P+4E heterogeneous cores) revealed
+three remaining system-level bottlenecks on 12-core GC workloads:
+(a) =barrier_sync_noop= and =mark_reachable_from_marked= escalating from 512
+spins to 32 =sched_yield= calls and =nanosleep(20us)= (~150–400us macOS timer
+overshoot across 14 barriers per Minor GC),
+(b) per-Minor-GC =mmap=/=munmap= expansion/contraction thrashing (~5,000
+syscalls/s + =mmap(MAP_FIXED)= TLB shootdowns in =release_drained_source_half=),
+and
+(c) repeated Concurrent Major GC clearing, tracing, and sweeping of dense
+immortal bootstrap/compiler graphs.
+
+** Wave 7 Formal Verification (CBMC 6.11 =--mm pso=)
+- Model: =dev/refactoring/modern-c/models/cbmc/wave7_futex_barrier_and_static_gen_pso.c=
+- Safe build (=cbmc --mm pso --bounds-check --signed-overflow-check --unwind 4=):
+  *0 of 6 failed, =VERIFICATION SUCCESSFUL= (=rc=0=)*. Proves zero lost
+  wakeups in the Dekker =seq_cst= adaptive-spin + OS futex barrier and
+  inductive-closure soundness of the =GEN_STATIC= dirty barrier.
+- All 4 PSO weak-memory mutants genuinely killed (=rc=10=, =VERIFICATION FAILED=):
+  - =MUTANT_FUTEX_DROP_WAKE_FENCE= (lost wakeup when leader drops =seq_cst= fence before reading waiter count)
+  - =MUTANT_FUTEX_DROP_WAITER_SEQ_CST= (lost wakeup when waiter drops =seq_cst= store before checking generation)
+  - =MUTANT_STATIC_CLEAR_DIRTY_WITH_NONSTATIC_REF= (premature dirty clearing while non-static child edge remains)
+  - =MUTANT_STATIC_SKIP_MATURE_WRITE_BARRIER= (unlogged =STATIC -> non-static= mature edge causing UAF sweep)
+
+** Wave 7 C23 Native Runtime Implementation (=vendor/gambit=, 14 files)
+1. *Lock-Free Adaptive-Spin + OS Futex Barrier (=lib/lifecycle.h=, =lib/setup.c=, =lib/collector.h=, =lib/_mem/heap-sections.inc=, =collection-round.inc=)*:
+   Added portable 32-bit futex primitives =___gc_futex_wait_u32= /
+   =___gc_futex_wake_all_u32= backed by Darwin =os_sync_wait_on_address= /
+   =os_sync_wake_by_address_all= and Linux =FUTEX_WAIT_PRIVATE= /
+   =FUTEX_WAKE_PRIVATE=. Upgraded =barrier_sync_noop= and
+   =mark_reachable_from_marked= to 2048-iteration =___CPU_RELAX()= adaptive spin
+   plus Dekker =__ATOMIC_SEQ_CST= waiter publication before kernel sleep (zero
+   =sched_yield= / =nanosleep= timer overshoot). Added bounded spin backoff in
+   =major_remark_phase_a_parallel=.
+2. *Zero-mmap Steady-State Minor GC & Conditional Cleanup Barrier (=include/_gambit/memory_state.h.in=, =lib/_mem/movable-sections.inc=, =capacity-resize.inc=, =copy-planning.inc=, =memory-lifecycle.inc=, =object-scanning.inc=, =collection-round.inc=)*:
+   Added a bounded per-VM 64-section msection spare pool (=msection_spare_pool_pop= /
+   =msection_spare_pool_push= / =msection_spare_pool_purge=) eliminating
+   steady-state Minor GC =mmap=/=munmap= churn while purging completely on Major
+   GC, =force_contract=, and VM teardown. Switched Minor GC drained-half release
+   on macOS (=hard_unmap == 0=) to =madvise(..., MADV_FREE_REUSABLE)= while
+   preserving =mmap(MAP_FIXED)= on Major GC / contraction. Added
+   =has_reached_gc_hash_tables= tracking in =object-scanning.inc= to elide
+   =garbage_collect_cleanup_phase= and its trailing =BARRIER()= in O(1) when no
+   GC hash tables were reached.
+3. *Chez-Style =GEN_STATIC= Immortal Generation (=include/_gambit/memory_state.h.in=, =lib/_mem/generational.inc=, =concurrent-major.inc=, =collection-round.inc=, =lxr-drc.inc=)*:
+   Retains =region_age == ___GC_REGION_MATURE= (zero Minor GC regressions) and
+   adds =major_static_gen=, =major_survive_count=, and atomic
+   =static_major_dirty= on =___msection= plus =nb_msections_static_= and
+   =major_static_skipped_sections_= on =___vmstate_mem=. Non-weak (=!has_weak=),
+   full (>=75% active half), dense (>=85% live), hole-free, stable mature
+   sections surviving 2 consecutive Concurrent Major cycles promote to
+   =major_static_gen = 1= with initial =static_major_dirty = 1=. Write barriers
+   (=___gc_write_barrier_slow=, =___gc_write_barrier_slow_val=,
+   =___gc_write_barrier_slot_vm=, =___gc_write_barrier_range=) mark
+   =static_major_dirty = 1= on any edge from a static section to a young or
+   non-static mature movable/still target. Concurrent Major Initial-Mark skips
+   all static sections during bitmap clear and seeds only dirty static sections
+   via =major_initial_mark_seed_static_dirty_parallel= after the clear barrier;
+   STW Remark Phase R-A scans dirty static sections via
+   =major_scan_dirty_static_section= and clears =static_major_dirty = 0= strictly
+   when =saw_nonstatic == 0= (inductive closure). Full compacting GC (=(##gc)=)
+   resets =major_static_gen = 0= for 100% physical memory contraction.
+
+** Wave 7 Native Sanitizer & 112/112 Unified Multicore Qualification
+- *Wave 7 Adversarial Verification (=.cache/tasks/wave7-profile/wave7_static_and_futex_adversarial.scm=)*:
+  *4/4 PASS* across =p1/p4/p8/p12= verifying 50–51 section =GEN_STATIC=
+  promotion, 100–102 skipped section scans, inductive-closure retention across 3
+  Major cycles for =STATIC -> non-static mature= movable & still children,
+  =STATIC -> young -> promoted mature= retention and clean dirty re-closure,
+  =!has_weak= weak-table exclusion, 12-worker futex barrier + concurrent static
+  mutation stress, and explicit =(##gc)= reset (=51 -> 0= static, =54 -> 1=
+  mature).
+- *Apple Clang 21 Native Runtime TSan (=.cache/tasks/wave7-profile/runtime_tsan_w7_results.json=)*:
+  *12/12 PASS, 0 TSan warnings* (including =wave7-static-futex-adversarial=,
+  =wave6-remset-adversarial=, =amp4-adversarial=, and compiled TSan =srfi/230=).
+- *Apple Clang 21 Native Runtime ASan + UBSan (=.cache/tasks/wave7-profile/runtime_asan_ubsan_w7_results.json=)*:
+  *12/12 PASS, 0 ASan errors, 0 UBSan errors* across all 12 SMP suites.
+- *Unified Multicore Matrix & Stress (=.cache/tasks/wave7-profile/unified_post_wave7_100_pbt.json=)*:
+  *112/112 PASS* (=run-multicore-suite.py= 100/100 + =gc-hammer= 4/4 +
+  =wave6-remset-adversarial= 4/4 + =wave7-static-futex-adversarial= 4/4) plus
+  =amp4-adversarial= *10/10 PASS* (5× =p12=) and =c14[p8]= *20/20 PASS*.
+
+** Wave 7 Interleaved A/B LBO (Pre-Wave-7 =1f33e5d5= vs Post-Wave-7)
+Protocol: 1 warmup + 5 interleaved A/B pairs with =/usr/bin/time -l= peak RSS
+(=.cache/tasks/wave7-profile/ab_wave7_lbo.json=):
+
+| Workload (Pre-Wave-7 -> Post-Wave-7) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | GC Speedup | Kernel sys Delta | CPU LBO Ratio |
+|--------------------------------------+-------+-----------------------+--------------+---------------------+------------+------------------+---------------|
+| =w7_static_gen_major_burst= | =p1= | 145.69 -> 40.91 | *3.56x* | 57.45 -> 7.46 | *7.70x* | 0.0% | *0.500x* |
+| =w7_static_gen_major_burst= | =p4= | 140.53 -> 49.65 | *2.83x* | 54.62 -> 9.34 | *5.84x* | 0.0% | *0.542x* |
+| =w7_static_gen_major_burst= | =p8= | 136.38 -> 48.36 | *2.82x* | 53.63 -> 9.91 | *5.41x* | 0.0% | *0.520x* |
+| =w7_static_gen_major_burst= | =p12= | 146.95 -> 48.37 | *3.04x* | 57.44 -> 9.57 | *6.00x* | *-33.3%* | *0.481x* |
+| =w7_sparse_32k_still_guard= | =p4= | 12.60 -> 9.12 | *1.38x* | 4.62 -> 1.62 | *2.85x* | 0.0% | 1.000x |
+| =w7_sparse_32k_still_guard= | =p8= | 16.40 -> 8.28 | *1.98x* | 8.59 -> 2.56 | *3.35x* | *-66.7%* | *0.700x* |
+| =w7_sparse_32k_still_guard= | =p12= | 24.10 -> 15.54 | *1.55x* | 13.65 -> 7.44 | *1.83x* | *-55.6%* | *0.762x* |
+| =w7_rest_alloc_m65536= | =p4= | 31.40 -> 28.77 | *1.09x* | 4.26 -> 1.40 | *3.04x* | 0.0% | 1.000x |
+| =w7_rest_alloc_m65536= | =p8= | 24.40 -> 19.58 | *1.25x* | 5.53 -> 1.78 | *3.10x* | *-50.0%* | *0.923x* |
+| =w7_rest_alloc_m65536= | =p12= | 27.57 -> 24.13 | *1.14x* | 9.49 -> 7.29 | *1.30x* | *-50.0%* | 1.000x |
+| =w7_oldgen_churn_heavy= | =p12= | 69.70 -> 65.00 | *1.07x* | 53.70 -> 52.24 | *1.03x* | *-50.0%* | *0.857x* |
+
+** Paired Rust (Tokio+Rayon) vs Wave 7 Gambit SMP & Gerbil v0.19 Spot-Check
+- *Paired 10-Workload Rust vs Wave 7 Gambit (=.cache/tasks/wave7-profile/rust-vs-gambit-wave7/comparison_w12.json=, =workers=12=)*:
+  - =par_oldgen_churn_live[p12]=: =21.5ms -> 15.5ms= (*1.39x* vs Wave 6, ratio vs Rust cut *3.91x -> 2.09x*).
+  - =par_rest_alloc_m65536[p12]=: =42.4ms -> 31.3ms= (*1.35x* vs Wave 6, ratio vs Rust cut *3.59x -> 2.32x*); =p8= GC pause halved (=15.0% -> 7.1%=).
+  - =par_alloc_gc_m65536[p12]=: =13.7ms -> 11.5ms= (*1.19x* vs Wave 6, *1.77x* vs Rust, GC pause =17.6% -> 11.4%=).
+  - =par_gc_pause_live_heap=: Gambit outperforms Rust at =p4= (*0.98x*), =p8= (*0.71x*, 12.5ms vs 17.5ms), and =p12= (*0.88x*, 11.9ms vs 13.5ms, GC pause =7.5% -> 3.2%=, RSS =107.3 MiB=).
+  - =ht_mpmc_pipeline[p12]=: =88.8ms -> 80.9ms= (*1.10x* vs Wave 6) with =p99.9= tail cut *3.57x* (=42,443us -> 11,878us=).
+  - =par_compute_fib[p12]=: =118.9ms -> 111.2ms= (*1.07x*, *1.48x* vs Rust).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Bootstrap & Compiler Qualification (=.cache/tasks/wave7-gerbil-spot/=)*:
+  =prepare= (=2.64s=, =exit=0=), =boot-gxi= (=0.34s=, =exit=0=), =stage0= full
+  Gerbil bootstrap compiler build (=93.65s=, peak RSS =1023.6 MiB < Wave 6 1031.4 MiB=,
+  =exit=0=), plus =GAMBOPT=p4= and =GAMBOPT=p12= =(import :gerbil/expander :gerbil/compiler)=
+  smoke PASS; original =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.
