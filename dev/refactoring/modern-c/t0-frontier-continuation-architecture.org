@@ -3074,3 +3074,72 @@ concurrency and control-flow defects:
 
 
 
+* 56. Phase C50: Eliminating Stale ='unwind-guard= =SIGSEGV=s Across =(srfi 226)=, =(gambit effect)= & =(gambit parallel)=, Plus Zero-Capture Continuable Fork-Join Combinators
+
+** 56.1 Root Causes Audited & Fixed
+A targeted audit of all six ='unwind-guard= sites and metacontinuation return paths
+reproduced two genuine =SIGSEGV= crashes (=rc=139=) and continuable-exception corruption:
+1. *Structural defense-in-depth in metacontinuation return* (=srfi/226/prompt.scm=,
+   =effect/handler.scm=):
+   - =%mc-return1=, =%mc-return-vals=, and =%mc-return1-with-fn= previously assumed =(car mc)=
+     always carried a non-=#f= =escape-k= and passed =#f= straight to =(##continuation-return #f val)=
+     in =(not safe)= mode if any ='unwind-guard= frame remained on =st.mc= -> instant =SIGSEGV=.
+   - *Fix*: Loop past any leading frame whose =escape-k= is =#f=, firing its ='unwind= hook (if
+     procedural) and restoring its outer state before transferring control to the enclosing
+     ='prompt=/='underflow= frame (zero overhead on the 100% common non-=#f= fast path).
+2. *Tail-capability ='unwind-guard= leak under prompt + non-trampoline catcher*
+   (=effect/capability.scm=):
+   - Live repro (=rc=139=): =(call-with-continuation-prompt (lambda () (with-exception-catcher ... (lambda () (call-with-tail-capability ... (lambda (c) (raise 'boom)))))))= pushed a
+     ='unwind-guard= frame onto =st.mc= and then took the non-trampoline =macro-dynamic-bind=
+     branch without popping =guard-frame= before calling =cur-eh=, leaking =guard-frame= onto
+     =st.mc= when the catcher escaped.
+   - *Fix*: Save =saved-mc= and pop =guard-frame= via =%cap-pop-guard!= before delegating to
+     =cur-eh=, restoring =saved-mc= and =live-box= if =cur-eh= returns (continuable exception).
+3. *Zero-capture, zero-leak, continuable-safe fork-join combinators* (=parallel/combinators.scm=,
+   =parallel/parallel.scm=):
+   - Live repro (=rc=139=): =parallel-vector-map=, =parallel-for-each=, and =parallel-reduce=
+     wrapped =%with-fork-join-guard= inside an outer =with-exception-catcher= at every recursive
+     split, causing (a) hidden =##continuation-capture= on every internal fork-join node,
+     (b) continuable exception corruption (=#(#f 1 2 3 4 5 6 7)= instead of =#(143 1 2 3 4 5 6 7)=),
+     and (c) stale ='unwind-guard= leaks crashing prompt return with =SIGSEGV= when combined with
+     an outer prompt + continuable =with-exception-handler=.
+   - *Fix*: Replace the three per-split =with-exception-catcher= wrappers with a single unified
+     zero-capture =%with-fork-join-guard= using =macro-dynamic-bind exception-handler= + =in-eh?=
+     + cold-path =dynamic-wind= + =%tc-rewind-escape= ='suspending= guard. Guarantees right
+     futures are joined strictly once before any escaping catcher or prompt abort handler,
+     preserves continuable exceptions identically across sequential and parallel grain paths,
+     and eliminates all per-split continuation captures.
+
+** 56.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=unwind_guard_return_safety_cap_pop_and_fork_join_smp.qnt=): 5/5 unit tests
+    passed (=146 ms=) + *=10,000= traces, 0 violations* (=451 ms=, =seed=0x4f37d461fdc11174=).
+  - *Lean 4* (=UnwindGuardReturnSafetyCapPopAndForkJoinRefinement.lean=): 5 theorems,
+    *0 =sorry=*, 0 warnings (=mc_return_never_derefs_null_escape_k=,
+    =tail_cap_escape_leaves_zero_stale_guard=,
+    =tail_cap_continuable_return_restores_guard_and_liveness=,
+    =fork_join_continuable_preserves_left_and_joins_right_once=,
+    =fork_join_escape_or_abort_joins_right_once_and_pops_guard=).
+  - *CBMC =--mm pso=* (=unwind-guard-fork-join-smp/harness.c=): =0 of 43 failed= +
+    *4/4 negative mutants caught* (=MUTANT_MC_RETURN_NO_GUARD_SKIP=,
+    =MUTANT_CAP_LEAKS_GUARD_ON_ESCAPE=,
+    =MUTANT_FJ_OUTER_CATCHER_LEAKS_GUARD=,
+    =MUTANT_FJ_NO_JOIN_ON_ESCAPE=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"=, ="effect"=, and ="parallel"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - Targeted =p=1=, =p=4=, =p=12=: =srfi/226= *251 / 251*, =effect= *611 / 611* (+9),
+    =parallel= *198 / 198* (+8, covering both =SIGSEGV= reproducers, continuable fork-join
+    combinators, escaping catchers inside prompts, and multi-thread torture).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *60 / 60* =p=12= stress runs (=20x srfi/226= + =20x effect= + =20x parallel=).
+  - Microbenchmarks (Apple M2 Pro, =p=12=, interpreted driver):
+    =parallel_vector_map_elems= *33.884 Mops/s*,
+    =parallel_vector_map_fine_grain64= *16.064 Mops/s*,
+    =parallel_reduce_elems= *128.834 Mops/s*,
+    =tail_cap_in_prompt_enter_exit= *1.960 Mops/s*,
+    =prompt_return_fast= *1.382 Mops/s*.
+
+
+
+
