@@ -2373,3 +2373,61 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 46. Phase C40: Generator Lifecycle Coherency Across Non-Local Control Escapes (=(srfi 226)= + =(gambit effect)=)
+** 46.1 Bugs Fixed
+1. *Permanent =%GEN-RUNNING= Lockout & Retained Caller Cells on Non-Local Generator Escape*:
+   - Previously, escaping an active =(gambit effect)= generator via *any* of:
+     1. =abort-current-continuation= to an outer prompt tag (=%abort-to-pframe!= in
+        =vendor/gambit/lib/srfi/226/prompt.scm=),
+     2. raw or prompted non-composable =call/1cc= (=%invoke-raw-parts= and
+        =%commit-noncomp-and-return!= in =vendor/gambit/lib/srfi/226/cont.scm=), or
+     3. an outer suspending =perform= whose handler abandons the continuation
+        (=%perform-suspend-dispatch= nested-prompt path in =vendor/gambit/lib/gambit/effect/handler.scm=)
+     popped the generator's prompt frame off =st.mc= *without* invoking its =%pf-unwind-hook=
+     (=unwind-fn=).
+   - Consequently, the escaped generator remained permanently stuck in =%GEN-RUNNING= (subsequent
+     invocations raised ="generator already running"= instead of returning =#!eof=) and kept
+     retaining the caller's =mc-cell= / =h-cell= references; conversely, re-entering a suspended
+     prefix via composable replay or effect =resume= did not symmetrically fire ='restore= hooks.
+   - *Fix*:
+     - Added zero-allocation =%mc-run-unwind-hooks!= in =vendor/gambit/lib/srfi/226/unwind.scm=
+       (exported via =226#.scm=) that traverses a prompt-frame prefix and invokes any non-false
+       =%pf-unwind-hook= with ='unwind= or ='restore=.
+     - Fired ='unwind= strictly at *post-`dynamic-wind` commit time* (so a throwing =after= thunk
+       rolls back cleanly without prematurely closing the generator) in =%abort-to-pframe!=
+       (=prompt.scm=), =%commit-noncomp-and-return!= & =%invoke-raw-parts= (=cont.scm=), and
+       =%perform-suspend-dispatch= (=effect/handler.scm=).
+     - Fired ='restore= symmetrically at commit time in composable replay (=%composable-replay-1!=,
+       =%invoke-composable-parts=, =%invoke-composable-cell=, =%commit-noncomp-and-return!= in
+       =cont.scm=) and effect resume (=%resume-checked-1!=, =%resume-checked= in =effect/resume.scm=),
+       so suspending an active generator via an outer effect transitions =RUNNING -> DONE= (=eof= if
+       called while suspended) and resuming that outer continuation restores =DONE -> RUNNING= cleanly.
+
+** 46.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=generator_nonlocal_escape_unwind_hooks_smp.qnt=): 5/5 unit tests passed (=242 ms=) +
+    *=10,000= traces, 0 violations* (=977 ms=, =seed=0xa3910e4a315189ff=).
+  - *Lean 4* (=GeneratorNonlocalEscapeUnwindHooksRefinement.lean=): 4 theorems, *0 =sorry=*,
+    0 warnings (=abort_escape_preserves_running_iff_on_mc=,
+    =raw_call1cc_escape_transitions_gen_to_done=,
+    =outer_effect_suspend_then_resume_roundtrip=,
+    =calling_escaped_generator_returns_eof_never_stuck=).
+  - *CBMC =--mm pso=* (=generator-nonlocal-escape-unwind-smp/harness.c=): =0 of 123 failed= +
+    *4/4 negative mutants caught* (=INJECT_BUG_ABORT_SKIPS_UNWIND_HOOK=,
+    =INJECT_BUG_RAW_1CC_SKIPS_UNWIND_HOOK=, =INJECT_BUG_PERFORM_SKIPS_UNWIND_HOOK=,
+    =INJECT_BUG_EAGER_UNWIND_BEFORE_AFTER_THROW=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"= and =##build-module "effect"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: *212 / 212 assertions* passing at =p=1=, =p=4=, =p=12=.
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded to *533 / 533 assertions* (+22)
+    passing at =p=1=, =p=4=, and =p=12= (=abort-current-continuation= escape + =mc-cell=/=h-cell=
+    detach, throwing =dynamic-wind= =after=-thunk rollback, raw & prompted =call/1cc= escape, outer
+    suspending effect abandon & resume roundtrip, and adaptive-P SMP torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x srfi/226 + 20x effect=).
+  - Microbenchmarks (Apple M2 Pro, =p=12=, interpreted loop): generator yield *0.745 Mops/s*
+    (=sum=4999950000=); generator =abort-current-continuation= escape & close *427.99 kops/s*
+    (=20000/20000= cleanly =#!eof=).
+
+
