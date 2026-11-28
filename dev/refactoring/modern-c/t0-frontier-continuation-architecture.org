@@ -2926,3 +2926,70 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 54. Phase C48: Zero-Capture Tail-Resumptive Continuable-Exception Parity, Lexical Tail-Capability Scope Safety & Raw =call/1cc= Exact LCA Restore Hooks (=(gambit effect)= + =(srfi 226)=)
+
+** 54.1 Root-Cause Defects Fixed
+1. *True Zero-Capture Tail-Resumptive =with-handler= With Continuable-Exception Parity*:
+   - Previously, =%call-with-handler-entries= (=vendor/gambit/lib/gambit/effect/handler.scm=)
+     wrapped the tail-resumptive fast path in =with-exception-catcher=, which (a) performed a
+     hidden =##continuation-capture= on every entry, and (b) unwound the stack before invoking
+     the outer exception handler — silently destroying continuable exceptions
+     (=with-exception-handler= returning a value, e.g. =(+ 1 (raise 42))= returning =142=
+     instead of =143= and aborting subsequent =(perform e r)=).
+   - Replaced =with-exception-catcher= with a zero-overhead trampoline bypass when
+     =(%mc-eh-trampoline? cur-eh)= is true, and =macro-dynamic-bind exception-handler=
+     otherwise: temporarily pops =frame= while =cur-eh= runs, restores =saved= if =cur-eh=
+     returns (continuable exception), and leaves =frame= popped if =cur-eh= escapes.
+2. *Lexical Tail-Capability Scope Safety (Including Multi-Shot Replay)*:
+   - Previously, =call-with-tail-capability= (=vendor/gambit/lib/gambit/effect/capability.scm=)
+     had no dynamic scope check, allowing escaped tail capabilities to keep invoking their
+     handler indefinitely after =call-with-tail-capability= exited (inconsistent with
+     =call-with-suspend-capability= and Lexa/Effekt capability safety).
+   - Added a 1-cell =live-box= stored in the unused =%cap-frame= slot of `'tail` capabilities,
+     checked in O(1) on =perform-cap=. Deactivated on normal exit, escaping exception,
+     ='unwind= (=abort-current-continuation=/=call/1cc=), and ='suspend= (outer =perform=),
+     and re-enabled on ='restore= (continuable exception return, =resume=, =resume-multishot=,
+     and raw =call/1cc= re-entry).
+3. *Raw =call/1cc= Exact LCA Unwind/Restore Diff*:
+   - Previously, =%invoke-raw-parts= (=vendor/gambit/lib/srfi/226/cont.scm=) only invoked
+     ='unwind= on =dropped = (%list-prefix-until cur-mc cap-mc)= and never invoked ='restore=
+     on frames in =cap-mc= re-entered across divergent branches.
+   - Added =%mc-diff-list= (O(1) on identical/null stacks, exact suffix fast path, =memq=
+     diff on divergent branches) so =dropped = (%mc-diff-list cur-mc cap-mc)= receives
+     ='unwind= and =reentered = (%mc-diff-list cap-mc cur-mc)= receives ='restore= without
+     touching shared LCA frames.
+
+** 54.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=tail_handler_continuable_cap_scope_and_raw_restore_smp.qnt=): 5/5 unit tests
+    passed (=79 ms=) + *=10,000= traces, 0 violations* (=151 ms=, =seed=0x27376e068052950b=).
+  - *Lean 4* (=TailHandlerContinuableCapScopeAndRawRestoreRefinement.lean=): 5 theorems,
+    *0 =sorry=*, 0 warnings (=tail_handler_continuable_exception_preserves_frame_and_continues=,
+    =tail_handler_escaping_exception_leaves_stack_clean=,
+    =tail_cap_lexical_scope_and_multishot_sound=,
+    =mc_diff_strict_suffix_no_spurious_restore=,
+    =mc_diff_divergent_branches_exact=).
+  - *CBMC =--mm pso=* (=tail-handler-cap-scope-smp/harness.c=): =0 of 14 failed= +
+    *4/4 negative mutants caught* (=MUTANT_TAIL_HANDLER_USES_CATCHER=,
+    =MUTANT_ESCAPED_TAIL_CAP_ALLOWED=,
+    =MUTANT_TAIL_CAP_STUCK_DEAD_ON_RESTORE=,
+    =MUTANT_RAW_1CC_MISSING_RESTORE=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"= and =##build-module "effect"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded to *602 / 602 assertions* (+19),
+    and =vendor/gambit/lib/srfi/226/test/test.scm=: *251 / 251 assertions*, all passing at
+    =p=1=, =p=4=, and =p=12= (tail-resumptive continuable & escaping exceptions bare and
+    inside prompts, lexical tail-capability scope enforcement across exit/exc/continuable/
+    abort/suspend/multishot-restore, promoted raw =call/1cc= divergent LCA restore, and
+    adaptive-P SMP torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x effect= + =20x srfi/226=).
+  - Microbenchmarks (Apple M2 Pro, =p=12=, interpreted driver):
+    =tail_handler_enter_exit_bare= *1.047 Mops/s*,
+    =tail_handler_enter_exit_in_prompt= *0.826 Mops/s*,
+    =tail_cap_perform_dispatch= *2.377 Mops/s*.
+
+
+
+
