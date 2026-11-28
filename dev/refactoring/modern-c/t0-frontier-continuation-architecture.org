@@ -1437,3 +1437,91 @@ Instrumentation of Phase C20 under default heap (=w=8=) revealed:
   | =effect_generator_yield= | =0.78M/s= (=116us=) | *=3.04M/s=* (=28us=) | *3.92x* | =1.83M/s= | *=10.05M/s=* (*5.50x*) | *=4.78M/s=* (P50 =33us=) |
   | =effect_multishot_cow= | =183k/s= (=101us=) | *=388k/s=* (=45us=) | *2.12x* | =469k/s= | *=796k/s=* | =592k/s= (=w=8=) / =462k/s= (=w=12=) |
 
+* 31. Phase C25: Single-Word Packed =(gen << 1) | has_waiters= Futex/Ulock Barrier, Active Multi-Core Young-Nursery Scaling & Lock-Free Closure-Code =(srfi 226)=
+
+** 31.1 Downstream Scaling Root Causes A & B Closed in Gambit Runtime (Zero ABI Changes)
+1. *Root Cause A --- Single-Word Packed =(gen << 1) | has_waiters= Futex/Ulock Generation Barrier*
+   (=vendor/gambit/lib/setup.c=: =barrier_sync_noop= & =barrier_sync_op_ex=):
+   - Packs the 31-bit generation counter and waiter bit into the existing 32-bit =fast_bar_gen= /
+     =sync_bar_gen= word (zero =lifecycle.h= / =gambit.h= ABI edits), eliminating separate
+     =fast_bar_waiters= / =sync_bar_waiters= atomic bounces and per-barrier =SEQ_CST= fences.
+   - Last arriver executes a single =__atomic_exchange_n(&word, (my_gen + 1u) << 1, __ATOMIC_ACQ_REL)=
+     and calls =___gc_futex_wake_all_u32= iff =(old_word & 1u) != 0=.
+   - Non-last spinners spin 2,048 pauses checking =(LOAD_ACQUIRE(word) >> 1) == my_gen=, then
+     execute atomic CAS =(my_gen << 1) -> ((my_gen << 1) | 1u)= and park via kernel-atomic
+     =___gc_futex_wait_u32(&word, waiter_word)=; on EAGAIN/advance, zero shared state is mutated,
+     eliminating cross-generation waiter-bit clobbering.
+2. *Root Cause B --- Active Multi-Core Young-Nursery Scaling*
+   (=vendor/gambit/lib/_mem/capacity-resize.inc=: =gc_smp_active_young_sections=):
+   - Eliminates the =max_heap == 0= exclusion that previously disabled both =keep_nb= and SMP nursery
+     headroom under bounded multi-core heaps (e.g., =-:p8,h2048000=).
+   - Grants an active non-contracting Minor-GC young-nursery floor of =8 MiB / core= strictly capped
+     by =min(max_heap / 4, phys_mem / 32, 256 MiB)=, preserving =p=1= behavior, idle-VM startup RSS
+     (=memory-lifecycle.inc= untouched), and explicit =(##gc)= contraction (=force_contract=).
+
+** 31.2 Lock-Free Closure-Code =(srfi 226)= & Frozen Replay Underflow Invariant
+- *Runtime Changes* (=vendor/gambit/lib/srfi/226/226.scm=, =vendor/gambit/lib/gambit/effect/effect.scm=):
+  1. *Eliminates 64-Shard Weak-Table Mutex & 8-Core =___gc_hash_table_ref= Livelock*:
+     Replaces =%one-shot-tables= / =%one-shot-mutexes= / =eq?-hash= / =make-atomic-fxbox= with
+     =%one-shot-cell= (inline C23 =seq_cst= CAS on field 1) wrapped in a single-free-variable closure
+     identified in O(1) via unforgeable module-private =##closure-code= sentinel
+     =%one-shot-closure-code= (zero mutex locks, zero weak hash tables, zero false positives).
+  2. *Zero-Closure <=4-Arg =##continuation-capture= + Sentinel =%DEFAULT-PROMPT-HANDLER=*:
+     Eliminates per-prompt handler and capture closure allocations, inlines
+     =macro-thread-control-state= + =##unchecked-structure-ref/set!= under =(not safe)=
+     =(inlining-limit 400)=, and upgrades =%mc-return1= to SATB-safe
+     =___try_return_oneshot_fiber_cont= with =denv= guard and non-inlined write-group commit boundary.
+  3. *Frozen Replay Underflow/Prompt Frame Invariant*:
+     Proved via =lldb= root-cause capture (=##continuation-return-aux + 248=, =EXC_BAD_ACCESS 0x25=)
+     that replay frames created right before =(##continuation-return sub-k ...)= in
+     =%composable-replay-1!= / =%invoke-composable-cell= (=226.scm=) and =%resume-checked-1!= /
+     =%resume-checked= (=effect.scm=) MUST be created frozen (=handler = #t=) so in-place stack
+     reclamation never overwrites an enclosing prompt's stack continuation (=denv=), and delimited
+     captures freeze both =prefix= and the delimiting =pframe=.
+
+** 31.3 3-Layer Formal Verification, CPU-Adaptive Adversarial Tests & Benchmarks
+- *3-Layer Formal Proof Receipts*:
+  - *Quint*:
+    - =gc_barrier_ulock_and_actor_tls_smp.qnt=: =2/2= tests passing (=122 ms=), =10,000= traces 0
+      violations (=1,594 ms=, =seed=0xb8c923ef776e7584=).
+    - =srfi226_lockfree_oneshot_smp.qnt=: =10,000= traces 0 violations (=688 ms=,
+      =seed=0xf1bc66850f2f03e1=).
+  - *Lean 4* (*0 =sorry=, 0 warnings* across all 3 files):
+    - =GcBarrierPackedUlockRefinement.lean=: 6 theorems (31-bit wrap-safe distinctness, stale-gen
+      CAS non-interference, last-arriver wake coverage, ulock sleep invariant, single-core zero
+      active nursery, strict =min(256, mh/4, pm/32)= active nursery bounds).
+    - =Srfi226LockFreeOneShotRefinement.lean=: 5 theorems (linearizable CAS, absorbing =consumed=,
+      capture-freeze blocks aliased reclaim, =denv= guard).
+    - =AdaptiveHeapScalingRefinement.lean=: unchanged & passing.
+  - *CBMC =--mm pso=* (*9 / 9 negative mutants caught*):
+    - =gc-barrier-packed-ulock-smp/harness.c=: =0 of 15 failed= + *3/3 mutants caught*
+      (=INJECT_BUG_CHECK_BEFORE_SET_WAITER=, =INJECT_BUG_CLEAR_NEXT_GEN_WAITER_BIT=,
+      =INJECT_BUG_NONATOMIC_GEN_RELEASE_AND_WAITER_READ=).
+    - =srfi226-lockfree-oneshot-smp/harness.c=: =0 of 23 failed= + *6/6 mutants caught*
+      (=INJECT_BUG_NONATOMIC_ONESHOT_STATE=, =INJECT_BUG_PROMOTE_AFTER_CONSUMED=,
+      =INJECT_BUG_SKIP_PFRAME_FREEZE_ON_CAPTURE=, =INJECT_BUG_SKIP_DENV_GUARD_MC_RETURN1=,
+      =INJECT_BUG_CLEAR_ESCAPEK_ON_RECLAIM_FAIL=, =INJECT_BUG_UNFROZEN_REPLAY_UFRAME=).
+- *CPU-Adaptive Adversarial Tests Added* (=vendor/gambit/lib/srfi/226/test/test.scm= *9a--9e*,
+  =134/134= assertions):
+  - *9a*: Adaptive-P =call/1cc= high-throughput stress + non-one-shot false-positive rejection.
+  - *9b*: Adaptive-P =shift=/=reset= GC-crossing replay stress (regression for frozen replay uframe).
+  - *9c*: Adaptive-P concurrent =invoke= vs. =promote-one-shot-continuation!= linearizability race.
+  - *9d*: =dynamic-wind= =denv= preservation across default prompt return under concurrent GC.
+  - *9e*: Adaptive-P packed-ulock STW Minor GC barrier + active nursery churn + explicit =(##gc)=
+    contraction stress.
+- *Verification Gates*:
+  - =mem.o=, =setup.o=, =c_intf.o=, =libgambit.a=, =gsi=, =gsc=, =226.o1=, =effect.o1=: *0 errors, 0
+    warnings*; upstream hygiene *0 forbidden matches*.
+  - *80 / 80* full SMP matrix (=p1/p4/p8/p12= x 5 suites x 4 rounds, 0 warnings, 0 errors).
+  - *40 / 40* (=20x2=) =p=12= parallel stress (=srfi/226= + =gambit/effect=, 0 hangs, 0 crashes).
+- *Compiled Benchmarks (Apple M2 Pro 12c, default heap & bounded =max-heap=2G=)*:
+  | Workload | Baseline =w=1= | C25 =w=1= | Baseline =w=8= | C25 =w=8= | C25 =w=12= |
+  |---|---:|---:|---:|---:|---:|
+  | =effect_oneshot_suspend= | =3.13M/s= | *=3.80M/s=* | =5.96M/s= | *=15.05M/s=* (*+2.52x*) | *=12.64M/s=* (P99 =204us=) |
+  | =effect_generator_yield= | =2.17M/s= | *=3.04M/s=* | =3.86M/s= | *=11.45M/s=* (=2G=, *+2.97x*) | *=11.02M/s=* (=2G=, P99 =322us=) |
+  | =effect_multishot_cow= | =220k/s= | *=477k/s=* (*+2.17x*) | =840k/s= | *=2.04M/s=* (*+2.43x*) | *=1.58M/s=* (=2G=) |
+  | =s226_call_1cc= | =370k/s= | *=2.65M/s=* (*+7.16x*) | *7+ min livelock* | *=7.24M/s=* | *=10.29M/s=* (=w=12>w=8=) |
+  | =s226_prompt_noop= | =3.06M/s= | *=6.49M/s=* (*+2.12x*) | =12.64M/s= | *=25.88M/s=* (*+2.05x*) | *=24.70M/s=* |
+  | =s226_shift_reset_1shot= | =539k/s= | *=1.22M/s=* (*+2.26x*) | =1.26M/s= | *=2.47M/s=* (*+1.96x*) | *=2.54M/s=* (=w=12>w=8=) |
+  | =s226_1shot_composable= | --- | *=1.62M/s=* | --- | *=4.06M/s=* | *=4.10M/s=* (=w=12>w=8=) |
+  | =s226_tail_mark= | --- | *=15.79M/s=* | --- | *=28.93M/s=* (=w=4: 38.47M/s=) | *=28.88M/s=* |
