@@ -538,3 +538,45 @@ Formal verification for Phase C4-A:
     *w=1*: *2.102M/s* (*P50 398us*, *gc_ms 4ms*, *17.6 MiB*).
   - =ht_generator_stream=: *w=1* *8.02M/s* (*P50 24us*, *P99 30us*, *0 GCs / 0ms*, *15.5 MiB*);
     *w=12* jumped +3.0x vs C10 to *12.53M--12.97M/s* (*P50 25us* vs Tokio's =32.0us=, *gc_ms 2ms*).
+
+* 15. Phase C12: Fused C23 Park-Recv/Park-Send, Empty-Deque LIFO-Streak Bypass & Direct =%dq-pop!= Switch
+
+** 15.1 Architectural Upgrades (=vendor/gambit/lib/gambit/fiber/fiber.scm=, 100% upstream-clean)
+1. *Fused Single-C-Block Dekker =%ch-park-recv-c!= and =%ch-park-send-c!=*:
+   - Fused spinlock acquire, =seq_cst= waiter count increment, =seq_cst= Vyukov slot re-check
+     (ARM64 =stlr= + =ldar= with zero extra =dmb ish=), SATB-safe intrusive wait-queue push,
+     and spinlock release into one inline C23 block per direction.
+   - Extended =%ch-try-direct-handoff-c!= to also write =rk.val = val= with full
+     =___GC_WRITE_BARRIER= inside the same C block before unlocking.
+2. *Empty-Deque LIFO-Streak Bypass + Direct =%dq-pop!= Coroutine Switch*:
+   - Added =%dq-empty-rlx?= so =%sched-switch-next!= allows LIFO direct handoff whenever
+     =(fx< streak 8)= OR =(%dq-empty-rlx? dq)= (eliminating wasted every-8-round =sched-k=
+     grafts when no siblings wait, while capping =streak= at 8 so any arriving sibling in =dq=
+     is served on the very next switch).
+   - For parked/exited fibers when LIFO is empty or yields to =dq=, =%sched-switch-next!= pops
+     directly from =dq= and resumes =%fiber-k= via =##continuation-return-no-winding= with zero
+     intermediate =sched-k= graft (or grafts straight to =%worker-run-task= for thunks/nurseries).
+
+** 15.2 3-Layer Adversarial Formal Verification (Phase C12, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/fused_park_and_direct_dq_switch_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (=600ms=; sibling anti-starvation, CAP=1 zero lost
+  wakeups on both recv and send, SATB completeness).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/FusedParkDirectDqRefinement.lean=):
+  4 theorems, 0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso=)* (=tests/contracts/modern-c/gc-ffi/fused-park-direct-dq-smp/harness.c=):
+  0 of 5 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_PARK_SEND_NO_DEKKER_FENCE=, =INJECT_BUG_LIFO_BYPASS_IGNORES_NONEMPTY_DQ=,
+  =INJECT_BUG_HANDOFF_VAL_NO_SATB=, =INJECT_BUG_PARK_RECV_NO_UNLOCK_RELEASE=.
+
+** 15.3 Full SMP Gate & Cumulative C4-A -> C12 Progression vs Rust Tokio 1.54
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,087/1,087 PASS*;
+  *15/15* consecutive 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*).
+- Measured under host load avg =15.69= (raw compiled continuation switch = *9.09M switches/s*,
+  *110 ns/switch* on 1 core):
+
+| Workload | Rust Tokio 1.54 (=w=12=) | Gambit C4-A (=w=12=) | Gambit C12 (=w=1= single core) | Gambit C12 (=w=12=, 12 cores) | C4-A -> C12 Gain |
+|----------+--------------------------+----------------------+--------------------------------+-------------------------------+------------------|
+| =ht_effect_pingpong= | 10.38M/s (P50 53.6us, P99 1.04ms) | 65.7K--164.9K/s (P99 52.9ms, GC 620ms, 78.8 MiB) | *1.556M/s* (P50 *56us*, P99 *232us*, GC 1ms, 15.4 MiB) | *2.941M/s* (P50 *66us*, P99 *2.79ms*, GC *14ms*, *29.1 MiB*) | *+18x--45x* / GC *-44x* / RSS *-2.7x* |
+| =ht_generator_stream= | 45.35M/s (P50 32.0us, P99 165us) | 1.29M--1.69M/s (P99 5.59ms, GC 80ms, 80.5 MiB) | *8.294M/s* (P50 *23us*, P99 *26us*, max *27us*, *0 GCs*, 15.6 MiB) | *22.90M/s* (P50 *24us*, P99 *416us*, GC *1ms*, *36.7 MiB*) | *+13.6x--17.8x* / P50 *beats Tokio* / GC *-80x* |
+| =ht_fiber_fanout_100k= | 1.58M/s (P50 468us, P99 2.47ms) | 54.2K--85.0K/s (P50 2.66ms, GC 1002ms, 74.5 MiB) | *2.549M/s* (P50 *366us*, P99 *563us*, GC *2ms*, 17.7 MiB) | *749.7K/s* (P50 *366--375us*, GC *23ms*, *43.0 MiB*) | *w=1 beats Tokio 12-core 1.6x* / *w=12 P50 beats Tokio* / GC *-44x* |
+| =lexa_cap_tail= | (direct call) | 24.20M/s (P99 901us, 0 GCs) | *17.39M/s* (P50 *57us*, P99 *60us*, *0 GCs*) | *94.76M/s* (P50 *58us*, P99 *285us*, *0 GCs*) | *+3.9x* |
