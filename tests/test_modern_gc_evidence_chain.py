@@ -32,6 +32,7 @@ CBMC_WAVE9_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave9_direct_bind
 CBMC_WAVE10_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave10_inline_binding_rest_and_gc_steal_pso.c"
 CBMC_WAVE11_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave11_inline256_cow_bucket_ticket_and_mature_cache_pso.c"
 CBMC_WAVE12_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave12_sentinel_mpmc_chase_lev_and_wb_pso.c"
+CBMC_WAVE13_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave13_faa_mpmc_cached_chase_lev_and_fast_minor_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -604,6 +605,40 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(w12["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
         self.assertEqual(w12["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
         self.assertEqual(w12["unifiedMulticoreMatrixAndStress"]["passed"], 132)
+
+        # Wave 13 CBMC PSO weak-memory mutants + native 256-slot cache-line-permuted FAA MPMC queue,
+        # owner-private cached_top Chase-Lev, raw_marks/parked fast_minor_admitted, core-library
+        # inline demand/bindings/rest helpers, and min_heap-bounded SMP active nursery anchors
+        cbmc_w13 = CBMC_WAVE13_PATH.read_text()
+        for macro in (
+            "MUTANT_LCRQ_DROP_ENQ_RELEASE",
+            "MUTANT_LCRQ_SKIP_CANCEL_RETRY",
+            "MUTANT_LCRQ_DEQ_IGNORE_CLOSED_SEG",
+            "MUTANT_CL_STALE_CACHED_TOP_OVERWRITE",
+            "MUTANT_FAST_MINOR_OMIT_RAW_SPAN_BOUND",
+        ):
+            self.assertIn(macro, cbmc_w13)
+            self.assertIn(macro, blueprint)
+
+        for sym in ("___DELETED", "((t & 15) << 4) | (t >> 4)", "bvec[1]"):
+            self.assertIn(sym, conc_src)
+        for sym in ("raw_span", "cl->parked_words"):
+            self.assertIn(sym, cp_src)
+        self.assertIn("defined(___LIBRARY) && defined(__OPTIMIZE__)", rp_h)
+        self.assertIn("defined(___LIBRARY) && defined(__OPTIMIZE__)", de_h)
+        self.assertIn("___REST_FAST_INLINE", life_h)
+        cap_src = (ROOT / "vendor/gambit/lib/_mem/capacity-resize.inc").read_text()
+        self.assertIn("___GSTATE->setup_params.min_heap > 0", cap_src)
+
+        w13 = receipt["verificationResults"]["wave13LcrqFaaCachedChaseLevFastMinorAndLibInline"]
+        self.assertEqual(w13["cbmcWave13PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w13["cbmcWave13PsoMutants"]["killed"], 5)
+        self.assertEqual(w13["runtimeTsanQualification"]["passed"], 18)
+        self.assertEqual(w13["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w13["runtimeAsanUbsanQualification"]["passed"], 18)
+        self.assertEqual(w13["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w13["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w13["unifiedMulticoreMatrixAndStress"]["passed"], 136)
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 
