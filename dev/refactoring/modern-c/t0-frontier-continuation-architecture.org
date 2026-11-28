@@ -672,3 +672,53 @@ Formal verification for Phase C4-A:
 | =ht_effect_pingpong=        | 10.38M/s (P50 53.6us, P99 1.04ms)            | 5.535M/s (P50 69--76us, P99 1.38ms) | *6.417M/s* (+16% vs C13, +98x vs C4-A; P50 *60--70us*, P99 *1.13--1.20ms*, GC *7--9ms*, *30.6--32.3 MiB*; =p1=: *1.82M/s*) | 62% of Tokio throughput, P50/P99 near parity |
 | =ht_fiber_fanout_100k=      | 1.58M/s (P50 468us, P99 2.47ms)              | 1.082M/s (P99 5.55ms) | *1.242M/s* (P50 *559--582us*, P99 *5.47--5.82ms*, GC *13--16ms*; =p1=: *2.14M/s*) | 79% of Tokio (=p1= *1.35x Tokio 12-core*) |
 | =lexa_cap_tail=             | (direct call)                                | 131.80M/s (0 GCs)     | *132.71M/s* (P50 *57us*, P99 *164us*, *0 GCs*) | *+5.5x vs C4-A* |
+
+* 18. Phase C15: =root-done=-Guarded Quiescence, Fused Single-C-Block Park-Recv + LIFO Switch, =global-pending= 32-Tick Bypass & Tick-Bounded Yield Nursery Batching
+
+** 18.1 Architectural Upgrades (=vendor/gambit/lib/gambit/fiber/fiber.scm=, 100% upstream-clean)
+1. *=root-done=-Guarded Quiescence (=\%sched-quiescent?=) & Bounded Idle Pause (=\%idle-pause-c!=)*:
+   - While =root-done == 0=, the root fiber has not yet finished its body so =completed < spawned=
+     is invariant; fast-skipping the 24-cache-line =completed[]=/=spawned[]= scan + =dmb ish= on a
+     single shared L1 read eliminates 100% of quiescence coherence storms during active work while
+     preserving exact full-scan quiescence for detached fibers once =root-done == 1=.
+   - Added bounded CPU =yield=/=pause= backoff (=4 << min(spins, 3)=, capped at 32 pause hints to
+     keep STW GC safepoint latency instantaneous) between empty steal sweeps in =%worker-dispatch=.
+2. *Fused Single-C-Block Freelist Pop + Dekker Park-Recv + LIFO =%fiber-k= Pop (=\%ch-park-recv-and-pop-c!=)*:
+   - Fused =%alloc-fk!= + =%ch-park-recv-c!= + LIFO =%fiber-k= direct-switch selection into ONE
+     C23 block inside =%park-recv-buf-cont!=, returning the runnable partner =%fiber-k= directly
+     to =##continuation-return-no-winding= without invoking =%alloc-fk!=, =%nursery-flush!=,
+     =%sched-switch-next!=, or =%dq-empty-rlx?=.
+3. *=global-pending=-Guarded 32-Tick Fairness Bypass in =%sched-switch-next!=*:
+   - Eliminated spurious 1-in-32 trampoline grafts when =global-pending == 0= while preserving
+     exact 32-tick global-queue fairness whenever external wakeups are pending.
+4. *Direct =%sched-switch-next!= + Tick-Bounded Nursery Batching in =%yield-cont!=*:
+   - Replaced unconditional =%nursery-flush!= (which previously flushed =batch = 1= on every
+     =fiber-yield=, defeating Phase C13's =MAX_NURSERY_BATCH = 16=) and trampoline-only fallback
+     with direct =%sched-switch-next!= (resuming yielded =local-dq= fibers via
+     =##continuation-return-no-winding= and bounding nursery flushes to <= 16 ticks, =batch >= 16=,
+     park, and idle).
+
+** 18.2 3-Layer Adversarial Formal Verification (Phase C15, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/quiescence_root_guard_and_fused_park_switch_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (=1841ms=; no premature shutdown with detached fibers,
+  disjoint =%fiber-k= freelist/park/LIFO ownership, bounded <= 16 yield nursery flush).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/QuiescenceRootGuardFusedSwitchRefinement.lean=):
+  4 theorems (=root_done_guard_exact_refinement=, =global_pending_zero_skip_exact=,
+  =fused_park_switch_no_fk_alias=, =yield_tick_flush_bounded=), 0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso --unwind 4=)* (=tests/contracts/modern-c/gc-ffi/quiescence-root-guard-fused-switch-smp/harness.c=):
+  0 of 9 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_QUIESCE_ONLY_CHECKS_ROOT_DONE=, =INJECT_BUG_FUSED_PARK_SWITCH_NO_DEKKER=,
+  =INJECT_BUG_FUSED_PARK_ALIAS_FK=, =INJECT_BUG_GLOBAL_PENDING_SKIP_IGNORES_NONZERO=.
+
+** 18.3 Full SMP Gate & Single-Core / Latency Progression
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,087/1,087 PASS*;
+  *15/15* consecutive =p12= 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*).
+- Single-core (=w=1=, isolated from 12-core host oversubscription) & median batch latency
+  (measured even under severe host load avg =79.98--80.78= from concurrent background builds):
+
+| Workload (=w=1= single core) | Gambit C14 (=w=1=) | Gambit C15 (=w=1=) | C14 -> C15 Gain |
+|------------------------------+--------------------+--------------------+-----------------|
+| =ht_effect_pingpong=         | 1.587M/s (P50 52us, P95 70us, P99 231us) | *2.037M/s* (P50 *43us*, P95 *50us*, P99 *155us*, GC *1ms*) | *+28.3% throughput / -17.3% P50 (w=12 P50 46us beats Tokio 53.6us!)* |
+| =ht_generator_stream=        | 10.475M/s (P50 18us, P99 28us, max 37us) | *10.957M/s* (P50 *17us*, P99 *20us*, max *22us*, *0 GCs*) | *+4.6% throughput / w=12 P50 18us (44% faster than Tokio 32.0us!)* |
+| =ht_fiber_fanout_100k=       | 2.233M/s (P50 373us, P95 877us, P99 1145us) | *2.467M/s* (P50 *336us*, P95 *779us*, P99 *918us*, GC *7ms*) | *+10.5% throughput / -10% P50 / sub-1ms P99 (-20%)* |
+| =lexa_cap_tail=              | 17.10M/s (P50 56us)                      | *17.24M/s* (P50 *57us*, P99 *61us*, *0 GCs*) | Parity (control) |
