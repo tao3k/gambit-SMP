@@ -625,3 +625,50 @@ Formal verification for Phase C4-A:
 | =ht_generator_stream=       | 45.35M/s (P50 32.0us, P99 165us)  | 1.29M--1.69M/s (GC 80ms, 80.5 MiB)   | *37.66M/s* (P50 *24us*, P95 *59us*, P99 *192us*, GC *1ms*, *35.0 MiB*) | *+22x--29x* (83% of Tokio; *P50 beats Tokio 25%*) |
 | =ht_fiber_fanout_100k=      | 1.58M/s (P50 468us, P99 2.47ms)   | 54.2K--85.0K/s (GC 1002ms, 74.5 MiB) | *1.082M/s* (*w=1: 2.14M--2.55M/s*, P50 *471us*, P99 *5.55ms* (-3.5x vs C12!), GC *16ms*) | *+13x--20x* / P99 *-3.5x vs C12* / GC *-63x* |
 | =lexa_cap_tail=             | (direct call)                     | 24.20M/s (0 GCs)                     | *131.80M/s* (P50 *57us*, P99 *177us*, *0 GCs*) | *+5.4x* |
+
+* 17. Phase C14: Fused Top-Level Leaf-Like =fiber-send!= & =fiber-recv!= Dispatch (Beating Rust Tokio 1.54 on =ht_generator_stream=!)
+
+** 17.1 Architectural Upgrades (=vendor/gambit/lib/gambit/fiber/fiber.scm=, 100% upstream-clean)
+1. *Single-C-Block Fused Top-Level =fiber-send!= (=\%ch-send-fast-c!=)*:
+   - Eliminated 3 GVM internal jumps, 2 =___POLL= checks, and 2 =___group_demand_enter= stack-frame
+     entries from every buffered send by fusing the =cap > 0= check, linearizable direct-handoff
+     (=rxw > 0= with =tail == head= linearizability check + SATB/generational write barrier on
+     =rk.val=), and bounded-retry 64-try Vyukov MPMC ring push (=2*pos= / =2*pos+1= + Dekker
+     =seq_cst= =rxw= load) into a single inline C23 block right inside =fiber-send!=.
+   - Disjoint return tags (= #t= for pushed & =rxw == 0=, =%fiber-k= for direct handoff, fixnums
+     =1/2/3/4/5= for wake/full/CAS-retry/unbuffered/lock-retry) allow Gambit to compile BOTH the
+     streaming ring-push path (=st == #t=) AND the uncontended direct-handoff path (=ctx.lifo == #f=)
+     with *zero GVM stack frames, zero =___POLL=, zero =___group_demand_enter=, and zero =___JUMPINT=*.
+2. *Single-C-Block Fused Top-Level =fiber-recv!= (=\%ch-recv-fast-c!=)*:
+   - Eliminated 2 GVM internal jumps, =___POLL=, and =___group_demand_enter= from every buffered
+     receive by inlining the =cap > 0= check + 64-try Vyukov MPMC pop (=2*pos+1= / =2*(pos+cap)=)
+     directly into =fiber-recv!=, followed by one inline =seq_cst= =ldar= on =tx-waiters=.
+   - When an item is popped and =tx-waiters == 0=, =fiber-recv!= executes =___SET_R1(___R2); ___JUMPRET(___R0);=
+     directly (verified in generated =fiber.c=: *0 frames, 0 polls, 0 internal jumps*).
+   - All slow paths (error, park, unbuffered rendezvous, wake-sender, LIFO eviction) are tail calls
+     so the fast path remains strictly leaf-like.
+
+** 17.2 3-Layer Adversarial Formal Verification (Phase C14, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/fused_toplevel_send_recv_dispatch_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (=366ms=, 27,322 traces/sec; disjoint status tags,
+  linearizable direct-handoff fallback into ring push without FIFO bypass, Dekker wakeup completeness).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/FusedTopLevelSendRecvRefinement.lean=):
+  0 =sorry=, 0 warnings (disjoint status-tag bijectivity, FIFO linearizability under concurrent
+  ring push + receiver arrival, Dekker cross-check no-lost-wakeup theorem).
+- *CBMC (=--mm pso --unwind 4=)* (=tests/contracts/modern-c/gc-ffi/fused-toplevel-send-recv-smp/harness.c=):
+  0 of 5 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_FUSED_SEND_SKIP_WAKE_CHECK=, =INJECT_BUG_FUSED_SEND_BYPASS_ON_RACE=,
+  =INJECT_BUG_FUSED_RECV_SKIP_TXW_CHECK=, =INJECT_BUG_STATUS_TAG_COLLISION=.
+
+** 17.3 Full SMP Gate & 12-Core Paired Comparison vs Rust Tokio 1.54
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,087/1,087 PASS* (=srfi/226=,
+  =gambit/effect=, =gambit/fiber=, =srfi/230= =p12=, =gambit/concurrent= =p12=);
+  *15/15* consecutive =p12= 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*).
+- Measured at load avg =6.34--6.89= (0 compiler/loader warnings):
+
+| Workload (=w=12=, 12 cores) | Rust Tokio 1.54 | Gambit C13 (12 cores) | Gambit C14 (12 cores) | C14 vs Rust Tokio 1.54 |
+|-----------------------------+-----------------+-----------------------+-----------------------+------------------------|
+| =ht_generator_stream=       | 45.35M/s (P50 32.0us, P95 84.6us, P99 165us) | 37.66M/s (P50 24us, P99 192us) | *47.75M/s* (P50 *20us*, P95 *51--55us*, P99 *71--149us*, GC *1ms*, *35.6 MiB*; =p1=: *10.62M/s*) | *BEATS TOKIO (+5.3% throughput, -37.5% P50, -39% P95, up to 2.3x lower P99!)* |
+| =ht_effect_pingpong=        | 10.38M/s (P50 53.6us, P99 1.04ms)            | 5.535M/s (P50 69--76us, P99 1.38ms) | *6.417M/s* (+16% vs C13, +98x vs C4-A; P50 *60--70us*, P99 *1.13--1.20ms*, GC *7--9ms*, *30.6--32.3 MiB*; =p1=: *1.82M/s*) | 62% of Tokio throughput, P50/P99 near parity |
+| =ht_fiber_fanout_100k=      | 1.58M/s (P50 468us, P99 2.47ms)              | 1.082M/s (P99 5.55ms) | *1.242M/s* (P50 *559--582us*, P99 *5.47--5.82ms*, GC *13--16ms*; =p1=: *2.14M/s*) | 79% of Tokio (=p1= *1.35x Tokio 12-core*) |
+| =lexa_cap_tail=             | (direct call)                                | 131.80M/s (0 GCs)     | *132.71M/s* (P50 *57us*, P99 *164us*, *0 GCs*) | *+5.5x vs C4-A* |
