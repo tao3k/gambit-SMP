@@ -2568,3 +2568,80 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 49. Phase C43: Prompt-Scoped Non-Composable Barriers, Non-Composable Exception-Scope Rebinding, Optional-Cont =continuation-prompt-available?= & Carrier-Safe Landing Thunks (=(srfi 226)= + =(gambit effect)=)
+** 49.1 Bugs Fixed
+1. *Outer Continuation-Barrier Bypass & False-Positive Rejection on Non-Composable Continuations and Prompted =call/1cc=*:
+   - Previously, =call-with-non-composable-continuation= and prompted =call/1cc=
+     (=vendor/gambit/lib/srfi/226/cont.scm=) captured the full =(%st-barriers st)= list instead of
+     the delimited prefix between the capture site and =pframe=, and =%commit-noncomp-and-return!=
+     overwrote =st.barriers= with =cap-barriers=.
+   - This produced two opposite live failures:
+     - Invoking a barrier-free non-composable continuation or prompted =call/1cc= inside
+       =(call-with-continuation-barrier (lambda () (call-with-continuation-prompt ... t-in)))=
+       wiped the enclosing outer barrier (=OUTER-BARRIER-BYPASSED!!= /
+       =CALL1CC-OUTER-BARRIER-BYPASSED!!=).
+     - Capturing a non-composable continuation or prompted =call/1cc= inside an outer barrier that
+       lay *outside* =t-in= falsely failed with ="continuation invocation blocked by continuation
+       barrier"= when invoked in a fresh =t-in= outside that outer barrier.
+   - *Fix*: Captured =cap-barriers = (%list-prefix-until (%st-barriers st) (%pf-barriers pframe))=
+     and restored =st.barriers = (append cap-barriers (%pf-barriers cur-pframe))= symmetrically with
+     =cap-marks= and =cap-handlers=, preserving every enclosing invocation-site barrier while still
+     blocking illegal entry into any inner barrier captured inside =tag=.
+2. *Non-Composable Replay Exception-Scope Rebinding*:
+   - Previously, when a non-composable continuation or prompted =call/1cc= captured under an old
+     exception trampoline =tramp1= was replayed inside a fresh prompt =cur-pframe= guarded by a new
+     =with-exception-catcher= (=tramp2=), raising inside the replayed continuation bypassed
+     =cur-pframe='s catcher because =unwind.scm= saw =tramp2 != tramp1= with =crossed-replay? = #f=.
+   - *Fix*: Added =%rebind-noncomp-pframe= in =cont.scm= (unwrapping =%mc-eh-trampoline-prev= onto
+     a fresh prompt frame copy, or tagging ='replay= when =cur-pframe.eh-scope= is =#f= so
+     =unwind.scm= sets =next-crossed? = #t= down to the enclosing outer prompt's trampoline).
+3. *SRFI-226 Optional =continuation= Argument in =continuation-prompt-available?=*:
+   - Extended =continuation-prompt-available?= (=vendor/gambit/lib/srfi/226/prompt.scm=) to accept
+     =#!optional (cont %ABSENT)=, inspecting =(%osc-prefix-fast cell)= on composable, non-composable,
+     raw =call/1cc=, and consumed one-shot continuations while rejecting invalid non-continuations.
+4. *Carrier-Safe Post-Unwind =##continuation-graft= Landing Thunks*:
+   - Re-fetched =(%tc-current)= / =(%tc-fast)= inside all 7 post-unwind =##continuation-graft=
+     landing thunks (=srfi/226/prompt.scm=, =srfi/226/cont.scm=, =gambit/effect/handler.scm=,
+     =gambit/effect/generator.scm=) so fiber carrier migration during =dynamic-wind= =after= thunks
+     commits strictly to the invoking carrier's control state.
+
+** 49.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=srfi226_noncomp_barrier_and_graft_carrier_smp.qnt=): 5/5 unit tests passed
+    (=112 ms=) + *=10,000= traces, 0 violations* (=120 ms=, =seed=0x2560b058db708c99=).
+  - *Lean 4* (=Srfi226NoncompBarrierAndGraftCarrierRefinement.lean=): 5 theorems, *0 =sorry=*,
+    0 warnings (=noncomp_capture_excludes_outer_barriers_no_false_positive=,
+    =noncomp_restore_preserves_invocation_outer_barriers=,
+    =noncomp_blocks_entering_inner_barrier_from_outside=,
+    =prompt_available_in_captured_cont_exact=,
+    =landing_thunk_commits_to_migrated_carrier_preserving_origin=).
+  - *CBMC =--mm pso=* (=srfi226-noncomp-barrier-graft-carrier-smp/harness.c=): =0 of 6 failed= +
+    *4/4 negative mutants caught* (=INJECT_BUG_NONCOMP_WIPES_OUTER_BARRIER=,
+    =INJECT_BUG_NONCOMP_CAPTURES_OUTER_BARRIER_FALSE_POS=,
+    =INJECT_BUG_NONCOMP_ALLOWS_INNER_BARRIER_ENTRY=,
+    =INJECT_BUG_LANDING_THUNK_STALE_CARRIER_ST=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"= and =##build-module "effect"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: expanded to *251 / 251 assertions* (+16) passing at
+    =p=1=, =p=4=, and =p=12= (outer-barrier preservation on non-composable & prompted =call/1cc=,
+    false-positive absence, inner-barrier enforcement, replayed exception-scope catching,
+    =(continuation-prompt-available? tag cont)=, and adaptive-P SMP torture with =##gc=).
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: *533 / 533 assertions* passing at =p=1=, =p=4=,
+    =p=12=.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x srfi/226 + 20x effect=).
+  - Microbenchmark (Apple M2 Pro, =p=12=, interpreted loop): prompted =call/1cc= *0.544 Mops/s*
+    (=sum=100000=).
+
+
+
+
+
+
+
+
+
+
+
+
