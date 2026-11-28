@@ -950,3 +950,193 @@ Isolated microbenchmarks across =w=1, 4, 8, 12= separated three distinct scaling
   - =ht_effect_pingpong= (=w=8=, =-:m256000=, load 7.9): *11.202M ops/s* (*BEATS Rust Tokio 1.54's
     12-core 10.38M/s!* P50 *42us*, P99 *120us* --- *8.7x lower P99 than Tokio!*).
   - =ht_generator_stream= (=w=8=, default heap): *42.84M ops/s* (P50 *18us*, *1 GC / 1ms*, *28.3 MiB*).
+
+* 23. Open Concurrency Protocol Obligation: Multi-Shot Continuation In-Place Replay vs. Concurrent Downstream Consumer Read-Write Race (Kontinuum Cross-Thread Handoff)
+
+** 23.1 Bug Discovery & Exact Counterexample Trace
+During bounded Quint verification of Kontinuum's unified Scheme Tile Pipeline & SRFI-226
+effect-linearity model (=.data/kontinuum/dev/proofs/quint/tile-task-effect-safety/tile_task_effect_safety.qnt=),
+Quint exposed a genuine multi-shot delimited continuation concurrency race in *84 ms*
+(reproducible seed =0x67ad584bee771187=):
+
+- *Root Cause*: =frontier_continuation_smp.qnt= models the 3-state continuation header
+  (=ONE_SHOT_LIVE -> ONE_SHOT_CONSUMED | MULTISHOT_COW=) and SATB watermark shading,
+  but does *not* constrain mutation of a *shared output buffer / frame snapshot*
+  published by a pure multi-shot continuation once another core, fiber, or device task
+  has already begun consuming that snapshot.
+- *Minimal Counterexample Sequence* (4-task cross-core/cross-device DAG:
+  =task 1 (qkv)= -> =task 2 (linear RDMA/IO)=, independent pure multi-shot
+  =task 3 (pref-norm)=, downstream consumer =task 4 (tree-attn)= depending on ={2, 3}=):
+  1. =startTask(1)= -> =completeTask(1)=; =startTask(2)= -> =completeTask(2)=.
+  2. =startTask(3)= -> =completeTask(3)= publishes =buf[3]= (=taskState[3] = "done"=,
+     =bufWriter[3] = 0=).
+  3. =startTask(4)= verifies dependencies ={2, 3}= are ="done"=, enters ="running"=,
+     and actively reads =buf[3]= (=bufReaders[3] = {4}=).
+  4. *FAULT*: An unguarded multi-shot replay of =task 3= sees only
+     =taskState[3] == "done"= and =bufWriter[3] == 0=, re-enters ="running"=, and
+     mutates =buf[3]= *in-place* while =task 4= is still ="running"= reading =buf[3]=
+     -> *concurrent read-write data race & snapshot corruption* (violates both
+     =invNoReadWriteRace= and =invSnapshotImmutability=).
+
+** 23.2 Companion DEV SMP Quint Model & Negative Controls
+Recorded in =dev/refactoring/modern-c/models/quint/multishot_replay_downstream_consumer_smp.qnt=:
+
+- *Executable Counterexamples (=quint test=)*:
+  1. =inPlaceReplayWhileDownstreamReadingCounterexampleTest= --- deterministic
+     step-by-step reproduction of =seed=0x67ad584bee771187= proving
+     =not(invNoReadWriteRace)= and =not(invSnapshotImmutability)=.
+  2. =linearEffectReplayCounterexampleTest= --- deterministic reproduction of
+     replaying a consumed =ONE_SHOT_CONSUMED= side-effecting task (=task 2=),
+     violating =invNoLinearEffectReplay=.
+- *Randomized Counterexample Generator (=quint run=)*:
+  - =stepBuggyUnprotectedReplay= allows any SMP verification thread to synthesize
+    fresh randomized counterexample traces on demand via:
+    #+begin_src sh
+    quint run --step=stepBuggyUnprotectedReplay --invariant=allInvariants \
+      --max-steps=20 --max-samples=500 \
+      dev/refactoring/modern-c/models/quint/multishot_replay_downstream_consumer_smp.qnt
+    #+end_src
+- *Two Formally Sound Protocol Resolutions (Verified Zero-Violation in Safe =step=)*:
+  1. *Resolution A — Downstream Quiescence / Zero-Active-Readers Guard (=replayPureInPlace=)*:
+     In-place buffer/frame reuse by a =MULTISHOT_COW= replay is admissible *only if*
+     =bufReaders[slot] == {}= and every downstream consumer of that snapshot remains
+     ="pending"=.
+  2. *Resolution B — Immutable Published Snapshot + Fresh COW Fork Slot (=replayPureWithCowFork=)*:
+     When any downstream consumer is actively reading =buf[3]=, a concurrent multi-shot
+     replay *must* allocate a fresh COW output slot (e.g., =buf[5]=) instead of reusing
+     =buf[3]= in-place, preserving snapshot immutability for concurrent readers across
+     SMP cores and accelerator streams.
+
+** 23.3 Open Runtime & Verification Obligations for Sibling SMP Threads
+When resolving this protocol obligation in the core Gambit SMP runtime / =(gambit effect)= /
+=(srfi 226)= continuation & fiber layers:
+1. Enforce that any =MULTISHOT_COW= promoted continuation chunk or published result
+   buffer is *strictly read-only (immutable)* to concurrent readers once published;
+   re-entering a promoted continuation across SMP workers must materialize a private
+   writable frame/buffer copy (Resolution B) unless reader-quiescence is atomically
+   proven (Resolution A).
+2. Add a corresponding Lean 4 refinement theorem (e.g.,
+   =MultishotReplaySnapshotImmutabilityRefinement.lean=) and CBMC =--mm pso= weak-memory
+   C harness with negative mutants =INJECT_BUG_MULTISHOT_INPLACE_WRITE_OVER_ACTIVE_READER=
+   and =INJECT_BUG_MULTISHOT_REPLAY_LINEAR_ONESHOT= mirroring Phases C16--C19.
+3. Keep =dev/refactoring/modern-c/models/quint/multishot_replay_downstream_consumer_smp.qnt=
+   in the standard Quint regression gate:
+   #+begin_src sh
+   quint typecheck dev/refactoring/modern-c/models/quint/multishot_replay_downstream_consumer_smp.qnt
+   quint test dev/refactoring/modern-c/models/quint/multishot_replay_downstream_consumer_smp.qnt
+   quint run --invariant=allInvariants --max-steps=30 --max-samples=10000 \
+     dev/refactoring/modern-c/models/quint/multishot_replay_downstream_consumer_smp.qnt
+   #+end_src
+   - *Verified Receipt (Quint 0.33.0)*: =quint test= *5/5 passing* (=463ms=, both
+     counterexamples & all 3 positive witnesses); safe =step= *10,000 samples x 30 steps*
+     =[ok] No violation found= (*419ms* at =23,866 traces/sec=); buggy
+     =stepBuggyUnprotectedReplay= live counterexample caught in *130ms*
+     (=seed=0x38ea15afbf40a100=, =bufWriter[3]=3= while =bufReaders[3]={4}=,
+     =rwRaceFault=true=).
+
+* 24. Phase C20: One-Shot Fiber Continuation Stack Rewind, 2-Section Parked Recycling, Section 23 Multi-Shot Prefix Freezing & OCaml-5-Style Adversarial SMP Testing
+
+** 24.1 Core Runtime Architecture Upgrades (Upstream-Clean in =vendor/gambit=)
+1. *Exact Live Raw-Span Tracking + 2-Section Lock-Free Stack Recycling*
+   (=include/_gambit/{memory_state,global_state,header_end}.h.in=, =lib/setup.c=,
+   =lib/_mem/{configuration,section-claim,memory-lifecycle,heap-sections,allocation-limits,continuation-roots}.inc=):
+   - Added =raw_live_spans=, =parked_next=, and =parked_words= to =section_claim=, plus a
+     processor-private =parked_stack_list_= in =___pstate_mem_struct=.
+   - Added =___try_return_oneshot_fiber_cont= (exported via =___EXT=) for linear one-shot
+     =(gambit fiber)= continuations:
+     - Enforces pointer-adjacency non-aliasing proof
+       =(___BODY_AS(cont, ___tCONTINUATION) - ___SUBTYPED_BODY) + cont_alloc == top= so aliased
+       captures (=___R0 == handler_break= sharing an outer multi-shot =call/cc= frame) are never
+       reclaimed, and refuses reclamation whenever =satb_active_ != 0= or a deep (> 4 KiB / > 64 frames)
+       span is only partially copied.
+     - *Fast Path A*: zero-copy in-place stack-break rewind when the span sits directly above
+       =stack_break= on the carrier's own active =stack_msection=.
+     - *Fast Path B*: full-span chunk restore onto =stack_break= (or instant top-of-section reset
+       when =raw_live_spans == 1= on own section) + dead-span =raw_marks= clearing &
+       =raw_live_spans--= under =copy_gate=, with full write-barrier no-winding =denv= switch.
+   - Updated =___stack_limit()= Branch A to transfer short unpublished active suffixes (<= 100 words)
+     directly onto the new stack section (=parked_top = 0=), enabling =park_empty_active_stack_section=
+     and =reclaim_drained_parked_stack_section= to recycle drained parked stack sections locally
+     with *zero =ALLOC_MEM_LOCK()= and zero STW GC* once their last one-shot span is consumed.
+   - Replaced the two slow-path =(thread-yield!)= calls inside =%park-send-buf-cont!= and
+     =%park-recv-buf-slow!= in =lib/gambit/fiber/fiber.scm= with =(%os-sched-yield!)= (eliminating
+     any possibility of a nested =##continuation-capture= aliasing a freshly-captured one-shot fiber
+     continuation, a subtlety caught by Quint before writing C code).
+
+2. *Section 23 Multi-Shot Shared Metacontinuation Prefix Race Fix*
+   (=lib/srfi/226/{226#.scm,226.scm}=, =lib/gambit/effect/effect.scm=):
+   - Live audit of Section 23 exposed a genuine multi-shot SMP race in =srfi/226= + =gambit/effect=:
+     capturing a delimited continuation across an inner effect prompt (=handler = #f=) placed that
+     mutable =%mc-frame= into a shared =prefix=; when one concurrent shot exited via =%mc-return1= ->
+     =##continuation-try-rewind-prompt!=, it could rewind and overwrite =pframe->escape-k = #f=
+     in-place while a sibling SMP shot was still actively reading it.
+   - Added =%freeze-mc-prefix!= (promoting any =handler == #f= frame captured into =prefix=, plus
+     the delimiting =pframe= upon =resume-multishot= =MULTISHOT_COW= promotion, to immutable =#t=),
+     strictly enforcing Resolution B (immutable published snapshot + private COW frame restore).
+
+** 24.2 Dual 3-Layer Adversarial Formal Verification (All Kept in =gambit-SMP= Only)
+1. *Phase C20 One-Shot Stack Rewind & 2-Section Recycling*:
+   - *Quint* (=dev/refactoring/modern-c/models/quint/oneshot_fiber_stack_reclaim_smp.qnt=):
+     *10,000 / 10,000 traces x 45 steps, 0 violations* (=7.88s=, 1,269 traces/s; originally caught
+     the aliased-one-shot subtlety on trace #2,700 prior to C coding).
+   - *Lean 4* (=dev/refactoring/modern-c/models/lean/OneshotFiberStackReclaimRefinement.lean=):
+     *4 theorems, 0 =sorry=, 0 warnings* (=fresh_capture_excludes_aliasing=,
+     =oneshot_reclaim_preserves_multishot_and_satb=, =parked_section_recycle_soundness=,
+     =pingpong_two_section_steady_state=).
+   - *CBMC (=--mm pso --unwind 4=)* (=tests/contracts/modern-c/gc-ffi/oneshot-fiber-stack-reclaim-smp/harness.c=):
+     *0 of 34 failed (=VERIFICATION SUCCESSFUL=)* + *4 / 4 PSO negative mutants caught*
+     (=INJECT_BUG_CLEAR_ALIASED_CONT=, =INJECT_BUG_RECLAIM_UNDER_SATB=,
+     =INJECT_BUG_RECYCLE_WITH_PARKED_TOP=, =INJECT_BUG_RECYCLE_WITHOUT_COPY_GATE_OR_PINS=).
+2. *Section 23 Multi-Shot Replay vs. Downstream Consumer R/W Race*:
+   - *Quint* (=dev/refactoring/modern-c/models/quint/multishot_replay_downstream_consumer_smp.qnt=):
+     =typecheck= PASS, =quint test= *5 / 5 passing*, safe =step= *10,000 samples x 30 steps, 0 violations* (=975ms=).
+   - *Lean 4* (=dev/refactoring/modern-c/models/lean/MultishotReplaySnapshotImmutabilityRefinement.lean=):
+     *4 theorems, 0 =sorry=, 0 warnings* (=resolution_a_quiescent_inplace_no_rw_race=,
+     =resolution_b_cow_fork_preserves_active_readers=, =linear_oneshot_exclusivity=,
+     =frozen_mc_prefix_excludes_inplace_rewind=).
+   - *CBMC (=--mm pso --unwind 4=)* (=tests/contracts/modern-c/gc-ffi/multishot-replay-downstream-smp/harness.c=):
+     *0 of 23 failed (=VERIFICATION SUCCESSFUL=)* + *4 / 4 PSO negative mutants caught*
+     (=INJECT_BUG_MULTISHOT_INPLACE_WRITE_OVER_ACTIVE_READER=,
+     =INJECT_BUG_MULTISHOT_REPLAY_LINEAR_ONESHOT=,
+     =INJECT_BUG_NONATOMIC_ONESHOT_CLAIM_SMP=,
+     =INJECT_BUG_COW_FORK_ALIAS_ACTIVE_BUF=).
+
+** 24.3 Closing Gambit-Layer Adversarial SMP Concurrency Test Gaps (CPU-Adaptive, OCaml 5 =multicoretests=-Inspired)
+All concurrency test thread/worker counts were converted from hardcoded 12 to hardware-adaptive
+=(max 4 (min 16 (##current-vm-processor-count)))= / =(max 2 (min 8 (##current-vm-processor-count)))=
+so CI runners (2-core GitHub Actions) and 12--32 core workstations scale cleanly without thrashing:
+- =lib/srfi/226/test/test.scm= (Section 8): multi-core concurrent multi-shot composable replay with
+  frozen nested prompt prefix + active downstream immutable snapshot reader + concurrent =(##gc)=
+  (expanded =122 -> 126= tests per =p=).
+- =lib/gambit/effect/test/test.scm= (Section 9): multi-core linear one-shot =resume= race (strictly 1
+  winner, 0 double side effects) + concurrent multi-shot nested effect handler replay with frozen
+  prefix under concurrent =(##gc)= (expanded =93 -> 188= tests per =p=).
+- =lib/gambit/fiber/test/test.scm= (Section 14a--e): high-volume ping-pong + concurrent =(##gc)=
+  with explicit =##gc-oneshot-continuation-rewinds > 0= check, mixed multi-shot =call/cc= inside
+  yielding/migrating fibers, deep > 4 KiB (140-frame) recursive fiber stacks across channel
+  park/resume, Section 23 4-task multi-shot COW-fork downstream reader DAG, and OCaml-5
+  =QCheck-Lin=/=STM=-style randomized MPMC linearizability & exact single-consumer FIFO check across
+  =cap in {0, 1, 2, 4, 8, 16}= with lock-free =atomic-fxbox= uniqueness verification under =(##gc)=
+  (expanded =35 -> 43= tests per =p=).
+
+** 24.4 Full SMP Gate (1,920 Tests), Endurance & Multi-Core Breakthrough (Even Under Host Load 30--61)
+- Expanded SMP matrix (=p1/p4/p8/p12= across all 5 suites): *1,920 / 1,920 PASS* (+797 new checks vs
+  Phase C19's 1,123, *0 failed, 0 warnings*).
+- 12-core endurance: *15 / 15 x p12 x 100k fibers (1,500,000 fibers)*: *0 errors, 0 warnings*.
+- Multi-core benchmarks (Apple M2 Pro 8P+4E, measured even under heavy host load avg =30.19--61.46=):
+  - *True 12-Core Scaling & Full Tokio Sweep (=m256000=, =w=12=)*:
+    - =ht_effect_pingpong=: *w=8* =9.988M/s= (P99 *198us*, RSS *42.3 MiB* — down *-2.15x* from
+      =90.8 MiB=!) -> *w=12* *10.956M ops/s* (+9.7% true 12-core scaling, *BEATS Rust Tokio 1.54's
+      10.38M/s*, P50 *46us* vs Tokio =53.6us=, P99 *459us* vs Tokio =1.04ms= = *-2.27x* lower!).
+    - =ht_fiber_fanout_100k=: *w=8* =1.919M/s= -> *w=12* *2.687M ops/s* (+40% true 12-core scaling,
+      *1.70x Rust Tokio 1.54's 1.58M/s*, P50 *353us*, P99 = max = *828us* sub-millisecond vs Tokio's
+      =2.47ms= = *-3.0x* lower!).
+    - =ht_generator_stream=: *w=8* =29.19M/s= -> *w=12* *43.05M ops/s* (+47.5% true 12-core scaling,
+      P50 *24us*, P99 *190us*).
+  - *Default Heap GC Plunge*:
+    - =ht_effect_pingpong=: =w=1= dropped =4 -> 1 GC= (*0ms*, =13.4 MiB=, P99 =198--313us=);
+      =w=4= dropped to *1 GC* (*1ms*, *4.314M ops/s*, =19.1 MiB=); =w=8= dropped =14--16 -> 4--9 GCs=;
+      =w=12= dropped =24 GCs (138ms) -> 6--7 GCs (17--21ms)= (*-4.0x* GCs, *-6.6x--8.1x* GC pause time!).
+    - =ht_fiber_fanout_100k= (=w=12= default heap): dropped =21 -> 5--6 GCs= (*1.44M--1.78M ops/s*).
+
+
