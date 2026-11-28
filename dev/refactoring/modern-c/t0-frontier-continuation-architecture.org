@@ -1525,3 +1525,75 @@ Instrumentation of Phase C20 under default heap (=w=8=) revealed:
   | =s226_shift_reset_1shot= | =539k/s= | *=1.22M/s=* (*+2.26x*) | =1.26M/s= | *=2.47M/s=* (*+1.96x*) | *=2.54M/s=* (=w=12>w=8=) |
   | =s226_1shot_composable= | --- | *=1.62M/s=* | --- | *=4.06M/s=* | *=4.10M/s=* (=w=12>w=8=) |
   | =s226_tail_mark= | --- | *=15.79M/s=* | --- | *=28.93M/s=* (=w=4: 38.47M/s=) | *=28.88M/s=* |
+
+* 32. Phase C26: Namespace Modularization of =(gambit fiber)= (10 Submodules), Zero-=swtch_pri= Parker, Global-Queue Cascade Wakeup & Lock-Free Per-Carrier TLS
+
+** 32.1 Namespace-Based Modularization of =(gambit fiber)= (Zero Performance Regression)
+Split the 3,291-line monolith =vendor/gambit/lib/gambit/fiber/fiber.scm= into 10 focused,
+namespace-isolated submodules (142--485 lines each) plus a shared internal namespace contract
+(=_internal#.scm=) and a 55-line public facade (=fiber.scm=), compiled inside a single =(block)=
+unit for both =C= and =js= targets with zero cross-module dispatch overhead:
+- =atomics.scm= (=gambit/fiber/atomics#=, 433 lines): C23 atomics, P-core topology probe, OS
+  futex/ulock adaptive parker, CPU pause backoff, and bounded spinlocks.
+- =deque.scm= (=gambit/fiber/deque#=, 215 lines): 128B-padded 4096-slot Chase-Lev work-stealing deque.
+- =context.scm= (=gambit/fiber/context#=, 257 lines): =%scheduler=, =%worker-ctx=, lock-free
+  =carrier-tls= slot (=fiber-carrier-wid=, =fiber-carrier-tls=, =fiber-carrier-tls-set!=), and
+  per-carrier =%fiber-k= freelist.
+- =nursery.scm= (=gambit/fiber/nursery#=, 142 lines): Structured concurrency nursery and batched
+  completion credit.
+- =spawn.scm= (=gambit/fiber/spawn#=, 382 lines): =with-finally=, direct O(1) =fiber-spawn=, fused
+  zero-hop =fiber-yield=, and one-shot continuation return.
+- =channel-ring.scm= (=gambit/fiber/channel/ring#=, 367 lines): Intrusive =%wait-q=, Vyukov bounded
+  MPMC ring, and symmetric =tx-fast=/=rx-fast= slot claims.
+- =channel-send.scm= (=gambit/fiber/channel/send#=, 440 lines): Fused direct-handoff & slow-path
+  buffered send parkers.
+- =channel-recv.scm= (=gambit/fiber/channel/recv#=, 485 lines): Fused direct-handoff & slow-path
+  buffered recv parkers plus unbuffered rendezvous continuations.
+- =channel.scm= (=gambit/fiber/channel#=, 318 lines): Fast-path send/recv dispatch and public
+  =fiber-send!= / =fiber-recv!=.
+- =scheduler.scm= (=gambit/fiber/scheduler#=, 325 lines): Multi-core M:N work-stealing trampoline,
+  steal & global-queue cascade wakeup, zero-=swtch_pri= adaptive parking, and =run-fibers=.
+
+** 32.2 Downstream Bug Audit Closure (Sections 26, 29, 31)
+1. *Section 26 (Work-Stealing & Global-Queue Cascade Wakeup)*:
+   - Verified unconditional steal-cascade wakeup in =%worker-try-steal= and added matching
+     global-queue dequeue cascade wakeup in =%worker-poll-task= whenever =global-pending > 0=.
+2. *Section 31 Root Cause A (Zero-=swtch_pri= Idle Parker)*:
+   - Eliminated the 96x =(%os-sched-yield!)= (=swtch_pri=) spin storm before OS park in
+     =%worker-dispatch= (=scheduler.scm=), transitioning directly from bounded user-space pause
+     backoff (8 on E-cores, 48 on P-cores) through 1 cooperative =(thread-yield!)= into Dekker-checked
+     =__ulock_wait= / =futex=.
+3. *Section 31 Root Cause C (Lock-Free Per-Carrier TLS Slot)*:
+   - Added GC-traced =carrier-tls= directly on =%worker-ctx= (=context.scm=), exposing O(1) zero-lock
+     =fiber-carrier-tls=, =fiber-carrier-tls-set!=, and =fiber-carrier-wid= in =(gambit fiber)= so
+     downstream actor/runtime layers resolve per-carrier peer state in 1 pointer load with 0 global
+     mutex acquisitions (=109.70M/s= at =p=12=, =sys=2 ms=, =0= GCs).
+
+** 32.3 3-Layer Formal Proofs, CPU-Adaptive Tests (14k--14n) & Controlled A/B Scaling
+- *3-Layer Formal Verification*:
+  - *Quint* (=fiber_steal_cascade_wakeup_smp.qnt=): =5/5= tests passing (=226 ms=), =10,000= traces
+    0 violations (=seed=0x173f65cdf2120430=).
+  - *Lean 4* (=FiberCascadeWakeupAndCarrierTlsRefinement.lean=): 4 theorems, *0 =sorry=*, 0 warnings
+    (=steal_cascade_preserves_work_conservation=, =global_pop_cascade_preserves_work_conservation=,
+    =carrier_tls_strict_owner_isolation=, =bounded_spin_reaches_dekker_park=).
+  - *CBMC =--mm pso=* (=fiber-cascade-wakeup-tls-smp/harness.c=): =0 of 15 failed= + *3/3 negative
+    mutants caught* (=INJECT_BUG_DROP_STEAL_CASCADE=, =INJECT_BUG_DROP_GLOBAL_POP_CASCADE=,
+    =INJECT_BUG_SHARED_CARRIER_TLS_SLOT=).
+- *CPU-Adaptive Tests Added* (=vendor/gambit/lib/gambit/fiber/test/test.scm= *14k--14n*, 58/58):
+  - *14k*: Post-serial-phase 30ms park -> single-worker local-deque burst steal-cascade wakeup test.
+  - *14l*: Post-serial-phase 30ms park -> channel/global-queue burst cascade wakeup test.
+  - *14m*: Lock-free =fiber-carrier-tls= / =fiber-carrier-wid= strict owner isolation across
+    cross-carrier fiber migrations (=0= clobbers, =#f= outside =run-fibers=).
+  - *14n*: Adaptive-P multi-fiber allocation churn + explicit =(##gc)= packed-ulock STW barrier &
+    contraction regression.
+- *Full Gates*:
+  - Official Gambit =build-module= (=C= + =js=, =(warnings)= enabled) for =srfi/226=, =gambit/effect=,
+    and modular =gambit/fiber=: *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - *80 / 80* full SMP matrix (=p1/p4/p8/p12= x 5 suites x 4 rounds, 0 warnings, 0 errors).
+  - *20 / 20* =p=12= enhanced fiber stress runs (0 hangs, 0 crashes).
+- *Controlled A/B Scaling (=cow_fibers_400k= & =carrier_tls_4M=, ZERO =-:m= flags)*:
+  | Workload | Config | =p=1= | =p=4= | =p=8= | =p=12= |
+  |---|---|---:|---:|---:|---:|
+  | =cow_fibers_400k= | default heap | =238k/s= (=gc=292ms=) | *=4.265M/s=* (=gc=9ms=) | *=1.648M/s=* (=gc=7ms=) | *=1.494M/s=* (=gc=18ms=, *+2.06x* vs C25) |
+  | =cow_fibers_400k= | =-:h2048000= | =295k/s= (=gc=397ms=) | *=3.542M/s=* (=gc=13ms=) | *=2.900M/s=* (=gc=9ms=) | *=1.455M/s=* (=gc=28ms=, *4.6x* lower GC) |
+  | =carrier_tls_4M= | default heap | =14.80M/s= (=sys=3ms=) | *=40.14M/s=* (=sys=2ms=) | *=93.23M/s=* (=sys=2ms=) | *=109.70M/s=* (=sys=2ms=, *7.41x* scaling) |
