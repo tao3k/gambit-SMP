@@ -1874,3 +1874,60 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - MPMC =fiber-channel= (=cap=64=, 100k msgs, Apple M2 Pro 12c): =w=1= *1.03M ops/s*,
     =w=4= *2.03M ops/s*, =w=8= *2.96M ops/s* (SPSC: =w=1= *1.49M ops/s*, =w=8= *1.66M ops/s*).
 
+* 37. Phase C31: =(gambit parallel)= SATB-Safe Futures, Zero-Leak Thunk Clearing, Idempotent Shutdown, Type Safety & 5-Subsystem Namespace Modularization
+** 37.1 Bugs Fixed & Subsystem Modularization
+1. *SATB Pre-Write Barrier Race on =ws-future= State Transitions*:
+   - Previously, =%future-state-cas-acqrel!= and =%future-state-store-rel!= ran non-atomic
+     =___GC_WRITE_BARRIER= followed by raw =___atomic_word_cas= / =___atomic_word_store=.
+   - *Fix*: Upgraded =%future-state-cas-acqrel!= to =___gc_atomic_slot_cas= and
+     =%future-state-store-rel!= / =%future-thunk-clear!= to =___gc_atomic_slot_exchange= so
+     concurrent SATB marking shades the exact overwritten heap referent atomically with zero
+     load-then-store race.
+2. *Post-Completion Closure Retention Leak in =ws-future=*:
+   - Previously, =ws-future.thunk= was =read-only:= and retained its entire captured closure
+     graph for the lifetime of the future even after completion.
+   - *Fix*: Made =ws-future.thunk= mutable and eagerly clear it to =#f= via =%future-thunk-clear!=
+     (SATB-barriered release exchange) immediately after the single =CAS(pending -> running)=
+     winner loads the thunk and before releasing =('ok . val)= / =('err . exc)= into =state=.
+3. *Concurrent Idempotent =work-stealing-pool-shutdown!= & Post-Shutdown Submission Guard*:
+   - Upgraded =shutdown-flag= to a 3-state atomic protocol (=0=running -> 1=shutting-down ->
+     2=shutdown-done=) via =CAS(0 -> 1)=. Strictly one caller broadcasts and joins worker threads;
+     concurrent or repeat callers block on =inject-cv= until state reaches =2=, guaranteeing zero
+     duplicate =thread-join!= and quiescence before return. Non-worker =pool-submit!= skips
+     enqueuing to =inject-queue= once shutdown begins (post-shutdown futures execute cleanly on
+     the forcing thread via =future-run-once!=).
+4. *Public API Argument Validation Under =(declare (not safe))=*:
+   - Added explicit type checks across all public deque, pool, future, and fork-join combinator
+     APIs, eliminating live =SIGSEGV= crashes (e.g., =(future-force 123)=) in favor of clean
+     Scheme errors.
+5. *5-Subsystem Namespace Modularization*:
+   - Split the monolithic 792-line =parallel.scm= into 5 dedicated internal namespaces inside a
+     single =(block)= compilation unit (=_internal#.scm=, thin 52-line =parallel.scm=, updated
+     =makefile=): =atomics.scm= (=gambit/parallel/atomics#=), =deque.scm=
+     (=gambit/parallel/deque#=), =pool.scm= (=gambit/parallel/pool#=), =future.scm=
+     (=gambit/parallel/future#=), and =combinators.scm= (=gambit/parallel/combinators#=).
+
+** 37.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=parallel_future_satb_and_pool_shutdown_smp.qnt=): 5/5 unit tests passed (=75 ms=,
+    including =buggyThunkLeakDetectedTest= and =buggyDuplicateJoinDetectedTest=) + *=10,000=
+    traces, 0 violations* (=630 ms=, =seed=0x5bbb7ba446d38339=).
+  - *Lean 4* (=ParallelFutureSatbAndPoolShutdownRefinement.lean=): 4 theorems, *0 =sorry=*,
+    0 warnings (=future_run_once_unique_winner_clears_thunk=,
+    =future_done_implies_thunk_cleared_and_satb_shaded=, =shutdown_cas_unique_joiner=,
+    =shutdown_return_implies_workers_joined=).
+  - *CBMC =--mm pso=* (=parallel-future-satb-shutdown-smp/harness.c=): =0 of 15 failed= + *4/4
+    negative mutants caught* (=INJECT_BUG_SKIP_THUNK_CLEAR=,
+    =INJECT_BUG_RELEASE_BEFORE_THUNK_CLEAR=, =INJECT_BUG_SKIP_SATB_SHADE=,
+    =INJECT_BUG_NONATOMIC_SHUTDOWN=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "parallel"= (=C= + =js=, =((module-ref gambit/parallel)
+    (warnings))=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/parallel/test/test.scm=: expanded from 37 to *158 / 158 assertions*
+    passing at =p=1=, =p=4=, and =p=12=.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x ={fiber, effect, srfi/226, concurrent,
+    srfi/230, parallel}= x 4 rounds, 0 failures) + *20 / 20* =p=12= =(gambit parallel)= stress.
+  - Apple M2 Pro throughput: =vmap w=1= *6.06 Melems/s* (vs. 5.95 before), =pfib(32) w=1=
+    *0.406 s* (vs. 0.677 s before, benefiting from eager thunk clearing).
+
+
