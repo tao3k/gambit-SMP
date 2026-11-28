@@ -2993,3 +2993,84 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 55. Phase C49: Linearizable Zero-Orphan Nursery Close CAS, Zero-Capture Continuable-Exception =with-finally= / =with-nursery=, and Seq-Cst Parker Searching-Counter Wakeup (=(gambit fiber)= + =(gambit effect)=)
+
+** 55.1 Root Causes Audited & Fixed
+A targeted multi-core audit of =(gambit fiber)= and =(gambit effect)= reproduced three concrete
+concurrency and control-flow defects:
+1. *Nursery close-vs-spawn TOCTOU orphan leak* (=fiber/spawn.scm=): =fiber-spawn= checked
+   =nursery.cancelled == 2= non-atomically and then refilled nursery credits with an
+   unconditional =___atomic_uword_fetch_add(n.active, 32, 3)= (and non-C =%fxatom-add-acqrel!=).
+   Because =%nursery-teardown!= drops =n.active= to =0= before sealing =cancelled = 2=, an
+   external fiber holding a nursery reference could pass the check and resurrect =n.active=
+   from =0 -> 32= after =with-nursery= had already joined and returned (reproduced live on
+   8 cores: 9 orphan children in 20,000 rounds).
+   - *Fix*: Keep the zero-atomic cached-credit fast path (=ctx.nursery-cur == n && cred >= 1=,
+     which mathematically guarantees =n.active >= 1=), and replace the refill path (both C
+     and non-C) with a monotonic non-zero CAS loop (=cur > 0 -> cur + 32=, else fail closed
+     with status =2= -> =error "fiber-spawn: nursery already closed"=). Once =n.active= hits
+     =0=, it is strictly absorbing and zero orphans can ever spawn after teardown.
+2. *Zero-capture continuable-exception parity & multi-value preservation for =with-finally= and =with-nursery=*
+   (=fiber/spawn.scm=, =fiber/nursery.scm=, =fiber/fiber.scm=, =effect/handler.scm=):
+   - Both =with-finally= and =with-nursery= previously wrapped their body in
+     =with-exception-catcher=, paying a hidden =##continuation-capture= on every entry and
+     destroying continuable =with-exception-handler= returns (live repro: returning =142=
+     instead of =143= while prematurely running cleanup / cancelling children).
+   - *Fix*: Replace =with-exception-catcher= with zero-capture =macro-dynamic-bind exception-handler=
+     plus an =in-eh?= guard suppressing premature SRFI-226 trampoline ='unwind= firing and a
+     cold-path-only =dynamic-wind= around =(cur-eh exc)= that runs idempotent cleanup/teardown
+     strictly before an escaping catcher while preserving live state when =cur-eh= returns.
+     Mark winding =perform= =##continuation-graft= intervals in =effect/handler.scm= via the
+     existing =%tc-rewind-escape= slot (='suspending=, restored on landing) so outer algebraic
+     effect =perform=/=resume= inside an exception handler never triggers premature cleanup.
+     Preserve 0/1/N multi-value returns in =with-nursery= via =call-with-values=.
+3. *ARM64 / PSO parker =searching= total-order ordering* (=fiber/atomics.scm=, =fiber/context.scm=,
+   =fiber/_internal#.scm=):
+   - =fiber_parker_wake_one_ptr= loaded =searching_p= with relaxed order =0=, allowing PSO /
+     weak-memory reorderings against a peer worker's =%sched-release-search!= when another
+     worker was already parked (=waiters > 0=).
+   - *Fix*: Upgrade =searching_p= loads in =fiber_parker_wake_one_ptr= and =%sched-release-search!=
+     to =seq_cst= (zero extra instructions on the short-circuited =waiters == 0= hot path).
+
+** 55.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=nursery_cas_close_continuable_finally_and_parker_seq_smp.qnt=): 5/5 unit tests
+    passed (=163 ms=) + *=10,000= traces, 0 violations* (=314 ms=, =seed=0xf661abde86abedf8=).
+  - *Lean 4* (=NurseryCasCloseContinuableFinallyAndParkerSeqRefinement.lean=): 5 theorems,
+    *0 =sorry=*, 0 warnings (=zero_active_absorbing_no_orphan=,
+    =cached_credit_implies_positive_active=,
+    =continuable_return_preserves_finally_and_nursery=,
+    =escaping_exception_or_abort_tears_down_once=,
+    =parker_seq_cst_no_lost_wakeup=).
+  - *CBMC =--mm pso=* (=nursery-cas-finally-parker-smp/harness.c=): =0 of 64 failed= +
+    *4/4 negative mutants caught* (=MUTANT_NURSERY_UNCONDITIONAL_ADD=,
+    =MUTANT_FINALLY_USES_CATCHER=,
+    =MUTANT_TRAMPOLINE_IGNORES_IN_EH=,
+    =MUTANT_PARKER_RELAXED_SEARCHING=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "effect"= and =##build-module "fiber"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/fiber/test/test.scm=: expanded to *153 / 153 assertions* (+25),
+    and =vendor/gambit/lib/gambit/effect/test/test.scm=: *602 / 602 assertions*, all passing at
+    =p=1=, =p=4=, and =p=12= (including 6,000-round adversarial multi-core nursery TOCTOU
+    stress asserting =orphans == 0=, continuable & escaping exceptions bare/in-prompt/in-fibers/
+    with-effect-suspend-resume, and 0/1/N multi-value =with-nursery= returns).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x fiber= + =20x effect=).
+  - Microbenchmarks (Apple M2 Pro, =p=12=, interpreted driver):
+    =with_finally_normal_bare= *1.622 Mops/s*,
+    =with_nursery_empty= *1.516 Mops/s*,
+    =nursery_spawn_200k= *1.890 Mops/s*,
+    =fiber_pingpong_msgs= *1.561 Mops/s*.
+
+
+
+
+
+
+
+
+
+
+
+
