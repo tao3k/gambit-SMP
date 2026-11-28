@@ -1597,3 +1597,57 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   | =cow_fibers_400k= | default heap | =238k/s= (=gc=292ms=) | *=4.265M/s=* (=gc=9ms=) | *=1.648M/s=* (=gc=7ms=) | *=1.494M/s=* (=gc=18ms=, *+2.06x* vs C25) |
   | =cow_fibers_400k= | =-:h2048000= | =295k/s= (=gc=397ms=) | *=3.542M/s=* (=gc=13ms=) | *=2.900M/s=* (=gc=9ms=) | *=1.455M/s=* (=gc=28ms=, *4.6x* lower GC) |
   | =carrier_tls_4M= | default heap | =14.80M/s= (=sys=3ms=) | *=40.14M/s=* (=sys=2ms=) | *=93.23M/s=* (=sys=2ms=) | *=109.70M/s=* (=sys=2ms=, *7.41x* scaling) |
+
+* 33. Phase C27: Zero-Mutex-Poll 128B-Padded =(gambit parallel)= Work-Stealing Pool, Single-Allocation Futures & Structured Fork-Join Exception Quiescence
+
+** 33.1 Root Causes Eliminated in =vendor/gambit/lib/gambit/parallel/parallel.scm=
+1. *Global =inject-mut= Lock Convoy & Global =pending-count= Contention*:
+   - Previously, =pool-try-get-task= locked/unlocked the single global =inject-mut= mutex on EVERY
+     empty-local-deque poll across all 12 cores (including tight =future-force= helping spins),
+     while =pool-submit!= hammered a single shared =pending-count= atomic + =inject-mut= on every
+     recursive =future= spawn and lacked steal-cascade / inject-cascade wakeups.
+   - Replaced with 128B-padded =inject-count= (zero-mutex fast skip when empty) and 128B-padded
+     =sleepers= with Dekker =seq_cst= fenced parking, unconditional steal-cascade wakeup on
+     =pool-try-steal=, and inject-cascade wakeup when =inject-count > 0=.
+2. *128B Cache-Line Padded Chase-Lev Deque & Single-Allocation Futures*:
+   - Padded Chase-Lev =top= and =bottom= onto separate 128B cache lines with inline C23 atomics on
+     the =C= target (and portable =(srfi 230)= fallback on =js=), eliminating owner-vs-thief false
+     sharing and cross-module atomic calls.
+   - Inlined =ws-future= atomic state CAS directly on struct field 3 and pushed =ws-future= objects
+     directly onto deques (dispatching via =pool-run-task!=), cutting =make-future= from 3 heap
+     allocations (=ws-future= + =atomic-box= + wrapper closure) to *1 single allocation*.
+3. *Structured Fork-Join Exception Quiescence*:
+   - Fixed =parallel-vector-map=, =parallel-for-each=, and =parallel-reduce= so that when the left
+     branch raises an exception, the spawned =right= future is ALWAYS joined before re-raising,
+     guaranteeing zero orphaned background tasks mutating output buffers after unwind.
+   - Cleaned pre-existing internal verification anchor comments from upstream =parallel.scm=.
+
+** 33.2 3-Layer Formal Verification, CPU-Adaptive Tests & Benchmarks
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=parallel_workstealing_forkjoin_smp.qnt=): =10,000= traces, 0 violations (=471 ms=,
+    =seed=0xee05a72d01ec6d32=).
+  - *Lean 4* (=ParallelWorkStealingForkJoinRefinement.lean=): 4 theorems, *0 =sorry=*, 0 warnings
+    (=push_wakes_if_sleeping=, =empty_inject_zero_mutex=, =future_claim_at_most_once=,
+    =structured_forkjoin_always_joins_right=).
+  - *CBMC =--mm pso=* (=parallel-workstealing-forkjoin-smp/harness.c=): =0 of 9 failed= + *4/4
+    negative mutants caught* (=INJECT_BUG_SKIP_DEKKER_FENCE=, =INJECT_BUG_DROP_STEAL_CASCADE=,
+    =INJECT_BUG_ORPHAN_RIGHT_ON_LEFT_THROW=, =INJECT_BUG_DOUBLE_FUTURE_RUN=).
+- *CPU-Adaptive Adversarial Test Suite* (=vendor/gambit/lib/gambit/parallel/test/test.scm=, expanded
+  from 70 lines to 278 lines, *131 / 131 assertions*):
+  - Concurrent Chase-Lev owner push/pop vs. thieves + dynamic grow linearizability (12k items,
+    exact sum conservation), post-idle 30ms park steal-cascade wakeup (=pfib 24=), adaptive-P
+    concurrent =future-force= single-run & exception-broadcast race (25 + 15 rounds), structured
+    fork-join exception quiescence across all 3 combinators (=parallel-vector-map=,
+    =parallel-for-each=, =parallel-reduce=), and heavy fork-join + concurrent GC + repeated pool
+    create/shutdown cycles.
+- *Full Gates*:
+  - Official Gambit =build-module= (=C= + =js=, =(warnings)= enabled): *0 errors, 0 warnings*;
+    upstream hygiene *0 forbidden matches*.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 warnings, 0 errors).
+  - *20 / 20* =p=12= parallel stress runs (0 hangs, 0 crashes).
+- *Compiled Benchmarks (Apple M2 Pro 12c, Before vs. Phase C27)*:
+  | Workload | Base =p=1= | C27 =p=1= | Base =p=4= | C27 =p=4= | Base =p=8= | C27 =p=8= | Base =p=12= | C27 =p=12= |
+  |---|---:|---:|---:|---:|---:|---:|---:|---:|
+  | =par_pfib_32= | =91ms= (=23.8M/s=) | *=34ms=* (*+2.69x*) | =32ms= (=67.3M/s=) | *=12ms=* (*182.1M/s*) | =33ms= (=65.4M/s=) | *=13ms=* (*+2.52x*) | =37ms= (=58.5M/s=) | *=13ms=* (*169.2M/s*, *+2.89x*) |
+  | =par_vmap_400k_g256= | =190ms= (=2.1M/s=) | *=6ms=* (*+30.9x*) | =100ms= (=4.0M/s=) | *=5ms=* (*87.5M/s*, *+22.0x*) | =30ms= (=13.1M/s=) | *=5ms=* (*+6.10x*) | =29ms= (=13.6M/s=) | *=6ms=* (*+5.10x*) |
+  | =par_reduce_400k_g256= | =176ms= (=2.3M/s=) | *=6ms=* (*+30.0x*) | =117ms= (=3.4M/s=) | *=5ms=* (*73.5M/s*, *+21.5x*) | =42ms= (=9.5M/s=) | *=12ms=* (*+3.64x*) | =34ms= (=11.8M/s=) | *=8ms=* (*+4.21x*) |
