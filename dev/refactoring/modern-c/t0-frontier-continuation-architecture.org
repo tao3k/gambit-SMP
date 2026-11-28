@@ -2781,3 +2781,72 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 52. Phase C46: Structured-Concurrency Nursery & =with-finally= 3-Phase Unwind-Hook Coherency Across Non-Local Escapes, Plus Post-Close =rx-fast=/=tx-fast= ABA Guard (=(gambit fiber)= + =(gambit effect)=)
+
+** 52.1 Root-Cause Defects Fixed
+1. *3-Phase Metacontinuation Unwind Protocol (='unwind= / ='suspend= / ='restore=)*:
+   - Updated =vendor/gambit/lib/gambit/effect/handler.scm= to invoke =%mc-run-unwind-hooks!=
+     with phase ='suspend= on outer suspending =perform= (distinguishing suspendable effect
+     escapes from permanent ='unwind= escapes in =abort-current-continuation=, =call/1cc=,
+     =call-with-non-composable-continuation=, and exception unwinding).
+   - Updated =vendor/gambit/lib/gambit/effect/generator.scm= so generator unwind hooks
+     restore on ='restore= and transition cleanly to =%GEN-DONE= on both ='unwind= and
+     ='suspend=.
+2. *Structured-Concurrency =with-nursery= Scope Coherency & Idempotent Multi-Shot Teardown*:
+   - Previously, escaping a =with-nursery= body via =abort-current-continuation= or =call/1cc=
+     left spawned child fibers uncancelled and unjoined (orphans outliving =with-nursery=),
+     left =nursery.cancelled = 0= (live, allowing post-escape spawns), and leaked the parent's
+     active/batched credits. Multi-shot composable replay across =with-nursery= could also
+     execute teardown twice on the same nursery.
+   - Added O(1) =%mc-pop-guard!= (=vendor/gambit/lib/gambit/fiber/context.scm=) and idempotent
+     =%nursery-teardown!= (=vendor/gambit/lib/gambit/fiber/nursery.scm=, guarded by =joined-box=).
+     With zero overhead when no outer SRFI-226 prompt/handler is active (=tc == #f= or
+     =tc.mc == '()=), =with-nursery= installs a lightweight ='unwind-guard= frame whose ='unwind=
+     hook atomically cancels the nursery (=0 -> 1=), flushes batched credits, joins every live
+     child via =%park-nursery-cont!= BEFORE control transfers to the outer prompt handler, and
+     seals =cancelled = 2= (=closed=), while remaining a no-op on ='suspend= so outer algebraic
+     effect =perform=/=resume= keeps the nursery live.
+3. *=with-finally= Exact-Once Resource Cleanup Across Non-Local Escapes*:
+   - Previously, =with-finally= (=vendor/gambit/lib/gambit/fiber/spawn.scm=) only intercepted
+     normal return and exceptions, leaking resources when escaping via =abort-current-continuation=
+     or =call/1cc=.
+   - Installed a zero-overhead ='unwind-guard= when an outer prompt/handler is active so
+     =finally-thunk= runs strictly once on normal return, exception, or ='unwind= escape, and
+     zero times on =fiber-yield=, channel park/resume, or outer effect ='suspend=/='restore=.
+4. *Post-Close =rx-fast=/=tx-fast= Pre-CAS Guard & Seq-Cst Direct Handoff*:
+   - Guarded speculative =rx-fast= (=channel-recv.scm=) and =tx-fast= (=channel-send.scm=)
+     parking with an acquire pre-CAS =(tail & 1) == 0= check so a racing waiter cannot
+     speculatively publish a recycled =%fiber-k= into a closed channel after =fiber-channel-close!=
+     returns, and upgraded Fast Path A1 (=channel.scm=) loads/CAS to acquire/=seq_cst=.
+
+** 52.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=fiber_nursery_finally_unwind_and_close_aba_smp.qnt=): 5/5 unit tests passed
+    (=75 ms=) + *=10,000= traces, 0 violations* (=396 ms=, =seed=0x925d7707ab551943=).
+  - *Lean 4* (=FiberNurseryFinallyUnwindAndCloseAbaRefinement.lean=): 5 theorems, *0 =sorry=*,
+    0 warnings (=nursery_unwind_cancels_joins_and_closes=,
+    =nursery_suspend_preserves_liveness=,
+    =nursery_teardown_idempotent_on_multishot=,
+    =with_finally_exact_once_across_escapes_and_suspends=,
+    =close_guard_prevents_post_close_fast_slot_park=).
+  - *CBMC =--mm pso=* (=fiber-nursery-finally-unwind-smp/harness.c=): =0 of 12 failed= +
+    *4/4 negative mutants caught* (=MUTANT_NURSERY_ESCAPE_NO_JOIN=,
+    =MUTANT_FINALLY_SKIP_ABORT=,
+    =MUTANT_FINALLY_FIRE_ON_SUSPEND=,
+    =MUTANT_RXFAST_POST_CLOSE_ABA=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "effect"= and =##build-module "fiber"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/fiber/test/test.scm=: expanded to *128 / 128 assertions* (+24),
+    and =vendor/gambit/lib/gambit/effect/test/test.scm=: *583 / 583 assertions*, all passing at
+    =p=1=, =p=4=, and =p=12= (nursery abort & =call/1cc= cancel-join-close, nested nursery
+    inner-to-outer abort teardown, outer effect =perform=/=resume= inside nursery, =with-finally=
+    abort/=call/1cc=/=perform= parity, and adaptive-P SMP torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x fiber= + =20x effect=).
+  - Microbenchmarks (Apple M2 Pro, =p=12=): =fiber_pingpong_msgs= *1.297 Mops/s* (zero
+    regression), =nursery_abort_join= *0.432 Mops/s*, =with_finally_abort= *0.747 Mops/s*.
+
+
+
+
