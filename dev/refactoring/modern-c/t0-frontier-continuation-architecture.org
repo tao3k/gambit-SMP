@@ -784,3 +784,56 @@ Formal verification for Phase C4-A:
 - Apple Silicon heterogeneous comparison under heavy load (=load avg 48=): =w=8= (8 P-cores)
   delivered *2x--3x higher throughput and 2x--4x lower P99* than =w=12= (8P+4E) on both
   =ht_effect_pingpong= and =ht_fiber_fanout_100k=, confirming the big.LITTLE P-core binding benefit.
+
+* 20. Phase C17: Lock-Free Single-Waiter =rx-fast= Direct Handoff & True Zero-Frame =%park-recv-buf-cont!=
+
+** 20.1 Architectural Upgrades (=vendor/gambit/lib/gambit/fiber/fiber.scm=, 100% upstream-clean)
+1. *Lock-Free Single-Waiter =rx-fast= Slot (Co-Located on Word 1 of 128B =rx-waiters= Line)*:
+   - Stored a lock-free single-waiter =%fiber-k= slot (=rx-fast=) at word 1 of the existing
+     128B-padded =rx-waiters= vector (zero extra allocation, zero extra L1 cache line on streaming
+     =ht_generator_stream=), manipulated with Gambit's generational + SATB-safe
+     =___gc_atomic_slot_cas=.
+   - *Receiver park (=\%ch-park-recv-and-pop-c!=)*: when =txw == 0 && rx-fast == #f=, publishes =fk=
+     via one =seq_cst= =CAS(rx-fast, #f -> fk)=, re-checks =seq[head]= and =txw= with =seq_cst=
+     loads (Dekker pair), and on race performs an atomic cancel =CAS(rx-fast, fk -> #f)=
+     (recycling =fk= and returning =%CH-RETRY= if cancel succeeds, or parking cleanly if a sender
+     already claimed =fk=). Falls back to =ch.lock= + =rwq= seamlessly when >= 2 concurrent
+     receivers park simultaneously.
+   - *Sender direct handoff (=\%ch-send-fast-c!=)*: when =rx-fast != #f && tail == head=, claims
+     =rk= via one =acq_rel= =CAS(rx-fast, rk -> #f)= and writes =rk.val = val= with write barrier —
+     *eliminating 100% of =ch.lock= spinlock acquire/release CAS & cache-line ping-pong from
+     every ping-pong round (slashing atomic barriers per half-round by 3x)*.
+   - *Symmetric Dekker guard (=\%ch-park-send-c!=)*: checks =rx-fast == #f= alongside =rwq == #f=
+     under =seq_cst= ordering, preventing mutual sender/receiver park deadlock.
+2. *True Zero-Frame =%park-recv-buf-cont!=*:
+   - Moved the =nursery-batch > 0= check inside =%ch-park-recv-and-pop-c!= (returning status =5=
+     to tail-called =%park-recv-buf-slow!=), eliminating the final 1-word =___group_demand_enter=
+     stack frame from =%park-recv-buf-cont!='s fast path (verified in generated =fiber.c=).
+
+** 20.2 3-Layer Adversarial Formal Verification (Phase C17, Kept in =gambit-SMP= Only)
+- *Quint* (=dev/refactoring/modern-c/models/quint/lockfree_rx_fast_slot_handoff_smp.qnt=):
+  10,000 traces x 40 steps, 0 violations (=190ms=, 52,632 traces/sec; exact conservation,
+  exactly-once wakeup, zero mutual park deadlock, zero FIFO bypass).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/LockFreeRxFastSlotRefinement.lean=):
+  4 theorems (=cancel_vs_claim_exclusive=, =dekker_rx_fast_no_lost_wakeup=,
+  =linearizable_empty_ring_no_bypass=, =sender_park_rx_fast_no_mutual_deadlock=),
+  0 =sorry=, 0 warnings.
+- *CBMC (=--mm pso --unwind 4=)* (=tests/contracts/modern-c/gc-ffi/lockfree-rx-fast-slot-smp/harness.c=):
+  0 of 7 failed (=VERIFICATION SUCCESSFUL=) + *4/4 PSO negative mutants caught*:
+  =INJECT_BUG_RXFAST_NO_DEKKER_FENCE=, =INJECT_BUG_RXFAST_CANCEL_RECYCLES_ON_CAS_FAIL=,
+  =INJECT_BUG_RXFAST_DIRECT_HANDOFF_IGNORES_NONEMPTY_RING=, =INJECT_BUG_PARK_SEND_IGNORES_RXFAST=.
+
+** 20.3 Full SMP Gate (1,123 Tests) & All-Time Ping-Pong Record
+- Conformance & adversarial SMP matrix (=p1/p4/p8/p12=): *1,123/1,123 PASS*;
+  *15/15* consecutive =p12= 100k-fiber fanouts (*1,500,000 fibers*, 0 errors, *0 warnings*).
+- Measured under host load avg =23.08--24.22=:
+  - =ht_effect_pingpong= (=w=1=): *2.303M ops/s* (+45.1% vs C14, only *217 ns/half-round*
+    including full continuation capture & return!), *P50 = 34us* (36.6% faster than Rust Tokio's
+    53.6us!), *P95 = 44us* (faster than Tokio's P50!).
+  - =ht_generator_stream= (=w=1=): *11.09M ops/s* (P50 *17us*, P95 *18us*, P99 *21us*, *0 GCs*).
+  - =ht_fiber_fanout_100k= (=w=1=): *2.298M ops/s*, *P50 = 261us*; =w=8= P50 *390us* / =w=12= P50
+    *337us* (both beating Tokio's 468us even under host load 24).
+  - Multi-core SMP scaling diagnosis: single-core engine is now at frontier speed (=2.30M/s=
+    ping-pong, =11.3M/s= stream, =2.58M/s= fanout); remaining multi-core scaling gaps are
+    =nursery.active= spawn RMW contention (=100,000 fetch_add= in fanout) and heap-pair/STW-GC
+    rendezvous frequency across 8--12 cores, targeted in Phase C18.
