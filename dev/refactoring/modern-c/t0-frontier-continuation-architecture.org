@@ -2431,3 +2431,77 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
     (=20000/20000= cleanly =#!eof=).
 
 
+* 47. Phase C41: Thread-Safe Dynamic Continuation-Mark Frame Unwind, Tail-Checked Immediate Marks & Prompt-Scoped =continuation-marks= Slicing (=(srfi 226)=)
+** 47.1 Bugs Fixed
+1. *Cross-Thread Data Race & Stale =ms= Overwrite in =with-continuation-mark= Exception Unwind*:
+   - Previously, =%mark-dispatch= (=vendor/gambit/lib/srfi/226/marks.scm=) captured both the
+     creation-time thread control state =st= and the creation-time mark stack =ms= inside its
+     exception-handler closure and restored =(%st-marks-set! st ms)= on raise.
+   - When a composable continuation captured under an outer =with-continuation-mark= was replayed
+     under a different resumer mark and raised:
+     - *Same-thread replay* wiped the resumer's active marks and resurrected dead capture-site
+       outer marks (=(caught () (DEAD) ())=).
+     - *Cross-thread SMP replay* mutated the *origin thread's* =st.marks= across thread boundaries
+       (corrupting the origin thread with =(T1-DEAD)=) while failing to pop the inner mark from the
+       invoking thread's own stack!
+   - *Fix*: Stored each mark frame on =st.marks= as an immutable =(fid . alist)= pair (reusing the
+     already-allocated =kv= pair as =fid=, preserved across tail-position =%alist-replace=). On
+     exception, the handler queries =(%tc-current)= dynamically and unwinds strictly via O(1)
+     =%pop-mark-frame-by-id= (fast pointer compare on =(caar ms)= with fallback scan for unpopped
+     inner frames), preserving all resumer marks and maintaining strict cross-thread SMP isolation.
+2. *Non-Tail & Cross-Prompt Leakage in =call-with-immediate-continuation-mark=*:
+   - Previously, =call-with-immediate-continuation-mark= inspected =(car (%st-marks (%tc-current)))=
+     without checking whether it was invoked in tail position of =with-continuation-mark=, leaking
+     enclosing marks across non-tail calls (=(list (call-with-immediate-continuation-mark ...)))=)
+     and across =call-with-continuation-prompt= boundaries.
+   - *Fix*: Dispatched =call-with-immediate-continuation-mark= through =##tail-call-with-r0=
+     (with a zero-allocation =#f=-default fast path), checking =(eq? caller-r0 %mark-pop-ra)= so
+     only true immediate tail frames observe the mark and non-tail / cross-prompt calls receive
+     =default=. Updated one legacy test in =vendor/gambit/lib/gambit/effect/test/test.scm= that had
+     placed =call-with-immediate-continuation-mark= inside a non-tail =(list ...)= call to test
+     genuine post-resume tail position.
+3. *Prompt-Scoped =continuation-marks= Slicing & Strict Argument Validation*:
+   - Previously, =(continuation-marks cont tag)= ignored =tag= on captured SRFI-226 continuations
+     and silently returned =(current-continuation-marks tag)= for invalid non-continuation values.
+   - *Fix*: Added exact =%marks-slice-until-stop= (exact tail-equals-prefix matching, sound even
+     under nested multi-shot self-replay with repeated frames) to slice captured continuation marks
+     up to the innermost prompt matching =tag= in =cell.prefix=, and rejected invalid non-continuation,
+     non-mark-set, non-=#f= arguments with an error.
+
+** 47.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=srfi226_marks_dynamic_unwind_and_immediate_smp.qnt=): 5/5 unit tests passed
+    (=155 ms=) + *=10,000= traces, 0 violations* (=650 ms=, =seed=0x53309bd595b04653=).
+  - *Lean 4* (=Srfi226MarksDynamicUnwindRefinement.lean=): 5 theorems, *0 =sorry=*, 0 warnings
+    (=popByFid_fast_path_after_tail_replace=, =popByFid_preserves_resumer_and_excludes_zombie=,
+    =cross_thread_replay_preserves_origin_thread=, =immediate_mark_requires_tail_ra=,
+    =sliceUntilStop_exact_on_self_replay=).
+  - *CBMC =--mm pso=* (=srfi226-marks-dynamic-unwind-smp/harness.c=): =0 of 11 failed= +
+    *4/4 negative mutants caught* (=INJECT_BUG_STALE_CAPTURE_ST_AND_MS=,
+    =INJECT_BUG_TAIL_REPLACE_CHANGES_FID=, =INJECT_BUG_IMMEDIATE_IGNORES_R0=,
+    =INJECT_BUG_CONT_MARKS_IGNORES_TAG=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"= (=C= + =js=, =(warnings)=): *0 errors, 0 warnings*;
+    upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: expanded to *235 / 235 assertions* (+23) passing at
+    =p=1=, =p=4=, and =p=12= (same-thread & cross-thread adaptive-P SMP replay exception unwind with
+    =##gc=, non-escaping exception handler return, tail/non-tail/cross-prompt immediate marks,
+    prompt-scoped =continuation-marks= slicing including nested self-replay, and invalid-arg guards).
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: *533 / 533 assertions* passing at =p=1=, =p=4=,
+    =p=12=.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x srfi/226 + 20x effect=).
+  - Microbenchmark (Apple M2 Pro, =p=12=, interpreted loop): 200,000-iteration O(1)-stack
+    tail-recursive =with-continuation-mark= + =call-with-immediate-continuation-mark= *0.136 Mops/s*
+    (=last=199999=).
+
+
+
+
+
+
+
+
+
+
+
