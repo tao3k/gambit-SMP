@@ -33,6 +33,7 @@ CBMC_WAVE10_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave10_inline_bi
 CBMC_WAVE11_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave11_inline256_cow_bucket_ticket_and_mature_cache_pso.c"
 CBMC_WAVE12_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave12_sentinel_mpmc_chase_lev_and_wb_pso.c"
 CBMC_WAVE13_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave13_faa_mpmc_cached_chase_lev_and_fast_minor_pso.c"
+CBMC_WAVE14_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave14_ttas_cas_ticketlock_remset_split_and_imm_sentinel_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -350,7 +351,12 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertIn("__atomic_compare_exchange_n (&___GSTATE->setup_params.debug_settings", setup_src)
         rc_alloc = (ROOT / "vendor/gambit/lib/_mem/rc-allocation.inc").read_text()
         self.assertIn("___WORD_STORE_RELAXED(&___rest_before_collect_pops", rc_alloc)
-        parallel_src = (ROOT / "vendor/gambit/lib/gambit/parallel/parallel.scm").read_text()
+        parallel_dir = ROOT / "vendor/gambit/lib/gambit/parallel"
+        parallel_src = "\n".join(
+            (parallel_dir / fname).read_text()
+            for fname in ("parallel.scm", "deque.scm", "atomics.scm")
+            if (parallel_dir / fname).is_file()
+        )
         self.assertTrue(
             "(atomic-fxbox-set! (macro-work-stealing-deque-bottom q) (##fx+ b 1) 'release)" in parallel_src
             or (
@@ -639,6 +645,50 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(w13["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
         self.assertEqual(w13["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
         self.assertEqual(w13["unifiedMulticoreMatrixAndStress"]["passed"], 136)
+
+        # Wave 14 CBMC PSO weak-memory mutants + immediate-fast-path / TTAS-pointer CAS,
+        # minimal-hold bump_heap_section_for_demand + 1024-spin ticketlock, zero-global-lookup
+        # immediate-sentinel concurrent queues, and object-disjoint remset card-run splitting
+        cbmc_w14 = CBMC_WAVE14_PATH.read_text()
+        for macro in (
+            "MUTANT_TTAS_CAS_DROP_BARRIER_ORDER",
+            "MUTANT_TTAS_CAS_SKIP_WB_ON_HIT",
+            "MUTANT_TICKETLOCK_DROP_UNLOCK_RELEASE",
+            "MUTANT_MPMC_ALIAS_FALSE_SENTINEL",
+            "MUTANT_REMSET_SPLIT_UNSAFE_NONVECTOR",
+        ):
+            self.assertIn(macro, cbmc_w14)
+            self.assertIn(macro, blueprint)
+
+        self.assertIn("___WORD_LOAD_ACQUIRE(___CAST(___VOLATILE ___WORD*, slot))", rp_h)
+        for sym in (
+            "___MEM_ALLOCATED(___cv_val)||___MEM_ALLOCATED(___cv_old)",
+            "___MEM_ALLOCATED(___cs_val)||___MEM_ALLOCATED(___cs_old)",
+            "if (___spins < 1024)",
+        ):
+            self.assertIn(sym, gvm_ops)
+        al_src = (ROOT / "vendor/gambit/lib/_mem/allocation-limits.inc").read_text()
+        self.assertIn("ms=next_msection_without_locking(___ps, stack_msection);", al_src)
+        self.assertIn("set_heap_msection_possibly_sharing_with_stack(___ps, ms);", al_src)
+        for sym in (
+            "%imm-sentinel-empty?",
+            "%imm-sentinel-retry?",
+            "macro-lf-queue-empty-ret",
+            "macro-ws-deque-empty-ret",
+        ):
+            self.assertIn(sym, conc_src)
+        for sym in ("remset_cards_split_safe", "___REMSET_CARD_RUN_TARGET"):
+            self.assertIn(sym, gen_src)
+
+        w14 = receipt["verificationResults"]["wave14TtasCasTicketlockRemsetSplitAndImmSentinel"]
+        self.assertEqual(w14["cbmcWave14PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w14["cbmcWave14PsoMutants"]["killed"], 5)
+        self.assertEqual(w14["runtimeTsanQualification"]["passed"], 19)
+        self.assertEqual(w14["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w14["runtimeAsanUbsanQualification"]["passed"], 19)
+        self.assertEqual(w14["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w14["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w14["unifiedMulticoreMatrixAndStress"]["passed"], 140)
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 
