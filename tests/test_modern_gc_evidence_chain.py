@@ -30,6 +30,7 @@ CBMC_WAVE7_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave7_futex_barri
 CBMC_WAVE8_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave8_segqueue_and_sync_barrier_pso.c"
 CBMC_WAVE9_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave9_direct_binding_and_ffi_park_pso.c"
 CBMC_WAVE10_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave10_inline_binding_rest_and_gc_steal_pso.c"
+CBMC_WAVE11_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave11_inline256_cow_bucket_ticket_and_mature_cache_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -528,6 +529,43 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(w10["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
         self.assertEqual(w10["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
         self.assertEqual(w10["unifiedMulticoreMatrixAndStress"]["passed"], 124)
+
+        # Wave 11 CBMC PSO weak-memory mutants + native 256-page inline globals, lock-free COW flat vector
+        # buckets + zero-alloc empty values, zero-closure gsc call-with-values expansion, dual-cache Minor GC
+        # mature_skip, progress-aware backoff ticketlock, and atomic rest reload/claim counters
+        cbmc_w11 = CBMC_WAVE11_PATH.read_text()
+        for macro in (
+            "MUTANT_INLINE256_DROP_RELEASE",
+            "MUTANT_COW_BUCKET_DROP_RELEASE",
+            "MUTANT_COW_BUCKET_MUTATE_IN_PLACE",
+            "MUTANT_TICKET_DROP_UNLOCK_RELEASE",
+            "MUTANT_MATURE_CACHE_SKIP_SATB_SHADE",
+        ):
+            self.assertIn(macro, cbmc_w11)
+            self.assertIn(macro, blueprint)
+
+        self.assertIn("#define ___GLOBAL_INLINE_PAGES 256", np_h)
+        for sym in ("%empty-values-2", "%ct-empty-bucket", "%ct-vec-copy-range!", "%ct-vec-replace-at", "%ct-vec-delete"):
+            self.assertIn(sym, conc_src)
+        prims_scm = (ROOT / "vendor/gambit/gsc/_prims.scm").read_text()
+        self.assertIn("make-call-with-values-expander", prims_scm)
+        for sym in ("mature_skip_section_", "mature_skip_base_", "mature_skip_epoch_"):
+            self.assertIn(sym, coll_h)
+            self.assertIn(sym, hs_src)
+            self.assertIn(sym, cr_src)
+        self.assertIn("___last_cur", gvm_ops)
+        self.assertIn("___WORD_FETCH_ADD_RELAXED(&___rest_resume_reloads, 1)", rc_alloc)
+        self.assertIn("___WORD_FETCH_ADD_RELAXED(&___rest_ready_claims, 1)", rc_alloc)
+
+        w11 = receipt["verificationResults"]["wave11Inline256CowBucketCwvAndMatureCache"]
+        self.assertEqual(w11["cbmcWave11PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w11["cbmcWave11PsoMutants"]["killed"], 5)
+        self.assertEqual(w11["runtimeTsanQualification"]["passed"], 16)
+        self.assertEqual(w11["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w11["runtimeAsanUbsanQualification"]["passed"], 16)
+        self.assertEqual(w11["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w11["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w11["unifiedMulticoreMatrixAndStress"]["passed"], 128)
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 
