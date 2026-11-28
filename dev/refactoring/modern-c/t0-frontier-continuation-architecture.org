@@ -1353,3 +1353,87 @@ Instrumentation of Phase C20 under default heap (=w=8=) revealed:
 
 
 
+* 30. Phase C24: Section 29 STW Remark Single-Word Atomic Quiescence Fix, Zero-Closure Inline-CAS Algebraic Effects & Symmetric Direct-Style Generators
+
+** 30.1 Parallel STW Remark Phase R-A Single-Word Atomic Quiescence Fix (Closes Section 29.3)
+- *Runtime Change* (=vendor/gambit/lib/_mem/concurrent-major.inc=, zero =gambit.h=/=collector.h= ABI
+  changes):
+  - Replaces the split-counter (=major_remark_working_= + =major_remote_pending=) termination check
+    with a single 64-bit atomic quiescence counter =inflight = working_workers + sum(inboxes) +
+    major_mark_stack_count_= stored in =vm->mem.major_remark_working_=.
+  - =major_remark_phase_a_prepare= initializes =inflight = worker_count + initial_mark_stack_count=.
+  - =major_remote_flush_one= and =major_mark_stack_push_batch_inflight= atomically add =+n= under
+    lock when queuing items; WORKING drains subtract =-take=; WORKING->IDLE subtracts =-1=;
+    IDLE->WORKING drains execute ONE single =acq_rel= RMW =1 - take= so =inflight= never visits =0=
+    while any work exists. Quiescence exit is a single monotonic zero-latch =LOAD_ACQUIRE(inflight) == 0=.
+- *3-Layer Formal Verification*:
+  - *Quint* (=dev/refactoring/modern-c/models/quint/major_remark_chez_quiescence_smp.qnt=):
+    =3/3= tests passing (=216 ms=), =10,000= traces 0 violations (=seed=0x74034267104dc6b2=).
+  - *Lean 4* (=dev/refactoring/modern-c/models/lean/MajorRemarkChezQuiescenceRefinement.lean=):
+    4 theorems, *0 =sorry=*, 0 warnings (=inflight_conservation_route_remote=,
+    =inflight_idle_drain_never_visits_zero=, =inflight_zero_implies_global_quiescence=,
+    =inflight_zero_is_monotonic_latch=).
+  - *CBMC* (=tests/contracts/modern-c/gc-ffi/major-remark-chez-quiescence-smp/harness.c=):
+    =--mm pso --unwind 4=: =0 of 18 failed= + *3/3 negative mutants caught*
+    (=INJECT_BUG_SPLIT_WORKING_REMOTE_READ=, =INJECT_BUG_NONATOMIC_IDLE_INBOX_DRAIN=,
+    =INJECT_BUG_OMIT_MARK_STACK_FROM_INFLIGHT=).
+- *20x 200k-Live-Fiber Regression*: =20 / 20= runs of 200,000 simultaneously live suspended fibers
+  with cross-core mature anchor graphs and explicit STW Remark (=-:p12,h4096000=) passed with *0
+  livelocks*.
+
+** 30.2 Phase C24: Zero-Closure Inline-CAS Algebraic Effects & 4-State Symmetric Generators
+- *Runtime Changes* (=vendor/gambit/lib/gambit/effect/effect.scm=, zero ABI changes):
+  1. *Inline Thread Control-State & =(not safe)= Koka Fast Path*: Direct =macro-thread-control-state=
+     + inline =##unchecked-structure-ref/set!= eliminates cross-module =srfi/226= lookups on every
+     =perform= and =resume=.
+  2. *Inline Atomic State Word + Zero-Closure Multi-Arg =##continuation-capture=*: Eliminates
+     per-=perform= closure allocation and =make-atomic-fxbox= allocation via inline C23 =seq_cst=
+     CAS on field 7 of =effect-continuation= (never recycling escaped =ek= handles).
+  3. *SATB-Safe Direct =___try_return_oneshot_fiber_cont= with =denv= Guard & Write-Group Commit*:
+     Both tail and non-tail one-shot =resume= reclaim spans via =___try_return_oneshot_fiber_cont=
+     when =cur_denv == target_denv= (declining to winding =##continuation-return= on =dynamic-wind=),
+     guarded with =(declare (inlining-limit 0))= at call sites so Gambit commits every
+     =___group_demand_enter= write-group strictly before =___JUMPEXTPRM=.
+  4. *Zero-Allocation 4-State Atomic Direct-Style Generators (=make-generator= / =yield=)*:
+     Atomic =INIT(0)/RUNNING(1)/SUSPENDED(2)/DONE(3)= transitions, reusable unfrozen =pframe= +
+     cons cells (COW-reallocated if frozen by nested multi-shot), release-ordering =SUSPENDED=
+     strictly after =pframe= pop/clear, and Yield #1 ='init= base-anchor preservation (keeping
+     =caller_k_0= alive as =sub_k='s =next_break_link= anchor while Yields #2..N reclaim in O(1)).
+- *3-Layer Formal Verification*:
+  - *Quint* (=dev/refactoring/modern-c/models/quint/effect_zeroclosure_generator_smp.qnt=):
+    =10,000= traces, 0 violations (=954 ms=, =seed=0x60e62e332a9bc5d7=).
+  - *Lean 4* (=dev/refactoring/modern-c/models/lean/EffectZeroClosureGeneratorRefinement.lean=):
+    4 theorems, *0 =sorry=*, 0 warnings.
+  - *CBMC* (=tests/contracts/modern-c/gc-ffi/effect-zeroclosure-generator-smp/harness.c=):
+    =--mm pso --unwind 4=: =0 of 18 failed= + *7/7 negative mutants caught*
+    (=INJECT_BUG_NONATOMIC_EC_STATE=, =INJECT_BUG_RECYCLE_ESCAPED_EK=,
+    =INJECT_BUG_GEN_NO_RUNNING_CAS=, =INJECT_BUG_MUTATE_FROZEN_PFRAME=,
+    =INJECT_BUG_SKIP_DENV_CHECK=, =INJECT_BUG_GEN_PUBLISH_BEFORE_PFRAME_POP=,
+    =INJECT_BUG_GEN_RECLAIM_INIT_ANCHOR=).
+
+** 30.3 Comprehensive CPU-Adaptive Concurrency Test-Gap Closure & Benchmarks
+- *Test Suites Upgraded* (0 hardcoded thread counts across all 5 suites):
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: Made 5a/6 CPU-adaptive and added *10a--10e*
+    (=dynamic-wind= inside generator, nested multi-shot COW freeze inside generator, adaptive-P
+    concurrent race on the same generator, SATB-active rewind+generator torture, and multi-thread
+    sequential generator Yield #1 base-anchor stress).
+  - =vendor/gambit/lib/gambit/fiber/test/test.scm=: Added *14f--14j* (=cap=1/2= =tx-fast=/=rx-fast=
+    cancel ABA & slow-path FIFO torture, rapid nested nursery flush vs stolen-LIFO regression,
+    oversubscribed =W = 3*P= deadlock-freedom gate, =(3000*P)= live suspended fibers STW Remark
+    quiescence regression, and cross-module =(gambit effect)= x =(gambit fiber)= work-stealing
+    carrier migration).
+- *Verification*:
+  - =mem.o=, =libgambit.a=, =gsi=, =gambit/effect=: *0 errors, 0 warnings*; upstream hygiene *0
+    forbidden matches*.
+  - *80 / 80* enhanced SMP matrix runs (=p1/p4/p8/p12= x 5 suites x 4 rounds, 0 warnings).
+  - *30 x 2* parallel =p=12= enhanced stress runs + *20 x =w=12=* =gambit_continuation_bench= stress
+    (0 stack-overflows, 0 hangs, 0 errors).
+- *Algebraic Effect Benchmarks* (=benchmarks/rust-smp/gambit_continuation_bench.scm=, before vs.
+  Phase C24):
+  | Workload | Baseline =w=1= | C24 =w=1= | Speedup | Baseline =w=4= | C24 =w=4= | C24 =w=12= |
+  |---|---:|---:|---:|---:|---:|---:|
+  | =effect_tail_resumptive= | =6.88M/s= (=140us=) | *=17.46M/s=* (=55us=) | *2.54x* | =27.67M/s= | *=49.56M/s=* | *=90.40M/s=* |
+  | =effect_oneshot_suspend= | =1.11M/s= (=81us=) | *=3.74M/s=* (=22us=) | *3.37x* | =3.83M/s= | *=10.57M/s=* | *=7.09M/s=* (P50 =32us=) |
+  | =effect_generator_yield= | =0.78M/s= (=116us=) | *=3.04M/s=* (=28us=) | *3.92x* | =1.83M/s= | *=10.05M/s=* (*5.50x*) | *=4.78M/s=* (P50 =33us=) |
+  | =effect_multishot_cow= | =183k/s= (=101us=) | *=388k/s=* (=45us=) | *2.12x* | =469k/s= | *=796k/s=* | =592k/s= (=w=8=) / =462k/s= (=w=12=) |
+
