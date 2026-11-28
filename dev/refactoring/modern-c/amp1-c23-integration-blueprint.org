@@ -779,3 +779,146 @@ Protocol: 1 warmup + 5 interleaved A/B pairs with =/usr/bin/time -l= peak RSS
 - *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
   =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
   Gerbil tree completing full recursive =gxtest ./...= with =OK=.
+
+* Wave 8: Lock-Free Concurrent Primitives, OS-Futex Sync Barrier, Anti-Convoy Ticketlock, and C23 Atomic Header Initialization
+
+** Empirical Profiling Root Causes (Apple Silicon M2 Pro, =sample= on Wave 7 =6ba979c0=)
+1. *Ticketlock FIFO Convoy (=3,068= =swtch_pri= samples)*: =___TICKETLOCK_LOCK2=
+   in =include/_gambit/gvm_operations.h.in= spun only =64= iterations (~0.3 us)
+   before calling =sched_yield()=, causing =2,534= samples in
+   =bump_heap_section_for_demand= and =224= in =___heap_limit= under 12-core
+   contention.
+2. *Active-Subset Barrier & Tree-Sync Condvar Contention (=3,006= =__psynch_cvwait= samples)*:
+   =barrier_sync_op_ex= (=2,498= samples) and tree =SYNC_GET_MSG= /
+   =SYNC_SEND_MSG= in =lib/setup.c= still used =pthread_mutex= +
+   =pthread_cond_wait= on the hot path instead of adaptive-spin + OS futex.
+3. *Lock-Free Concurrent Data Structures (=lib/gambit/concurrent/concurrent.scm=)*:
+   =lf-queue= allocated 3 Scheme heap objects per message with unpadded
+   head/tail slots and 8 cross-module =srfi/230= calls per op (22.5x vs Rust
+   at =p12=); =concurrent-table= allocated 2 closures per write via
+   =call-with-values= and indirected =equal?= / =equal?-hash=; =ws-deque=
+   issued =SWPAL= RMW on push and unconditional =DMB ISH= on empty steal.
+4. *Spare-Pool RSS Headroom & C23 Header DRF Race*: Hardcoded 64-section spare
+   pool inflated worst-case =ru_maxrss= headroom; native TSan exposed a real
+   C23 non-atomic vs atomic object-header race in =t6-concurrent-satb-major-gc=
+   between =___BEGIN_ALLOC_*= (=___hp[0] = hd=) and
+   =___gc_write_barrier_slow_val='s =___WORD_LOAD_RELAXED(&___BODY0(val)[-1])=.
+
+** CBMC =--mm pso= Weak-Memory Proof & 4/4 Mutant Elimination
+- Model: =dev/refactoring/modern-c/models/cbmc/wave8_segqueue_and_sync_barrier_pso.c=.
+- Safe verification (=cbmc --mm pso --bounds-check --signed-overflow-check --unwind 4=):
+  *0 of 12 failed, VERIFICATION SUCCESSFUL (=rc=0=)*.
+- All 4 PSO weak-memory mutants killed (=rc=10=, =VERIFICATION FAILED=):
+  - =MUTANT_SEGQ_DROP_SLOT_RELEASE=: proves =states[off]= release-acquire
+    publication is required to prevent consumer observation of stale/unwritten
+    slot payloads in segmented =lf-queue=.
+  - =MUTANT_SEGQ_DROP_NEXT_RELEASE=: proves segment-link release publication is
+    required before advancing =tail_seg= / =head_seg=.
+  - =MUTANT_SYNCBAR_DROP_WAKE_FENCE=: proves the Dekker =seq_cst= fence in
+    =barrier_sync_op_ex= prevents lost wakeups under store-buffer reordering.
+  - =MUTANT_SYNCBAR_DROP_PAYLOAD_RELEASE=: proves double-buffered
+    =sync_bar_out_sop[slot]= / =sync_bar_out_winner[slot]= visibility before
+    releasing =sync_bar_gen=.
+
+** Native Wave 8 Implementation (7 =vendor/gambit= Files)
+1. =include/_gambit/gvm_operations.h.in=: anti-convoy =___TICKETLOCK_LOCK2=
+   tuned to =256= spins with proportional =1..8= relax backoff (~5-15 us
+   sweet spot).
+2. =include/_gambit/processor_state.h.in=, =lib/lifecycle.h=, =lib/setup.c=:
+   Dekker =seq_cst= adaptive-spin (=2048= spins) + Darwin/Linux OS futex
+   (=___gc_futex_wait_u32= / =___gc_futex_wake_all_u32=) for both tree
+   =SYNC_GET_MSG= / =SYNC_GET_MSG_SPIN_MARK= / =SYNC_SEND_MSG=
+   (=sync_futex_seq=, =sync_futex_waiters=) and double-buffered active-subset
+   =barrier_sync_op_ex= (=sync_bar_gen=, =sync_bar_waiters=,
+   =sync_bar_out_sop[2]=, =sync_bar_out_winner[2]=).
+3. =lib/_mem/movable-sections.inc=: adaptive spare-pool cap
+   =clamp(2 * processor_count, ___GC_MSECTION_SPARE_MIN=8, ___GC_MSECTION_SPARE_MAX=32)=
+   cutting worst-case =ru_maxrss= spare headroom by 50% while preserving
+   zero-=mmap= Minor GC steady state.
+4. =lib/gambit/concurrent/concurrent.scm=:
+   - =lf-queue=: 128-slot movable-nursery single-use segments (strictly below
+     Gambit's 256-word =___STILL= threshold so every segment bump-allocates in
+     the young movable nursery), 128B-padded =head=/=tail= counters, inline C23
+     =%lfq-enq-fast!= / =%lfq-deq-fast!= with pre-CAS =states[off] != 0= check
+     (non-blocking under preempted producers), private =%lfq-empty= /
+     =%lfq-retry= sentinels, and full interpreted fallback.
+   - =concurrent-table=: inline C23 Fibonacci-hash fixnum wait-free lookup
+     (=%ct-fast-fixnum-ref=), inline C23 bucket acquire-load and CAS-acqrel,
+     zero-closure =%alist-replace= / =%alist-replace-eq= / =%alist-delete=,
+     and 128B-padded inline counter.
+   - =ws-deque=: single-block inline C23 push/pop/steal (=ws-deque-push!=,
+     =%ws-pop-raw!=, =%ws-steal-raw!=) with relaxed store + write barrier
+     on push and fast-peek emptiness check (=t >= b_peek=) before =seq_cst=
+     fence on steal.
+   - =lf-stack=: inline C23 CAS on 128B-padded head vector.
+5. =include/_gambit/object_access.h.in=: C23 =___WORD_STORE_RELAXED(&___hp[0], ...)=
+   for =___BEGIN_ALLOC_PAIR=, =___BEGIN_ALLOC_SUBTYPED=, and
+   =___BEGIN_ALLOC_VECTOR_EXPR=, pairing with =___WORD_LOAD_RELAXED= in
+   =___gc_write_barrier_slow_val= (identical single =STR= instruction on ARM64,
+   preserving =STP= body coalescing, eliminating the =t6= TSan header race).
+
+** Wave 8 Qualification Gates (Apple Silicon M2 Pro)
+- *Native Apple Clang 21 TSan*: *13/13 PASS, 0 warnings*
+  (=.cache/tasks/wave8-profile/runtime_tsan_w8_results.json=, including
+  =wave8-concurrent-sync-adversarial= and 5/5 back-to-back clean runs of
+  =t6-concurrent-satb-major-gc=), plus official =gambit/concurrent/test/test.scm=
+  *55/55 PASS, 0 TSan warnings*.
+- *Native Apple Clang 21 ASan+UBSan* (with real instrumentation in =lib/mem.o=
+  [773 ASan / 7 UBSan], =lib/setup.o= [68 ASan / 5 UBSan], =lib/c_intf.o=,
+  =lib/os_thread.o=, and =concurrent.o1= [484 ASan / 6 UBSan]): *13/13 PASS,
+  0 ASan errors, 0 UBSan errors*
+  (=.cache/tasks/wave8-profile/runtime_asan_ubsan_w8_results.json=), plus
+  official =gambit/concurrent/test/test.scm= *55/55 PASS, 0 errors*.
+- *Unified Multicore Matrix + Stress*: *116/116 PASS*
+  (=run-multicore-suite.py= 100/100 across =p1,p4,p8,p12= ->
+  =.cache/tasks/wave8-profile/unified_post_wave8_100_pbt.json= + =gc-hammer=
+  4/4 + =wave6-adv= 4/4 + =wave7-adv= 4/4 + =wave8-adv= 4/4 + =amp4-adv[p8]=
+  10/10 + =c14[p8]= 20/20 + =gambit/concurrent/test/test.scm= 55/55 across
+  =p1,p4,p8,p12=).
+
+** Interleaved A/B LBO Results (Pre-Wave-8 =6ba979c0= vs Post-Wave-8, 5 Interleaved Pairs)
+(=.cache/tasks/wave8-profile/ab_wave8_lbo.json=):
+
+| Workload (Pre-Wave-8 -> Post-Wave-8) | Procs | Work (Pre -> Post ms) | Wall Speedup | GC (Pre -> Post ms) | Kernel sys Delta | CPU LBO Ratio | RSS (Pre -> Post MiB) | p99.9 Tail (Pre -> Post us) |
+|--------------------------------------+-------+-----------------------+--------------+---------------------+------------------+---------------+-----------------------+-----------------------------|
+| =ht_mpmc_pipeline= | =p1= | 156.49 -> 80.50 | *1.94x* | 35.13 -> 20.42 | 0.0% | *0.533x* | 77.8 -> 53.8 | 126902 -> 67337 (*1.88x*) |
+| =ht_mpmc_pipeline= | =p4= | 102.56 -> 45.09 | *2.27x* | 33.05 -> 12.25 | 0.0% | *0.517x* | 75.3 -> 53.4 | 61085 -> 27355 (*2.23x*) |
+| =ht_mpmc_pipeline= | =p8= | 105.90 -> 50.35 | *2.10x* | 32.11 -> 15.23 | *-50.0%* | *0.463x* | 72.8 -> 45.6 | 67396 -> 27922 (*2.41x*) |
+| =ht_mpmc_pipeline= | =p12= | 80.39 -> 43.37 | *1.85x* | 25.96 -> 9.43 | 0.0% | *0.537x* | 54.7 -> 40.7 | 31895 -> 9037 (*3.53x*) |
+| =ht_concurrent_kv_ycsb= | =p1= | 156.82 -> 101.95 | *1.54x* | 13.71 -> 8.01 | 0.0% | *0.625x* | 39.8 -> 32.3 | 90948 -> 1810 (*50.2x*) |
+| =ht_concurrent_kv_ycsb= | =p4= | 47.32 -> 39.33 | *1.20x* | 7.93 -> 8.00 | *-100.0%* | *0.667x* | 40.4 -> 32.7 | 2588 -> 2473 (*1.05x*) |
+| =ht_concurrent_kv_ycsb= | =p8= | 40.03 -> 25.37 | *1.58x* | 9.90 -> 4.79 | 0.0% | *0.682x* | 38.4 -> 31.9 | 3357 -> 2178 (*1.54x*) |
+| =ht_concurrent_kv_ycsb= | =p12= | 39.63 -> 23.56 | *1.68x* | 9.17 -> 5.27 | *-50.0%* | *0.667x* | 41.5 -> 34.3 | 6687 -> 3443 (*1.94x*) |
+| =ht_workstealing_dag= | =p1= | 78.89 -> 60.78 | *1.30x* | 1.19 -> 0.99 | 0.0% | *0.750x* | 12.0 -> 11.9 | 947 -> 746 (*1.27x*) |
+| =ht_workstealing_dag= | =p8= | 42.90 -> 27.19 | *1.58x* | 1.64 -> 1.46 | 0.0% | *0.677x* | 23.8 -> 23.8 | 1360 -> 835 (*1.63x*) |
+| =ht_workstealing_dag= | =p12= | 72.46 -> 55.75 | *1.30x* | 2.30 -> 3.74 | 0.0% | *0.852x* | 31.2 -> 32.0 | 6165 -> 7228 |
+| =w7_oldgen_churn_heavy= | =p4= | 48.26 -> 40.79 | *1.18x* | 30.55 -> 25.64 | 0.0% | *0.933x* | 146.8 -> 149.9 | - |
+| =w7_oldgen_churn_heavy= | =p8= | 66.70 -> 58.77 | *1.14x* | 47.38 -> 45.55 | 0.0% | *0.958x* | 184.8 -> 193.7 | - |
+| =w7_oldgen_churn_heavy= | =p12= | 86.63 -> 68.33 | *1.27x* | 57.09 -> 52.43 | *-40.0%* | *0.756x* | 202.5 -> 210.3 | - |
+
+Additional interleaved A/B regression check (5 pairs Pre-Wave-8 vs Post-Wave-8):
+=par_rest_alloc_m65536[p12]= *1.19x* (55.42 -> 46.47ms), =par_gc_pause_live_heap[p8/p12]=
+*1.18x* / *1.13x*, =par_oldgen_churn_live[p12]= *1.07x*, =par_sync_mailbox_cas[p8/p12]=
+*1.12x* / *1.10x* (zero regressions at =p12=).
+
+** Paired Rust (Tokio+Rayon) vs Wave 8 Gambit SMP & Gerbil v0.19 Spot-Check
+- *Paired 10-Workload Rust vs Wave 8 Gambit (=.cache/tasks/wave8-profile/rust-vs-gambit-wave8/comparison_w12.json=, =workers=12=)*:
+  - =par_sync_mailbox_cas[p12]=: =78.5ms -> 30.5ms= (*2.57x* vs Wave 7, ratio vs
+    Rust cut *2.07x -> 1.07x* — within 7% of native Rust at 12 cores; RSS
+    =33.2 -> 24.1 MiB=).
+  - =ht_mpmc_pipeline[p12]=: =80.9ms -> 42.1ms= (*1.92x* vs Wave 7, ratio vs
+    Rust cut *22.47x -> 9.15x*, RSS =53.5 -> 41.3 MiB=); =p1= *2.02x* (*15.95x -> 7.89x*).
+  - =ht_concurrent_kv_ycsb=: =p4= *1.76x* vs Wave 7 (*2.95x -> 1.38x* of Rust),
+    =p8= *1.20x* (*2.04x -> 1.33x* of Rust), =p12= *1.56x* of Rust (RSS =40.5 -> 34.3 MiB=).
+  - =ht_workstealing_dag[p12]=: =66.3ms -> 40.1ms= (*1.65x* vs Wave 7, ratio vs
+    Rust cut *6.25x -> 3.78x*).
+- *Real Non-Destructive Gerbil v0.19 (=1cfb032c=) Bootstrap & Compiler Qualification (=.cache/tasks/wave8-gerbil-spot/=)*:
+  =prepare= (=4.54s=, =exit=0=), =boot-gxi= (=0.22s=, =exit=0=), =stage0= full
+  Gerbil bootstrap compiler build (=162.29s= under concurrent host load, peak
+  RSS *993.47 MiB* — *-30.1 MiB* below Wave 7's =1023.59 MiB= and below 1 GiB
+  for the first time, =exit=0=), plus =GAMBOPT=p4= and =GAMBOPT=p12=
+  =(import :gerbil/expander :gerbil/compiler)= smoke PASS; original
+  =../gerbil-gambit-bootstrap-audit= verified unchanged.
+- *Honest Admission Boundary*: Both =nativeRuntimeAdmitted= and
+  =releaseAdmitted= remain strictly =false= pending an upstream macOS-clean
+  Gerbil tree completing full recursive =gxtest ./...= with =OK=.

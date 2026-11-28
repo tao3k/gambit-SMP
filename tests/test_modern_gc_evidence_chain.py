@@ -27,6 +27,7 @@ CBMC_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/modern_gc_amplification
 CBMC_DEEP_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp_chase_lev_and_radix_pso.c"
 CBMC_AMP4_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/amp4_refc_and_pacing_pso.c"
 CBMC_WAVE7_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave7_futex_barrier_and_static_gen_pso.c"
+CBMC_WAVE8_PATH = ROOT / "dev/refactoring/modern-c/models/cbmc/wave8_segqueue_and_sync_barrier_pso.c"
 MATRIX_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-amp4-adversarial-verification-matrix.org"
 BLUEPRINT_ORG_PATH = ROOT / "dev/refactoring/modern-c/amp1-c23-integration-blueprint.org"
 ALGO_TEST_PATH = ROOT / "tests/test_amplification_algorithms.py"
@@ -404,6 +405,42 @@ class ModernGcEvidenceChainTests(unittest.TestCase):
         self.assertEqual(w7["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
         self.assertEqual(w7["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
         self.assertEqual(w7["unifiedMulticoreMatrixAndStress"]["passed"], 112)
+
+        # Wave 8 CBMC PSO weak-memory mutants + native lock-free concurrent, futex sync, anti-convoy ticketlock, and C23 atomic header anchors
+        cbmc_w8 = CBMC_WAVE8_PATH.read_text()
+        for macro in (
+            "MUTANT_SEGQ_DROP_SLOT_RELEASE",
+            "MUTANT_SEGQ_DROP_NEXT_RELEASE",
+            "MUTANT_SYNCBAR_DROP_WAKE_FENCE",
+            "MUTANT_SYNCBAR_DROP_PAYLOAD_RELEASE",
+        ):
+            self.assertIn(macro, cbmc_w8)
+            self.assertIn(macro, blueprint)
+
+        ps_h = (ROOT / "vendor/gambit/include/_gambit/processor_state.h.in").read_text()
+        for sym in ("sync_futex_seq", "sync_futex_waiters"):
+            self.assertIn(sym, ps_h)
+            self.assertIn(sym, setup_src)
+        self.assertIn("sync_bar_out_sop", life_h)
+        self.assertIn("sync_bar_waiters", life_h)
+        self.assertIn("sync_bar_out_sop[slot]", setup_src)
+        self.assertIn("___GC_MSECTION_SPARE_MAX", mv_src)
+        self.assertIn("___GC_MSECTION_SPARE_MIN", mv_src)
+        obj_acc = (ROOT / "vendor/gambit/include/_gambit/object_access.h.in").read_text()
+        self.assertIn("___WORD_STORE_RELAXED(&___hp[0],___MAKE_HD_WORDS(n,___sVECTOR))", obj_acc)
+        conc_src = (ROOT / "vendor/gambit/lib/gambit/concurrent/concurrent.scm").read_text()
+        for sym in ("%lfq-enq-fast!", "%lfq-deq-fast!", "%ct-fast-fixnum-ref", "%ws-pop-raw!", "%ws-steal-raw!"):
+            self.assertIn(sym, conc_src)
+
+        w8 = receipt["verificationResults"]["wave8LockFreeConcurrentAndSyncFutex"]
+        self.assertEqual(w8["cbmcWave8PsoSafe"]["status"], "VERIFICATION_SUCCESSFUL")
+        self.assertEqual(w8["cbmcWave8PsoMutants"]["killed"], 4)
+        self.assertEqual(w8["runtimeTsanQualification"]["passed"], 13)
+        self.assertEqual(w8["runtimeTsanQualification"]["totalTsanWarnings"], 0)
+        self.assertEqual(w8["runtimeAsanUbsanQualification"]["passed"], 13)
+        self.assertEqual(w8["runtimeAsanUbsanQualification"]["totalAsanErrors"], 0)
+        self.assertEqual(w8["runtimeAsanUbsanQualification"]["totalUbsanErrors"], 0)
+        self.assertEqual(w8["unifiedMulticoreMatrixAndStress"]["passed"], 116)
         self.assertFalse(receipt["admissionBoundaries"]["nativeRuntimeAdmitted"])
         self.assertFalse(receipt["admissionBoundaries"]["releaseAdmitted"])
 
