@@ -2850,3 +2850,79 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 53. Phase C47: Deadlock-Free Future Cycle Detection, Non-Local Escape Quiescence, Worker Self-Shutdown Guard & Zero-Retention Chase-Lev Deque Pop (=(gambit parallel)=)
+
+** 53.1 Root-Cause Defects Fixed
+1. *O(1) Owner-Thread Future Cycle Detection*:
+   - Previously, =future-run-once!= stored a static =running-sentinel= in =f.state=, so a
+     direct (=f -> f=) or indirect (=f1 -> f2 -> f1=) same-thread reentrant =future-force=
+     entered an infinite spin-wait deadlock.
+   - Updated =future-run-once!= (=vendor/gambit/lib/gambit/parallel/future.scm=) to CAS
+     =pending-sentinel -> (##current-thread)= (zero extra allocation) and checked
+     =(##eq? st (##current-thread))= on both fast and wait paths in =future-force=, raising
+     ="future-force: reentrant cycle detected"= immediately.
+2. *Non-Local Control Escape Safety on =future-run-once!=*:
+   - Previously, escaping a future thunk via =abort-current-continuation= or =call/1cc= left
+     =f.state= permanently stuck in =running=, livelocking any subsequent or peer =future-force=.
+   - When an outer SRFI-226 prompt/handler is active (=tc != #f= and =(pair? (%tc-mc tc))=),
+     =future-run-once!= installs a zero-overhead ='unwind-guard= frame whose ='unwind= hook
+     commits =(##cons 'err %future-aborted-error)= cleanly, while ='suspend= preserves running
+     state for outer algebraic effect =perform=/=resume=.
+3. *Structured Fork-Join Quiescence Across Non-Local Escapes*:
+   - Previously, aborting out of the left branch of =parallel-vector-map=, =parallel-map=,
+     =parallel-for-each=, or =parallel-reduce= left the right-branch future running as an
+     orphan concurrently mutating user state after the outer prompt handler began executing.
+   - Added =%with-fork-join-guard= (=vendor/gambit/lib/gambit/parallel/combinators.scm=):
+     zero overhead when no outer prompt/handler is active; when active, its ='unwind= hook
+     forces and joins =right= idempotently BEFORE control transfers to the outer prompt handler.
+4. *Worker Self-Shutdown Deadlock Guard*:
+   - Calling =work-stealing-pool-shutdown!= from one of the pool's own worker threads
+     previously flipped =shutdown-flag= and deadlocked forever in =thread-join!= on itself.
+   - Added an explicit =(current-worker-binding)= check at entry to
+     =work-stealing-pool-shutdown!= (=vendor/gambit/lib/gambit/parallel/pool.scm=), raising a
+     clean error before mutating =shutdown-flag= so the pool remains healthy.
+5. *Zero-Retention Last-Item Chase-Lev Pop & Overflow-Safe Deque Growth*:
+   - Cleared =a[idx] = #f= via =%vec-slot-store-rlx!= in =deque-pop-bottom!=
+     (=vendor/gambit/lib/gambit/parallel/deque.scm=) when =t == b= and owner wins
+     =CAS(top: t -> t+1)= (100% C23 DRF-0 clean, zero GC pinning of the last popped item), and
+     added a fixnum-overflow guard in =deque-grow-array!= before allocating =new-a=.
+
+** 53.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=parallel_future_cycle_unwind_and_deque_clear_smp.qnt=): 5/5 unit tests passed
+    (=113 ms=) + *=10,000= traces, 0 violations* (=148 ms=, =seed=0x2f9bf9558d7c70fc=).
+  - *Lean 4* (=ParallelFutureCycleUnwindAndDequeClearRefinement.lean=): 5 theorems, *0 =sorry=*,
+    0 warnings (=future_self_cycle_detected_immediately=,
+    =future_unwind_transitions_to_err_never_wedged=,
+    =fork_join_unwind_quiesces_right_before_outer_handler=,
+    =worker_self_shutdown_rejected_preserves_pool=,
+    =last_pop_clears_slot_on_cas_win=).
+  - *CBMC =--mm pso=* (=parallel-future-cycle-unwind-smp/harness.c=): =0 of 14 failed= +
+    *4/4 negative mutants caught* (=MUTANT_FUTURE_ABORT_WEDGES_RUNNING=,
+    =MUTANT_FORK_JOIN_ORPHANS_RIGHT=,
+    =MUTANT_SELF_CYCLE_SPINS=,
+    =MUTANT_LAST_POP_PINS_SLOT=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "parallel"= (=C= + =js=, =(warnings)=): *0 errors, 0 warnings*;
+    upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/parallel/test/test.scm=: expanded to *190 / 190 assertions* (+26)
+    passing at =p=1=, =p=4=, and =p=12= (direct & indirect future cycle detection, future abort
+    & =call/1cc= unwind + outer effect =perform=/=resume=, fork-join non-local abort quiescence
+    across =parallel-vector-map=/=for-each=/=reduce=, worker self-shutdown guard, zero-retention
+    last-item deque pop, and adaptive-P SMP torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =(gambit parallel)= stress runs.
+  - Microbenchmarks (Apple M2 Pro, =p=12=): =deque_push_pop_last= *2.242 Mops/s*,
+    =parallel_vector_map_elems= *11.794 Mops/s* (8 workers).
+
+
+
+
+
+
+
+
+
+
+
+
