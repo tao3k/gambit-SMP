@@ -2032,6 +2032,58 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
     *20 / 20* =p=12= =(srfi 230)= stress runs.
   - =atomic-pair-compare-and-swap!= mismatch fast path: *1.35 Mops/s* (0 cons allocations).
 
+* 40. Phase C34: =(gambit effect)= Zero-Leak Continuation & Generator Detachment + Public API Validation
+** 40.1 Bugs Fixed
+1. *Live =SIGSEGV= on Invalid =(gambit effect)= Public API Arguments*:
+   - Previously, =(perform 123)=, =(perform-cap 123)=, and =(effect-name 123)= dereferenced
+     unvalidated structures under =(declare (not safe))= and crashed with =SIGSEGV (exit 139)=
+     (or read garbage words out of symbols like =(perform 'not-an-effect)=).
+   - *Fix*: Added explicit argument validation to =effect-name=, =perform=, =perform-cap=,
+     =call-with-tail-capability=, =call-with-suspend-capability=, and
+     =call-with-effect-handler=.
+2. *Consumed One-Shot =effect-continuation= Memory Leak on Slow Paths*:
+   - Previously, only the 1-arg empty-prefix/marks/handlers fast path of =resume= cleared
+     captured slots on a consumed one-shot continuation. Any 0-arg, multi-arg, or
+     nested-prompt/marked one-shot =effect-continuation= permanently retained its captured
+     =sub-k=, =pframe=, =prefix=, =marks=, =handlers=, and =frame=.
+   - *Fix*: Made =prefix=, =marks=, and =handlers= mutable on =effect-continuation=, added
+     =%clear-consumed-ec!= clearing all 6 slots, and invoke it strictly after extracting local
+     copies whenever =resume= wins =CAS(LIVE -> CONSUMED)= (and strictly never on
+     =MULTISHOT_COW= or =resume-multishot=).
+3. *Generator Caller Metacontinuation & Handler-Stack Pinning Leak*:
+   - Previously, a generator's reusable =mc-cell= and =h-cell= retained their =cdr= pointing to
+     the previous caller's entire metacontinuation and handler chain while suspended between
+     yields and permanently after completion (=DONE=).
+   - *Fix*: Detach =mc-cell= / =h-cell= =cdr= to ='()= and clear unfrozen =pframe= fields on
+     every yield (before release-storing =SUSPENDED=), clear all reusable cells on =%generator=
+     in =%gen-finish!= (before release-storing =DONE=), and detach unfrozen =mc-cell= / =h-cell=
+     =cdr= on exception unwind. Preserves 100% (=199,999 / 199,999=) in-place one-shot stack
+     rewinds.
+
+** 40.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=effect_ec_and_gen_zero_leak_smp.qnt=): 5/5 unit tests passed (=197 ms=, including
+    =buggySlowEcLeakDetectedTest= and =buggyGenCallerMcLeakDetectedTest=) + *=10,000= traces,
+    0 violations* (=275 ms=, =seed=0xded8b401259a74e0=).
+  - *Lean 4* (=EffectEcAndGenZeroLeakRefinement.lean=): 4 theorems, *0 =sorry=*, 0 warnings
+    (=oneshot_resume_clears_all_slots_and_blocks_reuse=,
+    =multishot_promote_preserves_slots_across_replays=, =gen_yield_and_finish_detach_caller_mc=,
+    =public_api_guards_reject_bad_args=).
+  - *CBMC =--mm pso=* (=effect-ec-gen-zero-leak-smp/harness.c=): =0 of 11 failed= + *4/4
+    negative mutants caught* (=INJECT_BUG_SKIP_SLOW_EC_CLEAR=,
+    =INJECT_BUG_CLEAR_MULTISHOT_EC=, =INJECT_BUG_RETAIN_GEN_CALLER_MC=,
+    =INJECT_BUG_UNCHECKED_PERFORM_ARG=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "effect"= (=C= + =js=, =((module-ref gambit/effect)
+    (warnings))=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded from 459 to *499 / 499 assertions*
+    passing at =p=1=, =p=4=, and =p=12=.
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =(gambit effect)= stress runs.
+  - =gen_yield_100k= (Apple M2 Pro): *0.66M/s* (vs. 0.45M/s before), *199,999 / 199,999* (100%)
+    in-place one-shot stack rewinds preserved.
+
+
 
 
 
