@@ -2645,3 +2645,61 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
 
 
 
+* 50. Phase C44: Out-of-Scope Tail-Position =return:= Clause Execution & Full 0/1/N Multiple-Value =return:= Dispatch (=(gambit effect)=)
+** 50.1 Bugs Fixed
+1. *Suspending =with-handler= =return:= Clause Hijacked by Own Handler*:
+   - Previously, =%install-handler-cont!= and =%install-handler-cont-scoped!=
+     (=vendor/gambit/lib/gambit/effect/handler.scm=) evaluated =(return-fn (thunk))= *before*
+     =%mc-return1= popped =pframe= and =frame=. Consequently, performing the same effect inside a
+     suspending handler's =return:= clause was hijacked by the inner handler itself (=41= instead
+     of =(outer 40)=), contradicting Plotkin-Pretnar deep-handler semantics and diverging from our
+     own tail-resumptive path.
+   - *Fix*: Added =%mc-return1-with-fn= (declared in =_internal#.scm=) that pops =top= and restores
+     outer =st.mc=/=st.marks=/=st.barriers=/=st.handlers= *before* grafting =return-fn= onto
+     =escape-k= in true tail position. Multi-shot =resume-multishot= preserves per-branch deep
+     =return:= transformation while executing every branch's =return:= strictly outside the inner
+     handler.
+2. *Multiple-Value =return:= Clause Arity Crash (0 / 2 / N Values) on Both Suspending & Tail Handlers*:
+   - Previously, both suspending and tail-resumptive handlers invoked =(return-fn res)= as a single
+     argument, raising =wrong-number-of-arguments-exception= whenever the body returned =(values)=
+     or =(values a b ...)= into =(return: () ...)= or =(return: (a b) ...)=.
+   - *Fix*: Used =(##values? val)= (zero overhead on the 1-value fast path) to dispatch multi-value
+     and 0-value results via =(##call-with-values (lambda () val) return-fn)= across both
+     =%mc-return1-with-fn= and the tail-resumptive path.
+3. *Tail-Resumptive =return:= Tail-Position & Duplicate =return:= Syntax Guard*:
+   - Moved tail-resumptive =return-fn= execution *outside* =with-exception-catcher= in
+     =%call-with-handler-entries= so =return:= runs in true tail position and exceptions raised
+     inside =return:= propagate directly to the enclosing exception handler.
+   - Updated =with-handler= macro (=vendor/gambit/lib/gambit/effect/effect#.scm=) to reject
+     duplicate =(return: ...)= clauses with =ill-formed-special-form=.
+
+** 50.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=effect_return_clause_scope_and_multival_smp.qnt=): 5/5 unit tests passed (=95 ms=) +
+    *=10,000= traces, 0 violations* (=125 ms=, =seed=0xd5c3db06ac6ace69=).
+  - *Lean 4* (=EffectReturnClauseScopeAndMultivalRefinement.lean=): 5 theorems, *0 =sorry=*,
+    0 warnings (=suspending_return_pops_inner_before_running_dispatches_to_outer=,
+    =multishot_resume_runs_return_outside_inner_per_branch=,
+    =tail_and_suspend_handlers_return_semantics_agree=,
+    =multival_return_dispatch_preserves_arity=,
+    =exception_in_return_leaves_handler_stack_clean=).
+  - *CBMC =--mm pso=* (=effect-return-clause-scope-multival-smp/harness.c=): =0 of 11 failed= +
+    *4/4 negative mutants caught* (=INJECT_BUG_RETURN_RUNS_INSIDE_INNER_HANDLER=,
+    =INJECT_BUG_MULTISHOT_SKIPS_RETURN_CLAUSE=,
+    =INJECT_BUG_MULTIVAL_RETURN_PACKS_SINGLE_ARG=,
+    =INJECT_BUG_TAIL_RETURN_STALE_EXC_HANDLER=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "effect"= (=C= + =js=, =(warnings)=): *0 errors, 0 warnings*;
+    upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded to *544 / 544 assertions* (+11)
+    passing at =p=1=, =p=4=, and =p=12= (suspending vs. tail =return:= outer-handler parity,
+    multi-shot per-branch outer =return:= dispatch, 0/2/3-value =return:= clauses, exception in
+    =return:= with clean outer stack, and adaptive-P SMP torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *20 / 20* =p=12= =(gambit effect)= stress runs.
+  - Microbenchmark (Apple M2 Pro, =p=12=, interpreted loop): suspending =with-handler= with
+    =return:= clause *0.223 Mops/s* (=sum=300000=).
+
+
+
+
