@@ -2311,6 +2311,60 @@ unit for both =C= and =js= targets with zero cross-module dispatch overhead:
   - Microbenchmarks (Apple M2 Pro, =p=12=): =lf-queue= enq+deq *1.715 Mops/s*, =ws-deque=
     push+pop *2.056 Mops/s*.
 
+* 45. Phase C39: Dynamic Tail-Resumptive Handler Frame Popping & Dynamic Continuation-Barrier Push/Pop (=(gambit effect)= + =(srfi 226)=)
+** 45.1 Bugs Fixed
+1. *Tail-Resumptive Handler Stale =old-handlers= Overwrite Across Continuation Replay*:
+   - Previously, the tail-resumptive fast path in =%call-with-handler-entries=
+     (=vendor/gambit/lib/gambit/effect/handler.scm=) saved =old-handlers= at entry and restored
+     =(%st-handlers-set! (%tc-fast) old-handlers)= on both normal exit and exception unwind.
+   - Whenever a composable continuation or suspending effect continuation captured a dynamic
+     extent containing a tail-resumptive handler and was later resumed inside a *different*
+     resumer handler =H_resumer=, exiting the tail-resumptive handler (normally, before its
+     =return:= clause, or via exception) overwrote =st.handlers= with stale capture-time
+     =old-handlers=: simultaneously wiping =H_resumer= (=RESUMER-WIPED!!= /
+     =EFFECT-RESUMER-WIPED!!= / =EXC-RESUMER-WIPED!!=) and resurrecting dead capture-site
+     handlers (=(ZOMBIE-CAPTURE-HANDLER 77)=).
+   - *Fix*: Added O(1) dynamic =%pop-handler-frame!= (fast pointer compare on =(car hs)= with
+     unwind fallback to pop any unpopped inner frames above =frame=) and invoked it on both
+     normal exit and exception unwind in =%call-with-handler-entries=, preserving every
+     resumer-installed handler across single-shot and multi-shot replays with zero overhead on
+     the =perform= fast path.
+2. *Dynamic Push/Pop for =call-with-continuation-barrier=*:
+   - Previously, =call-with-continuation-barrier= (=vendor/gambit/lib/srfi/226/prompt.scm=)
+     captured =saved-barriers= / =new-barriers= at entry and overwrote =st.barriers= with those
+     snapshots inside its =dynamic-wind= =before= / =after= thunks.
+   - *Fix*: Added O(1) =%pop-barrier-token!= and switched =call-with-continuation-barrier= to
+     dynamically push =barrier-token= onto =(%st-barriers (%tc-current))= in =before= and pop
+     only =barrier-token= in =after=, preserving enclosing outer barriers across arbitrary
+     continuation replay.
+
+** 45.2 3-Layer Formal Verification, Tests & Gates
+- *3-Layer Formal Proof Receipts*:
+  - *Quint* (=effect_tail_handler_dynamic_pop_smp.qnt=): 4/4 unit tests passed (=211 ms=,
+    including =buggyStaleOldHandlersDetectedTest=) + *=10,000= traces, 0 violations*
+    (=2795 ms=, =seed=0xf9413d11b3b9d4e6=).
+  - *Lean 4* (=EffectTailHandlerDynamicPopRefinement.lean=): 4 theorems, *0 =sorry=*,
+    0 warnings (=pop_frame_fast_path_exact=, =pop_frame_preserves_resumer_and_excludes_zombie=,
+    =pop_frame_unwinds_inner_frames_on_exception=, =dynamic_barrier_push_pop_preserves_outer=).
+  - *CBMC =--mm pso=* (=effect-tail-handler-dynamic-pop-smp/harness.c=): =0 of 93 failed= +
+    *4/4 negative mutants caught* (=INJECT_BUG_RESTORE_STALE_OLD_HANDLERS_NORMAL=,
+    =INJECT_BUG_RESTORE_STALE_OLD_HANDLERS_EXC=, =INJECT_BUG_SKIP_POP_INNER_ON_EXC=,
+    =INJECT_BUG_STALE_BARRIER_RESTORE=).
+- *Full Gates & Benchmarks*:
+  - Official Gambit =##build-module "226"= and =##build-module "effect"= (=C= + =js=,
+    =(warnings)=): *0 errors, 0 warnings*; upstream hygiene *0 forbidden matches*.
+  - =vendor/gambit/lib/srfi/226/test/test.scm=: expanded to *212 / 212 assertions* passing at
+    =p=1=, =p=4=, and =p=12=.
+  - =vendor/gambit/lib/gambit/effect/test/test.scm=: expanded to *511 / 511 assertions*
+    passing at =p=1=, =p=4=, and =p=12= (composable replay with =return:= clause & dead
+    capture-site handler isolation, multi-shot replay under distinct resumer handlers,
+    exception unwind after resume, and adaptive-P SMP torture with =##gc=).
+  - *96 / 96* full 6-suite SMP matrix (=p1/p4/p8/p12= x 6 suites x 4 rounds, 0 failures) +
+    *40 / 40* =p=12= stress runs (=20x srfi/226 + 20x effect=).
+  - Tail-resumptive =perform= microbenchmark (Apple M2 Pro, =p=12=, interpreted loop):
+    *1.038 Mops/s* (=sum=500000=).
+
+
 
 
 
