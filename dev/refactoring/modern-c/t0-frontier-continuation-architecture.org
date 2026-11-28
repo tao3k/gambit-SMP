@@ -1272,6 +1272,83 @@ Instrumentation of Phase C20 under default heap (=w=8=) revealed:
   | =ht_generator_stream= | =45.35M/s= | =10.803M/s= (P50 =17us=, 0 GC) | =35.211M/s= (P50 =18us=, 1 GC/0ms) | *=57.915M/s=* (P50 =18us=, P99 *=63us=*, 25.8 MiB) | =44.210M/s= (P50 =19us=, P99 =268us=, 30.3 MiB) |
   | =ht_fiber_fanout_100k= | =1.58M/s= (P50 =468us=, P99 =2,470us=) | =2.679M/s= (P50 =291us=) | *=3.939M/s=* (P50 =218us=) | *=3.421M/s=* (P50 =246us=, P99 *=1,305us=*, 33.1 MiB) | *=2.884M/s=* (P50 =280us=, P99 *=2,397us=*, 42.0 MiB) |
 
+* 28. Phase C23: Heterogeneous P/E Straggler Spill, Adaptive OS Futex/Ulock Parker, Symmetric Lock-Free =tx-fast= & Deep SMP Bug Elimination
+
+** 28.1 Root Causes Eliminated
+1. *Heterogeneous 8P+4E Straggler Trapping*: Per-pair completion profiling on Apple M2 Pro (8P+4E)
+   showed =w=12= ping-pong pairs spreading =34.0--80.2 ms= (=2.36x=) vs =w=8= (=1.53x=): 4 pairs
+   resident on slow E-cores remained permanently trapped inside private non-stealable =ctx.lifo=
+   slots while fast P-cores finished early and spun idle. Phase C23 adds idle-searcher-aware
+   E-core straggler spill (=wid >= pcores=, =(ticks & 63) == 63= when =searching > 0 || waiters > 0=),
+   exposing straggler pairs to =ctx.dq= so idle P-cores steal them within ~30 us while leaving
+   homogeneous P-core runs (=w <= pcores=) at zero overhead.
+2. *Idle Carrier Spin Storm & Oversubscribed Starvation*:
+   - Replaces unbounded idle =sched_yield()= spinning with an off-heap (=calloc='d, GC-immovable)
+     adaptive OS parker (=__ulock_wait=/=__ulock_wake= on macOS, =SYS_futex= on Linux) wrapped in
+     =___BEGIN_BLOCKING_FFI ... ___END_BLOCKING_FFI=, guarded by Go/Tokio =wakep()= (=searching == 0=)
+     throttling, ARMv8-A RCsc =STLR+LDAR= zero-fence wakeups, Section 26 unconditional steal-cascade
+     wakeups, and tiered spin cushions (E-cores =8/16=, P-cores =32/128=).
+   - Inserts a cooperative Gambit =(thread-yield!)= immediately before OS parking so that whenever
+     a Gambit processor runs =device_select_impl/kevent= or =workers > VM processors= (e.g. CI
+     runners), sibling green carrier threads sharing a processor are never starved while holding
+     unflushed =nursery-batch= credits.
+3. *Asymmetric Channel Parking & Three Deep Concurrency Bugs Caught by Adversarial Stress*:
+   - Adds symmetric lock-free single-waiter =tx-fast= slot + fused zero-hop
+     =%ch-park-send-and-pop-c!= (mirroring =rx-fast=).
+   - *Bug A (Pointer-ABA on =tx-fast=/=rx-fast= Dekker Cancel)*: Replaced =CAS(slot, fk -> #f)= +
+     immediate =fk= recycle with ABA-free =___gc_atomic_slot_exchange(slot, #f, 4)= returning
+     =prev= in =ctx.picked-n= to wake safely with =%CH-RETRY= without mutating =prev->raw_k=.
+   - *Bug B (Slow-Path Channel FIFO Bypass, Section 14e)*: In =%park-recv-buf-slow!= and
+     =%park-send-buf-slow!=, direct handoff from =tx-fast=/=swq= or =rx-fast=/=rwq= could bypass
+     items concurrently pushed into the Vyukov ring. Fixed by waking both sides with =%CH-RETRY=
+     so ring order is strictly FIFO-linearizable.
+   - *Bug C (Pre-existing Stale =ctx.lifo= Across =%nursery-flush!= in =%sched-switch-next!=)*:
+     Caught via a 65,536-slot chronological C event ring. =%sched-switch-next!= cached
+     =(lifo (%wctx-lifo ctx))= *before* calling =(%nursery-flush! ctx)=; when =%nursery-flush!=
+     woke a nursery parent onto =ctx.lifo=, the prior =fk= was evicted to stealable =ctx.dq= yet
+     immediately freed by the stale local =lifo= (causing a rare ~1/100 =p=12= use-after-recycle
+     by a thief and dropping the newly woken parent). Fixed by flushing =nursery-batch= *before*
+     reading =ctx.lifo=.
+
+** 28.2 3-Layer Adversarial Formal Verification (All Clean)
+- *Quint* (=dev/refactoring/modern-c/models/quint/hetero_straggler_parker_txfast_smp.qnt=):
+  =10,000= traces, 0 violations (=999 ms=, =seed=0xf672cf59b544c1bc=).
+- *Lean 4* (=dev/refactoring/modern-c/models/lean/HeteroStragglerParkerTxfastRefinement.lean=):
+  4 machine-checked theorems, *0 =sorry=*, 0 warnings.
+- *CBMC* (=tests/contracts/modern-c/gc-ffi/hetero-straggler-parker-txfast-smp/harness.c=):
+  =--mm pso --unwind 4=: =0 of 15 failed= (=VERIFICATION SUCCESSFUL=) + *7/7 negative PSO mutants
+  caught* (=INJECT_BUG_PARKER_NO_DEKKER_FENCE=, =INJECT_BUG_CASCADE_VICTIM_ONLY=,
+  =INJECT_BUG_TXFAST_SKIP_RX_CHECK=, =INJECT_BUG_SPILL_DROPS_LIFO=, =INJECT_BUG_CANCEL_CAS_ABA=,
+  =INJECT_BUG_STALE_LIFO_ACROSS_NURSERY_FLUSH=, =INJECT_BUG_SLOW_RECV_BYPASSES_NONEMPTY_RING=).
+
+** 28.3 Runtime Changes (Zero =gambit.h= ABI Changes)
+- =vendor/gambit/lib/gambit/fiber/fiber.scm=: Single-file runtime upgrade covering off-heap
+  adaptive futex/ulock parker + pre-park =(thread-yield!)=, E-core straggler LIFO-to-DQ spill,
+  unconditional steal-cascade wakeup, symmetric lock-free =tx-fast= + ABA-free exchange cancel,
+  strict-FIFO slow-path =%CH-RETRY=, and =%sched-switch-next!= flush-before-LIFO-load fix.
+
+** 28.4 Verification & Cold-Start Default-Heap Benchmark Results
+- *Build & Hygiene*: =gambit/fiber= built with *0 errors, 0 warnings*; upstream hygiene check *0
+  forbidden matches*.
+- *Stress & Matrix Gates*:
+  - *400 / 400* clean =p=12= =gambit/fiber/test/test.scm= runs (300 + 100 post-tune, 0 crashes,
+    0 hangs, 0 Section 14e FIFO failures).
+  - *80 / 80* SMP matrix runs (=p1/p4/p8/p12= x 5 suites x 4 rounds = 1,920 assertions, 0 warnings).
+  - *15 / 15 x p12 x 100k* endurance (=1,500,000= fibers, 0 errors).
+  - *Explicit SATB-Active Torture (=p12=)*: =SATB_TORTURE=PASS=.
+  - *Oversubscribed Deadlock-Freedom Gate*: =-:p1= with =workers: 8= (=1.545M/s=), =-:p4= with
+    =workers: 12= (=0.990M/s=) --- *PASS, 0 hangs*.
+- *Per-Pair Straggler Spread (=w=12=)*: Reduced from C22's =2.36x= (=34.0--80.2 ms=) down to
+  *=1.38x--1.63x=* (=19.5--31.8 ms=, 2.52x faster wall-clock completion on 12-pair ping-pong).
+- *Cold-Start Default-Heap Benchmarks* (Apple M2 Pro 8P+4E, load average =12.01=, ZERO =-:m=,
+  ZERO pre-=(##gc)=, best of 3 runs):
+  | Workload | Rust Tokio 1.54 (=w=12=) | Gambit C23 =w=1= | Gambit C23 =w=4= | Gambit C23 =w=8= | Gambit C23 =w=12= |
+  |---|---:|---:|---:|---:|---:|
+  | =ht_effect_pingpong= | =10.38M/s= (P99 =1,040us=) | =2.361M/s= (P50 =39us=, P99 =53us=) | =7.958M/s= (P50 =42us=, P99 =136us=) | *=11.157M/s=* (P50 =44us=, P99 *=240us=*) | =8.775M/s= (P50 =49us=, P99 *=632us=*) |
+  | =ht_generator_stream= | =45.35M/s= | =10.490M/s= (P50 =18us=, P99 =22us=) | =34.033M/s= (P50 =18us=, P99 =30us=) | *=44.676M/s=* (P50 =18us=, P99 *=57us=*) | =39.841M/s= (P50 =19us=, P99 *=126us=*) |
+  | =ht_fiber_fanout_100k= | =1.58M/s= (P99 =2,470us=) | =2.624M/s= (P50 =298us=) | *=3.604M/s=* (P50 =251us=, P99 *=1,114us=*) | =2.771M/s= (P50 =221us=) | *=2.897M/s=* (P50 =244us=, P99 *=2,435us=*, *w=12 > w=8*) |
+  | =lexa_cap_tail= | --- | =17.107M/s= | =63.745M/s= | =106.766M/s= (P99 =163us=) | *=110.375M/s=* (P99 =216us=, *w=12 > w=8*) |
+
 
 
 
